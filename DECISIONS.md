@@ -9,7 +9,7 @@ number or failure that forced it.
 | D-01 | quantization to fit | **DECIDED** (experts 4-bit) |
 | D-01a | attention/GDN width — **Q8_0** ⇒ policy A is the shipping shape | **DECIDED** |
 | D-02 | residency above the pool | **DECIDED** by measurement: no — **corrected same day**: the pool is box-wide, not per-process |
-| D-03 | download the 67 GiB now? | **OPEN** (one word needed) |
+| D-03 | weight acquisition (bf16 oracle vs published GGUF vs both) | **OPEN** — recommendation: staged (GGUF now, bf16 first) |
 | D-04 | Flash-Next-only subsystems | **DECIDED**: out of scope |
 | D-05 | MTP in scope? | **DECIDED**: yes |
 | D-06 | which 35B-A3B checkpoint | **DECIDED**: `Qwen/Qwen3.6-35B-A3B` |
@@ -94,15 +94,52 @@ pinned layout is bandwidth-viable but spends the pool rather than extending it; 
 endgame (≈58 GiB even at 4-bit main weights) needs a bigger pool or real streaming, not a mapping
 trick. What the correction changes is only the size of the ceiling and who else pays it (D-11).
 
-## D-03 — Weight acquisition: download 67 GiB now, or after the spec is written? — **OPEN (needs one word: yes/no)**
+## D-03 — Weight acquisition: bf16 67 GiB, a published GGUF, both, or neither yet? — **OPEN, recommendation: staged (GGUF now, bf16 before the first numerics gate)**
 
-`hf download Qwen/Qwen3.6-35B-A3B --local-dir models/Qwen3.6-35B-A3B` — ~30 min, 66.97 GiB across 26
-shards (1,045 tensors) including the vision tower. Disk was 2.4 TiB free on 2026-10-26. Nothing
-written so far needed the weights: the census came from `checkpoints/` metadata validated to 1.86 %
-against the index `total_size`, and the residency decision came from a probe that allocates its own
-buffers. What does need them: every pinned dump, every `speccheck/` gate, any per-tensor sensitivity
-check of our own (the class of measurement unsloth published), and the dequant cost on real data.
-Recommendation unchanged: say yes and let it run alongside the spec pass.
+The question asked back was the right one: **if we ship a quantized model, why download the bf16
+checkpoint at all?** Three answers, in order of hardness.
+
+**1. The bf16 checkpoint is the measuring instrument, not the thing we are not shipping.** Every
+numerics band in this project is defined as a distance *from the bf16 reference dumps*. With only a
+quantized file on disk, a gate can check nothing stronger than "our kernel agrees with somebody else's
+Q4_K dequant" — and that check passes for a wrong scale convention, a wrong sub-block order, or an
+off-by-one in the 6-bit scale unpack, which are exactly the bugs this repo's trap index is full of. The
+D-08 closure written today (KLD + argmax agreement against pinned bf16 logits) is itself unrunnable
+without it. `AGENTS.md`'s rule — never loosen a gate to admit a quantized path — presupposes a bf16
+oracle.
+
+**2. No published quant matches the policy we decided.** Policy A is experts Q4_K + attention/GDN/shared
+Q8_0 + `lm_head`/embeddings Q8_0. Published `Q4_K_M` follows llama.cpp's per-tensor defaults (attention
+sits lower, embed/output default below Q8_0 except in the `_L`/`_XL` variants), so gating numerics
+against someone else's GGUF would be calibrating bands against a *different width assignment* than we
+ship. We need our own quantizer regardless — and its input is the bf16 source.
+
+**3. "Just the part we need" does not exist.** From the committed index: `total_size` 66.97 GiB over 1,045
+tensors, of which the text path is **65.72 GiB**; the vision tower is 333 tensors but only ~1.25 GiB, so
+excluding non-text saves **1.9 %** of the download. The routed experts alone are 61.5 GiB. There is no
+partial-download route that meaningfully reduces it.
+
+**What the download actually costs — RAM, not disk.** Disk is a non-issue (2.4 TiB free, 27 % used; 67 GiB
+bf16 + ~20 GiB of our policy-A artifact is noise). The real constraint is the **CPU oracle run**: the
+installed `transformers` `qwen3_5_moe` path needs ~66 GiB resident in host RAM, and measured
+2026-10-26 while halogen is resident: MemAvailable **86 GiB**, halogen `VmRSS` **73.7 GiB**, swap 46.6 GiB
+with 4.3 GiB used. So the oracle run *fits*, with roughly 20 GiB of slack — but it occupies nearly the
+whole window, nothing else large may run alongside it, and if it spills the first thing squeezed is the
+process serving this session. That is an argument for **sequencing** the download, not for skipping it.
+
+**Recommended shape (staged, and it buys something earlier):**
+
+1. **Now, ~18.5 GiB:** `unsloth/Qwen3.6-35B-A3B-GGUF` `UD-Q4_K_M` (published 3.6 quants exist — unsloth,
+   bartowski, lmstudio-community). Purpose: a **perf ruler** (llama.cpp tokens/s on this box is the
+   number our engine must beat) and a **real Q4_K data source** to write and test our block reader
+   against. Check on arrival whether it carries the `mtp.*` tensors — if it does not, it cannot exercise
+   the draft path, which is one more reason it cannot stand in for the source.
+2. **Before the first numerics gate:** full `Qwen/Qwen3.6-35B-A3B` bf16, 26 shards / 66.97 GiB, into
+   `models/Qwen3.6-35B-A3B`. Produces the pinned reference dumps (the oracle) and our own policy-A
+   quantized artifact, and is kept as the oracle for every later band.
+
+If the preference is to download exactly one thing, it is **bf16** — the GGUF is a convenience and the
+oracle is not. One word needed: `staged`, `bf16`, `gguf`, or `not yet`.
 
 ## D-04 — Flash-Next-only subsystems (Gated Residual/hyperconnections, QSA indexer, n-gram PLE) — **DECIDED 2026-10-26: out of scope**
 
