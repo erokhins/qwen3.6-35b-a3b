@@ -14,18 +14,19 @@ reachable on a model this box can actually run. Lineage and evidence: `README.md
 Read this before importing the 0.8B project's scope statement — **one of its load-bearing
 paragraphs does not transfer.** That project's `AGENTS.md` states that memory capacity is *not* a
 constraint (its model is 4 % of the device-visible pool, so it forbade paging, eviction and
-quantize-to-fit). Here the model is **65.72 GiB bf16 against a ~32 GiB device-visible budget that
-host-pinning does not raise** (`devices/measured-facts.md` §"Residency above the pool"), so:
+quantize-to-fit). Here the model is **65.72 GiB bf16 against a device-visible pool of ≈55.5–56.5 GiB
+for the whole box — ≈32 GiB free while halogen is resident, and host-pinning does not raise it**
+(`devices/measured-facts.md` §"Residency above the pool"), so:
 
 - capacity engineering is in scope for the first time: residency layout, shard staging,
   expert placement, state-pool sizing under a tighter budget;
 - **quantization to fit is decided and load-bearing**: the user authorized 4-bit routed experts on
-  2026-10-26 (`DECISIONS.md` D-01), and the policy — which tensors get which width, and why
-  attention is still open as D-01a — is in `quantization/README.md`. int8/int4/int-fp anything
-  *beyond* what that decision covers still needs the user's explicit words; the decision is recorded,
-  never inferred. Note the budget arithmetic that forced it: bf16 (65.72 GiB) and Q8-throughout
-  (34.97 GiB) are both above what one process can address, so 4-bit experts is a prerequisite rather
-  than an optimization.
+  2026-10-26 (`DECISIONS.md` D-01) and confirmed the attention width the same day (D-01a: Q8_0), so the
+  shipping shape — experts Q4_K, attention/GDN/shared Q8_0, router and norms exact — is **policy A** in
+  `quantization/README.md`. int8/int4/int-fp anything *beyond* what those two decisions cover still
+  needs the user's explicit words; the decisions are recorded, never inferred. Note the arithmetic that
+  forced them: bf16 (65.72 GiB) is above the whole device-visible pool, and Q8-throughout (34.97 GiB)
+  is above what one process gets while halogen is resident (`DECISIONS.md` D-11).
 - developing and gating in bf16 against pinned reference dumps still works and is still the first
   step — the CPU oracle path (installed `transformers` `qwen3_5_moe`) runs in 123 GiB of host RAM and
   does not need the weights on the GPU at all. The 4-bit kernel is not the first thing to write;

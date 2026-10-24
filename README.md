@@ -58,16 +58,19 @@ Derived from `checkpoints/Qwen3.6-35B-A3B.config.json` shapes (element counts ×
 against the index's own `total_size` to within 1.86 % — reproduce with
 `python3 tools/quant_scenarios.py --census`. Measured box ceilings, recorded in-repo at
 `devices/measured-facts.md`: **190–237 GB/s** warm read (window-dependent, see `pitfalls/00`), and a
-**~32 GiB device-visible budget per process that host-pinning does not raise**
-(`devices/measured-facts.md` §"Residency above the pool", measured 2026-10-26).
+**device-visible pool of ≈55.5–56.5 GiB for the whole box**, of which halogen's `flash_serve` is inside
+— so one process gets **≈32 GiB while halogen is resident** and ≈55 GiB only if it owns the box, and
+host-pinning spends the pool rather than raising it
+(`devices/measured-facts.md` §"Residency above the pool", measured 2026-10-26; `DECISIONS.md` D-11).
 
 | quantity | value | consequence |
 |---|---|---|
-| text weights, bf16 | **65.72 GiB** (routed experts 61.50 = 91.8 %, GDN 1.42, `lm_head` 0.95, embeddings 0.95, full attention 0.56, shared experts 0.24, router + norms + misc 0.11) | **twice the device-visible budget** — capacity is a hard constraint, not a tuning knob |
+| text weights, bf16 | **65.72 GiB** (routed experts 61.50 = 91.8 %, GDN 1.42, `lm_head` 0.95, embeddings 0.95, full attention 0.56, shared experts 0.24, router + norms + misc 0.11) | **above the whole pool, not just above what is free** — capacity is a hard constraint, not a tuning knob |
 | active bytes / token, bf16 | **5.194 GiB** (8/256 of the routed experts 1.92 + attn/GDN 1.97 + `lm_head` 0.95 + shared 0.24 + router 0.04) | matches the model card's "3B activated" |
 | decode roofline, bf16 | **~42 tok/s** at 237 GB/s, ~34 at 190 | academic: bf16 does not fit in the first place |
-| policy A/G (experts Q4_K, rest Q8_0/Q6_K) | **19.4–19.6 GiB resident, 2.22–2.33 GiB/token → ~95–100 tok/s ceiling** | the shape this project is expected to build (`DECISIONS.md` D-01) |
-| experts + attention both Q4_K (policy E) | 18.81 GiB, 1.663 GiB/token → ~133 tok/s | the open speed/risk question, `DECISIONS.md` D-01a |
+| **policy A — DECIDED** (experts Q4_K, attention/GDN Q8_0) | **19.59 GiB resident, 2.331 GiB/token → ~95 tok/s ceiling** | the shipping shape: `DECISIONS.md` D-01 + D-01a (user, 2026-10-26) |
+| policy G (same, `lm_head` Q6_K) | 19.36 GiB, 2.216 GiB/token → ~100 tok/s | the `lm_head` knob is still open, `DECISIONS.md` D-10 |
+| experts + attention both Q4_K (policy E) | 18.81 GiB, 1.663 GiB/token → ~133 tok/s | a funded experiment behind a KLD study, not a default |
 | per-request state | GDN 30 layers × 32 V heads × 128×128 F32 ≈ **60 MiB** + conv (the 0.8B's is 18.0 MiB); KV is 10 KiB/token over 10 full-attn layers instead of 6, so ~1.7× the 0.8B's 12 KiB/token on the same accounting | concurrency budget ~2× tighter than the 0.8B's, inside a budget the weights already consume |
 | prefill | compute- and launch-bound as before, but 40 layers × a router + 8-expert gather per token | the router is a new per-token serial point |
 
@@ -76,8 +79,8 @@ figure here as an upper bound on a kernel that does not exist yet. Full table (e
 residency + per-token + three bandwidths): `tools/quant_scenarios.py`; the reasoning and the external
 evidence behind the format choice: `quantization/README.md`.
 
-**Quantization is therefore decided and load-bearing, not optional** (`DECISIONS.md` D-01: user,
-2026-10-26 — routed experts at 4-bit; attention/GDN width is still open as D-01a). The consequence for
+**Quantization is therefore decided and load-bearing, not optional** (`DECISIONS.md` D-01 + D-01a: user,
+2026-10-26 — routed experts at 4-bit, attention/GDN at Q8_0 ⇒ **policy A**). The consequence for
 gate design is that new numerics bands have to be bought with a floor probe and geometry-derived
 must-catch sets, against a bf16 oracle — no existing gate gets loosened to admit a quantized path.
 
@@ -111,7 +114,9 @@ second structure:
 README.md                  this file: target facts and sizing
 AGENTS.md                  rules, GPU policy, the self-containment rule
 reference-implementation.md  reading list for the 0.8B engine's *code shape* (not a fact store)
-DECISIONS.md               open user decisions (D-01 quantization, D-01a attention width, D-03 …)
+DECISIONS.md               the decision log (decided: D-01/D-01a quantization, D-02 residency, D-04,
+                           D-05 MTP, D-06, D-07; open: D-03 download, D-08 4-bit format, D-09 MTP
+                           widths, D-10 lm_head, D-11 pool ownership)
 pitfalls/                  the trap library, copied in so nothing cites another repo
 devices/measured-facts.md  this box's measured ceilings, residency budget and the roofline arithmetic
 devices/evidence/          raw output of the device probes behind those numbers

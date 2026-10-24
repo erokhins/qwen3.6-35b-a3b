@@ -6,15 +6,18 @@ number or failure that forced it.
 
 | id | question | status |
 |---|---|---|
-| D-01 | quantization to fit | **DECIDED** (experts 4-bit) — sub-question D-01a open |
-| D-02 | residency above the pool | **DECIDED** by measurement: no |
+| D-01 | quantization to fit | **DECIDED** (experts 4-bit) |
+| D-01a | attention/GDN width — **Q8_0** ⇒ policy A is the shipping shape | **DECIDED** |
+| D-02 | residency above the pool | **DECIDED** by measurement: no — **corrected same day**: the pool is box-wide, not per-process |
 | D-03 | download the 67 GiB now? | **OPEN** (one word needed) |
 | D-04 | Flash-Next-only subsystems | **DECIDED**: out of scope |
 | D-05 | MTP in scope? | **DECIDED**: yes |
 | D-06 | which 35B-A3B checkpoint | **DECIDED**: `Qwen/Qwen3.6-35B-A3B` |
 | D-07 | does MoE work transfer to Flash-Next | **DECIDED**: the block, not its surroundings |
 | D-08 | which 4-bit format | **OPEN** (recommendation Q4_K) |
-| D-09 | is the MTP expert block quantized the same way | **OPEN** |
+| D-09 | is the MTP expert block quantized the same way | **OPEN** (recommend uniform) |
+| D-10 | `lm_head`/embed width: Q8_0 (default) or Q6_K | **OPEN** |
+| D-11 | does the engine own the pool, or share it with halogen | **OPEN** (operational) |
 
 ---
 
@@ -38,24 +41,31 @@ Still true and now moot for residency: the MoE **subsystem** can be developed an
 CPU oracle without any quantization (see `reference-implementation.md`), so the 4-bit kernel does not
 have to be the first thing written.
 
-### D-01a — attention / GDN width: bf16, Q8_0 or Q4_K — **OPEN (needs the user's word; int8 is theirs to authorize too)**
+### D-01a — attention / GDN width: bf16, Q8_0 or Q4_K — **DECIDED 2026-10-26: Q8_0** (user)
 
-Three live choices, from `python3 tools/quant_scenarios.py`, all with the experts at Q4_K:
+**The user's words: "attention/GDN in Q8_0, and experts in Q4_K".** With D-01 that fixes the shipping
+shape as **policy A**: routed experts Q4_K, attention + GDN + shared expert Q8_0, norms and routers
+exact. `lm_head`/embeddings are the one width knob left and are raised as **D-10** (default: Q8_0, as
+this decision implies; Q6_K is a 4 %-of-ceiling alternative).
 
 | choice | resident | GiB/token | ceiling @210 GB/s |
 |---|---|---|---|
 | attention/GDN bf16 | 21.52 GiB | 3.813 | 51 tok/s |
-| **attention/GDN Q8_0** (policy A/G) | 19.4–19.6 GiB | 2.22–2.33 | **84–88 tok/s** |
-| attention/GDN Q4_K (policy E) | 18.81 GiB | 1.663 | 118 tok/s |
+| **attention/GDN Q8_0 — DECIDED** | **19.59 GiB** | **2.331** | **84 tok/s** (95 @ 237) |
+| attention/GDN Q4_K (policy E) | 18.81 GiB | 1.663 | 118 tok/s (133 @ 237) |
 
-Recommendation: **Q8_0 now** (policy G = experts Q4_K, attention/GDN/shared Q8_0, `lm_head` Q6_K), and
-**fund policy E as a measured experiment** rather than shipping it. The +40 % in the last row is real;
-so is that the published per-tensor evidence for this exact architecture family says `attn_*` is the
-most sensitive class on a hybrid model and GDN `out_proj` the worst single tensor
+Why Q8_0 was the recommendation and why it is the right call at this stage: the published per-tensor
+evidence for this exact architecture family says `attn_*` is the most sensitive class on a hybrid model
+and GDN `out_proj` the worst single tensor
 (`quantization/evidence/unsloth-qwen3.5-35b-a3b-2026-10.md`), and llama.cpp's own policy forces the
-latent/gate categories to ≥ Q8_0 and spends its spare bits on `output`
-(`quantization/evidence/llama-cpp-tensor-policy-2026-10-26.md`). Residency and 40 % of ceiling are
-cheap to give up once; a quality regression found after shipping is not.
+latent/gate categories to ≥ Q8_0 (`quantization/evidence/llama-cpp-tensor-policy-2026-10-26.md`). The
+40 % of ceiling that policy E leaves on the table is a funded experiment with a KLD study in front of
+it, not a default — and per `pitfalls/30-numerics.md`, a wider numeric band must still catch every
+injection in a geometry-derived must-catch set before it can be adopted.
+
+**What this decision makes mandatory:** the GDN and attention tensors (40 layers' worth, 1.975 GiB
+bf16) need an 8-bit dequant path in the engine, not just the experts — so `specification/` must carry
+both widths, and the numerics gates need an 8-bit oracle band as well as a 4-bit one.
 
 ## D-02 — Can a kernel read host-mapped memory above the pool? — **DECIDED 2026-10-26 by measurement: no**
 
@@ -66,17 +76,23 @@ line carrying an independent read-checksum so it cannot be an artifact of skippe
 - pinned + mapped host memory reads at **195–225 GB/s from 1 GiB up to 32 GiB**, including 215.8 GB/s
   for 12 GiB pinned against 198.6 GB/s for 20 GiB of device memory in the same window. Location is
   not the problem.
-- the limit is **total per process**: `hipMalloc` 20 GiB + `hipHostMalloc` 12 GiB is granted
-  (32 GiB); `hipMalloc` 20 GiB + `hipHostMalloc` 24 GiB refuses the pinned half; and **two 20 GiB
-  pins get one grant and one refusal**. A single 34 GiB pin fails in 0.0 s with MemAvailable at
-  87 GiB, so it is an accounting limit, not memory pressure.
+- the limit is **total, not per allocation**: `hipMalloc` 20 GiB + `hipHostMalloc` 12 GiB is granted
+  (32 GiB); `hipMalloc` 20 GiB + `hipHostMalloc` 24 GiB refuses the pinned half; a single 34 GiB pin
+  fails in 0.0 s with MemAvailable at 87 GiB, so it is an accounting limit, not memory pressure.
+  **Correction the same day:** an earlier line here called it "total per process" and cited two 20 GiB
+  pins in one process. That reading is retired — two **separate processes** asking 20 GiB each also
+  could not coexist (`tools/pin_pair.sh 20 2`: one grant, one refusal), and 20 GiB < 32 GiB, so the cap
+  is not per-process. The pool is **≈55.5–56.5 GiB box-wide and halogen's 23.5 GiB is inside it**
+  (23.5 + 32 = 55.5 granted; 23.5 + 34 = 57.5 refused; 23.5 + 20 + 20 = 63.5 refused). See
+  `devices/measured-facts.md` §"Residency above the pool" and D-11.
 - `hipMalloc` 40 GiB still fails; `hipHostRegister` of 40 GiB answers `invalid argument`.
 - an unregistered `malloc` pointer handed to a kernel **faults the queue**, and the checksum witness is
   what stopped the resulting "1,082,301 GB/s" from becoming a number.
 
-Consequences: quantization is a prerequisite (D-01); a two-tier device + pinned layout is
-bandwidth-viable but cannot exceed ~30 GiB of total device-visible bytes; and the Flash-Next endgame
-(≈58 GiB even at 4-bit main weights) needs a bigger pool or real streaming, not a mapping trick.
+Consequences: quantization is a prerequisite (D-01) **at the co-resident budget**; a two-tier device +
+pinned layout is bandwidth-viable but spends the pool rather than extending it; and the Flash-Next
+endgame (≈58 GiB even at 4-bit main weights) needs a bigger pool or real streaming, not a mapping
+trick. What the correction changes is only the size of the ceiling and who else pays it (D-11).
 
 ## D-03 — Weight acquisition: download 67 GiB now, or after the spec is written? — **OPEN (needs one word: yes/no)**
 
@@ -139,9 +155,71 @@ Sourced in `quantization/README.md` and `quantization/evidence/`:
 Until a `prototype/moe_gemv` probe measures dequant cost on this GPU, every tok/s figure in this repo
 remains a ceiling rather than a forecast — which is the honest reason the format choice is still open.
 
-## D-09 — Is the MTP block's expert stack quantized like the main one? — **OPEN (cheap to answer, easy to forget)**
+## D-09 — Is the MTP block's expert stack quantized like the main one? — **OPEN: recommendation uniform (Q4_K experts / Q8_0 attn)**
 
-`mtp.layers.0.mlp.experts.*` is a full MoE layer worth 1.500 GiB of the census, read once per draft
-token. Probably the same answer as D-01, but it should be decided rather than assumed: a draft head at
-a different precision from the stack it drafts for is a systematic accept-rate penalty wearing the
-costume of a draft-quality one.
+**What "the block's width" asks.** The checkpoint ships one extra decoder layer, `mtp.layers.0.*`, whose
+job is to predict one token ahead of the real stack — that is all MTP is. It owns its **own MoE** (256
+experts + router, **1.500 GiB bf16**, read once per draft token), its own `self_attn`, a norm, and the
+token/hidden fusion projection. D-09 asks only: does that *draft* stack load the **same widths** as the
+stack it drafts for (experts Q4_K, attention Q8_0, per D-01a) or wider ones? It is not about kernels —
+the draft runs the same dequant and GEMV paths either way; it is about which weight files it reads.
+
+**Why it is a real decision rather than a footnote of D-01.** Draft weights do not trade bytes against
+bandwidth the way ordinary weights do; they trade against **acceptance**, and acceptance multiplies the
+headline. A draft quantized more aggressively than its target sees a different logit surface, so its
+top-1 disagrees with the target more often and each round commits fewer tokens at the same round cost.
+The 0.8B learned exactly this shape with `lm_head`: bf16 → Q8 there cost ~1.5 % of acceptance and 28 %
+of the gate's decision margin, and the resolution was to keep the sensitive piece wide. A draft at a
+different precision from its target is a systematic accept-rate penalty wearing the costume of a
+draft-quality one — which is why it must be decided, not inherited.
+
+**Price of each option** (policy A base: 2.331 GiB/token; measured accept 0.678 → ~1.91 tokens/round):
+
+| draft-block width | resident | bytes per draft token | vs policy A |
+|---|---|---|---|
+| Q4_K experts + Q8_0 attn — **uniform, recommended** | 19.59 GiB | 0.0234 GiB | baseline (~1.0 % of a step) |
+| Q8_0 experts + Q8_0 attn | 20.17 GiB | 0.0467 GiB | +0.58 GiB resident, ~+2.0 % of a step |
+| bf16 for the whole draft block | 20.67 GiB | 0.0834 GiB | +1.08 GiB resident, ~+2.6 % of a step |
+
+**Recommendation: start uniform.** It is the only choice that adds no new dequant path, and it is what
+llama.cpp does (MTP tensors follow the base quant type). Then, if measured acceptance under-predicts the
+0.8B's 0.678, the **first** lever to price is a wide draft block, because 2–3 % of a step is the same
+order as the acceptance it can buy and it fits either residency budget (D-11). The test is one corpus
+accept-rate A/B — Q4_K vs bf16 draft experts on identical templated prompts, with the apples-to-apples
+caution in `pitfalls/30-numerics.md` (render both through the same chat template, and check the flipped
+token is the runner-up inside one bf16 ULP before believing a single flip).
+
+## D-10 — `lm_head` / embedding width — **OPEN: default Q8_0, alternative Q6_K (+4 % of ceiling)**
+
+The last width knob. Embeddings and `lm_head` are separate tensors here (`tie_word_embeddings: false`),
+0.947 GiB each at bf16, vocab 248,320.
+
+- **Q8_0** (what D-01a implies): 19.59 GiB resident, 2.331 GiB/token, ~95 tok/s @ 237.
+- **Q6_K** (policy G): 19.36 GiB resident, 2.216 GiB/token, ~**100** tok/s @ 237 — and `lm_head` is the
+  one family where public practice supports it (llama.cpp defaults `output` to Q6_K).
+
+The counter-precedent is ours: the 0.8B kept `lm_head` at bf16 because Q8 cost it acceptance. And
+`lm_head` is read once per token, so its 0.947 GiB is ~40 % of a policy-A step's bytes — the widest
+single line item left. bf16 here would cost +0.95 GiB resident and +0.47 GiB/token (~20 % of ceiling),
+so it is not recommended. **One word needed: Q8_0 or Q6_K.**
+
+## D-11 — Does the engine own the device-visible pool, or share it with halogen? — **OPEN (operational), and it changes what we may give up later**
+
+Raised by D-02's correction. The pool is ≈55.5–56.5 GiB **box-wide** and `flash_serve` (halogen, the
+engine serving this very session) holds ~23.5 GiB of it, which is why a single process stopped at ~32
+GiB:
+
+| deployment | engine budget | what fits | consequence |
+|---|---|---|---|
+| co-resident with halogen (today) | ≈32 GiB | policy A 19.59, policy G 19.36 | 4-bit experts is **mandatory for fit** |
+| engine owns the box | ≈55 GiB | Q8-throughout 34.97, Q6-expert variants | 4-bit becomes a **speed** choice: 2.331 vs 2.811 GiB/token, ~95 vs ~79 tok/s |
+
+bf16 (65.72 GiB) fits neither. This does **not** change what we build first — policy A is the plan either
+way and the Q4 expert kernels are the same work — but it changes what stays available for quality, and
+it moves the Flash-Next endgame from "58 GiB against 32" to "58 against 55": still short, by 3 GiB
+instead of 26.
+
+**Needed:** an operational answer about who is resident when the engine runs (halogen cannot be stopped
+from inside a session it serves), and ideally one allocation measurement from a root/service context.
+Until then **the ~32 GiB co-resident budget is the design budget** and 55 GiB is headroom we have not
+been granted.

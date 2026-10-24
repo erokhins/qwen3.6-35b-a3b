@@ -8,12 +8,17 @@ still the user's call** ("attention — don't know"); this file gives the number
 ## Why quantization is not optional here
 
 `devices/measured-facts.md` §"Residency above the pool" (measured 2026-10-26) closed the one escape
-hatch that existed: **the ~32 GiB device-visible budget is per-process and total**, and host-pinning
-does not raise it — a second `hipHostMalloc` of 20 GiB was refused while the first was still mapped,
-and `hipHostMalloc` of 34/36/38/40 GiB fails in 0.0 s. So bf16 (65.72 GiB) and even Q8 throughout
-(34.97 GiB) are simply impossible on this box, and 4-bit experts is a prerequisite rather than an
-optimization. The same measurement says the *location* of the bytes does not matter: pinned host
-memory reads at 215.8 GB/s against 198.6 GB/s for device memory in the same window, i.e. a
+hatch that existed: **the device-visible pool is box-wide (≈55.5–56.5 GiB) and host-pinning spends it
+rather than raising it** — `hipHostMalloc` of 34/36/38/40 GiB fails in 0.0 s, and two *separate
+processes* asking 20 GiB each could not coexist (`tools/pin_pair.sh`). What is left for one process
+depends on who else is resident: **≈32 GiB while halogen holds its ~23.5 GiB**, ≈55 GiB if the engine
+owns the box (`DECISIONS.md` D-11).
+
+So bf16 (65.72 GiB) is impossible in either budget, and **Q8-throughout (34.97 GiB) is impossible
+co-resident but possible dedicated** — which does not change the plan, because (a) we do not control
+co-residency, and (b) 4-bit experts are the faster choice regardless: 2.331 vs 2.811 GiB/token, ~95 vs
+~79 tok/s at 237 GB/s. The same measurement says the *location* of the bytes does not matter: pinned
+host memory reads at 215.8 GB/s against 198.6 GB/s for device memory in the same window, i.e. a
 bandwidth-bound engine loses nothing by reading pinned host pages.
 
 ## Family census (derived, validated)
@@ -40,10 +45,11 @@ token** — which is why "quantize the experts and leave the rest alone" buys fa
 
 ## The policies, priced
 
-`python3 tools/quant_scenarios.py --read 237 210 190`. Budget column is the measured ~32 GiB total
-pool; tok/s are **ceilings** (bytes ÷ bandwidth). The 0.8B engine reached ~60 % of its own ceiling,
-so multiply by ~0.6 before quoting a target. 190 GB/s is included because that is what this box
-actually delivered in the 2026-10-26 window, not the ledger's 237.
+`python3 tools/quant_scenarios.py --read 237 210 190`. Budget is the measured device-visible pool: the
+**≈32 GiB co-resident** figure is the design budget (`DECISIONS.md` D-11); ~55 GiB is what the engine
+gets if the box is its. tok/s are **ceilings** (bytes ÷ bandwidth). The 0.8B engine reached ~60 % of
+its own ceiling, so multiply by ~0.6 before quoting a target. 190 GB/s is included because that is what
+this box actually delivered in the 2026-10-26 window, not the ledger's 237.
 
 | policy | resident GiB | GiB/token | ceiling @237 | @210 | @190 |
 |---|---|---|---|---|---|
@@ -135,8 +141,14 @@ costs:
 
 ## Open items this file hands back
 
-- **D-01a**: attention/GDN width — recommendation G above; needs the user's word (int8 is theirs to
-  authorize, same as int4).
+- **D-01a is DECIDED (2026-10-26): attention/GDN at Q8_0**, so **policy A** — experts Q4_K, attention +
+  GDN + shared expert Q8_0, router/norms exact — is the shipping shape: 19.59 GiB resident, 2.331
+  GiB/token, ceiling 95 / 84 / 76 tok/s at 237 / 210 / 190 GB/s. Policy E (attention Q4_K too,
+  1.663 GiB/token, ~133 tok/s) stays a funded experiment behind a KLD study, not a default.
+- **D-10**: `lm_head`/embed width — Q8_0 (implied by D-01a) or Q6_K (policy G, +4 % of ceiling).
+- **D-09**: the MTP draft block's widths — recommendation is uniform with the stack it drafts for; see
+  `DECISIONS.md` D-09 for the price of widening it (~2–3 % of a step) and why acceptance, not
+  bandwidth, is the quantity at stake.
 - **D-08**: 4-bit format — recommendation Q4_K; MXFP4 and IQ4_XS documented as the alternatives and
   why they are not first.
 - The per-token figures above assume **greedy single-token decode at short context** (KV ignored,
