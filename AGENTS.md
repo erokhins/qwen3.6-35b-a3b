@@ -14,23 +14,31 @@ reachable on a model this box can actually run. Lineage and evidence: `README.md
 Read this before importing the 0.8B project's scope statement — **one of its load-bearing
 paragraphs does not transfer.** That project's `AGENTS.md` states that memory capacity is *not* a
 constraint (its model is 4 % of the device-visible pool, so it forbade paging, eviction and
-quantize-to-fit). Here the model is **64.6 GiB bf16 against a measured ~32–34 GiB pool**
-(`devices/measured-facts.md`), so:
+quantize-to-fit). Here the model is **65.72 GiB bf16 against a ~32 GiB device-visible budget that
+host-pinning does not raise** (`devices/measured-facts.md` §"Residency above the pool"), so:
 
 - capacity engineering is in scope for the first time: residency layout, shard staging,
   expert placement, state-pool sizing under a tighter budget;
-- **quantization to fit is in scope only after the user says so in those words** (`DECISIONS.md`
-  D-01). Until then: develop and gate in bf16 against pinned reference dumps, which works —
-  the CPU oracle path (torch 5.19 `qwen3_5_moe`) runs in 123 GiB of host RAM and does not need
-  the weights on the GPU at all;
+- **quantization to fit is decided and load-bearing**: the user authorized 4-bit routed experts on
+  2026-10-26 (`DECISIONS.md` D-01), and the policy — which tensors get which width, and why
+  attention is still open as D-01a — is in `quantization/README.md`. int8/int4/int-fp anything
+  *beyond* what that decision covers still needs the user's explicit words; the decision is recorded,
+  never inferred. Note the budget arithmetic that forced it: bf16 (65.72 GiB) and Q8-throughout
+  (34.97 GiB) are both above what one process can address, so 4-bit experts is a prerequisite rather
+  than an optimization.
+- developing and gating in bf16 against pinned reference dumps still works and is still the first
+  step — the CPU oracle path (installed `transformers` `qwen3_5_moe`) runs in 123 GiB of host RAM and
+  does not need the weights on the GPU at all. The 4-bit kernel is not the first thing to write;
+  the bf16 MoE block is.
+- **MTP is in scope** (`DECISIONS.md` D-05), sequenced after the dense path is attributable.
 - still out of scope: the vision tower, multi-user batched serving, vLLM API parity, YaRN
   context extension, and the three Flash-Next-only subsystems (Gated Residual /
-  hyperconnections, QSA indexer, n-gram PLE) — see D-04.
+  hyperconnections, QSA indexer, n-gram PLE) — decided out, `DECISIONS.md` D-04.
 
 ## Before you write anything, decide nothing alone
 
-`DECISIONS.md` holds the questions that are the user's, not the agent's (quantization bands,
-the residency probe, whether MTP ships in the first milestone). Answering one of those by
+`DECISIONS.md` holds the questions that are the user's, not the agent's (which width a tensor family
+gets, whether to download the checkpoint, what counts as a band). Answering one of those by
 yourself is the expensive kind of helpful.
 
 ## GPU execution is serialized and belongs to the main agent (inherited verbatim in force)
