@@ -44,7 +44,8 @@ Expert storage (from the index + the HF reference): one **fused tensor per layer
 `model.language_model.layers.N.mlp.experts.gate_up_proj` `[256, 2·512, 2048]` and
 `…​.experts.down_proj` `[256, 2048, 512]`, plus `mlp.gate.weight`, `mlp.shared_expert*`.
 Per expert that is 3,145,728 elements = **6.0 MiB bf16**; per layer all 256 experts = 1.50 GiB;
-all 40 layers = **60.0 GiB, i.e. 90 % of the checkpoint**.
+40 layers plus the MTP block's own MoE layer = **61.5 GiB, i.e. 91.8 % of the text path**. The MTP
+block matters for sizing and is its own open question (`DECISIONS.md` D-09).
 
 Which 35B-A3B: `Qwen3.6-35B-A3B` and `Qwen3.5-35B-A3B` are **geometrically identical**
 (only `bos/pad_token_id`, `output_router_logits`, `mlp_only_layers`, `partial_rotary_factor`
@@ -53,23 +54,32 @@ existing engine's rope code implements — while 3.5 omits it and would default 
 
 ## Memory and roofline arithmetic
 
-Derived from the config (element counts × 2 B), cross-checked against community file sizes
-(derived Q8 = 32.3 GiB vs the public `Q8_0.gguf` at 35 GB; derived Q4 = 16.1 GiB vs the
-quoted 20.4–20.8 GB Q4_K_M). Measured box ceilings, recorded in-repo at
-`devices/measured-facts.md`: **237–240 GB/s** device read, **~32–34 GiB** device-visible pool
-per process.
+Derived from `checkpoints/Qwen3.6-35B-A3B.config.json` shapes (element counts × bytes) and validated
+against the index's own `total_size` to within 1.86 % — reproduce with
+`python3 tools/quant_scenarios.py --census`. Measured box ceilings, recorded in-repo at
+`devices/measured-facts.md`: **190–237 GB/s** warm read (window-dependent, see `pitfalls/00`), and a
+**~32 GiB device-visible budget per process that host-pinning does not raise**
+(`devices/measured-facts.md` §"Residency above the pool", measured 2026-10-26).
 
 | quantity | value | consequence |
 |---|---|---|
-| text weights, bf16 | **64.6 GiB** (of which routed experts 60.0) | **does not fit the pool**; capacity is now a real constraint |
-| active bytes / token, bf16 | **5.49 GiB** (routed 1.88 + shared 0.23 + attn/GDN glue + `lm_head` 1.00) | matches the model card's "3B activated" |
-| decode roofline, bf16 | **~43 tok/s** (237 ÷ 5.9 GB) | bf16 resident is not even the interesting case |
-| resident at Q8_0 / Q4_K_M | 32.3 GiB / 16.1 GiB | Q8 sits *on* the pool ceiling with nothing left for KV/state; **4–6 bit is the only GPU-resident regime** |
-| per-request state | GDN 30 layers × 32 V heads × 128×128 F32 ≈ **60 MiB** + conv (the 0.8B's is 18.0 MiB); KV is 10 KiB/token over 10 full-attn layers instead of 6, so ~1.7× the 0.8B's 12 KiB/token on the same accounting | concurrency budget is ~2× tighter than the 0.8B's |
+| text weights, bf16 | **65.72 GiB** (routed experts 61.50 = 91.8 %, GDN 1.42, `lm_head` 0.95, embeddings 0.95, full attention 0.56, shared experts 0.24, router + norms + misc 0.11) | **twice the device-visible budget** — capacity is a hard constraint, not a tuning knob |
+| active bytes / token, bf16 | **5.194 GiB** (8/256 of the routed experts 1.92 + attn/GDN 1.97 + `lm_head` 0.95 + shared 0.24 + router 0.04) | matches the model card's "3B activated" |
+| decode roofline, bf16 | **~42 tok/s** at 237 GB/s, ~34 at 190 | academic: bf16 does not fit in the first place |
+| policy A/G (experts Q4_K, rest Q8_0/Q6_K) | **19.4–19.6 GiB resident, 2.22–2.33 GiB/token → ~95–100 tok/s ceiling** | the shape this project is expected to build (`DECISIONS.md` D-01) |
+| experts + attention both Q4_K (policy E) | 18.81 GiB, 1.663 GiB/token → ~133 tok/s | the open speed/risk question, `DECISIONS.md` D-01a |
+| per-request state | GDN 30 layers × 32 V heads × 128×128 F32 ≈ **60 MiB** + conv (the 0.8B's is 18.0 MiB); KV is 10 KiB/token over 10 full-attn layers instead of 6, so ~1.7× the 0.8B's 12 KiB/token on the same accounting | concurrency budget ~2× tighter than the 0.8B's, inside a budget the weights already consume |
 | prefill | compute- and launch-bound as before, but 40 layers × a router + 8-expert gather per token | the router is a new per-token serial point |
 
-**The quantization question is therefore not optional here** (it was banned in the 0.8B
-project). It is written up as `DECISIONS.md` D-01 and is the user's call, not the agent's.
+Ceilings are bytes ÷ bandwidth, and the 0.8B engine reached ~60 % of its own, so treat every tok/s
+figure here as an upper bound on a kernel that does not exist yet. Full table (eight policies,
+residency + per-token + three bandwidths): `tools/quant_scenarios.py`; the reasoning and the external
+evidence behind the format choice: `quantization/README.md`.
+
+**Quantization is therefore decided and load-bearing, not optional** (`DECISIONS.md` D-01: user,
+2026-10-26 — routed experts at 4-bit; attention/GDN width is still open as D-01a). The consequence for
+gate design is that new numerics bands have to be bought with a floor probe and geometry-derived
+must-catch sets, against a bf16 oracle — no existing gate gets loosened to admit a quantized path.
 
 ## What this project inherits and what is new
 
@@ -101,10 +111,13 @@ second structure:
 README.md                  this file: target facts and sizing
 AGENTS.md                  rules, GPU policy, the self-containment rule
 reference-implementation.md  reading list for the 0.8B engine's *code shape* (not a fact store)
-DECISIONS.md               open user decisions (D-01 quantization, D-02 residency, …)
+DECISIONS.md               open user decisions (D-01 quantization, D-01a attention width, D-03 …)
 pitfalls/                  the trap library, copied in so nothing cites another repo
-devices/measured-facts.md  this box's measured ceilings and the roofline arithmetic
-tools/                     gpu_lock.sh + the device probes (see tools/PROVENANCE.md)
+devices/measured-facts.md  this box's measured ceilings, residency budget and the roofline arithmetic
+devices/evidence/          raw output of the device probes behind those numbers
+quantization/              D-01 policy: scenarios, formats, gate plan, and the external evidence
+tools/                     gpu_lock.sh + device probes + census/scenario scripts (see tools/PROVENANCE.md)
+checkpoints/               committed config.json + shard index: the source of every sizing claim
 models/<modelname>/        downloaded checkpoints, gitignored
 specification/             to be authored: math-only spec of the 3.6-35B-A3B text path
 speccheck/                 to be authored: independent torch-CPU implementation + gates

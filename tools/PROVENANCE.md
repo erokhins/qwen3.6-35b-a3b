@@ -1,6 +1,7 @@
 # tools/ — provenance of the copied probes
 
-Every file here except this note and `doc_ref_check.py` (this repo's own markdown checker) is a **verbatim
+Every file here except `doc_ref_check.py`, `hostmap_probe.cpp` and `quant_scenarios.py` (all three are this
+repo's own) is a **verbatim
 copy** made on 2026-10-26 from the 0.8B engine repo, so that this project can re-measure and re-gate without
 depending on that repo at read time (rule: `pitfalls/60-docs-and-citations.md`).
 Keeping the copies pristine means they can be diffed against upstream later; **do not edit them to remove old
@@ -17,6 +18,8 @@ references** — record the caveats here instead.
 | `bw_probe.py` | CPU-side read/copy bandwidth → decode ceiling | **`--bytes-per-token` defaults to `1.565e9`, which is the 0.8B.** For this model pass `--bytes-per-token 5.89e9` (bf16 active bytes) or the printed ceiling is wrong by ~4× |
 | `isa_probe.sh` | ISA/class inventory of a code object (matrix/dot instructions, WMMA roofs) | remember the census rule: name which files it could actually read (`pitfalls/20-rates-and-occupancy.md`) |
 | `doc_ref_check.py` | **not a probe — this repo's own tool**: checks that in-repo path cites resolve, that markdown table rows are terminated, and reports how many line-form, cross-repo and bare-`§` cites exist | it walks only `*.md` and exempts provenance blockquotes, so a clean run measures that population and nothing else. Run `python3 tools/doc_ref_check.py --strict` before committing a doc change (`pitfalls/60-docs-and-citations.md`) |
+| `hostmap_probe.cpp` | **written here (2026-10-26)**: pool ceiling, host-pin sweep, multi-mapping totals, device-vs-pinned A/B — the D-02 measurement | every bandwidth line is checksum-witnessed and prints `MISMATCH` + "NOT A BANDWIDTH RESULT" instead of a number; the unregistered-pointer case (argv[4]=1) faults the queue, so it is opt-in and last |
+| `quant_scenarios.py` | **written here (2026-10-26)**: family census from `checkpoints/*.config.json` validated against the index `total_size`, then residency + per-token + tok/s ceilings per quantization policy | ceilings are bytes ÷ bandwidth, not engine measurements; `--census` must print a delta against `total_size` of a couple of %, otherwise the shapes drifted (`checkpoints/README.md`) |
 
 Not copied (deliberately, so far): `mixed_bw.cpp` (1,759 lines, and the mixed read/write question it answers was
 still open upstream), the dumper and gate harnesses (`reference_dump.py`, `weights_report.py`, `chat_render.py`
