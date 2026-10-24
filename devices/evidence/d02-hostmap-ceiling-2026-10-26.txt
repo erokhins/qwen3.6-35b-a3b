@@ -1,0 +1,54 @@
+  RLIMIT_MEMLOCK soft 16590266368 hard 16590266368
+device AMD Radeon 8060S Graphics | hipGetDeviceProperties says 20 CUs (halved on this SKU - use 40)
+  canMapHostMemory 1 | concurrentManagedAccess 1
+  [start] vram 1.82/2.00 GiB  gtt 23.52/112.00 GiB  MemAvailable 87 GiB
+
+A. hipMalloc 1.00 GiB (in-run baseline, expect ~237 GB/s)
+  hipMalloc small          1.00 GiB     216.7 GB/s  spread   0.2 %  checksum OK (got 1.711276e+10 want 1.711276e+10)
+
+B. hipMalloc 1.00 GiB (expect failure: the pool ceiling)
+  [before B] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 87 GiB
+  UNEXPECTED SUCCESS: a 1.00 GiB device allocation was granted
+  hipMalloc big            1.00 GiB     223.6 GB/s  spread   0.2 %  checksum OK (got 1.711276e+10 want 1.711276e+10)
+  [after B] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 87 GiB
+
+C. hipHostMalloc pinned+mapped host memory
+  fill  50.0 %  fill 100.0 %  fill 100.0 % (checksum of the written pattern computed independently)   
+  hipHostMalloc small      1.00 GiB     186.9 GB/s  spread  17.0 %  checksum OK (got 1.711276e+10 want 1.711276e+10)
+  [before C big] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 87 GiB
+  hipHostMalloc 1 GiB ok in 0.2 s
+  fill  50.0 %  fill 100.0 %  fill 100.0 % (checksum of the written pattern computed independently)   
+  [C big filled] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 86 GiB
+  hipHostMalloc BIG        1.00 GiB     215.9 GB/s  spread   0.5 %  checksum OK (got 1.711276e+10 want 1.711276e+10)
+  [after C] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 87 GiB
+
+D. malloc + hipHostRegister (the register-my-own-buffer variant)
+  fill  50.0 %  fill 100.0 %  fill 100.0 % (checksum of the written pattern computed independently)   
+  hipHostRegister(1 GiB) -> ok in 0.0 s
+  [D registered] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 86 GiB
+  malloc+Register BIG      1.00 GiB     171.0 GB/s  spread  22.1 %  checksum OK (got 1.711276e+10 want 1.711276e+10)
+  [after D] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 87 GiB
+
+E. plain malloc, unregistered (system allocator path)
+  skipped by default: an unregistered host pointer faults the queue, which
+  poisons every later case in the process. Pass 1 as argv[4] to test it.
+
+F. size sweep of pinned host mappings (sizes in GiB: 34,36,38)
+  [pre] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 87 GiB
+    34.0 GiB hipHostMalloc FAILED in 0.0 s: out of memory
+    34.0 GiB hipHostRegister -> invalid argument
+  [pre] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 87 GiB
+    36.0 GiB hipHostMalloc FAILED in 0.0 s: out of memory
+    36.0 GiB hipHostRegister -> invalid argument
+  [pre] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 87 GiB
+    38.0 GiB hipHostMalloc FAILED in 0.0 s: out of memory
+    38.0 GiB hipHostRegister -> invalid argument
+
+G2. device hipMalloc 20.0 GiB + pinned host 12.0 GiB together (32.0 GiB)
+  [G2 both] vram 1.87/2.00 GiB  gtt 43.66/112.00 GiB  MemAvailable 57 GiB
+  device part             20.00 GiB     198.6 GB/s  spread   7.7 %  checksum OK (got 3.422552e+11 want 3.422552e+11)
+  fill   4.2 %  fill   8.3 %  fill  12.5 %  fill  16.7 %  fill  20.8 %  fill  25.0 %  fill  29.2 %  fill  33.3 %  fill  37.5 %  fill  41.7 %  fill  45.8 %  fill  50.0 %  fill  54.2 %  fill  58.3 %  fill  62.5 %  fill  66.7 %  fill  70.8 %  fill  75.0 %  fill  79.2 %  fill  83.3 %  fill  87.5 %  fill  91.7 %  fill  95.8 %  fill 100.0 %  fill 100.0 % (checksum of the written pattern computed independently)   
+  pinned part             12.00 GiB     215.8 GB/s  spread   3.1 %  checksum OK (got 2.053531e+11 want 2.053531e+11)
+  [end] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 89 GiB
+
+Done. Any line printed as MISMATCH is not a bandwidth number.

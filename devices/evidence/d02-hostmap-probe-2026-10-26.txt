@@ -1,0 +1,30 @@
+device AMD Radeon 8060S Graphics | hipGetDeviceProperties says 20 CUs (halved on this SKU - use 40)
+  canMapHostMemory 1 | concurrentManagedAccess 1
+  [start] vram 1.82/2.00 GiB  gtt 23.52/112.00 GiB  MemAvailable 86 GiB
+
+A. hipMalloc 1.00 GiB (in-run baseline, expect ~237 GB/s)
+  hipMalloc small          1.00 GiB     190.5 GB/s  spread  15.7 %  checksum OK (got 1.711276e+10 want 1.711276e+10)
+
+B. hipMalloc 40.00 GiB (expect failure: the pool ceiling)
+  [before B] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 86 GiB
+  failed as expected: out of memory
+  [after B] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 86 GiB
+
+C. hipHostMalloc pinned+mapped host memory
+  fill  50.0 %  fill 100.0 %  fill 100.0 % (checksum of the written pattern computed independently)   
+  hipHostMalloc small      1.00 GiB     221.1 GB/s  spread   0.9 %  checksum OK (got 1.711276e+10 want 1.711276e+10)
+  [before C big] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 86 GiB
+  hipHostMalloc 40 GiB FAILED after 0.0 s: out of memory
+  [after C] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 86 GiB
+
+D. malloc + hipHostRegister (the register-my-own-buffer variant)
+  fill   1.2 %  fill   2.5 %  fill   3.8 %  fill   5.0 %  fill   6.2 %  fill   7.5 %  fill   8.8 %  fill  10.0 %  fill  11.2 %  fill  12.5 %  fill  13.8 %  fill  15.0 %  fill  16.2 %  fill  17.5 %  fill  18.8 %  fill  20.0 %  fill  21.2 %  fill  22.5 %  fill  23.8 %  fill  25.0 %  fill  26.2 %  fill  27.5 %  fill  28.8 %  fill  30.0 %  fill  31.2 %  fill  32.5 %  fill  33.8 %  fill  35.0 %  fill  36.2 %  fill  37.5 %  fill  38.8 %  fill  40.0 %  fill  41.2 %  fill  42.5 %  fill  43.8 %  fill  45.0 %  fill  46.2 %  fill  47.5 %  fill  48.8 %  fill  50.0 %  fill  51.2 %  fill  52.5 %  fill  53.8 %  fill  55.0 %  fill  56.2 %  fill  57.5 %  fill  58.8 %  fill  60.0 %  fill  61.2 %  fill  62.5 %  fill  63.8 %  fill  65.0 %  fill  66.2 %  fill  67.5 %  fill  68.8 %  fill  70.0 %  fill  71.2 %  fill  72.5 %  fill  73.8 %  fill  75.0 %  fill  76.2 %  fill  77.5 %  fill  78.8 %  fill  80.0 %  fill  81.2 %  fill  82.5 %  fill  83.8 %  fill  85.0 %  fill  86.2 %  fill  87.5 %  fill  88.8 %  fill  90.0 %  fill  91.2 %  fill  92.5 %  fill  93.8 %  fill  95.0 %  fill  96.2 %  fill  97.5 %  fill  98.8 %  fill 100.0 %  fill 100.0 % (checksum of the written pattern computed independently)   
+  hipHostRegister(40 GiB) -> invalid argument in 0.0 s
+  [after D] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 87 GiB
+
+E. plain malloc, unregistered (system allocator path)
+  skipped by default: an unregistered host pointer faults the queue, which
+  poisons every later case in the process. Pass 1 as argv[4] to test it.
+  [end] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 87 GiB
+
+Done. Any line printed as MISMATCH is not a bandwidth number.

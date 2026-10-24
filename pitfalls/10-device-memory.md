@@ -70,8 +70,46 @@ touching memory, and re-measure after heavy I/O (a 67 GiB checkpoint load is exa
 
 1. `cat /sys/class/drm/card*/device/mem_info_{vram,gtt}_{total,used}` — record the split.
 2. `/tmp/mem_mode_probe 4.0 5` — read must stay 235–240 GB/s in every mode; note the first-pass column.
-3. `/tmp/mem_mode_probe 2.0 1 1.565e9 many 24` — re-find the total-pool ceiling before sizing anything.
+3. `/tmp/hostmap_probe 40 1 3` — re-find the total-pool ceiling before sizing anything (it also sweeps
+   pinning sizes; see `tools/hostmap_probe.cpp`).
 4. `free -g` — what the desktop is holding is unavailable to the pool.
 
 Raising the carve-out (BIOS memory settings or the `rmem` module `ConfigInfo=`) is a root change and every
 number above must be re-taken afterwards, not assumed unchanged.
+
+## Traps found in this project (2026-10-26, D-02 residency probe)
+
+Each of these was measured with `tools/hostmap_probe.cpp`; raw output in `devices/evidence/`.
+
+- **The ~32 GiB device-visible pool is a per-process TOTAL, not a per-allocation cap — and
+  host-pinning does not escape it.** Symptom: a single 32 GiB `hipHostMalloc` succeeds and reads at
+  218 GB/s, so the obvious conclusion is "map the rest in more pieces". Mechanism: the budget accounts
+  for every device-visible mapping, pinned or not — a second 20 GiB `hipHostMalloc` was refused while
+  the first was live, and `hipMalloc` 20 GiB + `hipHostMalloc` 24 GiB refused the pinned half. Correct
+  form: budget the whole engine against ~30 GiB of device-visible bytes and treat 4-bit weights as a
+  prerequisite (`quantization/README.md`), not as an optimization to revisit later.
+- **A refused 34 GiB pin fails in 0.0 s, which is a different failure from exhaustion.** Symptom:
+  `hipHostMalloc(34 GiB)` returns `out of memory` instantly while MemAvailable reads 87 GiB and the
+  GTT aperture is two-thirds free. Mechanism: it is an accounting/limit refusal, not memory pressure
+  (and `hipHostRegister` answers `invalid argument` for the same size). Correct form: report *time to
+  failure* beside the error — an instant refusal is a budget/limit story, a slow one is pressure — and
+  print MemAvailable and the aperture around every allocation attempt, which is what the probe does.
+- **Pinned host memory reads at device speed or better, so "it has to be in VRAM" is a false premise
+  on this box.** Measured in one window: device 20 GiB = 198.6 GB/s, pinned host 12 GiB = 215.8 GB/s,
+  both checksum-verified. Mechanism: the iGPU is coherent with the same LPDDR5x; the carve-out buys
+  address space, not bandwidth. Correct form: choose residency for layout/management reasons and prove
+  bandwidth separately — and do not "fix" a slow kernel by moving its weights to device memory without
+  re-measuring.
+- **An unregistered host pointer handed to a kernel faults the queue, and the fault looks like a fast
+  kernel if the harness is not watching.** Symptom: `malloc`'d, never-registered memory passed as a
+  device pointer → `HSA_STATUS_ERROR_MEMORY_FAULT`, and the timing loop still printed
+  "1,082,301 GB/s". Mechanism: no mapping exists, the kernel dies immediately, so elapsed time is
+  near-zero. Correct form, twice over: register or `hipHostMalloc` before use; and make every bandwidth
+  harness verify the kernel *read the bytes* — `hostmap_probe.cpp` accumulates a per-thread atomic
+  double sum and compares it against a closed-form checksum derived from the fill, and prints
+  "NOT A BANDWIDTH RESULT" instead of the number. This is the `mixed_bw` checksum lesson (this file,
+  `pitfalls/40`) reproduced on a fresh path within a day.
+- **A device fault poisons the rest of the process.** One faulted read made every later case in the
+  same process print errors or zeros, so the unregistered-pointer test is opt-in and last in the
+  probe's order. Correct form: one process per case for anything that can fault, exactly as
+  `pitfalls/40` says for device selftests.

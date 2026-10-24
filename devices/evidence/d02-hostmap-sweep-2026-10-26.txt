@@ -1,0 +1,57 @@
+  RLIMIT_MEMLOCK soft 16590266368 hard 16590266368
+device AMD Radeon 8060S Graphics | hipGetDeviceProperties says 20 CUs (halved on this SKU - use 40)
+  canMapHostMemory 1 | concurrentManagedAccess 1
+  [start] vram 1.82/2.00 GiB  gtt 23.53/112.00 GiB  MemAvailable 87 GiB
+
+A. hipMalloc 1.00 GiB (in-run baseline, expect ~237 GB/s)
+  hipMalloc small          1.00 GiB     193.2 GB/s  spread  14.7 %  checksum OK (got 1.711276e+10 want 1.711276e+10)
+
+B. hipMalloc 40.00 GiB (expect failure: the pool ceiling)
+  [before B] vram 1.82/2.00 GiB  gtt 23.67/112.00 GiB  MemAvailable 87 GiB
+  failed as expected: out of memory
+  [after B] vram 1.82/2.00 GiB  gtt 23.67/112.00 GiB  MemAvailable 87 GiB
+
+C. hipHostMalloc pinned+mapped host memory
+  fill  50.0 %  fill 100.0 %  fill 100.0 % (checksum of the written pattern computed independently)   
+  hipHostMalloc small      1.00 GiB     221.8 GB/s  spread   0.3 %  checksum OK (got 1.711276e+10 want 1.711276e+10)
+  [before C big] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 86 GiB
+  hipHostMalloc 40 GiB FAILED after 0.0 s: out of memory
+  [after C] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 86 GiB
+
+D. malloc + hipHostRegister (the register-my-own-buffer variant)
+  fill   1.2 %  fill   2.5 %  fill   3.8 %  fill   5.0 %  fill   6.2 %  fill   7.5 %  fill   8.8 %  fill  10.0 %  fill  11.2 %  fill  12.5 %  fill  13.8 %  fill  15.0 %  fill  16.2 %  fill  17.5 %  fill  18.8 %  fill  20.0 %  fill  21.2 %  fill  22.5 %  fill  23.8 %  fill  25.0 %  fill  26.2 %  fill  27.5 %  fill  28.8 %  fill  30.0 %  fill  31.2 %  fill  32.5 %  fill  33.8 %  fill  35.0 %  fill  36.2 %  fill  37.5 %  fill  38.8 %  fill  40.0 %  fill  41.2 %  fill  42.5 %  fill  43.8 %  fill  45.0 %  fill  46.2 %  fill  47.5 %  fill  48.8 %  fill  50.0 %  fill  51.2 %  fill  52.5 %  fill  53.8 %  fill  55.0 %  fill  56.2 %  fill  57.5 %  fill  58.8 %  fill  60.0 %  fill  61.2 %  fill  62.5 %  fill  63.8 %  fill  65.0 %  fill  66.2 %  fill  67.5 %  fill  68.8 %  fill  70.0 %  fill  71.2 %  fill  72.5 %  fill  73.8 %  fill  75.0 %  fill  76.2 %  fill  77.5 %  fill  78.8 %  fill  80.0 %  fill  81.2 %  fill  82.5 %  fill  83.8 %  fill  85.0 %  fill  86.2 %  fill  87.5 %  fill  88.8 %  fill  90.0 %  fill  91.2 %  fill  92.5 %  fill  93.8 %  fill  95.0 %  fill  96.2 %  fill  97.5 %  fill  98.8 %  fill 100.0 %  fill 100.0 % (checksum of the written pattern computed independently)   
+  hipHostRegister(40 GiB) -> invalid argument in 0.0 s
+  [after D] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 88 GiB
+
+E. plain malloc, unregistered (system allocator path)
+  skipped by default: an unregistered host pointer faults the queue, which
+  poisons every later case in the process. Pass 1 as argv[4] to test it.
+
+F. size sweep of pinned host mappings (sizes in GiB: 2,4,8,16,24,32)
+  [pre] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 88 GiB
+  fill  25.0 %  fill  50.0 %  fill  75.0 %  fill 100.0 %  fill 100.0 % (checksum of the written pattern computed independently)   
+  hipHostMalloc            2.00 GiB     195.3 GB/s  spread  13.2 %  checksum OK (got 3.422552e+10 want 3.422552e+10)
+     2.0 GiB pin ok 0.4 s -> 195.3 GB/s
+  [pre] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 87 GiB
+  fill  12.5 %  fill  25.0 %  fill  37.5 %  fill  50.0 %  fill  62.5 %  fill  75.0 %  fill  87.5 %  fill 100.0 %  fill 100.0 % (checksum of the written pattern computed independently)   
+  hipHostMalloc            4.00 GiB     225.2 GB/s  spread   0.2 %  checksum OK (got 6.845104e+10 want 6.845104e+10)
+     4.0 GiB pin ok 0.7 s -> 225.2 GB/s
+  [pre] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 87 GiB
+  fill   6.2 %  fill  12.5 %  fill  18.8 %  fill  25.0 %  fill  31.2 %  fill  37.5 %  fill  43.8 %  fill  50.0 %  fill  56.2 %  fill  62.5 %  fill  68.8 %  fill  75.0 %  fill  81.2 %  fill  87.5 %  fill  93.8 %  fill 100.0 %  fill 100.0 % (checksum of the written pattern computed independently)   
+  hipHostMalloc            8.00 GiB     206.9 GB/s  spread   7.7 %  checksum OK (got 1.369021e+11 want 1.369021e+11)
+     8.0 GiB pin ok 1.5 s -> 206.9 GB/s
+  [pre] vram 1.82/2.00 GiB  gtt 23.67/112.00 GiB  MemAvailable 87 GiB
+  fill   3.1 %  fill   6.2 %  fill   9.4 %  fill  12.5 %  fill  15.6 %  fill  18.8 %  fill  21.9 %  fill  25.0 %  fill  28.1 %  fill  31.2 %  fill  34.4 %  fill  37.5 %  fill  40.6 %  fill  43.8 %  fill  46.9 %  fill  50.0 %  fill  53.1 %  fill  56.2 %  fill  59.4 %  fill  62.5 %  fill  65.6 %  fill  68.8 %  fill  71.9 %  fill  75.0 %  fill  78.1 %  fill  81.2 %  fill  84.4 %  fill  87.5 %  fill  90.6 %  fill  93.8 %  fill  96.9 %  fill 100.0 %  fill 100.0 % (checksum of the written pattern computed independently)   
+  hipHostMalloc           16.00 GiB     212.1 GB/s  spread   0.3 %  checksum OK (got 2.738042e+11 want 2.738042e+11)
+    16.0 GiB pin ok 2.8 s -> 212.1 GB/s
+  [pre] vram 1.82/2.00 GiB  gtt 23.67/112.00 GiB  MemAvailable 87 GiB
+  fill   2.1 %  fill   4.2 %  fill   6.2 %  fill   8.3 %  fill  10.4 %  fill  12.5 %  fill  14.6 %  fill  16.7 %  fill  18.8 %  fill  20.8 %  fill  22.9 %  fill  25.0 %  fill  27.1 %  fill  29.2 %  fill  31.2 %  fill  33.3 %  fill  35.4 %  fill  37.5 %  fill  39.6 %  fill  41.7 %  fill  43.8 %  fill  45.8 %  fill  47.9 %  fill  50.0 %  fill  52.1 %  fill  54.2 %  fill  56.2 %  fill  58.3 %  fill  60.4 %  fill  62.5 %  fill  64.6 %  fill  66.7 %  fill  68.8 %  fill  70.8 %  fill  72.9 %  fill  75.0 %  fill  77.1 %  fill  79.2 %  fill  81.2 %  fill  83.3 %  fill  85.4 %  fill  87.5 %  fill  89.6 %  fill  91.7 %  fill  93.8 %  fill  95.8 %  fill  97.9 %  fill 100.0 %  fill 100.0 % (checksum of the written pattern computed independently)   
+  hipHostMalloc           24.00 GiB     213.8 GB/s  spread   4.5 %  checksum OK (got 4.107062e+11 want 4.107062e+11)
+    24.0 GiB pin ok 3.9 s -> 213.8 GB/s
+  [pre] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 86 GiB
+  fill   1.6 %  fill   3.1 %  fill   4.7 %  fill   6.2 %  fill   7.8 %  fill   9.4 %  fill  10.9 %  fill  12.5 %  fill  14.1 %  fill  15.6 %  fill  17.2 %  fill  18.8 %  fill  20.3 %  fill  21.9 %  fill  23.4 %  fill  25.0 %  fill  26.6 %  fill  28.1 %  fill  29.7 %  fill  31.2 %  fill  32.8 %  fill  34.4 %  fill  35.9 %  fill  37.5 %  fill  39.1 %  fill  40.6 %  fill  42.2 %  fill  43.8 %  fill  45.3 %  fill  46.9 %  fill  48.4 %  fill  50.0 %  fill  51.6 %  fill  53.1 %  fill  54.7 %  fill  56.2 %  fill  57.8 %  fill  59.4 %  fill  60.9 %  fill  62.5 %  fill  64.1 %  fill  65.6 %  fill  67.2 %  fill  68.8 %  fill  70.3 %  fill  71.9 %  fill  73.4 %  fill  75.0 %  fill  76.6 %  fill  78.1 %  fill  79.7 %  fill  81.2 %  fill  82.8 %  fill  84.4 %  fill  85.9 %  fill  87.5 %  fill  89.1 %  fill  90.6 %  fill  92.2 %  fill  93.8 %  fill  95.3 %  fill  96.9 %  fill  98.4 %  fill 100.0 %  fill 100.0 % (checksum of the written pattern computed independently)   
+  hipHostMalloc           32.00 GiB     218.6 GB/s  spread   1.8 %  checksum OK (got 5.476083e+11 want 5.476083e+11)
+    32.0 GiB pin ok 5.0 s -> 218.6 GB/s
+  [end] vram 1.82/2.00 GiB  gtt 23.66/112.00 GiB  MemAvailable 87 GiB
+
+Done. Any line printed as MISMATCH is not a bandwidth number.
