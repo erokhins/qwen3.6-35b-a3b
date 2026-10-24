@@ -142,6 +142,15 @@ process serving this session. That is an argument for **sequencing** the downloa
 If the preference is to download exactly one thing, it is **bf16** — the GGUF is a convenience and the
 oracle is not. One word needed: `staged`, `bf16`, `gguf`, or `not yet`.
 
+**Constraint found later the same day, and it is a harder argument than the oracle one.** Header parse
+of `unsloth/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf` (`tools/gguf_header_types.py`; evidence
+`quantization/evidence/q4km-published-width-map-2026-10-26.md`) shows layer indices **0..39 and zero
+`mtp` tensors** — a published quant of this model **carries no draft block**. D-05 (MTP) is in scope,
+so the MTP weights can only come from the HF checkpoint: this is not about measurement preference, it
+is that the artifact does not contain them. (`mtp.*` naming may differ per producer, so this is a
+statement about the files checked, not a proof about all GGUFs — but the one we would have used
+doesn't have it.)
+
 ## D-04 — Flash-Next-only subsystems (Gated Residual/hyperconnections, QSA indexer, n-gram PLE) — **DECIDED 2026-10-26: out of scope**
 
 User's words: "out of scope". None of them exists in 3.6-35B-A3B, so this project cannot exercise
@@ -344,13 +353,14 @@ llama.cpp" and can never establish "you agree with the model". Consequences: no 
 bf16 implementations of the *same* weights agreed only 0.8776 of the way on greedy continuation at
 depth) is exactly the kind of noise that needs an anchor to be attributed.
 
-**Second catch: "essentially the same quant" is not the same policy.** Policy A puts attention/GDN and
-`lm_head`/embeddings at Q8_0; published `Q4_K_M` does not. Comparing our policy-A artifact against a
-published Q4_K_M reference puts a *policy delta* on the reference side, so the disagreement would be
-dominated by width choices rather than by whether our kernels are right. Making the reference *be* our
-policy requires converting from the f16 source — so the bf16 download returns through the back door.
-The only way to avoid it entirely is to adopt a published quant's tensor policy as the shipping policy,
-which would reverse D-01a and D-10.
+**Second catch, measured narrower than expected.** "Essentially the same quant" is not policy A — but
+the delta turned out to be two families, not a policy gulf: header-parsing the published
+`UD-Q4_K_M` (evidence `quantization/evidence/q4km-published-width-map-2026-10-26.md`) shows it agrees
+with policy A on everything except **expert `down_proj`** (Q5_K/Q6_K where we chose Q4_K) and **`lm_head`**
+(Q6_K where we chose Q8_0). And the delta disappears entirely in the arrangement that matters most:
+**produce our policy-A GGUF with upstream `llama-quantize` and let llama.cpp read *that*.** Same bytes
+on both sides, so engine-vs-engine disagreement is about our kernels only. What that still needs is the
+f16 source to quantize from — D-03 again, plus the missing-draft-block fact recorded there.
 
 **Adopted shape (sequencing change, and it is a good one):**
 

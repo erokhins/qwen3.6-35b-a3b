@@ -89,6 +89,23 @@ If speed later demands it, policy E is +40 % and the gates (below) will say quic
 and per `AGENTS.md`'s numeric-format rule, adopting it requires only that the existing gates stay green
 (or that a widened band still catches every geometry-derived must-catch injection).
 
+## Independent confirmation of the attention decision
+
+A tuned public quant of **this exact model** was parsed from its own header
+(`tools/gguf_header_types.py`, evidence in
+`quantization/evidence/q4km-published-width-map-2026-10-26.md`): unsloth's
+`Qwen3.6-35B-A3B-UD-Q4_K_M.gguf` puts **every attention and GDN matrix at Q8_0** (full-attn q/k/v/out,
+GDN `attn_qkv`, `attn_gate`, `ssm_out`), the router and all GDN control tensors at **F32**, experts
+gate/up at **Q4_K**, shared expert at Q8_0, embeddings Q8_0 — i.e. it lands on the same width assignment
+D-01a reached from KLD evidence, from a producer with a calibration rig and no stake in our reasoning.
+The two policies differ in exactly two places: that file spends **more** on expert `down_proj`
+(Q5_K, with Q6_K on three layers) and **less** on `lm_head` (Q6_K).
+
+That leaves one open refinement worth putting to the user later, not decided here: **gate/up Q4_K +
+down Q5_K** is what a producer chose to protect, it costs about 1.3 GiB of residency and roughly
+0.07 GiB/token over the current policy-A arithmetic (`quant_scenarios.py` has not been re-run for that
+variant, so the per-token figure is a note, not a policy).
+
 ## Which 4-bit format (D-08)
 
 Research notes are in `quantization/evidence/`. Short version, all of it measured by someone else on
