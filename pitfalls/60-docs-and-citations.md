@@ -71,3 +71,17 @@ across windows later and read as a regression. The pattern that worked in the si
 file whose section numbering is a declared compatibility requirement (so `§6` keeps meaning "what a number here
 is worth" even as sections are added), plus dated frozen snapshots for history, and an explicit rule that
 superseded numbers are named rather than deleted.
+
+## What a checker here can and cannot see
+
+`tools/doc_ref_check.py --strict` is the in-repo checker. It walks every `*.md`, verifies that in-repo path
+cites (`pitfalls/…`, `devices/…`, `tools/…`) resolve, fails on a markdown table row that does not end with
+`|`, and prints how many line-form `path:NNN`, cross-repo `../qwen…` and bare-`§` cites exist — so the
+population it examined stays visible instead of being implied by a zero. It exempts provenance blockquotes
+(lines starting with `>`), which are allowed to name the sibling project.
+
+What it cannot see, and never will: whether a citation's **meaning** survived an edit (only a human read of the
+coordinate does that), anything outside `*.md` (gates and kernel headers carry cites too), or drift introduced
+inside the commit being checked if the checker's baseline is `HEAD`. Hence the manual guard above: `wc -l`
+before and after editing a cited file, plus a direct read of each cited coordinate against the previous
+revision.

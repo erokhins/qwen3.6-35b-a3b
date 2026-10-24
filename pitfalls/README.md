@@ -36,7 +36,7 @@ cross-repo cites to prose elsewhere.
 | `30-numerics.md` | bf16 comparison bugs that make a gate pass vacuously, dtype/dump mistakes, band sizing, byte-identity claims |
 | `40-gates-and-admissions.md` | gates that cannot fail, controls that cannot fire, parse-count, derived populations, attribution |
 | `50-harness-and-shell.md` | shell/harness failures that present as engine failures (argv limits, self-matching poll loops, per-thread "reductions", lock deadlocks) |
-| `60-docs-and-citations.md` | citation and archive drift, and the self-containment rule itself |
+| `60-docs-and-citations.md` | citation and archive drift, the self-containment rule itself, and what `tools/doc_ref_check.py` can and cannot see |
 
 ## Adding a trap here
 
