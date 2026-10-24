@@ -79,21 +79,34 @@ number above must be re-taken afterwards, not assumed unchanged.
 
 ## Traps found in this project (2026-10-26, D-02 residency probe)
 
-Each of these was measured with `tools/hostmap_probe.cpp`; raw output in `devices/evidence/`.
+Each of these was measured with `tools/hostmap_probe.cpp` / `tools/pin_hold.cpp` + `tools/pin_pair.sh`;
+raw output in `devices/evidence/`.
 
-- **The ~32 GiB device-visible pool is a per-process TOTAL, not a per-allocation cap — and
-  host-pinning does not escape it.** Symptom: a single 32 GiB `hipHostMalloc` succeeds and reads at
-  218 GB/s, so the obvious conclusion is "map the rest in more pieces". Mechanism: the budget accounts
-  for every device-visible mapping, pinned or not — a second 20 GiB `hipHostMalloc` was refused while
-  the first was live, and `hipMalloc` 20 GiB + `hipHostMalloc` 24 GiB refused the pinned half. Correct
-  form: budget the whole engine against ~30 GiB of device-visible bytes and treat 4-bit weights as a
-  prerequisite (`quantization/README.md`), not as an optimization to revisit later.
+- **A boundary measured while a co-resident process holds part of the pool is a LEFTOVER, not a limit.**
+  This one is mine, caught the same day: the first reading of the ~32 GiB ceiling was "per process",
+  because 32 GiB was granted and 34 GiB was refused. That is exactly what a leftover looks like.
+  `flash_serve` (halogen, the engine serving this very session) was holding 23.5 GiB of the same
+  device-visible pool, and 23.5 + 32 = 55.5 was the real number. The test that refutes per-process
+  costs 20 seconds and does not need the co-resident process to move: **ask two separate processes for
+  an amount each comfortably under the suspected per-process cap** (`tools/pin_pair.sh 20 2` → one
+  granted, one refused). If they cannot coexist, the cap is shared and the single-process number is
+  pool-minus-something. Correct form: whenever a ceiling is measured next to another process holding
+  the same resource, measure it a second time *with a concurrent sibling* before writing the word
+  "per-process" anywhere.
+- **The device-visible pool is box-wide (≈55.5–56.5 GiB measured here) and `hipHostMalloc` spends it
+  rather than escaping it.** Consequence for planning: the engine's budget is `pool − co-resident`, so
+  it is an operational question (who else is resident?) as much as a technical one — ~32 GiB while
+  halogen runs, ~55 GiB if the engine owns the box, which is the difference between "4-bit weights are
+  mandatory" and "4-bit weights are a speed choice" (`DECISIONS.md` D-11). What is *not* the mechanism,
+  established by measurement: `RLIMIT_MEMLOCK` (this shell's is 15.45 GiB and a 32 GiB pin was granted
+  anyway; halogen's is `unlimited`), system RAM (MemAvailable 86–93 GiB at refusal), and GTT occupancy
+  (refused at 43.66/112 GiB used).
 - **A refused 34 GiB pin fails in 0.0 s, which is a different failure from exhaustion.** Symptom:
-  `hipHostMalloc(34 GiB)` returns `out of memory` instantly while MemAvailable reads 87 GiB and the
-  GTT aperture is two-thirds free. Mechanism: it is an accounting/limit refusal, not memory pressure
-  (and `hipHostRegister` answers `invalid argument` for the same size). Correct form: report *time to
-  failure* beside the error — an instant refusal is a budget/limit story, a slow one is pressure — and
-  print MemAvailable and the aperture around every allocation attempt, which is what the probe does.
+  `hipHostMalloc(34 GiB)` returns `out of memory` instantly while MemAvailable reads 87 GiB and most of
+  the GTT aperture is free. Mechanism: an accounting refusal, not memory pressure (and
+  `hipHostRegister` answers `invalid argument` for the same size). Correct form: report *time to
+  failure* beside the error — instant is a budget/limit story, slow is pressure — and print
+  MemAvailable and the aperture around every allocation attempt, which is what the probes do.
 - **Pinned host memory reads at device speed or better, so "it has to be in VRAM" is a false premise
   on this box.** Measured in one window: device 20 GiB = 198.6 GB/s, pinned host 12 GiB = 215.8 GB/s,
   both checksum-verified. Mechanism: the iGPU is coherent with the same LPDDR5x; the carve-out buys

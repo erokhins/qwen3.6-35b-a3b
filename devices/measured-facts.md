@@ -61,19 +61,21 @@ matrix rate above belongs to hipBLASLt's tuned kernels unless and until this eng
 | 24 × 2 GiB | 17 ok (34 GiB), 18th fails |
 | `GPU_MAX_HEAP_SIZE=100`, `GPU_MAX_ALLOC_SIZE` | no effect |
 
-**~32–34 GiB per process, and it is a TOTAL budget, not a per-allocation one.** `totalGlobalMem`
-reports ~110 GiB and is not what a process can use. This is the binding constraint of this project —
-text weights are **65.72 GiB bf16** (`tools/quant_scenarios.py --census`) — and the one escape hatch
-that looked plausible (host-mapped buffers above the pool) was tested on 2026-10-26 and does not
-exist: see the next section.
+**The device-visible pool is ≈55.5–56.5 GiB for the whole box, and `flash_serve` is inside it** — so
+what one process can map is what is *left*, ≈32 GiB while halogen is resident. `totalGlobalMem`
+reports ~110 GiB and is not what a process can use. Text weights are **65.72 GiB bf16**
+(`tools/quant_scenarios.py --census`), so the pool binds either way, and host-mapping does not
+escape it (it consumes it): see the next section.
 
-## Residency above the pool — host mapping does not raise the budget (D-02, measured 2026-10-26)
+### Residency above the pool — pinning consumes the pool, it does not raise it (D-02, measured 2026-10-26)
 
 `tools/hostmap_probe.cpp` (this repo), run blocking with the GPU lock held; raw output in
-`devices/evidence/d02-hostmap-*.txt`. Every bandwidth line carries an independent checksum witness,
-so a number below cannot come from skipped work (`pitfalls/40`). Box state during the run: `flash_serve`
-resident (gtt 23.66/112 GiB), MemAvailable 86–89 GiB, i.e. host RAM and the GTT aperture were *not*
-the binding limit.
+`devices/evidence/d02-hostmap-*.txt` and `d02-two-process-*.txt`. Every bandwidth line carries an
+independent checksum witness, so a number below cannot come from skipped work (`pitfalls/40`). Box
+state: `flash_serve` (halogen, the engine serving this session) resident with gtt_used **23.53–23.66
+GiB** of a 112 GiB GTT (boot param `amdgpu.gttsize=114688`), MemAvailable 86–93 GiB, system
+`Mlocked` 144 kB, this shell's `Max locked memory` **15.45 GiB (soft and hard)** while
+`flash_serve`'s is `unlimited`.
 
 | test | result |
 |---|---|
@@ -82,22 +84,42 @@ the binding limit.
 | `hipHostMalloc` (pinned + mapped) 1 / 2 / 4 / 8 / 16 / 24 / **32** GiB | all granted, read at **195–225 GB/s**, checksum OK |
 | `hipHostMalloc` 34 / 36 / 38 / 40 GiB | **refused, in 0.0 s** (`out of memory`), so it is an accounting limit, not paging pressure |
 | `malloc` + `hipHostRegister` 1 GiB | ok, 213.6 GB/s; 40 GiB → `invalid argument` |
-| **2 × 20 GiB pinned** | 1st granted, **2nd refused** — *total*, not per mapping |
+| **2 × 20 GiB pinned, same process** | 1st granted, **2nd refused** — the accounting is a total, not per mapping |
+| **2 × 20 GiB pinned, two concurrent processes** | **1 granted, 1 refused** (`tools/pin_pair.sh`) — *this is what refutes a per-process cap*: each 20 GiB is well under 32 GiB, so a per-process ceiling would have granted both |
+| 2 × 24 GiB pinned, two concurrent processes | 1 granted, 1 refused — same conclusion, larger size |
 | `hipMalloc` 20 GiB + `hipHostMalloc` 24 GiB | device ok, pinned **refused**; with 20 + 12 GiB both are granted |
 | device 20 GiB vs pinned 12 GiB, same window | 198.6 GB/s vs **215.8 GB/s** — pinned host reads at device speed or better |
 | plain `malloc`, unregistered pointer passed to a kernel | **HSA memory fault**, queue error; the probe's checksum refused the resulting 1.08e6 GB/s as "NOT A BANDWIDTH RESULT" |
 
-Three conclusions, and they are load-bearing for `quantization/README.md`:
+**Correction, same day.** The first version of this section read the ~32 GiB boundary as a *per-process*
+limit. It is not: two separate processes each asking for 20 GiB could not coexist, and 20 GiB < 32 GiB,
+so the cap cannot be per-process. Every observation fits one model instead —
 
-1. **Nothing raises the ~32 GiB total.** bf16 (65.72 GiB) and Q8-throughout (34.97 GiB) are
-   impossible; 4-bit experts are a prerequisite, not an optimization.
-2. **Where the bytes live costs nothing.** Pinned host memory reads at ≥ device bandwidth, so a
-   two-tier layout (device-resident hot set + pinned remainder) is bandwidth-viable — it just cannot
-   exceed ~32 GiB *in total*, which is what kills it as a way to hold the bf16 model.
-3. **The endgame needs the same lever, more of it.** For `Qwen3.8-Flash-Next` (232.9 GiB text bf16)
-   even 4-bit main weights are ≈58 GiB, so no residency trick on this box suffices: it needs streaming
-   with a real bandwidth cost, a bigger pool (`rmem`/BIOS root change, untested), or different
-   hardware. Recorded here so nobody re-derives it from hope.
+> **a box-wide device-visible pool of ≈55.5–56.5 GiB, which `flash_serve`'s 23.5 GiB is part of.**
+> 23.5 + 32 = 55.5 granted ✓ · 23.5 + 34 = 57.5 refused ✓ · 23.5 + 40 = 63.5 refused ✓ ·
+> 23.5 + 20 + 20 = 63.5 refused ✓ · 23.5 + 20 + 12 = 55.5 granted ✓ · 23.5 + 20 + 24 = 67.5 refused ✓
+
+Note the arithmetic is razor-thin at the top (55.5 granted, 57.5 refused), so the pool is somewhere in
+55.5–57.5 GiB, and 56 GiB = **exactly half the 112 GiB GTT** is an obvious suspect but is *not*
+established — `amdgpu.enforce_isolation` sharing among active clients would fit the same points, and
+the test that separates them needs halogen stopped, which is not available from this session (it
+serves this session). Neither `RLIMIT_MEMLOCK` (15.45 GiB here, `unlimited` for halogen, and a 32 GiB
+pin was granted anyway) nor system RAM nor GTT occupancy explains it.
+
+Consequences, now stated against the corrected model:
+
+1. **The engine's budget is `pool − co-resident footprint`, so it is an ops decision, not a constant.**
+   ≈32 GiB while halogen is resident; **≈55 GiB if the engine owns the box.** That is a different
+   project: Q8-throughout (34.97 GiB) *fits* at 55 GiB, so 4-bit experts becomes a **speed** choice
+   rather than a fit requirement (`DECISIONS.md` D-11 asks the question; `quantization/README.md`
+   prices both budgets). bf16 (65.72 GiB) fits in neither.
+2. **Pinning does not escape the pool — it spends it.** Mapped host memory is charged to the same
+   budget as device memory, and reads at ≥ device bandwidth (198.6 device vs 215.8 pinned GB/s in one
+   window), so a two-tier layout is bandwidth-viable but buys no additional capacity.
+3. **The endgame still needs more than this box.** For `Qwen3.8-Flash-Next` (232.9 GiB text bf16) even
+   4-bit main weights are ≈58 GiB, above even the whole pool: it needs streaming with a real bandwidth
+   cost, a pool raise (`gttsize`/`rmem`/BIOS, untested), or different hardware. Recorded so nobody
+   re-derives it from hope.
 
 
 ## Roofline for the target model
@@ -109,9 +131,9 @@ shape of it:
 
 | configuration | resident | GiB read per token | ceiling @237 GB/s |
 |---|---|---|---|
-| bf16 text weights | 65.72 GiB ✗ above budget | 5.194 | ~42 tok/s |
-| Q8_0 throughout | 34.97 GiB ✗ above budget | 2.811 | ~79 tok/s |
-| experts Q4_K + rest Q8_0 (policy A) | 19.59 GiB ✓ | 2.331 | ~95 tok/s |
+| bf16 text weights | 65.72 GiB ✗ above both budgets | 5.194 | ~42 tok/s |
+| Q8_0 throughout | 34.97 GiB — above the co-resident budget (~32), **fits if the engine owns the pool (~55)** | 2.811 | ~79 tok/s |
+| experts Q4_K + rest Q8_0 (policy A, **decided**) | 19.59 GiB ✓ fits either budget | 2.331 | ~95 tok/s |
 | experts Q4_K + attn Q8_0 + `lm_head` Q6_K (policy G) | 19.36 GiB ✓ | 2.216 | ~100 tok/s |
 | experts + attention both Q4_K (policy E) | 18.81 GiB ✓ | 1.663 | ~133 tok/s |
 

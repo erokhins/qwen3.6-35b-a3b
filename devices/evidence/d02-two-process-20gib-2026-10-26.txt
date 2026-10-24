@@ -1,0 +1,6 @@
+launching 2 concurrent pins of 20 GiB each (total 40 GiB)
+gtt_used before = 25268215808 bytes (23.53 GiB)
+pid 71965: hipHostMalloc 20.0 GiB -> out of memory
+pid 71966: hipHostMalloc 20.0 GiB -> OK
+granted 1 of 2  (refused 1)
+VERDICT: a concurrent pin was refused -> the budget is SHARED (per-UID/global or client-divided).
