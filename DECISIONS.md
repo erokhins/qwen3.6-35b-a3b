@@ -14,7 +14,7 @@ number or failure that forced it.
 | D-05 | MTP in scope? | **DECIDED**: yes |
 | D-06 | which 35B-A3B checkpoint | **DECIDED**: `Qwen/Qwen3.6-35B-A3B` |
 | D-07 | does MoE work transfer to Flash-Next | **DECIDED**: the block, not its surroundings |
-| D-08 | which 4-bit format | **OPEN** (recommendation Q4_K) |
+| D-08 | which 4-bit format | **DECIDED**: Q4_K |
 | D-09 | is the MTP expert block quantized the same way | **DECIDED**: uniform with the stack it drafts for |
 | D-10 | `lm_head`/embed width | **DECIDED**: Q8_0 |
 | D-11 | does the engine own the pool, or share it with halogen | **OPEN** (operational) |
@@ -142,7 +142,20 @@ Flash-Next's `config.json` ⇒ identical behaviour today). What does not transfe
 hc_count 4 / hc_lowrank 320 over 48 layers, plus a 4× wider residual stream), the QSA indexer and
 the PLE. Evidence: read of the two installed modeling files, 2026-10-26.
 
-## D-08 — Which 4-bit format for the routed experts? — **OPEN (recommendation: Q4_K)**
+## D-08 — Which 4-bit format for the routed experts? — **DECIDED 2026-10-26: Q4_K** (user)
+
+**Decision, in the user's words: "D8 Q4_K".** Routed experts are quantized **Q4_K** (4.5 bpw, 256-weight
+super-blocks of 8×32 with 6-bit scale *and* min per sub-block under fp16 super-block scales). MXFP4 and
+IQ4_XS are not taken, and the reasoning is in
+`quantization/evidence/mxfp4-vs-q4k-2026-10-26.md` and `quantization/evidence/unsloth-qwen3.5-35b-a3b-2026-10.md`.
+
+**What is fixed, and what stays measurable.** This closes the *format* question: the engine must read the
+Q4_K block layout, and a Q4_K writer is required (D-03). It does **not** close the *dequant-cost*
+question — MXFP4's one local advantage (one power-of-two scale per block, so a block can accumulate in
+integers and take a single scale at the end) is unmeasured, and if a `prototype/moe_gemv` probe ever shows
+decode is dequant-bound rather than bandwidth-bound, that finding reopens the format question on evidence.
+It also licenses no band loosening: the Q4_K numerics band is bought with a floor probe and
+geometry-derived must-catch sets against the bf16 oracle (`pitfalls/30-numerics.md`).
 
 Sourced in `quantization/README.md` and `quantization/evidence/`:
 

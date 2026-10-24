@@ -115,9 +115,13 @@ this model family or in llama.cpp's source:
   llama.cpp's Q4_K_M also leaves attention at Q4_K (policy E), which our A/G do not. Treat the
   agreement as ±10 % and re-derive when the real weights are on disk.
 
-**Recommendation: Q4_K for the routed experts, with the block layout chosen for cheap dequant on
-`gfx1151` (32-element sub-blocks, fp16 scales, no min term if we can afford it) — not MXFP4, not
-IQ4_XS. Keep IQ4_XS as the reserved size-down option and re-test it if we ever need the last GiB.**
+**DECIDED (D-08, 2026-10-26): Q4_K for the routed experts.** Read the standard Q4_K block layout
+**verbatim** — 256-weight super-block, 8 sub-blocks of 32 with a 6-bit scale *and* a 6-bit min under fp16
+super-block scales — so our reader is byte-compatible with published quants (unsloth, bartowski and
+lmstudio-community all ship Qwen3.6-35B-A3B in Q4_K variants). Dropping the min term to simplify the
+kernel would be a *different format* and would break that compatibility, so it is not an optimization of
+this decision; it would need its own decision and its own quality evidence. Not MXFP4, not IQ4_XS: keep
+IQ4_XS as the reserved size-down option and re-test it if we ever need the last GiB.
 
 ## How a quantized path gets gated (no gate gets loosened)
 
@@ -151,10 +155,11 @@ costs:
 - **D-09 is DECIDED (2026-10-26): the MTP draft block is uniform** with the stack it drafts for. The
   price of widening it later is in `DECISIONS.md` D-09 (~2–3 % of a step), and acceptance — not
   bandwidth — is the quantity that would justify doing so.
-- **D-08 stays OPEN**: 4-bit format — recommendation Q4_K; `quantization/evidence/mxfp4-vs-q4k-2026-10-26.md`
-  explains MXFP4 properly (E2M1 + one power-of-two E8M0 scale per 32; native only on MI350/Blackwell
-  class; llama.cpp repacks it to Q8_1 on RDNA3.5), prices it at 0.96 GiB + ~1.3 % of ceiling, and names
-  the measurement that should decide it.
+- **D-08 is DECIDED (2026-10-26): experts at Q4_K** (`DECISIONS.md` D-08). `quantization/evidence/mxfp4-vs-q4k-2026-10-26.md`
+  carries why (MXFP4 is E2M1 + one power-of-two E8M0 scale per 32; native only on MI350/Blackwell class;
+  llama.cpp repacks it to Q8_1 on RDNA3.5; 0.96 GiB + ~1.3 % of ceiling against a ~42 % worse KLD). What
+  stays open is only the **dequant-cost** measurement — `prototype/moe_gemv` timing both inner loops —
+  which is the one finding that could reopen the format question.
 - The per-token figures above assume **greedy single-token decode at short context** (KV ignored,
   which is right at 128 lanes and ~+0.04 GiB at 4k). Re-run with the real KV geometry once the engine
   exists, and remember the MTP path changes the arithmetic: a drafted token reads experts too.

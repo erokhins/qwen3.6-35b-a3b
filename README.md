@@ -116,8 +116,8 @@ README.md                  this file: target facts and sizing
 AGENTS.md                  rules, GPU policy, the self-containment rule
 reference-implementation.md  reading list for the 0.8B engine's *code shape* (not a fact store)
 DECISIONS.md               the decision log (decided: D-01/D-01a/D-09/D-10 widths ⇒ policy A, D-02
-                           residency, D-04, D-05 MTP, D-06, D-07; open: D-03 download, D-08 4-bit
-                           format, D-11 pool ownership)
+                           residency, D-04, D-05 MTP, D-06, D-07, D-08 4-bit format = Q4_K; open:
+                           D-03 weight acquisition, D-11 pool ownership)
 pitfalls/                  the trap library, copied in so nothing cites another repo
 devices/measured-facts.md  this box's measured ceilings, residency budget and the roofline arithmetic
 devices/evidence/          raw output of the device probes behind those numbers
