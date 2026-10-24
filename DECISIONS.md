@@ -23,9 +23,9 @@ the CPU oracle without any quantization (see `reference-implementation.md`).
 
 ## D-02 — Residency probe: can a kernel read >34 GiB of host-mapped memory at ~237 GB/s? — **OPEN (one short device experiment)**
 
-`../qwen3.5-0.8b/devices/strix-halo-unified-memory.md` measured that host-pinned access is the
-same speed as GTT access, and that the ~32–34 GiB limit is a *total device-visible pool* per
-process which `GPU_MAX_HEAP_SIZE` does not move. It did **not** test mapping a >34 GiB host
+`pitfalls/10-device-memory.md` records that host-pinned reads run at GTT speed (measured on this
+box), and that the ~32–34 GiB limit is a *total device-visible pool* per process which
+`GPU_MAX_HEAP_SIZE` does not move. What has **not** been measured here is mapping a >34 GiB host
 buffer (plain `malloc` + register) and reading it from a kernel. If that works, Q8 35B-A3B and a
 large slice of Flash-Next become residency-tractable and D-01's pressure drops a lot; if it does
 not, quantization is mandatory and we should buy the bands deliberately rather than reluctantly.
@@ -50,7 +50,8 @@ again when MoE is green.
 ## D-05 — Is MTP part of the first milestone here? — **OPEN**
 
 3.6-35B-A3B ships a real MTP head and the 0.8B engine already has draft/accept/verify code and
-two weeks of MTP measurement discipline (`../qwen3.5-0.8b/engine/performance-status.md` §7–§10).
+weeks of MTP measurement discipline behind it (precedent, not a dependency: see
+`reference-implementation.md`).
 But MTP interacts with the router (a drafted token changes expert selection), so doing both at
 once makes neither attributable. Recommendation: dense path green first, MTP as its own milestone.
 

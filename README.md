@@ -14,8 +14,8 @@ end goal                   → Qwen/Qwen3.8-Flash-Next    (its three lab-only su
 the failed predecessor     → ../qwen3.8-flash-next-old  (device facts and quantization analysis are still useful)
 ```
 
-**Read `AGENTS.md` first, then `reference-implementation.md`.** The second file is the map of
-what to reuse from the 0.8B engine and what must be written from scratch.
+**Read `AGENTS.md` first, then `pitfalls/README.md`.** `reference-implementation.md` is the
+reading list for which 0.8B code to reuse and how; every *fact* you need is already in this repo.
 
 ## Target — verified facts
 
@@ -55,8 +55,9 @@ existing engine's rope code implements — while 3.5 omits it and would default 
 
 Derived from the config (element counts × 2 B), cross-checked against community file sizes
 (derived Q8 = 32.3 GiB vs the public `Q8_0.gguf` at 35 GB; derived Q4 = 16.1 GiB vs the
-quoted 20.4–20.8 GB Q4_K_M). Measured box ceilings: **237–240 GB/s** device read,
-**~32–34 GiB** device-visible pool per process.
+quoted 20.4–20.8 GB Q4_K_M). Measured box ceilings, recorded in-repo at
+`devices/measured-facts.md`: **237–240 GB/s** device read, **~32–34 GiB** device-visible pool
+per process.
 
 | quantity | value | consequence |
 |---|---|---|
@@ -64,7 +65,7 @@ quoted 20.4–20.8 GB Q4_K_M). Measured box ceilings: **237–240 GB/s** device 
 | active bytes / token, bf16 | **5.49 GiB** (routed 1.88 + shared 0.23 + attn/GDN glue + `lm_head` 1.00) | matches the model card's "3B activated" |
 | decode roofline, bf16 | **~43 tok/s** (237 ÷ 5.9 GB) | bf16 resident is not even the interesting case |
 | resident at Q8_0 / Q4_K_M | 32.3 GiB / 16.1 GiB | Q8 sits *on* the pool ceiling with nothing left for KV/state; **4–6 bit is the only GPU-resident regime** |
-| per-request state | GDN 30 layers × 32 V heads × 128×128 F32 ≈ **60 MiB** + conv (the 0.8B's is 18.0 MiB); KV over 10 full-attn layers instead of 6 ⇒ ~1.7× its 12 KiB/token — recompute both against the sibling's `specification/00` §00.5 accounting before quoting either | concurrency budget is ~2× tighter than the 0.8B's |
+| per-request state | GDN 30 layers × 32 V heads × 128×128 F32 ≈ **60 MiB** + conv (the 0.8B's is 18.0 MiB); KV is 10 KiB/token over 10 full-attn layers instead of 6, so ~1.7× the 0.8B's 12 KiB/token on the same accounting | concurrency budget is ~2× tighter than the 0.8B's |
 | prefill | compute- and launch-bound as before, but 40 layers × a router + 8-expert gather per token | the router is a new per-token serial point |
 
 **The quantization question is therefore not optional here** (it was banned in the 0.8B
@@ -98,11 +99,12 @@ second structure:
 
 ```
 README.md                  this file: target facts and sizing
-AGENTS.md                  rules, inherited traps, GPU policy
-reference-implementation.md  what to reuse from ../qwen3.5-0.8b, file by file
+AGENTS.md                  rules, GPU policy, the self-containment rule
+reference-implementation.md  reading list for the 0.8B engine's *code shape* (not a fact store)
 DECISIONS.md               open user decisions (D-01 quantization, D-02 residency, …)
-devices/                   pointer + the load-bearing box facts (measured in the sibling repo)
-tools/                     gpu_lock.sh (machine-wide lock, shared with the sibling project)
+pitfalls/                  the trap library, copied in so nothing cites another repo
+devices/measured-facts.md  this box's measured ceilings and the roofline arithmetic
+tools/                     gpu_lock.sh + the device probes (see tools/PROVENANCE.md)
 models/<modelname>/        downloaded checkpoints, gitignored
 specification/             to be authored: math-only spec of the 3.6-35B-A3B text path
 speccheck/                 to be authored: independent torch-CPU implementation + gates

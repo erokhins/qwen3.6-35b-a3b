@@ -1,7 +1,8 @@
 # Agent notes — qwen3.6-35b-a3b
 
-Rules for work in this repo. The facts are in `README.md`; the map to reusable code is in
-`reference-implementation.md`; the user decisions still open are in `DECISIONS.md`.
+Rules for work in this repo. The facts are in `README.md`, the trap library is in `pitfalls/`, the
+map to reusable code is in `reference-implementation.md`, and the user decisions still open are in
+`DECISIONS.md`. Everything needed to do a task lives in this repo.
 
 ## SCOPE: one model, and this time capacity IS a constraint
 
@@ -11,9 +12,10 @@ subsystem, because it is the only part of `Qwen/Qwen3.8-Flash-Next`'s design tha
 reachable on a model this box can actually run. Lineage and evidence: `README.md`.
 
 Read this before importing the 0.8B project's scope statement — **one of its load-bearing
-paragraphs does not transfer.** `../qwen3.5-0.8b/AGENTS.md` says memory capacity is not a
-constraint (the 0.8B is 4 % of the device-visible pool, so no paging/eviction/quantize-to-fit).
-Here the model is **64.6 GiB bf16 against a measured ~32–34 GiB pool**, so:
+paragraphs does not transfer.** That project's `AGENTS.md` states that memory capacity is *not* a
+constraint (its model is 4 % of the device-visible pool, so it forbade paging, eviction and
+quantize-to-fit). Here the model is **64.6 GiB bf16 against a measured ~32–34 GiB pool**
+(`devices/measured-facts.md`), so:
 
 - capacity engineering is in scope for the first time: residency layout, shard staging,
   expert placement, state-pool sizing under a tighter budget;
@@ -51,9 +53,32 @@ with our own serving, is contaminated, and a contaminated number is worse than n
   no exit — and `gpu_lock.sh status` afterwards reads `STALE (holder pid dead)`). At least a dozen
   such drivers exist in the sibling repo; check rather than remember.
 - **One subagent at a time**, 2 h deadline passed explicitly on every launch
-  (`options: {timeoutMs: 7200000, checkpointBeforeDeadlineMs: 600000}`), and a worker is
-  stopped before the main agent measures. Full rationale:
-  `../qwen3.5-0.8b/AGENTS.md` §"Subagent run deadlines".
+  (`options: {timeoutMs: 7200000, checkpointBeforeDeadlineMs: 600000}`). The deadline, not
+  `toolTimeoutMs`, is the knob that matters here: a long CPU-side analysis or one long device run
+  can occupy a worker for tens of minutes. Census over the 0.8B project's 73 recorded subagent
+  runs (copied here as a fact, 2026-10-26): **21 died on the run deadline** — 16 at 90 min, 2 at
+  80, 2 at 30, 1 at 120 — while *successful* runs went up to 161 min, seven finishing at ≥80.
+  90 min therefore sits inside the productive distribution, not above it, and the killed runs were
+  still emitting tool results at the deadline (one died one line after its own gate printed
+  `SELFTEST PASS`). Pass `checkpointBeforeDeadlineMs` so a long worker hands back changed files
+  and remaining work instead of being cut mid-tool. A worker is stopped before the main agent
+  measures.
+
+## Self-containment: look elsewhere, but write it here
+
+This repo is the whole working set of a fresh session, so a fact that lives only in another repo
+is a fact no agent here can use.
+
+> **You may *look at* another project on this box — `../qwen3.5-0.8b` for engine shape and
+> precedent, `../qwen3.8-flash-next-old` for the failed route. You may not *reference* it.** Any
+> number, trap, band, protocol or measurement a worker needs to do a task correctly is **copied
+> into this repo**, with its numbers, its date and a one-line provenance note. A pointer may
+> accompany a copy; it may never replace one.
+
+Where copies go: traps in `pitfalls/`, platform numbers in `devices/measured-facts.md`, copied
+executables in `tools/` (recorded in `tools/PROVENANCE.md`), model facts in `README.md`.
+`reference-implementation.md` is a *reading list for code shape* and is explicitly not where a
+fact is stored. Full rationale and the citation rules that follow from it: `pitfalls/60-docs-and-citations.md`.
 
 ## Standing rules (inherited)
 
@@ -69,7 +94,8 @@ with our own serving, is contaminated, and a contaminated number is worse than n
 - **Citation hygiene.** Prefer `path §label` to `path:NNN`; a line-number cite is a claim about
   a file's line count. When editing a cited file: `wc -l` before and after, and read each cited
   coordinate against the previous revision — a checker whose baseline is `HEAD` cannot see drift
-  introduced by the commit that contains it.
+  introduced by the commit that contains it. No fact needed for a task may be cited out of another
+  repo (see §Self-containment).
 - **A check that can produce no output cannot fail.** Applies to every parser, gate driver,
   negative control and counter written here: require the parsed record count to equal the
   printed record count; derive case lists from geometry; treat a counter that reads exactly 0
@@ -80,40 +106,27 @@ with our own serving, is contaminated, and a contaminated number is worse than n
   call it landed in. Refer to them by id (this family: 248044 eos/bos, 248046 end-of-turn,
   248068/248069 think-boundary — re-derive per checkpoint, see `README.md`).
 
-## Inherited traps that bind this project (detail lives at the path given)
+## Traps: read them in-repo
 
-| trap | where it is written up |
+Everything that binds work here is in `pitfalls/` — copied in, with its numbers and its correct
+form, so no task requires opening another project. Index: `pitfalls/README.md`.
+
+| when you are about to… | read first |
 |---|---|
-| a bandwidth number above ~240 GB/s means skipped work, not a fast kernel | `../qwen3.5-0.8b/prototype/README.md` |
-| the first GPU pass over fresh pages runs ~35 GB/s (7× slow) — warm before measuring | `../qwen3.5-0.8b/devices/strix-halo-unified-memory.md` |
-| device-visible pool is ~32–34 GiB per process and `GPU_MAX_HEAP_SIZE` does not move it; `hipMallocManaged` degrades **silently** near it while `hipMalloc` fails loudly → `hipMalloc` + explicit `hipMemcpy` for weights | same file, §"The two real limits" — **this one has gone from [FUTURE] to load-bearing** |
-| host-pinned reads run at GTT speed, so residency choice is about control and address space, not throughput | same file, §"What this does not buy" |
-| dispatch/launch-bound timings are bimodal on this box (best-of-N spreads 158–269 %); only bandwidth-bound numbers repeat; a paired A/B must take both sides inside one lock hold | `../qwen3.5-0.8b/engine/performance-status.md` §6, §"a ruler re-taken in a different window is not an A/B" |
-| `hipEventElapsedTime` returns exactly 0.000 ms for a 2.1 ms kernel — burst + steady_clock is the only sub-ms timer | `../qwen3.5-0.8b/engine/performance-status.md` §6 |
-| a poll loop that `pgrep -f`s a script named in its own command line matches itself — wait on a sentinel the job writes | `../qwen3.5-0.8b/AGENTS.md` traps index |
-| one argv slot caps at `MAX_ARG_STRLEN` = 131,072 B (`getconf ARG_MAX` is not the limit): long prompts go in by file, and the harness asserts the field count it wrote. At 32k tokens a space-joined id list is 191,588 B and `exec` fails in 0 s with exit 126, which looks like "the engine crashes at 32k" | `../qwen3.5-0.8b/AGENTS.md` traps index |
-| `--ids-file` splits on **commas**; a space-joined fixture reads as one token and the run still succeeds, printing a plausible table for a run that computed nothing | same |
-| `Tensor.to(torch.uint16)` casts, `.view(torch.uint16)` bitcasts; torch refuses `bf16.numpy()` | `../qwen3.5-0.8b/prototype/README.md` |
-| a BF16 ULP comparator on a `uint16` view has a dead `x < 0` branch and passes vacuously; correct form is `np.where(bits & 0x8000, bits ^ 0xFFFF, bits ^ 0x8000)` | `../qwen3.5-0.8b/prototype/bf16_ulp.py` (has a selftest — run it) |
-| max-ULP bands are blind to whole-tensor 1-ULP error and ndiff is blind to chains: use ndiff for stage-local near-exact ops, cos/meanrel for chains, and size any cancellation band with a floor probe | `../qwen3.5-0.8b/prototype/mlp_gemv/{floor_probe.py,results.md}` — **the expert GEMV is a long dot, so it needs exactly this** |
-| a negative control with an empty must-catch set is not a control; derive the case list from the geometry that can make the bug fire | `../qwen3.5-0.8b/prototype/attn_tile_model.py` (`neg_expect`), `prototype/mlp_gemv/run.py --negative` |
-| a gate driver whose parser silently matches nothing reports PASS | `../qwen3.5-0.8b/prototype/gdn_collapse/run.py` |
-| an admission over a fixture list typed from memory is not an admission: derive the population and assert `cases == |population|`; treat any `PASS=0` as an unclassified run | `../qwen3.5-0.8b/AGENTS.md` traps index |
-| a device fault on a path only reachable at rows > 1 presents as a **hang**, not a crash | `../qwen3.5-0.8b/engine/results.md` (Q5 / P8) — relevant the moment a batched multi-token MoE path exists |
-| byte-identity claims name their width; longer-context judgement is decision-level aggregates plus pooled 1−cos | `../qwen3.5-0.8b/prototype/attn_wide/a13_identity_metrics.py` |
-| a read dump's dtype off its file size (F32 read as BF16 yields NaN cos plus a plausible-looking ndiff) | `../qwen3.5-0.8b/prototype/attn_wide/A13-RESULT.md` |
-| a rate must be compared against the ceiling its own instruction class can occupy (scalar `v_fma_f32` 7.30 → `v_dot2_f32_bf16` 23.28 → WMMA 52.63 TFLOP/s), and occupancy/LDS/SIMD counts come from KFD/`rocminfo`, never from `hipGetDeviceProperties` on this SKU | `../qwen3.5-0.8b/prototype/issue_rate_probe/results.md`, `tools/kernel_occupancy_probe.cpp` |
-| a static launch bill is not a body price: price a body by differencing two device arms at the same width, never by summing launch records | `../qwen3.5-0.8b/prototype/mtp_llama/LLAMA-MTP-RESULT.md` §2 |
-| a hoisted scalar constant is a different number, and a CPU mirror is blind to it — when a form claims bit-identity with a shipped kernel, transcribe the shipped expressions character for character, association included | `../qwen3.5-0.8b/prototype/gdn_collapse/results.md` §2 |
-| HIP builds need `-Wl,-rpath,/opt/rocm/lib`; the `.venv` torch is CPU-only; `__shfl_down_sync`'s mask is 64-bit here | `../qwen3.5-0.8b/prototype/README.md` |
-| before writing a probe or census tool, list the existing ones — a census that cannot fail is worse than none | `../qwen3.5-0.8b/prototype/gdn_walk/BET.md` §2, `tools/` |
+| take any timing, or trust one | `pitfalls/00-measurement.md` (blocking runs, warm pages, bimodality, the sub-ms timer lie, A/B inside one window + a behavioural canary, the two-rulers problem, the >240 GB/s rule and its ~32 MiB exception) |
+| allocate, lay out or stream weights | `pitfalls/10-device-memory.md` (**~32–34 GiB pool, and nothing moves it**; silent `Managed` degradation; `hipMalloc` + bulk copy recipe; first-touch ~35 GB/s; host-pinned == GTT speed) |
+| price a kernel, read an occupancy number, or write a census | `pitfalls/20-rates-and-occupancy.md` (rate ladder, geometry from KFD not HIP, register-file-per-SIMD, launch bill ≠ body price, workgroups per launch, census rules) |
+| compare bf16 output or size a band | `pitfalls/30-numerics.md` (ULP comparator dead branch, `.view` vs `.to`, dtype-by-filesize, cancellation bands + floor probes, the 0.8876 chaos floor, association/contraction, byte-identity width claims, what is a user decision vs a green gate) |
+| write or extend a gate, control or admission | `pitfalls/40-gates-and-admissions.md` (empty parse prints PASS, the unnamed denominator, derived must-catch sets, derived fixture populations, two self-consistent layouts, attribution, three-arm A/Bs) |
+| write harness, shell, or a build | `pitfalls/50-harness-and-shell.md` (131,072 B argv slot, comma `--ids-file`, self-matching `pgrep`, self-locking driver deadlock, awk boolean count, `-rpath`, `-O0`, the special-token rule) |
+| write docs or cites | `pitfalls/60-docs-and-citations.md` (the self-containment rule, line-cite rot, the `HEAD`-baseline blind spot, `§label` must name its file, doc moves are two jobs) |
 
 ## Traps that do NOT transfer (0.8B-specific — do not re-litigate, do not import)
 
-The sibling engine's numerics bands, route allowances, `MAXSC` wave geometry, attn-tile wave
-rules, GDN collapse variants and MTP accept rates are facts about **its** pinned dumps and
-**its** geometry. New model ⇒ new pins ⇒ new floors. Copy the *method* of sizing a band (floor
-probe + derived must-catch set), never the band.
+That engine's numerics bands, route allowances, `MAXSC` wave geometry, attn-tile wave rules, GDN
+collapse variants and MTP accept rates are facts about **its** pinned dumps and **its** geometry.
+New model ⇒ new pins ⇒ new floors. Take the *method* (floor probe + geometry-derived must-catch
+set, both written up in `pitfalls/30-numerics.md` and `pitfalls/40-gates-and-admissions.md`), never the band.
 
 ## Predictions to falsify early in this project (written as predictions, not facts)
 
