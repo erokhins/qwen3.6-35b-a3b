@@ -27,7 +27,7 @@ import os
 import re
 import sys
 
-INREPO = ("pitfalls/", "devices/", "tools/")
+INREPO = ("pitfalls/", "devices/", "tools/", "quantization/", "checkpoints/")
 CITE_RE = re.compile(r"`((?:%s)[A-Za-z0-9_./-]+)`" % "|".join(re.escape(p) for p in INREPO))
 LINE_CITE_RE = re.compile(r"`([A-Za-z0-9_./-]+\.(?:md|py|cpp|h|hpp|sh|json)):(\d+)`")
 CROSS_RE = re.compile(r"\.\./qwen[\w.-]*")
@@ -69,9 +69,18 @@ def main():
             t = m.group(1)
             if any(c in t for c in "{}*<>"):
                 continue
-            if not any(os.path.exists(os.path.join(root, cand))
-                       for cand in (t, t + ".md")):
-                problems.append("MISSING  %-40s cites %s" % (rel, t))
+            base = os.path.join(root, t)
+            if os.path.exists(base) or os.path.exists(base + ".md"):
+                continue
+            # `pitfalls/30` is how prose refers to `pitfalls/30-numerics.md`: accept a unique
+            # `<path>-*` match, because an ambiguous prefix is a finding and a unique one is not.
+            d, leaf = os.path.split(base)
+            cands = [f for f in (os.listdir(d) if os.path.isdir(d) else [])
+                     if f.startswith(leaf + "-")]
+            if len(cands) == 1:
+                continue
+            problems.append("MISSING  %-40s cites %s%s" % (rel, t,
+                            "" if not cands else " (ambiguous: %s)" % ", ".join(sorted(cands))))
         for i, l in enumerate(lines, 1):
             s = l.strip()
             if s.startswith("|") and not s.endswith("|"):
