@@ -18,6 +18,7 @@ number or failure that forced it.
 | D-09 | is the MTP expert block quantized the same way | **DECIDED**: uniform with the stack it drafts for |
 | D-10 | `lm_head`/embed width | **DECIDED**: Q8_0 |
 | D-11 | does the engine own the pool, or share it with halogen | **OPEN** (operational) |
+| D-12 | llama.cpp as an oracle (cross-check vs accuracy oracle) | **ADOPTED** as cross-check; accuracy oracle stays bf16 |
 
 ---
 
@@ -303,3 +304,62 @@ instead of 26.
 from inside a session it serves), and ideally one allocation measurement from a root/service context.
 Until then **the ~32 GiB co-resident budget is the design budget** and 55 GiB is headroom we have not
 been granted.
+
+## D-12 — Can llama.cpp be the oracle? — **ADOPTED as the cross-check oracle; the accuracy oracle stays bf16** (user, 2026-10-26)
+
+**The proposal, in the user's words:** "use the llama.cpp on the particular checkpoint to be the
+oracle … on Q4 — essentially on the same quant." Gating our quantized path against llama.cpp running
+the same quantization is cheaper than a bf16 reference and, if it worked, would also remove the reason
+to download 67 GiB (D-03).
+
+**First finding: llama.cpp on this box already supports this architecture.** The llama.cpp checkout
+under the 0.8B project is a **HIP build** (`libggml-hip.so` present, `version: 0.7.0-dev`, commit
+`797de63`) whose `src/llama-model.cpp` maps `LLM_ARCH_QWEN35MOE → llama_model_qwen35moe`. Recorded as
+a fact about a *version*, not as a path dependency: per the self-containment rule we build our own copy
+under `engines/` and pin the version in `tools/PROVENANCE.md` when we do.
+
+**What llama.cpp genuinely can adjudicate — adopted:**
+
+1. **Q4_K block-layout bit-parity.** Dequant is a deterministic operation (`nibble → value → × scale
+   (+ min)`), and llama.cpp is an *independent* implementation of it, so requiring our reader to
+   reproduce llama.cpp's dequantized output bit-for-bit on the same bytes is a real witness — not
+   self-consistency. Disagreement localizes to exactly one of: sub-block ordering, the 6-bit scale/min
+   unpack, super-block scale use, or the row mapping of the `[E, N, K]` expert tensors. It is CPU-only,
+   needs no device and no bf16 weights, and therefore **becomes the first gate this repo can write** —
+   it needs only the ~18.5 GiB published GGUF.
+2. **Behavioural cross-check + perf ruler**: the same artifact in both engines, decision-level agreement
+   (argmax, top-5) over a corpus, and llama.cpp's tokens/s on this box as the number we must beat.
+3. **Policy A artifact production is upstream's problem.** `llama-quantize` supports
+   `--tensor-type name=ggml_type`, `--tensor-type-file`, `--output-tensor-type` and
+   `--token-embedding-type`, so "experts Q4_K, attention/GDN/shared Q8_0, `lm_head`/embeddings Q8_0" is
+   expressible in the stock tool. That deletes "write a quantizer-writer" from our plan; the *reader*
+   stays ours, and it is the half that has to be fast.
+
+**What it cannot adjudicate is one thing — but it is the load-bearing one: quantization error itself.**
+If both sides carry the same quantization, the error cancels. The pairing can establish "you agree with
+llama.cpp" and can never establish "you agree with the model". Consequences: no numeric band can be
+*sized* from it (`pitfalls/30` sizes bands against an exact reference), the D-08 closure written today
+(KLD + argmax agreement against pinned bf16 logits) is unrunnable, and when our engine and llama.cpp
+*disagree* there is nothing to say which side is wrong — the 0.8B's measured chaos floor (two legal
+bf16 implementations of the *same* weights agreed only 0.8776 of the way on greedy continuation at
+depth) is exactly the kind of noise that needs an anchor to be attributed.
+
+**Second catch: "essentially the same quant" is not the same policy.** Policy A puts attention/GDN and
+`lm_head`/embeddings at Q8_0; published `Q4_K_M` does not. Comparing our policy-A artifact against a
+published Q4_K_M reference puts a *policy delta* on the reference side, so the disagreement would be
+dominated by width choices rather than by whether our kernels are right. Making the reference *be* our
+policy requires converting from the f16 source — so the bf16 download returns through the back door.
+The only way to avoid it entirely is to adopt a published quant's tensor policy as the shipping policy,
+which would reverse D-01a and D-10.
+
+**Adopted shape (sequencing change, and it is a good one):**
+
+- **llama.cpp = cross-check oracle** (layout bit-parity, behaviour, ruler) — available after ~18.5 GiB,
+  and its first gate needs no device time at all.
+- **bf16 HF = accuracy oracle, and transient**: download once, produce the pinned dumps and the policy-A
+  artifact, then the 67 GiB may be deleted — the dumps (MiB) and the artifact are what we keep. So D-03's
+  real cost is one RAM window during the dump run, not a permanent residency.
+- If bf16 is skipped permanently, that is a legitimate choice with a name: we ship Q4 knowing it matches
+  llama.cpp and not knowing its distance from the model, and every future format question becomes
+  unadjudicable without a one-off bf16 rental. Needs the user's words to accept it:
+  **"both, delete after"** or **"llama.cpp only"**.
