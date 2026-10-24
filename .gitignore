@@ -1,0 +1,50 @@
+# --- Checkpoints: models/<modelname>/ are downloads, never committed ---
+# 66.97 GiB of safetensors here; never in git, never in a diff, never in a log line.
+models/
+*.safetensors
+*.gguf
+*.bin
+*.pt
+*.pth
+*.onnx
+*.msgpack
+*.npy
+*.npz
+*.h5
+*.ggml
+
+# --- Cloned reference engines (external read-only checkouts) ---
+engines/
+
+# --- Reference dumps / fixtures / bench output (regenerable) ---
+data/
+logs/
+tmp/
+
+# --- Agent scratch / IDE state ---
+.pi/
+.junie/
+.idea/
+.vscode/
+__pycache__/
+*.pyc
+
+# --- Build output ---
+build/
+build-*/
+CMakeCache.txt
+CMakeFiles/
+compile_commands.json
+*.o
+*.so
+*.hipfb
+*.hipi
+*.bc
+*.out
+*.out.resolution.txt
+*.aout.bin
+
+# --- A built prototype binary is ignored by EXACT path, never by directory. ---
+# The sibling repo's lesson (`prototype/**/<op>` matched the op DIRECTORY, so the
+# whole prototype/<op>/ went untracked): list binaries as `prototype/<op>/<op>`.
+# Check `git status --ignored` after adding an op.
