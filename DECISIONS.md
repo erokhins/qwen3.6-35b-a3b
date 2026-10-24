@@ -155,8 +155,19 @@ Sourced in `quantization/README.md` and `quantization/evidence/`:
 Until a `prototype/moe_gemv` probe measures dequant cost on this GPU, every tok/s figure in this repo
 remains a ceiling rather than a forecast — which is the honest reason the format choice is still open.
 
-**Explained properly in `quantization/evidence/mxfp4-vs-q4k-2026-10-26.md`** (2026-10-26), including the
-part that changes how to think about it: MXFP4 is E2M1 elements in blocks of 32 with one **E8M0** scale,
+**Explained properly in `quantization/evidence/mxfp4-vs-q4k-2026-10-26.md`** (2026-10-26). On the quality
+question specifically: **perplexity does not separate the two** (MXFP4_MOE 6.600 vs Q4_K_M 6.6053 — the
+crowd claim that MXFP4 wins lives entirely inside that 0.005), while **KLD does**: 0.7789 vs 0.5478 at the
+99.9th percentile and 0.0272 vs 0.0192 in the mean, i.e. ~42 % more shift away from the bf16 output
+distribution for MXFP4, which is the quantity a decoder is actually judged on. Part of that gap is
+*tensor policy* rather than *block format* (llama.cpp's MXFP4 recipe keeps more categories at Q8_0), and
+what survives the confound is that unsloth retired MXFP4 inside their own mixed recipes. Direction safe,
+magnitude theirs — which is why D-08 is recommended rather than decided, and why the closing measurement
+is ours to run once the weights land: both formats against the pinned bf16 dumps on one corpus, KLD +
+argmax agreement.
+
+The same file carries the part that changes how to think about it: MXFP4 is E2M1 elements in blocks of 32
+with one **E8M0** scale,
 i.e. a *power-of-two* scale, which is what makes it fast **only where the hardware multiplies blocks
 natively** (MI350/CDNA4, Blackwell). On gfx1151 there is no MX matrix instruction, and llama.cpp's own
 RDNA3.5 path repacks MXFP4 into a Q8_1 shared-memory tile (`mmq-config-rdna3-5.cuh`), so here it is a
