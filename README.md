@@ -45,7 +45,8 @@ Expert storage (from the index + the HF reference): one **fused tensor per layer
 `…​.experts.down_proj` `[256, 2048, 512]`, plus `mlp.gate.weight`, `mlp.shared_expert*`.
 Per expert that is 3,145,728 elements = **6.0 MiB bf16**; per layer all 256 experts = 1.50 GiB;
 40 layers plus the MTP block's own MoE layer = **61.5 GiB, i.e. 91.8 % of the text path**. The MTP
-block matters for sizing and is its own open question (`DECISIONS.md` D-09).
+block matters for sizing, and its width is decided (uniform with the stack it drafts for,
+`DECISIONS.md` D-09).
 
 Which 35B-A3B: `Qwen3.6-35B-A3B` and `Qwen3.5-35B-A3B` are **geometrically identical**
 (only `bos/pad_token_id`, `output_router_logits`, `mlp_only_layers`, `partial_rotary_factor`
@@ -69,7 +70,7 @@ host-pinning spends the pool rather than raising it
 | active bytes / token, bf16 | **5.194 GiB** (8/256 of the routed experts 1.92 + attn/GDN 1.97 + `lm_head` 0.95 + shared 0.24 + router 0.04) | matches the model card's "3B activated" |
 | decode roofline, bf16 | **~42 tok/s** at 237 GB/s, ~34 at 190 | academic: bf16 does not fit in the first place |
 | **policy A — DECIDED** (experts Q4_K, attention/GDN Q8_0) | **19.59 GiB resident, 2.331 GiB/token → ~95 tok/s ceiling** | the shipping shape: `DECISIONS.md` D-01 + D-01a (user, 2026-10-26) |
-| policy G (same, `lm_head` Q6_K) | 19.36 GiB, 2.216 GiB/token → ~100 tok/s | the `lm_head` knob is still open, `DECISIONS.md` D-10 |
+| policy G (same, `lm_head` Q6_K) | 19.36 GiB, 2.216 GiB/token → ~100 tok/s | **not taken** — D-10 decided `lm_head` Q8_0 |
 | experts + attention both Q4_K (policy E) | 18.81 GiB, 1.663 GiB/token → ~133 tok/s | a funded experiment behind a KLD study, not a default |
 | per-request state | GDN 30 layers × 32 V heads × 128×128 F32 ≈ **60 MiB** + conv (the 0.8B's is 18.0 MiB); KV is 10 KiB/token over 10 full-attn layers instead of 6, so ~1.7× the 0.8B's 12 KiB/token on the same accounting | concurrency budget ~2× tighter than the 0.8B's, inside a budget the weights already consume |
 | prefill | compute- and launch-bound as before, but 40 layers × a router + 8-expert gather per token | the router is a new per-token serial point |
@@ -114,9 +115,9 @@ second structure:
 README.md                  this file: target facts and sizing
 AGENTS.md                  rules, GPU policy, the self-containment rule
 reference-implementation.md  reading list for the 0.8B engine's *code shape* (not a fact store)
-DECISIONS.md               the decision log (decided: D-01/D-01a quantization, D-02 residency, D-04,
-                           D-05 MTP, D-06, D-07; open: D-03 download, D-08 4-bit format, D-09 MTP
-                           widths, D-10 lm_head, D-11 pool ownership)
+DECISIONS.md               the decision log (decided: D-01/D-01a/D-09/D-10 widths ⇒ policy A, D-02
+                           residency, D-04, D-05 MTP, D-06, D-07; open: D-03 download, D-08 4-bit
+                           format, D-11 pool ownership)
 pitfalls/                  the trap library, copied in so nothing cites another repo
 devices/measured-facts.md  this box's measured ceilings, residency budget and the roofline arithmetic
 devices/evidence/          raw output of the device probes behind those numbers

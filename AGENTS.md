@@ -22,7 +22,8 @@ for the whole box — ≈32 GiB free while halogen is resident, and host-pinning
   expert placement, state-pool sizing under a tighter budget;
 - **quantization to fit is decided and load-bearing**: the user authorized 4-bit routed experts on
   2026-10-26 (`DECISIONS.md` D-01) and confirmed the attention width the same day (D-01a: Q8_0), so the
-  shipping shape — experts Q4_K, attention/GDN/shared Q8_0, router and norms exact — is **policy A** in
+  shipping shape — experts Q4_K, attention/GDN/shared Q8_0, `lm_head` and embeddings Q8_0, router and
+  norms exact — is **policy A** in
   `quantization/README.md`. int8/int4/int-fp anything *beyond* what those two decisions cover still
   needs the user's explicit words; the decisions are recorded, never inferred. Note the arithmetic that
   forced them: bf16 (65.72 GiB) is above the whole device-visible pool, and Q8-throughout (34.97 GiB)

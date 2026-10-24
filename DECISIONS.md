@@ -15,8 +15,8 @@ number or failure that forced it.
 | D-06 | which 35B-A3B checkpoint | **DECIDED**: `Qwen/Qwen3.6-35B-A3B` |
 | D-07 | does MoE work transfer to Flash-Next | **DECIDED**: the block, not its surroundings |
 | D-08 | which 4-bit format | **OPEN** (recommendation Q4_K) |
-| D-09 | is the MTP expert block quantized the same way | **OPEN** (recommend uniform) |
-| D-10 | `lm_head`/embed width: Q8_0 (default) or Q6_K | **OPEN** |
+| D-09 | is the MTP expert block quantized the same way | **DECIDED**: uniform with the stack it drafts for |
+| D-10 | `lm_head`/embed width | **DECIDED**: Q8_0 |
 | D-11 | does the engine own the pool, or share it with halogen | **OPEN** (operational) |
 
 ---
@@ -155,7 +155,19 @@ Sourced in `quantization/README.md` and `quantization/evidence/`:
 Until a `prototype/moe_gemv` probe measures dequant cost on this GPU, every tok/s figure in this repo
 remains a ceiling rather than a forecast — which is the honest reason the format choice is still open.
 
-## D-09 — Is the MTP block's expert stack quantized like the main one? — **OPEN: recommendation uniform (Q4_K experts / Q8_0 attn)**
+**Explained properly in `quantization/evidence/mxfp4-vs-q4k-2026-10-26.md`** (2026-10-26), including the
+part that changes how to think about it: MXFP4 is E2M1 elements in blocks of 32 with one **E8M0** scale,
+i.e. a *power-of-two* scale, which is what makes it fast **only where the hardware multiplies blocks
+natively** (MI350/CDNA4, Blackwell). On gfx1151 there is no MX matrix instruction, and llama.cpp's own
+RDNA3.5 path repacks MXFP4 into a Q8_1 shared-memory tile (`mmq-config-rdna3-5.cuh`), so here it is a
+storage format like any other. Priced: policy C (experts MXFP4) is 18.63 GiB / 2.301 GiB/token vs
+policy A's 19.59 / 2.331 — **0.96 GiB and ~1.3 % of ceiling**, against a published KLD that is *worse*
+(0.7789 vs 0.5478). Its one genuine local advantage is kernel-side: one power-of-two scale per block
+means a block can accumulate in integers and take one scale at the end, which Q4_K (non-power-of-two
+scales plus a per-sub-block min) cannot do — so if decode ever proves dequant-bound, MXFP4 is worth a
+re-look, and the decision instrument is `prototype/moe_gemv`, not another forum post.
+
+## D-09 — Is the MTP block's expert stack quantized like the main one? — **DECIDED 2026-10-26: uniform** (user)
 
 **What "the block's width" asks.** The checkpoint ships one extra decoder layer, `mtp.layers.0.*`, whose
 job is to predict one token ahead of the real stack — that is all MTP is. It owns its **own MoE** (256
@@ -177,31 +189,38 @@ draft-quality one — which is why it must be decided, not inherited.
 
 | draft-block width | resident | bytes per draft token | vs policy A |
 |---|---|---|---|
-| Q4_K experts + Q8_0 attn — **uniform, recommended** | 19.59 GiB | 0.0234 GiB | baseline (~1.0 % of a step) |
+| Q4_K experts + Q8_0 attn — **uniform, DECIDED** | 19.59 GiB | 0.0234 GiB | baseline (~1.0 % of a step) |
 | Q8_0 experts + Q8_0 attn | 20.17 GiB | 0.0467 GiB | +0.58 GiB resident, ~+2.0 % of a step |
 | bf16 for the whole draft block | 20.67 GiB | 0.0834 GiB | +1.08 GiB resident, ~+2.6 % of a step |
 
-**Recommendation: start uniform.** It is the only choice that adds no new dequant path, and it is what
-llama.cpp does (MTP tensors follow the base quant type). Then, if measured acceptance under-predicts the
-0.8B's 0.678, the **first** lever to price is a wide draft block, because 2–3 % of a step is the same
-order as the acceptance it can buy and it fits either residency budget (D-11). The test is one corpus
-accept-rate A/B — Q4_K vs bf16 draft experts on identical templated prompts, with the apples-to-apples
-caution in `pitfalls/30-numerics.md` (render both through the same chat template, and check the flipped
-token is the runner-up inside one bf16 ULP before believing a single flip).
+**Decision (user, 2026-10-26): uniform.** The draft block loads the same widths as the stack it drafts
+for — experts Q4_K, attention Q8_0, router/norms exact. Consequences: no extra weight resident (+0 GiB
+against the bf16-draft alternative), one dequant path instead of two, and the acceptance question is
+deferred to a measurement rather than pre-paid.
 
-## D-10 — `lm_head` / embedding width — **OPEN: default Q8_0, alternative Q6_K (+4 % of ceiling)**
+**What this decision licenses us to do later, explicitly:** if measured acceptance under-predicts the
+0.8B's 0.678, widening the draft block is the **first** lever to price (2.0 % of a step for Q8 experts,
+2.6 % for a whole-bf16 draft block) and it fits either residency budget (D-11). That is a reversal this
+decision anticipates, not a contradiction of it; the test is one corpus accept-rate A/B, rendered through
+the same chat template on both sides, with the flipped-token adjudication rules in
+`pitfalls/30-numerics.md` (the must-catch discipline from the sibling project's MTP work: the flipped
+token has to be the runner-up inside one bf16 ULP of the top logit before a single flip counts).
 
-The last width knob. Embeddings and `lm_head` are separate tensors here (`tie_word_embeddings: false`),
-0.947 GiB each at bf16, vocab 248,320.
+## D-10 — `lm_head` / embedding width — **DECIDED 2026-10-26: Q8_0** (user)
 
-- **Q8_0** (what D-01a implies): 19.59 GiB resident, 2.331 GiB/token, ~95 tok/s @ 237.
-- **Q6_K** (policy G): 19.36 GiB resident, 2.216 GiB/token, ~**100** tok/s @ 237 — and `lm_head` is the
-  one family where public practice supports it (llama.cpp defaults `output` to Q6_K).
+**Decision, in the user's words: "lm_head/embed: Q8_0".** That completes policy A exactly as
+`tools/quant_scenarios.py` defines it — experts Q4_K, attention + GDN + shared expert Q8_0, `lm_head`
+and embeddings Q8_0, router and norms exact:
 
-The counter-precedent is ours: the 0.8B kept `lm_head` at bf16 because Q8 cost it acceptance. And
-`lm_head` is read once per token, so its 0.947 GiB is ~40 % of a policy-A step's bytes — the widest
-single line item left. bf16 here would cost +0.95 GiB resident and +0.47 GiB/token (~20 % of ceiling),
-so it is not recommended. **One word needed: Q8_0 or Q6_K.**
+- **resident 19.59 GiB** (fits the ~32 GiB co-resident budget with ~12 GiB left for state and KV);
+- **2.331 GiB/token**, ceiling **95 / 84 / 76 tok/s** at 237 / 210 / 190 GB/s;
+- the Q6_K alternative (policy G, 19.36 GiB, 2.216 GiB/token, ~100 tok/s) is **not taken**: 4 % of
+  ceiling against the precedent that this family's `lm_head` is acceptance-sensitive (the 0.8B lost
+  ~1.5 % acceptance bf16→Q8 there), and `lm_head` is the piece an MTP draft would want wide.
+
+**What is now fixed** — the shipping width assignment is complete and no width question is open. What
+remains open in quantization is only the 4-bit *format* (D-08: Q4_K vs MXFP4/IQ4_XS, worth ~1.3 % of
+ceiling and decided by a `prototype/moe_gemv` dequant timing), and the residency question D-11.
 
 ## D-11 — Does the engine own the device-visible pool, or share it with halogen? — **OPEN (operational), and it changes what we may give up later**
 

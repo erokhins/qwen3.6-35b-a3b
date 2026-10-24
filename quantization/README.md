@@ -54,15 +54,15 @@ this box actually delivered in the 2026-10-26 window, not the ledger's 237.
 | policy | resident GiB | GiB/token | ceiling @237 | @210 | @190 |
 |---|---|---|---|---|---|
 | bf16 | 65.72 ✗ | 5.194 | 42 | 38 | 34 |
-| **A** experts Q4_K, everything else Q8_0 | **19.59** | 2.331 | **95** | 84 | 76 |
+| **A — DECIDED** experts Q4_K, everything else Q8_0 | **19.59** | 2.331 | **95** | 84 | 76 |
 | B experts Q4_K, everything else bf16 | 21.52 | 3.813 | 58 | 51 | 46 |
 | C experts MXFP4, rest Q8_0 | 18.63 | 2.301 | 96 | 85 | 77 |
 | D experts IQ4_XS, rest Q8_0 | 18.63 | 2.301 | 96 | 85 | 77 |
 | E experts Q4_K, **attention Q4_K too** | 18.81 | 1.663 | **133** | 118 | 106 |
-| F Q8_0 throughout | 34.97 ✗ | 2.811 | 79 | 70 | 63 |
-| **G** experts Q4_K, attention Q8_0, `lm_head` Q6_K | **19.36** | 2.216 | **100** | 88 | 80 |
+| F Q8_0 throughout | 34.97 ✗ co-resident, ✓ if dedicated | 2.811 | 79 | 70 | 63 |
+| G (not taken, D-10) experts Q4_K, attention Q8_0, `lm_head` Q6_K | 19.36 | 2.216 | 100 | 88 | 80 |
 
-## The attention question (the one still open)
+## The attention question (**DECIDED 2026-10-26: Q8_0** — the reasoning that got us there)
 
 Three defensible answers, all with the experts at Q4_K:
 
@@ -72,8 +72,8 @@ Three defensible answers, all with the experts at Q4_K:
 | attention/GDN **Q8_0** (policy A/G) | 19.4–19.6 | 2.22–2.33 | 84–88 tok/s | Q8_0 measured +0.0004 ppl at 7 B (`pitfalls/30`); the classes that resist quantization are exactly the ones Q8 covers |
 | attention/GDN **Q4_K** (policy E) | 18.81 | 1.663 | 118 tok/s | +40 % rate, and it is what llama.cpp's own `Q4_K_M` does by default — but unsloth's per-tensor sweep on **this model family** found `attn_*` the *most* sensitive class on a hybrid arch and `ssm_out` (GDN `out_proj`) the worst single tensor |
 
-**Recommendation: ship G (attention and GDN at Q8_0, `lm_head` at Q6_K), and fund E as a measured
-experiment rather than adopting it by default.** Reasons, in order of weight:
+**Decision (D-01a, user): attention and GDN at Q8_0 — policy A.** The reasoning that supported it, kept
+because it is what makes policy E reversible:
 
 1. The saving from Q4 attention is 2.5 GiB of residency we do not need (both fit) and ~40 % of ceiling
    — real, but the same 40 % is available from a *safer* place: `lm_head` Q6_K and `lm_head`/embed
@@ -85,8 +85,9 @@ experiment rather than adopting it by default.** Reasons, in order of weight:
    downgraded to Q4 later and measured, whereas a shipping engine built on Q4 attention has to be
    re-argued from scratch if quality says no.
 
-If the answer is "make it faster, take the risk", policy E is +40 % and the gates (below) will say
-quickly whether it is real.
+If speed later demands it, policy E is +40 % and the gates (below) will say quickly whether it is real —
+and per `AGENTS.md`'s numeric-format rule, adopting it requires only that the existing gates stay green
+(or that a widened band still catches every geometry-derived must-catch injection).
 
 ## Which 4-bit format (D-08)
 
@@ -145,12 +146,15 @@ costs:
   GDN + shared expert Q8_0, router/norms exact — is the shipping shape: 19.59 GiB resident, 2.331
   GiB/token, ceiling 95 / 84 / 76 tok/s at 237 / 210 / 190 GB/s. Policy E (attention Q4_K too,
   1.663 GiB/token, ~133 tok/s) stays a funded experiment behind a KLD study, not a default.
-- **D-10**: `lm_head`/embed width — Q8_0 (implied by D-01a) or Q6_K (policy G, +4 % of ceiling).
-- **D-09**: the MTP draft block's widths — recommendation is uniform with the stack it drafts for; see
-  `DECISIONS.md` D-09 for the price of widening it (~2–3 % of a step) and why acceptance, not
-  bandwidth, is the quantity at stake.
-- **D-08**: 4-bit format — recommendation Q4_K; MXFP4 and IQ4_XS documented as the alternatives and
-  why they are not first.
+- **D-10 is DECIDED (2026-10-26): `lm_head` and embeddings at Q8_0.** Policy G (Q6_K, +4 % of ceiling)
+  is not taken, so policy A's 19.59 GiB / 2.331 GiB/token is final as a width assignment.
+- **D-09 is DECIDED (2026-10-26): the MTP draft block is uniform** with the stack it drafts for. The
+  price of widening it later is in `DECISIONS.md` D-09 (~2–3 % of a step), and acceptance — not
+  bandwidth — is the quantity that would justify doing so.
+- **D-08 stays OPEN**: 4-bit format — recommendation Q4_K; `quantization/evidence/mxfp4-vs-q4k-2026-10-26.md`
+  explains MXFP4 properly (E2M1 + one power-of-two E8M0 scale per 32; native only on MI350/Blackwell
+  class; llama.cpp repacks it to Q8_1 on RDNA3.5), prices it at 0.96 GiB + ~1.3 % of ceiling, and names
+  the measurement that should decide it.
 - The per-token figures above assume **greedy single-token decode at short context** (KV ignored,
   which is right at 128 lanes and ~+0.04 GiB at 4k). Re-run with the real KV geometry once the engine
   exists, and remember the MTP path changes the arithmetic: a drafted token reads experts too.
