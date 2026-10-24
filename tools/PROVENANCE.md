@@ -1,6 +1,7 @@
 # tools/ — provenance of the copied probes
 
-Every file here except `doc_ref_check.py`, `hostmap_probe.cpp` and `quant_scenarios.py` (all three are this
+Every file here except `doc_ref_check.py`, `hostmap_probe.cpp`, `pin_hold.cpp`, `pin_pair.cpp`,
+`quant_scenarios.py` and `gguf_header_types.py` (all six are this
 repo's own) is a **verbatim
 copy** made on 2026-10-26 from the 0.8B engine repo, so that this project can re-measure and re-gate without
 depending on that repo at read time (rule: `pitfalls/60-docs-and-citations.md`).
@@ -21,6 +22,7 @@ references** — record the caveats here instead.
 | `hostmap_probe.cpp` | **written here (2026-10-26)**: pool ceiling, host-pin sweep, multi-mapping totals, device-vs-pinned A/B — the D-02 measurement | every bandwidth line is checksum-witnessed and prints `MISMATCH` + "NOT A BANDWIDTH RESULT" instead of a number; the unregistered-pointer case (argv[4]=1) faults the queue, so it is opt-in and last |
 | `pin_hold.cpp` | **written here (2026-10-26)**: pin N GiB and hold it, so a second process can be run concurrently — the instrument that refuted the "pool is per-process" reading | allocation only: it prints no timing, so it cannot contaminate a measurement window; evidence `devices/evidence/d02-two-process-*.txt` |
 | `pin_pair.sh` | **written here (2026-10-26)**: run N concurrent `pin_hold` instances and print the grant/refusal split plus `gtt_used` and MemAvailable | its verdict line names the two hypotheses it is adjudicating; run it blocking with `tools/gpu_lock.sh` held, and keep total pinned bytes well under MemAvailable — 2×24 GiB next to halogen's 23.5 GiB is the edge of comfortable |
+| `gguf_header_types.py` | **written here (2026-10-26)**: HTTP-Range-reads a GGUF header and tabulates the ggml type actually stored per tensor family, with byte totals | answers "what quantization is this file?" without downloading it. Fails loudly rather than printing a partial table (a truncated width map reads like a complete one); `BOOL` is one byte; unknown type ids print as `type_<id>` and count as zero bytes with a warning. Evidence: `quantization/evidence/q4km-published-width-map-2026-10-26.md` |
 | `quant_scenarios.py` | **written here (2026-10-26)**: family census from `checkpoints/*.config.json` validated against the index `total_size`, then residency + per-token + tok/s ceilings per quantization policy | ceilings are bytes ÷ bandwidth, not engine measurements; `--census` must print a delta against `total_size` of a couple of %, otherwise the shapes drifted (`checkpoints/README.md`) |
 
 Not copied (deliberately, so far): `mixed_bw.cpp` (1,759 lines, and the mixed read/write question it answers was

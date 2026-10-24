@@ -81,6 +81,20 @@ rows > 1 is invisible to every one-row gate the tree has.**
   **priced** (an allowance JSON written beside the pins) could never reproduce — it exited 1 on 826 byte-identical
   tensors. A carried file is **named and skipped**, never silently ignored.
 
+## Parsing a container format
+
+- **A GGUF `BOOL` metadata value is ONE byte, not eight** (gguf-py types it as `np.bool_`). Reading it as
+  `int64` desyncs the whole metadata walk by seven bytes per bool, and the symptom is not "bad bool" — the
+  next string length comes back as ~8.8e18 and the file looks corrupt. Cost two runs and one fetched range
+  to find. Two general lessons from it: (a) when hand-writing a binary parser, take the widths from the
+  spec or from the reference implementation's reader, not from what the type name suggests; (b) make the
+  parser **fail loudly on desync** — `tools/gguf_header_types.py` refuses to print a partial census and
+  grows its fetch range instead, because a truncated width-policy table reads exactly like a complete one.
+- **A header-only read of a 19 GiB file is the right instrument for "what quantization is this?"** A
+  K-quant is a policy over tensors, so only the per-tensor types in the file's own tensor-info array
+  answer it; prose in quantize tools and model cards describes intent, not the produced artifact. Range
+  request, parse, stop (`tools/gguf_header_types.py`).
+
 ## Never print chat-template special tokens literally
 
 In replies, commit messages, gate output, logs or docs. Every agent on this box is served by a checkpoint whose

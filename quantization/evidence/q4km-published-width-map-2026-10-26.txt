@@ -1,0 +1,52 @@
+  4 MiB not enough: need 14 more bytes (fetched 4194304) — growing the range
+GGUF v3  arch=qwen35moe  n_tensors=733  n_kv=54  header bytes parsed=10990035/16777216
+  general.file_type                                    15
+  general.name                                         Qwen3.6-35B-A3B
+  general.quantization_version                         2
+  qwen35moe.attention.layer_norm_rms_epsilon           9.999999974752427e-07
+  qwen35moe.attention.value_length                     256
+  qwen35moe.embedding_length                           2048
+  qwen35moe.expert_count                               256
+  qwen35moe.expert_feed_forward_length                 512
+  qwen35moe.expert_shared_feed_forward_length          512
+  qwen35moe.expert_used_count                          8
+  qwen35moe.full_attention_interval                    4
+  output.weight                                            Q6_K    [2048, 248320]
+  output_norm.weight                                       F32     [2048]
+  token_embd.weight                                        Q8_0    [2048, 248320]
+  blk.0.attn_gate.weight                                   Q8_0    [2048, 4096]
+  blk.0.attn_norm.weight                                   F32     [2048]
+  blk.0.attn_qkv.weight                                    Q8_0    [2048, 8192]
+  blk.0.ffn_down_exps.weight                               Q5_K    [512, 2048, 256]
+  blk.0.ffn_down_shexp.weight                              Q8_0    [512, 2048]
+  blk.0.ffn_gate_exps.weight                               Q4_K    [2048, 512, 256]
+  blk.0.ffn_gate_inp.weight                                F32     [2048, 256]
+  blk.0.ffn_gate_inp_shexp.weight                          F32     [2048]
+  blk.0.ffn_gate_shexp.weight                              Q8_0    [2048, 512]
+  (733 of 733 tensors matched)
+
+family                                       type(s) actually stored (count) weight GiB
+------------------------------------------------------------------------------------------------
+GDN conv1d                                   F32 x30                       0.004
+GDN other (a/b/gate/beta/A_log/dt_bias)      F32 x150                      0.015
+GDN out_proj                                 Q8_0 x30                      0.249
+full-attn k                                  Q8_0 x10                      0.010
+full-attn output                             Q8_0 x10                      0.083
+full-attn q                                  Q8_0 x10                      0.166
+full-attn v                                  Q8_0 x10                      0.010
+linear-attn in_proj (attn_qkv)               Q8_0 x30                      0.498
+linear-attn z-gate (attn_gate)               Q8_0 x30                      0.249
+norms                                        F32 x101                      0.001
+output (lm_head)                             Q6_K x1                       0.389
+routed experts down                          Q5_K x37, Q6_K x3             7.047
+routed experts gate/up                       Q4_K x80                     11.250
+router (ffn_gate_inp)                        F32 x80                       0.078
+shared expert                                Q8_0 x120                     0.125
+token_embd (embeddings)                      Q8_0 x1                       0.503
+TOTAL weight bytes                                                        20.676
+(22201133568 bytes = 22.20 GB decimal)
+layer indices present: 0..39 (n=40)
+tensors whose name contains 'mtp': 0  -> this file carries no draft block by that name
+
+rank-3+ tensors (expert stacks / grouped proj): 120
+all 733 tensor-info records parsed.
