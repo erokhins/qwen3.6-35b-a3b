@@ -1,0 +1,22 @@
+# tools/ — provenance of the copied probes
+
+Every file here except this note is a **verbatim copy** made on 2026-10-26 from the 0.8B engine repo, so that
+this project can re-measure and re-gate without depending on that repo at read time (rule: `pitfalls/60-docs-and-citations.md`).
+Keeping the copies pristine means they can be diffed against upstream later; **do not edit them to remove old
+references** — record the caveats here instead.
+
+| file | what it measures | caveat when using it **here** |
+|---|---|---|
+| `gpu_lock.sh` | machine-wide GPU lock (`/tmp/pi_gpu.lock`), acquire/release by TAG, `status` shows a stale holder | unchanged, and intentionally shared with the sibling project so the two repos exclude each other on the one GPU. Check `grep -c gpu_lock <script>` before a caller acquires it (see `pitfalls/50-harness-and-shell.md`) |
+| `bw_probe_hip.cpp` | iGPU grid-stride read + copy sweep over blocks × threads, H2D/D2H, size–bandwidth curve | the numbers are model-independent; build `hipcc -O2 -Wl,-rpath,/opt/rocm/lib -o /tmp/bw_probe_hip bw_probe_hip.cpp` |
+| `mem_mode_probe_hip.cpp` | allocation modes (`hipMalloc` / `Managed` / host-pinned) + the total device-visible pool ceiling | use it for `DECISIONS.md` D-02 (can a >34 GiB host mapping be read at full speed?) — that is exactly what it is close to |
+| `gemm_peak.cpp`, `gemm_common.h` | dense matrix rate at chosen shapes/classes | its docstring quotes the 0.8B's shapes; pass the shapes this engine will actually emit (see `pitfalls/20-rates-and-occupancy.md`, "price the width the engine emits") |
+| `kernel_occupancy_probe.cpp` | blocks/CU and wavefronts/CU per kernel, with a canary that proves the query discriminates 0-LDS vs 64-KiB stubs | its embedded table lists the 0.8B's kernel names; re-run it on this project's kernels |
+| `launch_overhead_hip.cpp` | per-launch cost floor | dispatch-bound here, so bimodal — always report the spread |
+| `bw_probe.py` | CPU-side read/copy bandwidth → decode ceiling | **`--bytes-per-token` defaults to `1.565e9`, which is the 0.8B.** For this model pass `--bytes-per-token 5.89e9` (bf16 active bytes) or the printed ceiling is wrong by ~4× |
+| `isa_probe.sh` | ISA/class inventory of a code object (matrix/dot instructions, WMMA roofs) | remember the census rule: name which files it could actually read (`pitfalls/20-rates-and-occupancy.md`) |
+
+Not copied (deliberately, so far): `mixed_bw.cpp` (1,759 lines, and the mixed read/write question it answers was
+still open upstream), the dumper and gate harnesses (`reference_dump.py`, `weights_report.py`, `chat_render.py`
+and friends) — those get written for this model rather than ported, because their shape assumptions are the
+0.8B's. Add them here with a row above when they are.
