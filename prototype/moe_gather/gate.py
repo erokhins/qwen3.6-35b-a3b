@@ -19,7 +19,9 @@ What is judged, and by whom:
   * the ALT/IMMUNE class is also checked against the honest case's OUTPUT in the same run, so an
     injection cannot pass by agreeing with an expectation nobody derived: an IMMUNE case must equal the
     honest case's words, and an ALT case must differ from them.
-  * host arm vs device arm, word for word, same plan, same slab, same expectation.
+  * host arm vs device arm, per DECLARED FIELD (D-16 option A): bit-identical in every field the case
+    declares exact, census-and-attribution in the fields the lane counts and never bands. Same plan,
+    same slab, same expectation. See cross_arm().
   * the kernel's own per-case counters against gate.py's recount from the output file (two sites, one
     truth: the right-hand side comes from the file, not from the counter).
   * launch counts, grouped vs per-slot, and the device's own launch counter.
@@ -39,6 +41,17 @@ DRIVER = os.path.join(HERE, "moe_gather")
 PROBE = os.path.join(HERE, "host_probe")
 ORACLE = os.path.join(HERE, "oracle_arm.py")
 PY = "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python"
+
+# The repo's one ULP ruler (tools/ulp_policy.py, DECISIONS.md D-17). Imported, not re-derived: five
+# files used to carry their own ULP logic and two of the rulers disagreed about what a step is. The import
+# is deferred-and-loud rather than optional: a census nobody can compute is a census nobody prints,
+# and D-16 permits a divergence only while it is printed.
+sys.path.insert(0, os.path.join(REPO, "tools"))
+try:
+    import ulp_policy as UP
+    _UP_ERR = None
+except Exception as _e:                                   # pragma: no cover
+    UP, _UP_ERR = None, _e
 
 
 class Fail(Exception):
@@ -458,6 +471,117 @@ def adjudicate(v, cases, outw, expw, report, tag):
     return counts
 
 
+def cross_arm(v, cases, hostw, devw, expw):
+    """Host arm vs device arm, judged per DECLARED FIELD (DECISIONS.md D-16, the user's option A).
+
+    The check used to compare the whole output buffer, which spanned the two fields this lane declares
+    it does not band: `s` and `raw` carry an `expf`, glibc's and ROCm's libdevice disagree, and the
+    lane counts that route and never bands it (`field_exact=gate_up`, 18 cases). Option A makes the
+    cross-arm check inherit that declaration, with the three teeth D-16 attaches to it:
+
+      1. every field the case declares exact -- `gate`/`up` for those 18 cases, everything elsewhere --
+         must be bit-identical between the arms. That is *new* teeth: whole-buffer equality could never
+         say so, and "gate/up differ 0 times" was a fact about the data rather than an assertion;
+      2. the counted fields stay PRINTED, per case and per field, as a census in the shared ruler's
+         format: element counts, the ULP histogram, max ULP, where the divergences sit;
+      3. the accepted divergence is ATTRIBUTED by data, not waved through: both arms must differ from
+         the pinned oracle in the same field (one arm alone diverging from the oracle is a device
+         defect, not a route), and the divergence must be ISOLATED -- a strict majority of the field
+         bit-identical between the arms. A wholesale change of rounding mode moves every element and
+         is refused here. That is the tripwire that makes acceptance safe: it is what distinguishes
+         "two compilers round `expf` differently on a few elements" from "the device arm computes a
+         different function".
+
+    What this deliberately is NOT: it is not the D-17 ±1-ULP acceptance, and `ulp_policy.judge()` is
+    not called on `s`/`raw`. The measured cross-arm divergence runs to 3840 f32 ULP on `raw`
+    (`work/probe_ulp_hist.py`), so ±1 could not forgive it and pretending otherwise would be a band
+    typed to fit what the build produces. D-16 A is the authority here; what is shared with D-17 is
+    the *ruler* and the census format, not a tolerance.
+    """
+    if UP is None:
+        raise Fail("cannot import the shared ULP ruler from tools/ulp_policy.py: %r" % _UP_ERR)
+    I, H = int(os.environ.get("MG_I", 512)), int(os.environ.get("MG_H", 2048))
+    ruler = UP.Ruler("f32")
+    print("RULER %s" % ruler.format.line())
+    exact_words = counted_words = counted_div = 0
+    exact_offenders = []
+    att_offenders = []
+    iso_offenders = []
+    nan_payload = 0
+    n_counted_fields = n_exact_fields = 0
+    worst = (0.0, "")
+    for c in cases:
+        for fname, fo, fn in fields(c["kind"], I, H):
+            declared_exact = c["field_exact"] == "all" or fname in ("gate", "up")
+            do, eo = c["dst_off"] + fo, c["exp_off"] + fo
+            nd = n_diff2(hostw, do, devw, do, fn)
+            if declared_exact:
+                n_exact_fields += 1
+                exact_words += fn
+                if nd:
+                    exact_offenders.append("case %d field %s differs in %d of %d words"
+                                           % (c["case_index"], fname, nd, fn))
+                continue
+            n_counted_fields += 1
+            counted_words += fn
+            counted_div += nd
+            cen = ruler.census((i, hostw[do + i], devw[do + i]) for i in range(fn))
+            nan_payload += cen.count(UP.NAN_PAIR)
+            ho = n_diff2(hostw, do, expw, eo, fn)
+            de = n_diff2(devw, do, expw, eo, fn)
+            share = (cen.diverging / fn) if fn else 0.0
+            if share > worst[0]:
+                worst = (share, "case %d field %s" % (c["case_index"], fname))
+            # D-16 condition 3, as data: the divergence appears in a field BOTH arms disagree with the
+            # pinned oracle in. The oracle is an independent third side -- if only one arm moved, the
+            # arms would not be taking the same transcendental route, one of them would be wrong.
+            att = UP.Attribution(ho > 0 and de > 0,
+                                 "expf route: glibc vs ROCm libdevice; host_vs_oracle=%d "
+                                 "device_vs_oracle=%d arms_apart=%d" % (ho, de, nd))
+            isolated = cen.diverging * 2 < fn
+            print(cen.line(fname, extra="case=%d mode=%s differing_words_lane_rule=%d share=%.4f"
+                                  % (c["case_index"], c["mode_name"], nd, share)))
+            print("ARMDIFF case=%d mode=%s field=%s verdict=%s attribution=%s isolated=%d "
+                  "strict_majority_identical=%d/%d"
+                  % (c["case_index"], c["mode_name"], fname,
+                     "counted-and-attributed" if att.ok and isolated else "REFUSED",
+                     att.detail, 1 if isolated else 0, fn - cen.diverging, fn))
+            if not att.ok:
+                att_offenders.append("case %d field %s: %s" % (c["case_index"], fname, att.detail))
+            if not isolated:
+                iso_offenders.append("case %d field %s: %d of %d elements differ between the arms"
+                                     % (c["case_index"], fname, cen.diverging, fn))
+    outside = 0
+    outside_cases = 0
+    for c in cases:
+        if c["field_exact"] == "gate_up":
+            continue
+        outside_cases += 1
+        outside += n_diff(hostw, devw, c["dst_off"], c["n_floats"])
+    nd_all = n_diff(hostw, devw)
+    print("ARMDIFFSUM exact_fields=%d exact_words=%d counted_fields=%d counted_words=%d "
+          "counted_differing=%d exact_differing=%d nan_payload_pairs=%d worst_diverging_share=%.4f (%s)"
+          % (n_exact_fields, exact_words, n_counted_fields, counted_words, counted_div,
+             len(exact_offenders), nan_payload, worst[0], worst[1] or "none"))
+    print("ARMDIFFALL whole_buffer differing_words=%d of %d (the number D-16 was decided on; it is "
+          "reported, not asserted -- the assertion is now per declared field)" % (nd_all, len(hostw)))
+    v.check("cross-arm: every declared-exact field is bit-identical between the arms",
+            not exact_offenders, exact_words,
+            "; ".join(exact_offenders[:5]) if exact_offenders
+            else "0 differing words in %d words of declared-exact fields" % exact_words)
+    v.check("cross-arm: nothing outside the declared counted cases moves at all",
+            outside == 0, outside, "%d differing words across %d cases outside the 18 "
+            "field_exact=gate_up cases" % (outside, outside_cases))
+    v.check("cross-arm: every accepted divergence is attributed by an independent third side",
+            not att_offenders, n_counted_fields,
+            "fields where only one arm differs from the pinned oracle: %s"
+            % ("; ".join(att_offenders[:4]) if att_offenders else "none"))
+    v.check("cross-arm: every accepted divergence is isolated, not a systematic shift",
+            not iso_offenders, n_counted_fields,
+            "fields where a majority of elements moved (that is a different function, not rounding): %s"
+            % ("; ".join(iso_offenders[:4]) if iso_offenders else "none"))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--work", default=os.path.join(HERE, "work"))
@@ -565,9 +689,9 @@ def main():
         raise Fail("device driver rc=%d: %s" % (rc, out.strip().splitlines()[-1] if out else ""))
     devw = read_words(os.path.join(work, "out.f32"), nf)
     adjudicate(v, cases, devw, expw, os.path.join(work, "report.tsv"), "device")
-    nd = n_diff(hostw, devw)
-    v.check("host arm and device arm agree word for word", nd == 0, nf,
-            "differing words=%d of %d" % (nd, nf))
+    # The cross-arm check, scoped by the declared field rule (D-16 option A). It replaced a whole-buffer
+    # `nd == 0` check that spanned the fields this lane declares it does not band; see cross_arm().
+    cross_arm(v, cases, hostw, devw, expw)
     lc = parse_tag(out, "LAUNCHES", ["mode", "issued", "expected", "device_counted"], want=1)[0]
     v.check("device launch counter == launches issued",
             int(lc["issued"]) == int(lc["device_counted"]), int(lc["issued"]),

@@ -1,7 +1,7 @@
 LOCKREF gate.py references to the lock tool must be 0: 0
-LOCK acquired tag=q36 W13 moe_gather device gate status=HELD: 2026-10-25T15:27:50Z	q36 W13 moe_gather device gate	pid=435536
-UTIL_BEFORE gpu use: 92%
-CMD python3 /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/moe_gather/gate.py --device 
+LOCK acquired tag=q36 W13 moe_gather device gate status=HELD: 2026-10-25T17:16:17Z	q36 W13 moe_gather device gate	pid=474309
+UTIL_BEFORE gpu use: 8%
+CMD /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/moe_gather/gate.py --device 
 GEOMETRY H=2048 I=512 K=8 E=256 (checkpoints/Qwen3.6-35B-A3B.config.json, reconciled against moe_gather_kernels.h)
 MANIFEST file=audit-selftest-2026-10-26.json records=104
 GGUF tensors=733 data_start=10990048
@@ -1128,15 +1128,93 @@ INJECTION arm=MG_MODE_POISON_NAN(alt-vs-honest) kind=expert fired=1
 CHECK name=device injection denominator matches the plan ok=1 n=43 plan-derived=43 counted=43 (expert=29 combine=14)
 CHECK name=device expert injections all fired ok=1 n=29 did not fire: none
 CHECK name=device combine injections all fired ok=1 n=14 did not fire: none
-CHECK name=host arm and device arm agree word for word ok=0 n=306176 differing words=6631 of 306176
+RULER FORMAT name=f32 bits=32 mant=23 exp=8 bias=127 subnormal_min=1.401e-45 normal_min=1.175e-38 max=3.4028e+38 derived_from=bitimage(struct) crosscheck=numpy.finfo
+CENSUS format=f32 field=s judged=512 identical=505 differing=7 categories[equal=505 finite_step=7] ulp_histogram[1:3 2:4] max_ulp=2 subnormal_diverging=0 case=0 mode=MG_MODE_CORRECT differing_words_lane_rule=7 share=0.0137
+ARMDIFF case=0 mode=MG_MODE_CORRECT field=s verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=67 device_vs_oracle=66 arms_apart=7 isolated=1 strict_majority_identical=505/512
+CENSUS format=f32 field=raw judged=2048 identical=1823 differing=225 categories[equal=1823 finite_step=225] ulp_histogram[1:43 2:105 3:1 4:45 6:1 8:13 10:2 12:1 16:3 32:8 64:1 256:2] max_ulp=256 subnormal_diverging=0 case=0 mode=MG_MODE_CORRECT differing_words_lane_rule=225 share=0.1099
+ARMDIFF case=0 mode=MG_MODE_CORRECT field=raw verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=1257 device_vs_oracle=1258 arms_apart=225 isolated=1 strict_majority_identical=1823/2048
+CENSUS format=f32 field=s judged=512 identical=510 differing=2 categories[equal=510 finite_step=2] ulp_histogram[2:2] max_ulp=2 subnormal_diverging=0 case=1 mode=MG_MODE_CORRECT differing_words_lane_rule=2 share=0.0039
+ARMDIFF case=1 mode=MG_MODE_CORRECT field=s verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=71 device_vs_oracle=70 arms_apart=2 isolated=1 strict_majority_identical=510/512
+CENSUS format=f32 field=raw judged=2048 identical=1979 differing=69 categories[equal=1979 finite_step=69] ulp_histogram[1:13 2:32 4:10 8:8 16:2 32:2 64:1 256:1] max_ulp=256 subnormal_diverging=0 case=1 mode=MG_MODE_CORRECT differing_words_lane_rule=69 share=0.0337
+ARMDIFF case=1 mode=MG_MODE_CORRECT field=raw verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=1293 device_vs_oracle=1293 arms_apart=69 isolated=1 strict_majority_identical=1979/2048
+CENSUS format=f32 field=s judged=512 identical=498 differing=14 categories[equal=498 finite_step=14] ulp_histogram[1:10 2:4] max_ulp=2 subnormal_diverging=0 case=2 mode=MG_MODE_CORRECT differing_words_lane_rule=14 share=0.0273
+ARMDIFF case=2 mode=MG_MODE_CORRECT field=s verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=71 device_vs_oracle=76 arms_apart=14 isolated=1 strict_majority_identical=498/512
+CENSUS format=f32 field=raw judged=2048 identical=1494 differing=554 categories[equal=1494 finite_step=554] ulp_histogram[1:69 2:248 3:1 4:134 6:3 8:39 12:2 14:2 16:29 20:1 32:14 34:1 40:1 64:6 128:2 256:1 512:1] max_ulp=512 subnormal_diverging=0 case=2 mode=MG_MODE_CORRECT differing_words_lane_rule=554 share=0.2705
+ARMDIFF case=2 mode=MG_MODE_CORRECT field=raw verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=1175 device_vs_oracle=1177 arms_apart=554 isolated=1 strict_majority_identical=1494/2048
+CENSUS format=f32 field=s judged=512 identical=506 differing=6 categories[equal=506 finite_step=6] ulp_histogram[1:5 2:1] max_ulp=2 subnormal_diverging=0 case=3 mode=MG_MODE_CORRECT differing_words_lane_rule=6 share=0.0117
+ARMDIFF case=3 mode=MG_MODE_CORRECT field=s verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=87 device_vs_oracle=93 arms_apart=6 isolated=1 strict_majority_identical=506/512
+CENSUS format=f32 field=raw judged=2048 identical=1625 differing=423 categories[equal=1625 finite_step=423] ulp_histogram[1:75 2:175 3:1 4:95 5:1 6:2 8:38 12:1 16:17 32:7 64:6 80:1 128:2 4096:1 24576:1] max_ulp=24576 subnormal_diverging=0 case=3 mode=MG_MODE_CORRECT differing_words_lane_rule=423 share=0.2065
+ARMDIFF case=3 mode=MG_MODE_CORRECT field=raw verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=1622 device_vs_oracle=1628 arms_apart=423 isolated=1 strict_majority_identical=1625/2048
+CENSUS format=f32 field=s judged=512 identical=504 differing=8 categories[equal=504 finite_step=8] ulp_histogram[1:6 2:2] max_ulp=2 subnormal_diverging=0 case=4 mode=MG_MODE_CORRECT differing_words_lane_rule=8 share=0.0156
+ARMDIFF case=4 mode=MG_MODE_CORRECT field=s verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=79 device_vs_oracle=77 arms_apart=8 isolated=1 strict_majority_identical=504/512
+CENSUS format=f32 field=raw judged=2048 identical=1538 differing=510 categories[equal=1538 finite_step=510] ulp_histogram[1:85 2:229 3:4 4:102 5:1 6:3 8:42 9:1 12:5 16:21 24:3 32:8 48:1 128:4 1024:1] max_ulp=1024 subnormal_diverging=0 case=4 mode=MG_MODE_CORRECT differing_words_lane_rule=510 share=0.2490
+ARMDIFF case=4 mode=MG_MODE_CORRECT field=raw verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=1310 device_vs_oracle=1291 arms_apart=510 isolated=1 strict_majority_identical=1538/2048
+CENSUS format=f32 field=s judged=512 identical=506 differing=6 categories[equal=506 finite_step=6] ulp_histogram[1:3 2:3] max_ulp=2 subnormal_diverging=0 case=5 mode=MG_MODE_CORRECT differing_words_lane_rule=6 share=0.0117
+ARMDIFF case=5 mode=MG_MODE_CORRECT field=s verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=69 device_vs_oracle=74 arms_apart=6 isolated=1 strict_majority_identical=506/512
+CENSUS format=f32 field=raw judged=2048 identical=1582 differing=466 categories[equal=1582 finite_step=466] ulp_histogram[1:69 2:197 3:2 4:97 6:1 8:55 12:3 16:22 32:8 48:1 64:5 128:3 256:1 1024:1 2048:1] max_ulp=2048 subnormal_diverging=0 case=5 mode=MG_MODE_CORRECT differing_words_lane_rule=466 share=0.2275
+ARMDIFF case=5 mode=MG_MODE_CORRECT field=raw verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=1392 device_vs_oracle=1409 arms_apart=466 isolated=1 strict_majority_identical=1582/2048
+CENSUS format=f32 field=s judged=512 identical=506 differing=6 categories[equal=506 finite_step=6] ulp_histogram[1:6] max_ulp=1 subnormal_diverging=0 case=6 mode=MG_MODE_CORRECT differing_words_lane_rule=6 share=0.0117
+ARMDIFF case=6 mode=MG_MODE_CORRECT field=s verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=70 device_vs_oracle=68 arms_apart=6 isolated=1 strict_majority_identical=506/512
+CENSUS format=f32 field=raw judged=2048 identical=1801 differing=247 categories[equal=1801 finite_step=247] ulp_histogram[1:77 2:102 3:3 4:30 6:3 7:1 8:16 14:1 16:2 30:1 32:8 56:1 64:1 128:1] max_ulp=128 subnormal_diverging=0 case=6 mode=MG_MODE_CORRECT differing_words_lane_rule=247 share=0.1206
+ARMDIFF case=6 mode=MG_MODE_CORRECT field=raw verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=1366 device_vs_oracle=1321 arms_apart=247 isolated=1 strict_majority_identical=1801/2048
+CENSUS format=f32 field=s judged=512 identical=503 differing=9 categories[equal=503 finite_step=9] ulp_histogram[1:6 2:3] max_ulp=2 subnormal_diverging=0 case=7 mode=MG_MODE_CORRECT differing_words_lane_rule=9 share=0.0176
+ARMDIFF case=7 mode=MG_MODE_CORRECT field=s verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=98 device_vs_oracle=102 arms_apart=9 isolated=1 strict_majority_identical=503/512
+CENSUS format=f32 field=raw judged=2048 identical=1756 differing=292 categories[equal=1756 finite_step=292] ulp_histogram[1:39 2:141 4:54 6:1 8:29 16:17 32:6 64:2 128:1 256:2] max_ulp=256 subnormal_diverging=0 case=7 mode=MG_MODE_CORRECT differing_words_lane_rule=292 share=0.1426
+ARMDIFF case=7 mode=MG_MODE_CORRECT field=raw verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=1199 device_vs_oracle=1218 arms_apart=292 isolated=1 strict_majority_identical=1756/2048
+CENSUS format=f32 field=s judged=512 identical=499 differing=13 categories[equal=499 finite_step=13] ulp_histogram[1:12 2:1] max_ulp=2 subnormal_diverging=0 case=33 mode=MG_MODE_EXPERT_ROTATE differing_words_lane_rule=13 share=0.0254
+ARMDIFF case=33 mode=MG_MODE_EXPERT_ROTATE field=s verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=100 device_vs_oracle=104 arms_apart=13 isolated=1 strict_majority_identical=499/512
+CENSUS format=f32 field=raw judged=2048 identical=2023 differing=25 categories[equal=2023 finite_step=25] ulp_histogram[1:3 2:9 4:6 8:3 16:1 32:1 64:1 128:1] max_ulp=128 subnormal_diverging=0 case=33 mode=MG_MODE_EXPERT_ROTATE differing_words_lane_rule=25 share=0.0122
+ARMDIFF case=33 mode=MG_MODE_EXPERT_ROTATE field=raw verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=1240 device_vs_oracle=1240 arms_apart=25 isolated=1 strict_majority_identical=2023/2048
+CENSUS format=f32 field=s judged=512 identical=499 differing=13 categories[equal=499 finite_step=13] ulp_histogram[1:9 2:4] max_ulp=2 subnormal_diverging=0 case=37 mode=MG_MODE_CORRECT differing_words_lane_rule=13 share=0.0254
+ARMDIFF case=37 mode=MG_MODE_CORRECT field=s verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=140 device_vs_oracle=136 arms_apart=13 isolated=1 strict_majority_identical=499/512
+CENSUS format=f32 field=raw judged=2048 identical=1624 differing=424 categories[equal=1624 finite_step=424] ulp_histogram[1:101 2:185 3:1 4:76 6:6 8:29 9:1 12:1 16:6 24:2 32:7 56:1 64:2 120:1 128:1 256:3 384:1] max_ulp=384 subnormal_diverging=0 case=37 mode=MG_MODE_CORRECT differing_words_lane_rule=424 share=0.2070
+ARMDIFF case=37 mode=MG_MODE_CORRECT field=raw verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=1490 device_vs_oracle=1476 arms_apart=424 isolated=1 strict_majority_identical=1624/2048
+CENSUS format=f32 field=s judged=512 identical=495 differing=17 categories[equal=495 finite_step=17] ulp_histogram[1:14 2:3] max_ulp=2 subnormal_diverging=0 case=38 mode=MG_MODE_CORRECT differing_words_lane_rule=17 share=0.0332
+ARMDIFF case=38 mode=MG_MODE_CORRECT field=s verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=143 device_vs_oracle=147 arms_apart=17 isolated=1 strict_majority_identical=495/512
+CENSUS format=f32 field=raw judged=2048 identical=1486 differing=562 categories[equal=1486 finite_step=562] ulp_histogram[1:197 2:200 3:9 4:69 5:3 6:10 7:4 8:23 9:3 10:4 13:1 14:1 15:1 16:8 17:2 18:2 20:1 30:1 32:4 36:2 48:1 60:2 64:3 68:1 124:1 128:4 208:1 224:1 240:1 256:1 960:1] max_ulp=960 subnormal_diverging=0 case=38 mode=MG_MODE_CORRECT differing_words_lane_rule=562 share=0.2744
+ARMDIFF case=38 mode=MG_MODE_CORRECT field=raw verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=1326 device_vs_oracle=1378 arms_apart=562 isolated=1 strict_majority_identical=1486/2048
+CENSUS format=f32 field=s judged=512 identical=500 differing=12 categories[equal=500 finite_step=12] ulp_histogram[1:9 2:3] max_ulp=2 subnormal_diverging=0 case=39 mode=MG_MODE_CORRECT differing_words_lane_rule=12 share=0.0234
+ARMDIFF case=39 mode=MG_MODE_CORRECT field=s verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=140 device_vs_oracle=145 arms_apart=12 isolated=1 strict_majority_identical=500/512
+CENSUS format=f32 field=raw judged=2048 identical=1774 differing=274 categories[equal=1774 finite_step=274] ulp_histogram[1:83 2:107 3:3 4:53 6:2 7:1 8:10 12:1 16:3 18:2 31:1 32:4 64:3 2048:1] max_ulp=2048 subnormal_diverging=0 case=39 mode=MG_MODE_CORRECT differing_words_lane_rule=274 share=0.1338
+ARMDIFF case=39 mode=MG_MODE_CORRECT field=raw verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=1276 device_vs_oracle=1291 arms_apart=274 isolated=1 strict_majority_identical=1774/2048
+CENSUS format=f32 field=s judged=512 identical=499 differing=13 categories[equal=499 finite_step=13] ulp_histogram[1:10 2:3] max_ulp=2 subnormal_diverging=0 case=40 mode=MG_MODE_CORRECT differing_words_lane_rule=13 share=0.0254
+ARMDIFF case=40 mode=MG_MODE_CORRECT field=s verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=158 device_vs_oracle=157 arms_apart=13 isolated=1 strict_majority_identical=499/512
+CENSUS format=f32 field=raw judged=2048 identical=1620 differing=428 categories[equal=1620 finite_step=428] ulp_histogram[1:64 2:197 3:1 4:81 6:2 8:42 12:3 16:17 20:1 24:1 28:1 32:12 40:1 64:3 72:1 96:1] max_ulp=96 subnormal_diverging=0 case=40 mode=MG_MODE_CORRECT differing_words_lane_rule=428 share=0.2090
+ARMDIFF case=40 mode=MG_MODE_CORRECT field=raw verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=1484 device_vs_oracle=1481 arms_apart=428 isolated=1 strict_majority_identical=1620/2048
+CENSUS format=f32 field=s judged=512 identical=501 differing=11 categories[equal=501 finite_step=11] ulp_histogram[1:11] max_ulp=1 subnormal_diverging=0 case=41 mode=MG_MODE_CORRECT differing_words_lane_rule=11 share=0.0215
+ARMDIFF case=41 mode=MG_MODE_CORRECT field=s verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=157 device_vs_oracle=154 arms_apart=11 isolated=1 strict_majority_identical=501/512
+CENSUS format=f32 field=raw judged=2048 identical=1714 differing=334 categories[equal=1714 finite_step=334] ulp_histogram[1:81 2:155 3:3 4:54 5:1 6:3 7:2 8:18 12:1 16:6 24:1 32:4 64:1 68:1 128:1 256:2] max_ulp=256 subnormal_diverging=0 case=41 mode=MG_MODE_CORRECT differing_words_lane_rule=334 share=0.1631
+ARMDIFF case=41 mode=MG_MODE_CORRECT field=raw verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=1473 device_vs_oracle=1492 arms_apart=334 isolated=1 strict_majority_identical=1714/2048
+CENSUS format=f32 field=s judged=512 identical=490 differing=22 categories[equal=490 finite_step=22] ulp_histogram[1:18 2:3 3:1] max_ulp=3 subnormal_diverging=0 case=42 mode=MG_MODE_CORRECT differing_words_lane_rule=22 share=0.0430
+ARMDIFF case=42 mode=MG_MODE_CORRECT field=s verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=139 device_vs_oracle=144 arms_apart=22 isolated=1 strict_majority_identical=490/512
+CENSUS format=f32 field=raw judged=2048 identical=1660 differing=388 categories[equal=1660 finite_step=388] ulp_histogram[1:79 2:166 3:1 4:69 5:1 6:2 7:1 8:36 10:1 12:2 16:17 28:1 32:6 34:1 60:1 64:3 72:1] max_ulp=72 subnormal_diverging=0 case=42 mode=MG_MODE_CORRECT differing_words_lane_rule=388 share=0.1895
+ARMDIFF case=42 mode=MG_MODE_CORRECT field=raw verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=1458 device_vs_oracle=1460 arms_apart=388 isolated=1 strict_majority_identical=1660/2048
+CENSUS format=f32 field=s judged=512 identical=491 differing=21 categories[equal=491 finite_step=21] ulp_histogram[1:15 2:6] max_ulp=2 subnormal_diverging=0 case=43 mode=MG_MODE_CORRECT differing_words_lane_rule=21 share=0.0410
+ARMDIFF case=43 mode=MG_MODE_CORRECT field=s verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=150 device_vs_oracle=150 arms_apart=21 isolated=1 strict_majority_identical=491/512
+CENSUS format=f32 field=raw judged=2048 identical=1588 differing=460 categories[equal=1588 finite_step=460] ulp_histogram[1:128 2:188 3:1 4:90 6:6 8:18 12:5 14:1 16:12 18:1 20:1 24:2 32:2 64:3 128:2] max_ulp=128 subnormal_diverging=0 case=43 mode=MG_MODE_CORRECT differing_words_lane_rule=460 share=0.2246
+ARMDIFF case=43 mode=MG_MODE_CORRECT field=raw verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=1451 device_vs_oracle=1494 arms_apart=460 isolated=1 strict_majority_identical=1588/2048
+CENSUS format=f32 field=s judged=512 identical=498 differing=14 categories[equal=498 finite_step=14] ulp_histogram[1:11 2:3] max_ulp=2 subnormal_diverging=0 case=44 mode=MG_MODE_CORRECT differing_words_lane_rule=14 share=0.0273
+ARMDIFF case=44 mode=MG_MODE_CORRECT field=s verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=129 device_vs_oracle=131 arms_apart=14 isolated=1 strict_majority_identical=498/512
+CENSUS format=f32 field=raw judged=2048 identical=1310 differing=738 categories[equal=1310 finite_step=738] ulp_histogram[1:163 2:299 3:15 4:125 5:5 6:10 7:2 8:44 9:1 10:7 12:4 14:1 16:19 17:1 18:1 20:1 24:7 28:2 30:1 32:7 40:1 48:3 56:1 64:5 96:1 112:1 128:2 144:1 192:1 200:1 256:1 512:1 1280:1 2688:1 3072:1 3840:1] max_ulp=3840 subnormal_diverging=0 case=44 mode=MG_MODE_CORRECT differing_words_lane_rule=738 share=0.3604
+ARMDIFF case=44 mode=MG_MODE_CORRECT field=raw verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=1482 device_vs_oracle=1503 arms_apart=738 isolated=1 strict_majority_identical=1310/2048
+CENSUS format=f32 field=s judged=512 identical=500 differing=12 categories[equal=500 finite_step=12] ulp_histogram[1:9 2:2 3:1] max_ulp=3 subnormal_diverging=0 case=70 mode=MG_MODE_EXPERT_ROTATE differing_words_lane_rule=12 share=0.0234
+ARMDIFF case=70 mode=MG_MODE_EXPERT_ROTATE field=s verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=133 device_vs_oracle=131 arms_apart=12 isolated=1 strict_majority_identical=500/512
+CENSUS format=f32 field=raw judged=2048 identical=2042 differing=6 categories[equal=2042 finite_step=6] ulp_histogram[1:4 4:1 64:1] max_ulp=64 subnormal_diverging=0 case=70 mode=MG_MODE_EXPERT_ROTATE differing_words_lane_rule=6 share=0.0029
+ARMDIFF case=70 mode=MG_MODE_EXPERT_ROTATE field=raw verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=1337 device_vs_oracle=1337 arms_apart=6 isolated=1 strict_majority_identical=2042/2048
+ARMDIFFSUM exact_fields=271 exact_words=260096 counted_fields=36 counted_words=46080 counted_differing=6631 exact_differing=0 nan_payload_pairs=0 worst_diverging_share=0.3604 (case 44 field raw)
+ARMDIFFALL whole_buffer differing_words=6631 of 306176 (the number D-16 was decided on; it is reported, not asserted -- the assertion is now per declared field)
+CHECK name=cross-arm: every declared-exact field is bit-identical between the arms ok=1 n=260096 0 differing words in 260096 words of declared-exact fields
+CHECK name=cross-arm: nothing outside the declared counted cases moves at all ok=1 n=0 0 differing words across 79 cases outside the 18 field_exact=gate_up cases
+CHECK name=cross-arm: every accepted divergence is attributed by an independent third side ok=1 n=36 fields where only one arm differs from the pinned oracle: none
+CHECK name=cross-arm: every accepted divergence is isolated, not a systematic shift ok=1 n=36 fields where a majority of elements moved (that is a different function, not rounding): none
 CHECK name=device launch counter == launches issued ok=1 n=6 mode=grouped issued=6 device_counted=6
 CHECK name=no device->host read during the launches ok=1 n=1 d2h_total=3 d2h_during=0
 CHECK name=per-slot and grouped differ in launch count (prediction 2) ok=1 n=2 grouped=6 per-slot=27
 CHECK name=per-slot shape produces the same words (so the count is the only difference) ok=1 n=306176 differing=0
-CHECKS ran=908 failed=1 host arm and device arm agree word for word
-RESULT FAIL moe_gather device gate checks=908 findings=1
-UTIL_AFTER gpu use: 38%
-WALL started=2026-10-25T15:27:50Z finished=2026-10-25T15:28:04Z  (lock record only; no timing taken)
+CHECKS ran=911 failed=0 
+RESULT PASS moe_gather device gate checks=911 findings=0
+UTIL_AFTER gpu use: 37%
+WALL started=2026-10-25T17:16:17Z finished=2026-10-25T17:16:32Z  (lock record only; no timing taken)
 no timing taken
 LOG /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/moe_gather/evidence/moe-gather-device-2026-10-26.log
 LOCK releasing

@@ -1,6 +1,6 @@
 LOCKREF gate.py references to the lock tool must be 0: 0
 NO LOCK reason=host-only (host): no device work, so the lock stays free for the main agent
-CMD python3 /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/moe_gather/gate.py --check-only
+CMD /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/moe_gather/gate.py --check-only
 GEOMETRY H=2048 I=512 K=8 E=256 (checkpoints/Qwen3.6-35B-A3B.config.json, reconciled against moe_gather_kernels.h)
 MANIFEST file=audit-selftest-2026-10-26.json records=104
 GGUF tensors=733 data_start=10990048

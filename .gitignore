@@ -81,3 +81,18 @@ prototype/moe_gather/work/*
 !prototype/moe_gather/work/diag_span.py
 !prototype/moe_gather/work/diag_x.py
 !prototype/moe_gather/work/probe9.py
+# Witness/diagnostic scripts the repair turn cites by name in prototype/moe_gather/results.md.
+# Self-containment: a number a report cites has to be reproducible from files in THIS repo, so the
+# scripts that produced it are un-ignored by exact path (never the directory).
+!prototype/moe_gather/work/diag_wspan.py
+!prototype/moe_gather/work/diag_unit_elt.cpp
+!prototype/moe_gather/work/diag_residual.py
+!prototype/moe_gather/work/diag_alt_coincides.py
+!prototype/moe_gather/work/diag_armdiff.py
+!prototype/moe_gather/work/mutate.py
+!prototype/moe_gather/work/negctl.sh
+# The cross-arm witnesses this turn's results.md §11 cites by name (self-containment: a cited number
+# must be reproducible from files in THIS repo). Exact paths, never the directory.
+!prototype/moe_gather/work/probe_ulp_hist.py
+!prototype/moe_gather/work/probe_cross_arm.py
+!prototype/moe_gather/work/negctl_crossarm.py

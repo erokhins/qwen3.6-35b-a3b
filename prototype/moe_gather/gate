@@ -28,6 +28,10 @@ set -uo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
 LOCK="$REPO/tools/gpu_lock.sh"
+# Interpreter of record for CPU work in this repo (it is also the only one with numpy, which is the
+# second source tools/ulp_policy.py cross-checks its derived f32 format facts against). gate.py is
+# stdlib-only code; it gains a dependency, not a device context.
+PY=/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python
 TAG="q36 W13 moe_gather device gate"
 DAY=2026-10-26
 LOCKED=0
@@ -69,8 +73,8 @@ fi
 say "LOCKREF gate.py references to the lock tool must be 0: $(grep -c 'gpu_lock' "$HERE/gate.py")"
 if [ "$MODE" = host ]; then
   say "NO LOCK reason=host-only ($MODE): no device work, so the lock stays free for the main agent"
-  say "CMD python3 $HERE/gate.py $*"
-  python3 "$HERE/gate.py" "$@" 2>&1 | tee -a "$LOG"
+  say "CMD $PY $HERE/gate.py $*"
+  "$PY" "$HERE/gate.py" "$@" 2>&1 | tee -a "$LOG"
   rc=${PIPESTATUS[0]}
   say "gate: host-only run complete rc=$rc"
   say "LOG $LOG"
@@ -101,9 +105,9 @@ fi
 LOCKED=1
 say "LOCK acquired tag=$TAG status=$("$LOCK" status)"
 say "UTIL_BEFORE $("$LOCK" util)"
-say "CMD python3 $HERE/gate.py --device $*"
+say "CMD $PY $HERE/gate.py --device $*"
 START=$(date -u +%FT%TZ)
-python3 "$HERE/gate.py" --device "$@" 2>&1 | tee -a "$LOG"
+"$PY" "$HERE/gate.py" --device "$@" 2>&1 | tee -a "$LOG"
 rc=${PIPESTATUS[0]}
 END=$(date -u +%FT%TZ)
 say "UTIL_AFTER $("$LOCK" util)"

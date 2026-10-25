@@ -295,3 +295,69 @@ lock record `WALL started=…T15:27:50Z finished=…T15:28:04Z (lock record only
   may be immune everywhere, not that any case stays immune.
 - `MG_MODE_INPUT_CHUNK`'s NaN region is modelled from the run's own block count; whether that is the only
   sensible reading of "the fused pair chunked along the INPUT dim" is untested against any other source.
+
+## 11. The cross-arm check, scoped by the declared field rule (2026-10-26, lane `ulp-policy`)
+
+No timing appears here. The `WALL` line in `evidence/moe-gather-device-2026-10-26.log` is a lock record
+and the log prints `no timing taken`.
+
+§10's one open finding — the whole-buffer cross-arm check — is closed by the user's **D-16 option A**, and
+the check is now `gate.py:cross_arm()`. It is not a loosening: the one old assertion became four, and the
+field rule it now inherits was already this lane's declaration (`field_exact=gate_up`, §9.3).
+
+`RESULT` before `RESULT FAIL moe_gather device gate checks=908 findings=1` (committed at `3f1b977`,
+`evidence/moe-gather-device-2026-10-26.log:1137`; the finding itself at `:1131`) · after `RESULT PASS
+moe_gather device gate checks=911 findings=0`. `gate` truncates its own evidence log at every run, so the
+file now on disk is the post-change run and the `FAIL` line has to be read out of git. Host arm unchanged:
+`RESULT PASS plan check (no device) checks=456 findings=0`, `RESULT PASS host selftest checks=20
+findings=0`.
+
+**What the four checks are.** (1) every field a case declares exact — `gate`/`up` for the 18, everything
+elsewhere — is bit-identical between the arms: **0 differing words in 260,096**. That is *new* teeth; the
+whole-buffer check could never say it, and "gate/up differ 0 times" was a fact about the data. (2) nothing
+outside the 18 declared cases moves: **0 differing words across 79 cases**. (3) each accepted divergence
+is attributed by an independent third side — both arms must differ from the pinned `expect.f32` in that
+same field (host-vs-oracle `s` 2001 / `raw` 24,631; device 2025 / 24,747), so one arm alone diverging from
+the oracle is a device defect, not a route. (4) each is **isolated**: a strict majority of the field
+bit-identical between the arms (worst case 36.0 %, case 44 `raw`).
+
+**The census stays printed** (D-16 condition 1), per case and per counted field, in the shared ruler's
+format from `tools/ulp_policy.py`:
+
+```
+CENSUS format=f32 field=raw judged=2048 identical=1823 differing=225 categories[equal=1823 finite_step=225] ulp_histogram[1:43 2:105 3:1 4:45 6:1 8:13 10:2 12:1 16:3 32:8 64:1 256:2] max_ulp=256 subnormal_diverging=0 case=0 mode=MG_MODE_CORRECT differing_words_lane_rule=225 share=0.1099
+ARMDIFF case=0 mode=MG_MODE_CORRECT field=raw verdict=counted-and-attributed attribution=expf route: glibc vs ROCm libdevice; host_vs_oracle=1257 device_vs_oracle=1258 arms_apart=225 isolated=1 strict_majority_identical=1823/2048
+ARMDIFFSUM exact_fields=271 exact_words=260096 counted_fields=36 counted_words=46080 counted_differing=6631 exact_differing=0 nan_payload_pairs=0 worst_diverging_share=0.3604 (case 44 field raw)
+ARMDIFFALL whole_buffer differing_words=6631 of 306176 (the number D-16 was decided on; it is reported, not asserted -- the assertion is now per declared field)
+```
+
+The arithmetic closes: 260,096 exact words + 46,080 counted words = 306,176, and all 6,631 differing words
+are inside the counted fields (`counted_differing=6631`, `exact_differing=0`).
+
+**This lane's accepted divergence is NOT a ±1-ULP case**, and `ulp_policy.judge()` is deliberately not
+called on `s`/`raw`. `work/probe_ulp_hist.py` measures the cross-arm histogram out to **3,840 f32 ULP**
+(case 44 `raw`): isolated, but nowhere near one step. D-17's ±1 acceptance could not forgive it and
+inventing a band to fit would be a band typed from what the build produces. D-16 A is the authority; what
+this lane shares with D-17 is the **ruler and the census format**, not a tolerance. The ruler is imported,
+never re-derived — four files used to carry their own ULP logic and two of the rulers disagreed about what
+a step is.
+
+**Witnesses, each watched firing** (`work/negctl_crossarm.py`, mutations in memory only — the files on
+disk are never touched): moving one `gate` word by 1 ULP reddens (1); making the device arm match the
+oracle in `s` reddens (3); shifting *every* `s` element of a case by 1 ULP reddens (4) — that last one is
+the tripwire that makes acceptance safe, because a wholesale rounding-mode change looks exactly like that
+and is a different function, not rounding; moving one word outside the 18 reddens (2).
+`work/probe_cross_arm.py` runs the same check offline against the committed words, which is how the rule
+was validated before the device run was spent.
+
+Harness change that came with it: `./gate` now runs `gate.py` under the venv interpreter, so the imported
+ruler's format facts get their second source (`RULER FORMAT name=f32 … derived_from=bitimage(struct)
+crosscheck=numpy.finfo`) instead of a one-source derivation.
+
+**NOT ESTABLISHED after this turn** (adds to §10)
+
+- That isolation discriminates well on real data: 36.0 % of a field's elements may differ and still pass a
+  strict-majority test. A defect moving a large minority would be accepted.
+- That the attribution can ever be *satisfied* by a transcendental both arms implement identically: such a
+  field would show zero cross-arm divergence and never exercise checks (3) or (4) at all.
+- Nothing about the ±1 policy in production: this lane never invoked it. Its first real user is still ahead.
