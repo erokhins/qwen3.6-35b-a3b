@@ -74,6 +74,11 @@ rows > 1 is invisible to every one-row gate the tree has.**
   rule in `00-measurement.md`.
 - Grep for the marker the tool prints first: a baseline line printed *after* the device `RESULT` line will
   swallow it if you pipe through `tail -1`. Grep for `RESULT`, not for `ms`.
+- **Piping a gate through `tail` swallows its exit code**, so `gate --strict | tail -2 && git commit` commits a
+  red gate: the pipeline's status is `tail`'s, which is 0 even when the gate printed `findings: 1`. This bit
+  the commit that *added* the label rule below — the checker had gone red on the very doc describing the rule.
+  Correct: run the gate un-piped and check `$?`, or `set -o pipefail`, or redirect to a file and read it.
+  Same family as the `RESULT` line above, one level up: a filter that can hide the verdict cannot gate on it.
 - A `.gitignore` line like `prototype/**/<op>` (meant for the built binary) matches the op **directory** too, so
   the whole `prototype/<op>/` sits untracked and only `README.md` gets committed. Ignore the binary by exact path
   `prototype/<op>/<op>` and check `git status --ignored` after adding an op.
