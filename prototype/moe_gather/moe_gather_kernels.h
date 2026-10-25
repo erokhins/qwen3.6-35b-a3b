@@ -175,9 +175,17 @@ typedef struct {
     int32_t role;                 /* MG_ROLE_*                                                     */
     int32_t expert;               /* the expert id whose bytes these are                           */
     int32_t src_off;              /* byte offset of block 0 inside the slab                        */
-    int32_t slot_bytes;           /* stride between slab slots = block_bytes + 1; the extra byte is */
-                                  /* the byte that really follows the block in the file, so the     */
-                                  /* byte-shift mode sees what a misaligned read really sees        */
+    int32_t slot_bytes;           /* stride between consecutive blocks of THIS unit, in bytes. It is
+                                     the stride the reader uses, and mg_verify_plan requires it to
+                                     equal the kind's block size: a sampled unit is a CONTIGUOUS run
+                                     of a real tensor's blocks, exactly as they sit in the file, and
+                                     on a contiguous run the byte that really follows block k is
+                                     block k+1's first byte — which is what MG_MODE_BYTE_SHIFT_1 is
+                                     supposed to see. The earlier text claimed the slots were
+                                     block_bytes+1 wide while the reader walked at block_bytes, i.e.
+                                     two spellings of one address (pitfalls/40 §"Two self-consistent
+                                     layouts joined by a branch are invisible to both sides"); the
+                                     reader now uses this field and the plan must agree with it.    */
     int32_t n_blocks;             /* blocks in this unit = (rows * n_cols) / 256                   */
     int32_t rows;                 /* output rows this unit covers: I for gate/up, H for down       */
     int32_t set_pos;              /* position in the block's expert set, for the rotate mode       */
@@ -425,8 +433,8 @@ MG_DEV static inline int mg_unit_elt(const MgPlan *p, const MgUnit *u, int role,
     const int e = (int)(flat % MG_QK_K);
     if (blk < 0 || blk >= u->n_blocks) return 1;
     if (mode == MG_MODE_BLOCK_OFF_1) blk = (blk + 1) % u->n_blocks;   /* wraps inside this unit     */
-    long long off = (long long)u->src_off + blk * bb;
-    if (mode == MG_MODE_BYTE_SHIFT_1) off += 1;      /* slab slots are block_bytes + 1 wide         */
+    long long off = (long long)u->src_off + blk * u->slot_bytes;   /* the ONE stride expression     */
+    if (mode == MG_MODE_BYTE_SHIFT_1) off += 1;      /* the byte that really precedes the read      */
     if (off < 0 || off + bb > (long long)p->slab_bytes) return 1;
     const uint8_t *bp = (const uint8_t *)p->slab + off;
     *v = mg_deq_dbl(bp, kind, e, mode);
@@ -459,7 +467,12 @@ MG_DEV static inline const MgUnit *mg_resolve_unit(const MgPlan *p, const MgCase
             if (b->main_n <= 0 || u->cls == 2) return 0;
             const int pos = (u->set_pos + 1) % b->main_n;      /* next sampled expert of THIS block  */
             const MgUnit *r = &p->units[b->unit_base + pos * MG_ROLE_COUNT + role];
-            if (r->block != b->index || r->role != role) return 0;
+            /* The unit's `block` field is an INDEX INTO p->blocks (that is what mg_verify_plan
+             * compares case.block against), while b->index is the MoE block NUMBER (0, 39, 40).
+             * Comparing the two made this mode resolve to NULL on every block whose MoE number is not
+             * its array index — i.e. every block but layer0 — and the case would have read NaN and
+             * looked like a mismatch instead of a defect. One address expression, one identity. */
+            if (r->block != c->block || r->role != role) return 0;
             return r;
         }
         case MG_MODE_HALVES_SWAPPED:
@@ -852,7 +865,11 @@ static inline int mg_verify_plan(const MgPlan *p, long long out_floats, long lon
         if (u->n_blocks <= 0 || u->rows <= 0) { printf("FAIL plan: unit %d geometry %dx%d\n", i, u->n_blocks, u->rows); f++; }
         if (u->kind != u->declared_kind) { printf("FAIL plan: unit %d kind %d != declared %d\n", i, u->kind, u->declared_kind); f++; }
         const long long bb = mg_block_bytes(u->kind);
-        if (u->slot_bytes != (int32_t)(bb + 1)) { printf("FAIL plan: unit %d slot_bytes %d != block_bytes+1 %lld\n", i, u->slot_bytes, bb); f++; }
+        if (u->slot_bytes != (int32_t)bb) {
+            printf("FAIL plan: unit %d slot_bytes %d != block_bytes %lld (a sampled unit is a "
+                   "contiguous run; the reader walks at slot_bytes)\n", i, u->slot_bytes, bb);
+            f++;
+        }
         if ((long long)u->src_off < 0 ||
             (long long)u->src_off + (long long)(u->n_blocks - 1) * u->slot_bytes + bb > (long long)p->slab_bytes) {
             printf("FAIL plan: unit %d slab read from %d runs past slab_bytes=%zu\n", i, u->src_off, p->slab_bytes); f++;

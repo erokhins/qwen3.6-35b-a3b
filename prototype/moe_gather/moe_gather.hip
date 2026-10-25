@@ -21,6 +21,7 @@
 
 #include "moe_gather_kernels.h"
 #include "moe_gather_selftest.h"
+#include "moe_gather_args.h"
 
 #define MG_BLOCK_THREADS 256
 
@@ -36,13 +37,19 @@ static int g_failures = 0;
         }                                                                     \
     } while (0)
 
-static const char *arg_value(int argc, char **argv, const char *flag, const char *dflt) {
-    for (int i = 1; i + 1 < argc; ++i) if (!strcmp(argv[i], flag)) return argv[i + 1];
-    return dflt;
-}
-static int have_flag(int argc, char **argv, const char *flag) {
-    for (int i = 1; i < argc; ++i) if (!strcmp(argv[i], flag)) return 1;
-    return 0;
+static const MgArgSpec MG_ARGS[] = {
+    {"--selftest", 0}, {"--reach-table", 0}, {"--check-only", 0}, {"--per-slot", 0}, {"--arm", 1},
+    {"--plan", 1}, {"--slab", 1}, {"--expect", 1}, {"--out", 1}, {"--report", 1},
+    {"--out-floats", 1}, {"--expect-floats", 1}, {"--expect-units", 1}, {"--expect-rows", 1},
+    {"--expect-cases", 1}, {"--expect-blocks", 1},
+    {0, 0}
+};
+
+static void usage(void) {
+    printf("usage: moe_gather --plan P --slab S --expect E --out O --report R "
+           "--out-floats N --expect-floats N --expect-units N --expect-rows N "
+           "--expect-cases N --expect-blocks N [--per-slot] | --check-only | --selftest "
+           "[--arm A] | --reach-table\n");
 }
 
 static char *read_file(const char *path, size_t *n_out) {
@@ -96,21 +103,29 @@ static int run_group(const MgPlan *dp, const int *case_idx, int n_cases,
 }
 
 int main(int argc, char **argv) {
-    if (have_flag(argc, argv, "--selftest")) {
-        const int want_arm = atoi(arg_value(argc, argv, "--arm", "-1"));
-        int bad = 0, n = 0;
-        for (int arm = 0; arm < 3; ++arm) {
-            if (want_arm >= 0 && arm != want_arm) continue;
-            bad += mg_selftest(arm, 1);
-            n++;
+    char badtok[128];
+    if (mg_arg_validate(argc, argv, MG_ARGS, badtok, sizeof(badtok))) {
+        printf("FAIL argv: %s\n", badtok);
+        usage();
+        return 2;
+    }
+    if (mg_arg_has(argc, argv, "--selftest")) {
+        int ok = 1;
+        const long long arm_ll = mg_arg_ll(argc, argv, "--arm", -1, &ok);
+        if (!ok) { printf("FAIL argv: --arm must be an integer\n"); usage(); return 2; }
+        const int only = (int)arm_ll;
+        if (only < -1 || only >= MG_ST_ARMS) {
+            printf("FAIL argv: --arm %d outside [0,%d)\n", only, MG_ST_ARMS);
+            return 2;
         }
-        printf("DRIVER SELFTEST arms=%d failures=%d\n", n, bad);
-        if (bad) printf("RESULT FAIL driver selftest failures=%d\n", bad);
-        else printf("RESULT PASS driver selftest arms=%d\n", n);
-        return bad ? 1 : 0;
+        const int bad3 = mg_selftest_all(1, only, 0);
+        printf("DRIVER SELFTEST arms=%d failures=%d\n", (only < 0) ? MG_ST_ARMS : 1, bad3);
+        if (bad3) printf("RESULT FAIL driver selftest arms=%d\n", (only < 0) ? MG_ST_ARMS : 1);
+        else printf("RESULT PASS driver selftest arms=%d\n", (only < 0) ? MG_ST_ARMS : 1);
+        return bad3 ? 1 : 0;
     }
 
-    if (have_flag(argc, argv, "--reach-table")) {
+    if (mg_arg_has(argc, argv, "--reach-table")) {
         /* the kernel's own claim about which fields a mode can move, printed so gate.py can compare
          * its expectations against the compiled predicate instead of mirroring it in Python */
         int recs = 0;
@@ -126,24 +141,24 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    const char *plan_path = arg_value(argc, argv, "--plan", 0);
-    const char *slab_path = arg_value(argc, argv, "--slab", 0);
-    const char *expect_path = arg_value(argc, argv, "--expect", 0);
-    const char *out_path = arg_value(argc, argv, "--out", 0);
-    const char *report_path = arg_value(argc, argv, "--report", 0);
-    const long long out_floats = atoll(arg_value(argc, argv, "--out-floats", "0"));
-    const long long expect_floats = atoll(arg_value(argc, argv, "--expect-floats", "0"));
-    const int exp_units = atoi(arg_value(argc, argv, "--expect-units", "-1"));
-    const int exp_rows = atoi(arg_value(argc, argv, "--expect-rows", "-1"));
-    const int exp_cases = atoi(arg_value(argc, argv, "--expect-cases", "-1"));
-    const int exp_blocks = atoi(arg_value(argc, argv, "--expect-blocks", "-1"));
-    const int per_slot = have_flag(argc, argv, "--per-slot");
-    const int check_only = have_flag(argc, argv, "--check-only");
+    const char *plan_path = mg_arg_value(argc, argv, "--plan", 0);
+    const char *slab_path = mg_arg_value(argc, argv, "--slab", 0);
+    const char *expect_path = mg_arg_value(argc, argv, "--expect", 0);
+    const char *out_path = mg_arg_value(argc, argv, "--out", 0);
+    const char *report_path = mg_arg_value(argc, argv, "--report", 0);
+    int argv_ok = 1;
+    const long long out_floats = mg_arg_ll(argc, argv, "--out-floats", 0, &argv_ok);
+    const long long expect_floats = mg_arg_ll(argc, argv, "--expect-floats", 0, &argv_ok);
+    const int exp_units = (int)mg_arg_ll(argc, argv, "--expect-units", -1, &argv_ok);
+    const int exp_rows = (int)mg_arg_ll(argc, argv, "--expect-rows", -1, &argv_ok);
+    const int exp_cases = (int)mg_arg_ll(argc, argv, "--expect-cases", -1, &argv_ok);
+    const int exp_blocks = (int)mg_arg_ll(argc, argv, "--expect-blocks", -1, &argv_ok);
+    const int per_slot = mg_arg_has(argc, argv, "--per-slot");
+    const int check_only = mg_arg_has(argc, argv, "--check-only");
+    if (!argv_ok) { printf("FAIL argv: a numeric flag is not a whole integer\n"); usage(); return 2; }
     if (!plan_path || !slab_path || !expect_path || !out_path || !report_path) {
-        printf("usage: moe_gather --plan P --slab S --expect E --out O --report R "
-               "--out-floats N --expect-floats N --expect-units N --expect-rows N "
-               "--expect-cases N --expect-blocks N [--per-slot] | --check-only | --selftest "
-               "[--arm A] | --reach-table\n");
+        printf("FAIL argv: --plan/--slab/--expect/--out/--report are all required\n");
+        usage();
         return 2;
     }
 
@@ -239,6 +254,19 @@ int main(int argc, char **argv) {
      * which is the number that would have to be zero for specification/11-moe-block.md §11.7's claim
      * to hold in this shape. */
     int d2h_total = 0, d2h_during = 0, launches_issued = 0, launches_expected = 0;
+
+    /* d_caseidx is ONE device buffer shared by the grouped and the per-slot path. That is safe for
+     * exactly one reason, and it is worth naming because the two paths are otherwise independent
+     * (HANDOFF §7.4): every hipMemcpy into it is a synchronous copy on the default stream, and each
+     * launch that indexes it is enqueued on that same stream after the copy returns, so no two
+     * launches can ever be reading different index arrays at once. If this lane ever moves to
+     * streams or to asynchronous copies, this buffer must be per-launch (one allocation or one
+     * offset per launch) — not because the arithmetic is wrong today, but because "shared index
+     * buffer + concurrency" is the two-self-consistent-layout failure class in
+     * pitfalls/40-gates-and-admissions.md.
+     *
+     * The index arrays are filled from the host case table before each launch, so no routing value
+     * is read back from the device at any point (HOST_SYNC line below). */
 
     for (int b = 0; b < pb; ++b) {
         const int span = p.blocks[b].case_hi - p.blocks[b].case_lo + 1;

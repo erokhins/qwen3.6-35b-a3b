@@ -17,6 +17,12 @@
  *                  MUST go red; the count must equal the number of `equals` checks, asserted > 0. A
  *                  check that passes on somebody else's answer is caught here.
  *
+ * How the driver decides PASS (`mg_selftest_all`, HANDOFF §7.2): all three arms must have RUN, the
+ * honest arm must be clean AND report `changed == 0`, and BOTH saboteurs must report `changed > 0`.
+ * `--selftest` with no `--arm` runs all three; `--arm A` runs one and therefore prints FAIL — by
+ * design, and gate.py witnesses that, because "a single clean arm is not a pass" is the exact defect
+ * §7.2 recorded.
+ *
  * The fixtures are hand-worked in this file, with the arithmetic written out next to each expectation
  * so a reader can check it without running anything. Four of them are the element-order witnesses:
  * which sub-block a nibble's scale comes from (Q4_K element 33), where Q5_K's fifth bit lives, where
@@ -81,7 +87,14 @@ static inline void mg_st_q6k(uint8_t *blk) {
     blk[128] = 0x02;                              /* qh[0] bits 1:0 = 2 */
 }
 
-static inline int mg_selftest(int arm, int verbose) {
+/* What one arm of the suite reports. `changed` is the non-vacuity number: how many verdicts this arm
+ * moves relative to the honest run. The driver-level PASS rule (mg_selftest_all) is built from these,
+ * which is what §7.2 of HANDOFF asked for: a PASS that has never watched the suite fail is not a pass. */
+typedef struct {
+    int arm, checks, n_eq, n_dif, failures, changed, changed_eq, changed_dif, bad;
+} MgStResult;
+
+static inline int mg_selftest(int arm, int verbose, MgStResult *res) {
     MgStCheck ck[96];
     int n = 0;
 #define PUSH(nm, kd, g, w) do { ck[n].name = (nm); ck[n].kind = (kd); \
@@ -283,19 +296,37 @@ static inline int mg_selftest(int arm, int verbose) {
         if (ck[i].kind == MG_ST_EQUALS) n_eq++; else n_dif++;
     }
     int changed = 0, changed_eq = 0, changed_dif = 0, failures = 0;
+    uint32_t want_used[96];
+    const char *src_name[96];
     for (int i = 0; i < n; ++i) {
         int fired;
+        /* §7.3: the expectation actually used must be the one printed. The crossed arm used to print
+         * the honest `want` while the verdict was computed against the NEXT check's want, so a
+         * re-reader of the log saw `got == want` on a line that had just printed FAIL. */
+        want_used[i] = ck[i].want;
+        src_name[i] = ck[i].name;
         if (arm == 1) {
             fired = (ck[i].kind == MG_ST_EQUALS);              /* comparator says equal, always      */
+            src_name[i] = "<stub:always-equal>";
         } else if (arm == 2) {
             const uint32_t other = ck[(i + 1) % n].want;        /* somebody else's answer           */
+            want_used[i] = other;
+            src_name[i] = ck[(i + 1) % n].name;
             fired = (ck[i].kind == MG_ST_EQUALS) ? mg_word_eq(ck[i].got, other)
                                                  : !mg_word_eq(ck[i].got, other);
         } else {
             fired = honest_fired[i];
         }
         ck[i].fired = fired;
-        if (arm == 0) { if (!fired) failures++; continue; }
+        if (arm == 0) {
+            /* `changed` stays 0 for the honest arm by construction — it IS the baseline. The
+             * assertion is a consistency wire, not the suite's non-vacuity: it goes non-zero if the
+             * honest path is ever routed through a sabotage knob. The suite's non-vacuity is the two
+             * saboteur counts below, which must be > 0, plus the same-check-count rule in
+             * mg_selftest_all (an arm that "passes" by judging fewer checks is caught there). */
+            if (!fired) failures++;
+            continue;
+        }
         if (fired != honest_fired[i]) { changed++; if (ck[i].kind == MG_ST_EQUALS) changed_eq++; else changed_dif++; }
     }
     int bad = 0;
@@ -305,14 +336,83 @@ static inline int mg_selftest(int arm, int verbose) {
     if (verbose) {
         for (int i = 0; i < n; ++i)
             if (!ck[i].fired)
-                printf("FAIL selftest arm=%d check=%s kind=%s got=%08x want=%08x\n", arm, ck[i].name,
-                       ck[i].kind == MG_ST_EQUALS ? "equals" : "differs", ck[i].got, ck[i].want);
+                printf("FAIL selftest arm=%d check=%s kind=%s got=%08x want=%08x want_src=%s\n",
+                       arm, ck[i].name, ck[i].kind == MG_ST_EQUALS ? "equals" : "differs",
+                       ck[i].got, want_used[i], src_name[i]);
         printf("SELFTEST arm=%d name=%s checks=%d equals=%d differs=%d failures=%d "
                "changed=%d changed_equals=%d changed_differs=%d verdict=%s\n",
                arm, arm == 0 ? "honest" : (arm == 1 ? "stub" : "crossed"), n, n_eq, n_dif, failures,
                changed, changed_eq, changed_dif, bad ? "FAIL" : "ok");
     }
+    if (res) {
+        res->arm = arm; res->checks = n; res->n_eq = n_eq; res->n_dif = n_dif;
+        res->failures = failures; res->changed = changed;
+        res->changed_eq = changed_eq; res->changed_dif = changed_dif; res->bad = bad;
+    }
     return bad;
+}
+
+/* The driver-level three-arm rule (HANDOFF §7.2).
+ *
+ * Before this, a bare `--selftest` ran the honest arm only, because `arg_value` defaulted `--arm` to
+ * "0"; the driver then printed `RESULT PASS ... arms=1` on a suite that had never been seen to fail.
+ * The rule below is what makes that impossible: PASS requires three arms to have RUN, the honest arm
+ * to be clean AND unshifted (`changed == 0` — an honest arm that changes verdicts is not honest), and
+ * BOTH saboteurs to move at least one verdict. A reader can no more print PASS without watching the
+ * suite fail than a comparator can pass while stubbed.
+ *
+ * The negative control for this rule is the rule itself under `--arm N`: a single-arm run must print
+ * `RESULT FAIL ... arms=1` even when that arm is clean. gate.py runs exactly that and requires the
+ * non-zero exit (witnessed in results.md).
+ */
+#define MG_ST_ARMS 3
+static inline int mg_selftest_all(int verbose, int only_arm, MgStResult *out3) {
+    MgStResult rr[MG_ST_ARMS];
+    int executed = 0, bad = 0;
+    for (int arm = 0; arm < MG_ST_ARMS; ++arm) {
+        memset(&rr[arm], 0, sizeof(rr[arm]));
+        if (only_arm >= 0 && arm != only_arm) continue;
+        mg_selftest(arm, verbose, &rr[arm]);
+        executed++;
+        bad += rr[arm].bad;
+    }
+    int findings = 0;
+    if (executed != MG_ST_ARMS) {
+        printf("FAIL selftest only %d of %d arms executed: a PASS here would certify a suite that "
+               "never watched itself fail\n", executed, MG_ST_ARMS);
+        findings++;
+    }
+    if (executed == MG_ST_ARMS) {
+        const int honest_clean = (rr[0].failures == 0);
+        const int honest_still = (rr[0].changed == 0);
+        const int stub_moved = (rr[1].changed > 0);
+        const int crossed_moved = (rr[2].changed > 0);
+        if (!honest_clean) { printf("FAIL selftest honest arm has %d failing checks\n", rr[0].failures); findings++; }
+        if (!honest_still) { printf("FAIL selftest honest arm reports changed=%d; the honest arm must be the baseline\n", rr[0].changed); findings++; }
+        if (!stub_moved)   { printf("FAIL selftest stub arm changed nothing: every `differs` check passed while the comparator was forced to say equal — the comparator is decoration\n"); findings++; }
+        if (!crossed_moved){ printf("FAIL selftest crossed arm changed nothing: every check passed on somebody else's answer — the expectations are decoration\n"); findings++; }
+        /* Non-vacuity of the ARM COUNT itself: three arms that judged different numbers of checks are
+         * three arms that did not compare the same suite, and a sabotage that skips checks could
+         * report a plausible `changed` while covering less. Derived, not typed. */
+        for (int a = 1; a < MG_ST_ARMS; ++a)
+            if (rr[a].checks != rr[0].checks) {
+                printf("FAIL selftest arm %d judged %d checks, arm 0 judged %d: the arms are not the same suite\n",
+                       rr[a].arm, rr[a].checks, rr[0].checks);
+                findings++;
+            }
+        if (rr[0].n_eq <= 0 || rr[0].n_dif <= 0) {
+            printf("FAIL selftest population equals=%d differs=%d: one of the two check kinds is empty, "
+                   "so one sabotage arm has nothing it could catch\n", rr[0].n_eq, rr[0].n_dif);
+            findings++;
+        }
+    }
+    if (out3) for (int i = 0; i < MG_ST_ARMS; ++i) out3[i] = rr[i];
+    if (verbose)
+        printf("SELFTEST3 arms_run=%d honest_failures=%d honest_changed=%d stub_changed=%d "
+               "crossed_changed=%d verdict=%s\n",
+               executed, rr[0].failures, rr[0].changed, rr[1].changed, rr[2].changed,
+               (bad || findings) ? "FAIL" : "ok");
+    return (bad || findings) ? 1 : 0;
 }
 
 #endif /* MOE_GATHER_SELFTEST_H */

@@ -1,0 +1,21 @@
+# block candidate differing elements rows_bad rows reproduces
+layer0	output_chunk_gate_first	5	131072	2	64	1
+layer0	output_chunk_up_first	130541	131072	64	64	0
+layer0	input_chunk_gate_even	130995	131072	64	64	0
+layer0	input_chunk_gate_odd	131003	131072	64	64	0
+layer0	stack_transposed	130994	131072	64	64	0
+layer1	output_chunk_gate_first	125	131072	4	64	1
+layer1	output_chunk_up_first	130582	131072	64	64	0
+layer1	input_chunk_gate_even	130950	131072	64	64	0
+layer1	input_chunk_gate_odd	130941	131072	64	64	0
+layer1	stack_transposed	130947	131072	64	64	0
+layer39	output_chunk_gate_first	73	131072	3	64	1
+layer39	output_chunk_up_first	130693	131072	64	64	0
+layer39	input_chunk_gate_even	130940	131072	64	64	0
+layer39	input_chunk_gate_odd	130978	131072	64	64	0
+layer39	stack_transposed	130953	131072	64	64	0
+mtp0	output_chunk_gate_first	80	131072	4	64	1
+mtp0	output_chunk_up_first	130751	131072	64	64	0
+mtp0	input_chunk_gate_even	130960	131072	64	64	0
+mtp0	input_chunk_gate_odd	130936	131072	64	64	0
+mtp0	stack_transposed	130961	131072	64	64	0

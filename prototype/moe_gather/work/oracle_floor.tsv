@@ -1,0 +1,12 @@
+# figure value source
+combine_form_vs_pinned_routed_sum	0	this run, 4096 elements over 2 real rows
+legitimate_reassociation_layer0	5	speccheck Form batching grouped vs per_slot, this run
+f32_then_round_layer0	see tmp/verify_p3_offset.py	308076 of 524288 on layer0; an f32 accumulate does not reproduce the dump
+legitimate_reassociation_layer1	125	speccheck Form batching grouped vs per_slot, this run
+f32_then_round_layer1	see tmp/verify_p3_offset.py	308076 of 524288 on layer0; an f32 accumulate does not reproduce the dump
+legitimate_reassociation_layer39	73	speccheck Form batching grouped vs per_slot, this run
+f32_then_round_layer39	see tmp/verify_p3_offset.py	308076 of 524288 on layer0; an f32 accumulate does not reproduce the dump
+legitimate_reassociation_mtp0	80	speccheck Form batching grouped vs per_slot, this run
+f32_then_round_mtp0	see tmp/verify_p3_offset.py	308076 of 524288 on layer0; an f32 accumulate does not reproduce the dump
+exactness_bound_synthetic	16777216	2**24: every intermediate of the synthetic fixture is an integer below it, so f32 addition is exact and MG_EXP_MATCH is licensed (re-derived per case by gate.py)
+silu_exact_threshold	128.0f	MG_EXACT_EXP_MIN in moe_gather_kernels.h: at or above it expf(-z) flushes to zero and silu is the identity on both routes

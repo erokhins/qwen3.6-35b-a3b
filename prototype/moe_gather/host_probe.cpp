@@ -20,16 +20,24 @@
  */
 #include "moe_gather_kernels.h"
 #include "moe_gather_selftest.h"
+#include "moe_gather_args.h"
 
 #include <errno.h>
 
-static const char *arg_value(int argc, char **argv, const char *flag, const char *dflt) {
-    for (int i = 1; i + 1 < argc; ++i) if (!strcmp(argv[i], flag)) return argv[i + 1];
-    return dflt;
-}
-static int have_flag(int argc, char **argv, const char *flag) {
-    for (int i = 1; i < argc; ++i) if (!strcmp(argv[i], flag)) return 1;
-    return 0;
+/* The one flag table this binary accepts. Anything not listed here is an ERROR at the gate of main(),
+ * not a silent default (moe_gather_args.h) — that is the fix for HANDOFF §7.1. */
+static const MgArgSpec MG_ARGS[] = {
+    {"--selftest", 0}, {"--arm", 1},
+    {"--plan", 1}, {"--slab", 1}, {"--expect", 1}, {"--out", 1}, {"--report", 1},
+    {"--out-floats", 1}, {"--expect-floats", 1}, {"--expect-units", 1}, {"--expect-rows", 1},
+    {"--expect-cases", 1}, {"--expect-blocks", 1},
+    {0, 0}
+};
+
+static void usage(void) {
+    printf("usage: host_probe --plan P --slab S --expect E --out O --report R "
+           "--out-floats N --expect-floats N --expect-units N --expect-rows N "
+           "--expect-cases N --expect-blocks N | --selftest [--arm A]\n");
 }
 
 static char *read_file(const char *path, size_t *n_out) {
@@ -47,35 +55,45 @@ static char *read_file(const char *path, size_t *n_out) {
 }
 
 int main(int argc, char **argv) {
-    if (have_flag(argc, argv, "--selftest")) {
-        const int want_arm = atoi(arg_value(argc, argv, "--arm", "0"));
-        int bad = 0, n = 0;
-        for (int arm = 0; arm < 3; ++arm) {
-            if (want_arm >= 0 && arm != want_arm) continue;
-            bad += mg_selftest(arm, 1);
-            n++;
+    char bad[128];
+    if (mg_arg_validate(argc, argv, MG_ARGS, bad, sizeof(bad))) {
+        printf("FAIL argv: %s\n", bad);
+        usage();
+        return 2;
+    }
+    if (mg_arg_has(argc, argv, "--selftest")) {
+        int ok = 1;
+        const long long arm_ll = mg_arg_ll(argc, argv, "--arm", -1, &ok);
+        if (!ok) { printf("FAIL argv: --arm must be an integer\n"); usage(); return 2; }
+        const int only = (int)arm_ll;               /* -1 = all three arms (the default) */
+        if (only < -1 || only >= MG_ST_ARMS) {
+            printf("FAIL argv: --arm %d outside [0,%d)\n", only, MG_ST_ARMS);
+            return 2;
         }
-        printf("HOSTPROBE SELFTEST arms=%d failures=%d\n", n, bad);
-        if (bad) printf("RESULT FAIL host_probe selftest failures=%d\n", bad);
-        else printf("RESULT PASS host_probe selftest arms=%d\n", n);
-        return bad ? 1 : 0;
+        MgStResult rr[MG_ST_ARMS];
+        const int bad3 = mg_selftest_all(1, only, rr);
+        printf("HOSTPROBE SELFTEST arms=%d failures=%d\n", (only < 0) ? MG_ST_ARMS : 1, bad3);
+        if (bad3) printf("RESULT FAIL host_probe selftest arms=%d\n", (only < 0) ? MG_ST_ARMS : 1);
+        else printf("RESULT PASS host_probe selftest arms=%d\n", (only < 0) ? MG_ST_ARMS : 1);
+        return bad3 ? 1 : 0;
     }
 
-    const char *plan_path = arg_value(argc, argv, "--plan", 0);
-    const char *slab_path = arg_value(argc, argv, "--slab", 0);
-    const char *expect_path = arg_value(argc, argv, "--expect", 0);
-    const char *out_path = arg_value(argc, argv, "--out", 0);
-    const char *report_path = arg_value(argc, argv, "--report", 0);
-    const long long out_floats = atoll(arg_value(argc, argv, "--out-floats", "0"));
-    const long long expect_floats = atoll(arg_value(argc, argv, "--expect-floats", "0"));
-    const int exp_units = atoi(arg_value(argc, argv, "--expect-units", "-1"));
-    const int exp_rows = atoi(arg_value(argc, argv, "--expect-rows", "-1"));
-    const int exp_cases = atoi(arg_value(argc, argv, "--expect-cases", "-1"));
-    const int exp_blocks = atoi(arg_value(argc, argv, "--expect-blocks", "-1"));
+    const char *plan_path = mg_arg_value(argc, argv, "--plan", 0);
+    const char *slab_path = mg_arg_value(argc, argv, "--slab", 0);
+    const char *expect_path = mg_arg_value(argc, argv, "--expect", 0);
+    const char *out_path = mg_arg_value(argc, argv, "--out", 0);
+    const char *report_path = mg_arg_value(argc, argv, "--report", 0);
+    int argv_ok = 1;
+    const long long out_floats = mg_arg_ll(argc, argv, "--out-floats", 0, &argv_ok);
+    const long long expect_floats = mg_arg_ll(argc, argv, "--expect-floats", 0, &argv_ok);
+    const int exp_units = (int)mg_arg_ll(argc, argv, "--expect-units", -1, &argv_ok);
+    const int exp_rows = (int)mg_arg_ll(argc, argv, "--expect-rows", -1, &argv_ok);
+    const int exp_cases = (int)mg_arg_ll(argc, argv, "--expect-cases", -1, &argv_ok);
+    const int exp_blocks = (int)mg_arg_ll(argc, argv, "--expect-blocks", -1, &argv_ok);
+    if (!argv_ok) { printf("FAIL argv: a numeric flag is not a whole integer\n"); usage(); return 2; }
     if (!plan_path || !slab_path || !expect_path || !out_path || !report_path) {
-        printf("usage: host_probe --plan P --slab S --expect E --out O --report R "
-               "--out-floats N --expect-floats N --expect-units N --expect-rows N "
-               "--expect-cases N --expect-blocks N | --selftest [--arm A]\n");
+        printf("FAIL argv: --plan/--slab/--expect/--out/--report are all required\n");
+        usage();
         return 2;
     }
 
@@ -177,16 +195,21 @@ int main(int argc, char **argv) {
 
     FILE *rf = fopen(report_path, "wb");
     if (!rf) { printf("FAIL cannot write %s\n", report_path); return 1; }
-    long long sum_bad = 0, sum_nan = 0;
+    long long sum_bad = 0, sum_nan = 0, sum_route_bad = 0, sum_route_n = 0;
     for (int i = 0; i < pc; ++i) {
-        fprintf(rf, "%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", i, p.cases[i].kind, p.cases[i].mode,
+        /* the same ten columns the driver writes, so gate.py parses one record shape for both arms
+         * and a per-case counter disagreement is a finding rather than a column-count artefact */
+        fprintf(rf, "%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", i, p.cases[i].kind, p.cases[i].mode,
                 p.cases[i].block, p.cases[i].row, p.cases[i].slot, cts[i].bad, cts[i].nan,
-                cts[i].route_bad);
+                cts[i].route_bad, cts[i].route_n);
         sum_bad += cts[i].bad;
         sum_nan += cts[i].nan;
+        sum_route_bad += cts[i].route_bad;
+        sum_route_n += cts[i].route_n;
     }
     fclose(rf);
-    printf("REPORT file=%s cases=%d bad=%lld nan=%lld\n", report_path, pc, sum_bad, sum_nan);
+    printf("REPORT file=%s cases=%d bad=%lld nan=%lld route_bad=%lld route_n=%lld\n",
+           report_path, pc, sum_bad, sum_nan, sum_route_bad, sum_route_n);
     printf("RESULT PASS host_probe cases=%d out_floats=%lld\n", pc, out_floats);
     return 0;
 }

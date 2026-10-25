@@ -69,3 +69,15 @@ prototype/moe_gather/moe_gather
 prototype/moe_gather/host_probe
 prototype/moe_gather/build/moe_gather.o
 prototype/moe_gather/work/host_probe_selftest
+# Generated gate work for moe_gather: exact-path ignore of the directory contents (never the
+# directory, so an empty lane cannot hide), with the proof files results.md cites re-admitted — the
+# prediction-3 corrigendum is worth nothing to a fresh clone if oracle_p3.tsv is untracked.
+prototype/moe_gather/work/*
+!prototype/moe_gather/work/oracle_p3.tsv
+!prototype/moe_gather/work/oracle_p3_matrix.tsv
+!prototype/moe_gather/work/oracle_floor.tsv
+!prototype/moe_gather/work/cases.tsv
+!prototype/moe_gather/work/plan.tsv
+!prototype/moe_gather/work/diag_span.py
+!prototype/moe_gather/work/diag_x.py
+!prototype/moe_gather/work/probe9.py
