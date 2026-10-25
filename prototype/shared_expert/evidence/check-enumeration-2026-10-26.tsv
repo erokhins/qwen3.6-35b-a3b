@@ -1,0 +1,77 @@
+# arm	check	want	got	outcome
+host	exp floor probe: the bf16 store hides every libm disagreement	0	0	pass
+host	exp floor probe: an f32-carrying transcendental field is measured, not assumed	>=1	2	pass
+host	host selftest ran all three arms	3	3	pass
+host	host honest arm is clean	0	0/0	see-detail
+host	host STUB arm goes red on exactly the differing checks	6	6	pass
+host	host CROSSED arm goes red on exactly the equal checks	20	20	pass
+host	host suite exits non-zero when it is honest	0	0	pass
+host	host --arm=0 alone refuses to pass	non-zero	1	pass
+host	host --arm=1 alone refuses to pass	non-zero	1	pass
+host	host --arm=2 alone refuses to pass	non-zero	1	pass
+host	device selftest ran all three arms	3	3	pass
+host	device honest arm is clean	0	0/0	see-detail
+host	device STUB arm goes red on exactly the differing checks	6	6	pass
+host	device CROSSED arm goes red on exactly the equal checks	20	20	pass
+host	device suite exits non-zero when it is honest	0	0	pass
+host	device --arm=0 alone refuses to pass	non-zero	1	pass
+host	device --arm=1 alone refuses to pass	non-zero	1	pass
+host	device --arm=2 alone refuses to pass	non-zero	1	pass
+host	the row map the kernel implements is the one HF's own bytes agree with	gate_first, control worse	gate_first, control=yes closest wrong candidate is 53.661x further from pinned eager shared_raw	see-detail
+host	the Q8_0 pack keeps each weight row in its own slot (no transpose)	>1.05	91.712	see-detail
+host	Q8_0 clamp rate is explained by the block-max geometry (a wrong divisor clips)	0	0	pass
+host	this lane's own pack is no further from the pinned dump than the published Q8_0 tensor is	0	0	pass
+host	the decoded weight is exact in f32 and the significand claim is measured, not asserted	0	0	pass
+host	every layout candidate is reported (one that is not printed cannot lose)	7	7	pass
+host	gate_first is strictly nearer on relL2 than every wrong candidate and both controls	0	0	pass
+host	cos agrees with relL2 about the winner (two formulas, one answer)	gate_first	gate_first cos=0.999952078 for the winner; relL2 alone would be one formula's opinion	see-detail
+host	the pair_swap row-map blindness is real and is separated by the silu side	rowmap_only==honest AND pair_swap>honest	rowmap_only=0.01004416 pair_swap=0.538981 honest=0.01004416 silu_side	see-detail
+host	the q8-rule=512 control is REFUSED and visibly fires	non-zero rc and at least one differing measured line	rc=1 lines=6 a control that cannot fire proves nothing: the packer rule this lane shipped by mistake	see-detail
+host	the claim-candidate=up_first control is REFUSED and visibly fires	non-zero rc and at least one differing measured line	rc=1 lines=20 a control that cannot fire proves nothing: a claim the numbers do not support	see-detail
+host	oracle reproduces the pinned reference: layer0 shared_raw	65536	65536	pass
+host	oracle reproduces the pinned reference: layer0 shared_gate_prob	32	32	pass
+host	oracle reproduces the pinned reference: layer0 shared_out	65536	65536	pass
+host	oracle reproduces the pinned reference: layer1 shared_raw	65536	65536	pass
+host	oracle reproduces the pinned reference: layer1 shared_gate_prob	32	32	pass
+host	oracle reproduces the pinned reference: layer1 shared_out	65536	65536	pass
+host	oracle reproduces the pinned reference: layer39 shared_raw	65536	65536	pass
+host	oracle reproduces the pinned reference: layer39 shared_gate_prob	32	32	pass
+host	oracle reproduces the pinned reference: layer39 shared_out	65536	65536	pass
+host	oracle reproduces the pinned reference: mtp0 shared_raw	65536	65536	pass
+host	oracle reproduces the pinned reference: mtp0 shared_gate_prob	32	32	pass
+host	oracle reproduces the pinned reference: mtp0 shared_out	65536	65536	pass
+host	parsed==printed on the case list	43	43	pass
+host	host arm parsed==printed for W	12	12	pass
+host	host arm parsed==printed for A	32	32	pass
+host	host arm parsed==printed for C	43	43	pass
+host	every declared-exact field is bit-identical to the oracle	0	0	pass
+host	every counted field stays inside the band the floor probe measured	0	1	FAIL
+host	every counted divergence is isolated, not a systematic shift	0	0	pass
+host	weight-read counters equal the geometry-derived counts on every case	43	43	pass
+host	poison holes are counted, not skipped, and match the expectation	43	43	pass
+host	both digests re-derived by the driver equal the arm's	43	43	pass
+host	each arm's own bad-counter equals the driver's counted-field divergence for that case	43	43	pass
+host	every injection fires against the honest words	11	11	pass
+host	the declared blindness holds: pair_swap is invisible in gate/up and visible in act	pair_swap invisible in the two dots	ok	see-detail
+host	up_first is NOT blind in act (the sibling row swap changes which half gets silu)	>=1 case	1	see-detail
+host	grouped and per-case launches produce the same words (launch split is inert)	0	0	pass
+host	launch counts are what the plan says	4 and 172	4 and 172	pass
+device	device arm parsed==printed for W	12	12	pass
+device	device arm parsed==printed for A	32	32	pass
+device	device arm parsed==printed for C	43	43	pass
+device	every declared-exact field is bit-identical to the oracle	0	48	FAIL
+device	every counted field stays inside the band the floor probe measured	0	1	FAIL
+device	every counted divergence is isolated, not a systematic shift	0	0	pass
+device	weight-read counters equal the geometry-derived counts on every case	43	0	FAIL
+device	poison holes are counted, not skipped, and match the expectation	43	42	FAIL
+device	both digests re-derived by the driver equal the arm's	43	43	pass
+device	each arm's own bad-counter equals the driver's counted-field divergence for that case	43	0	FAIL
+device	every injection fires against the honest words	11	11	pass
+device	the declared blindness holds: pair_swap is invisible in gate/up and visible in act	pair_swap invisible in the two dots	ok	see-detail
+device	up_first is NOT blind in act (the sibling row swap changes which half gets silu)	>=1 case	1	see-detail
+device	host and device agree bit-for-bit in every declared-exact field	0	48	FAIL
+device	the device's own launch counter equals the launches issued	4	4	pass
+device	the occupancy probe can see LDS (64 KiB stub squeezes to 1 block/CU)	probe-sees-lds	seen	see-detail
+device	census slicer is witnessed (empty stub < 8-multiply stub < 16-multiply stub)	ok	ok	pass
+device	the census prices the machine KFD reports, not the one HIP reports	40	40	pass
+device	every kernel's slot bill is printed beside its occupancy	>=6	9	pass

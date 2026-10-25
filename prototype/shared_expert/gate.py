@@ -260,6 +260,93 @@ def census_gate(v, occ=None):
     return rc
 
 
+# ---- the width rule and the layout claim: checked here, not trusted from the oracle --------------
+def parse_rt(text):
+    """The candidate table, re-parsed by this driver. `winner=` from the oracle is a summary of a rule
+    it applied; the ordering claim is only independent if someone else sorts the numbers."""
+    cands, extra = {}, {}
+    for line in text.splitlines():
+        if line.startswith("LAYOUTRT candidate="):
+            d = kv(line)
+            cands[d["candidate"]] = (float(d["relL2"]), float(d["cos"]), float(d["maxabs"]))
+        elif line.startswith("LAYOUTRT winner="):
+            extra["winner"] = kv(line)
+        elif line.startswith("LAYOUTRT rowmap_identical="):
+            extra["ident"] = kv(line)
+    return cands, extra
+
+
+def layout_gate(v, out, oracle_cmd_base):
+    cands, extra = parse_rt(out)
+    want = ["gate_first", "up_first", "row_interleaved", "pair_swap", "pair_swap_rowmap_only",
+            "row_shift1_control", "col_shift1_control"]
+    missing = [c for c in want if c not in cands]
+    v.check("every layout candidate is reported (one that is not printed cannot lose)", not missing,
+            len(want), len(want) - len(missing),
+            "missing: " + ",".join(missing) if missing else "%d candidates ranked here" % len(cands))
+    if missing or "winner" not in extra:
+        return
+    h, hc, _ = cands["gate_first"]
+    wrong = [c for c in want if c not in ("gate_first", "pair_swap_rowmap_only")]
+    beaten = [c for c in wrong if cands[c][0] <= h]
+    v.check("gate_first is strictly nearer on relL2 than every wrong candidate and both controls",
+            not beaten, 0, len(beaten),
+            "; ".join("%s=%.6g vs %.6g" % (c, cands[c][0], h) for c in beaten)
+            or "ratio=%sx (driver-sorted, not the oracle's word)" % extra["winner"]["nearest_wrong_ratio"])
+    best_cos = max(cands, key=lambda k: cands[k][1] if k not in ("pair_swap_rowmap_only",) else -9)
+    v.check("cos agrees with relL2 about the winner (two formulas, one answer)",
+            best_cos == "gate_first", "gate_first", best_cos,
+            "cos=%.9f for the winner; relL2 alone would be one formula's opinion" % cands["gate_first"][1])
+    v.check("the pair_swap row-map blindness is real and is separated by the silu side",
+            cands["pair_swap_rowmap_only"][0] == h and cands["pair_swap"][0] > h,
+            "rowmap_only==honest AND pair_swap>honest",
+            "rowmap_only=%.9g pair_swap=%.9g honest=%.9g" % (cands["pair_swap_rowmap_only"][0],
+                                                             cands["pair_swap"][0], h),
+            extra.get("ident", {}).get("separated_by", "no rowmap_identical line printed"))
+    for flag, val, why in (("--q8-rule", "512", "the packer rule this lane shipped by mistake"),
+                           ("--claim-candidate", "up_first", "a claim the numbers do not support")):
+        rc, ctl = run(oracle_cmd_base + [flag, val],
+                      os.path.join(HERE, "work", "control-%s-%s.log" % (flag[2:], val)))
+        text = ctl + open(os.path.join(HERE, "work", "control-%s-%s.log" % (flag[2:], val))).read()
+        fired = [l for l in text.splitlines() if l.startswith("LAYOUTRT candidate=")
+                 or l.startswith("Q8RULE family=")]
+        v.check("the %s=%s control is REFUSED and visibly fires" % (flag[2:], val), rc != 0 and bool(fired),
+                "non-zero rc and at least one differing measured line", "rc=%d lines=%d" % (rc, len(fired)),
+                "a control that cannot fire proves nothing: %s" % why)
+
+
+def q8rule_gate(v, out):
+    """Is the pack Q8_0? The bound is the block-max geometry printed beside it, never a typed number."""
+    fams = [kv(l) for l in out.splitlines() if l.startswith("Q8RULE family=")]
+    pubs = [kv(l) for l in out.splitlines() if l.startswith("Q8RULEPUB family=")]
+    if len(fams) != 3 or len(pubs) != 3:
+        raise Fail("parsed %d Q8RULE and %d Q8RULEPUB lines, expected 3 and 3: a width check that "
+                   "matches nothing is a width check that passes" % (len(fams), len(pubs)))
+    over, worse, inexact = [], [], []
+    for f in fams:
+        if int(f["clamp_eq127"]) > int(f["clamp_bound_from_blockmax"]):
+            over.append("%s: %d elements on the clamp, geometry allows %d"
+                        % (f["family"], int(f["clamp_eq127"]), int(f["clamp_bound_from_blockmax"])))
+        pub = [p for p in pubs if p["family"] == f["family"]][0]
+        if float(f["relL2_vs_dump"]) > 1.5 * float(pub["relL2_vs_pinned_hf"]):
+            worse.append("%s: this pack sits at relL2 %s against the pinned dump where the PUBLISHED "
+                         "Q8_0 tensor sits at %s" % (f["family"], f["relL2_vs_dump"],
+                                                     pub["relL2_vs_pinned_hf"]))
+        if int(f["f32_vs_f64_inexact"]) != 0 or int(f["max_sig_bits"]) > int(f["max_sig_bits_f32_has"]):
+            inexact.append("%s: %d elements not exact in f32, %d significand bits (f32 has %s)"
+                           % (f["family"], int(f["f32_vs_f64_inexact"]), int(f["max_sig_bits"]),
+                              f["max_sig_bits_f32_has"]))
+    v.check("Q8_0 clamp rate is explained by the block-max geometry (a wrong divisor clips)", not over,
+            0, len(over), "; ".join(over) or "rate %.4f%% vs 1/32 = 3.125%% expected by geometry"
+            % (100.0 * int(fams[0]["clamp_eq127"]) / (int(fams[0]["clamp_bound_from_blockmax"]) / 1.05)))
+    v.check("this lane's own pack is no further from the pinned dump than the published Q8_0 tensor is",
+            not worse, 0, len(worse), "; ".join(worse) or "three families within 1.5x of the artifact")
+    v.check("the decoded weight is exact in f32 and the significand claim is measured, not asserted",
+            not inexact, 0, len(inexact), "; ".join(inexact)
+            or "f16(d)*int8(q) needs %s significand bits; f32 has %s, so the product is exact"
+            % (fams[0]["max_sig_bits"], fams[0]["max_sig_bits_f32_has"]))
+
+
 # ---- the fixture judgements --------------------------------------------------------------------
 def cols_gateup(mode):
     return {"tail_drop": H - 32, "cols_half": H // 2}.get(mode, H)
@@ -312,6 +399,7 @@ def judge_fields(v, cases, words, expect, band, ruler_bits):
     width = UP.WidthClass.from_type("Q8_0")     # the family this lane's weights are stored in
     print("WIDTH %s" % width.line())
     n_exact = n_counted = exact_words = counted_words = counted_div = 0
+    counted_by_case = {}
     offenders, band_offenders, iso_offenders = [], [], []
     for c in cases:
         counted = counted_fields(c)
@@ -324,10 +412,20 @@ def judge_fields(v, cases, words, expect, band, ruler_bits):
                 n_counted += 1
                 counted_words += n
                 counted_div += cen.diverging
-                att = UP.Attribution(cen.max_steps <= band and cen.diverging * 2 < n,
+                counted_by_case[c["index"]] = counted_by_case.get(c["index"], 0) + cen.diverging
+                if n == 1:
+                    # A one-element field cannot be "isolated": the one word that moved IS the whole
+                    # field, so `diverging * 2 < n` is unsatisfiable by construction (it refused the
+                    # cast-after prob word for any build). The band judges a 1-element field.
+                    isolated = cen.max_steps <= band
+                    iso_note = " isolation=not-defined-for-a-1-element-field(band_judges_it)"
+                else:
+                    isolated = cen.diverging * 2 < n
+                    iso_note = ""
+                att = UP.Attribution(cen.max_steps <= band and isolated,
                                      "expf route, numpy side of the oracle; floor probe measured "
-                                     "%d ULP over the whole bf16 grid, observed max=%d over %d/%d"
-                                     % (band, cen.max_steps, cen.diverging, n))
+                                     "%d ULP over the whole bf16 grid, observed max=%d over %d/%d%s"
+                                     % (band, cen.max_steps, cen.diverging, n, iso_note))
                 print(cen.line(fname, extra="case=%d label=%s width=%s counted=1 band=%d"
                                       % (c["index"], c["label"], w, band)))
                 print("POLICYLINE case=%d field=%s verdict=%s attribution=%s"
@@ -359,7 +457,7 @@ def judge_fields(v, cases, words, expect, band, ruler_bits):
     v.check("every counted divergence is isolated, not a systematic shift", not iso_offenders, 0,
             len(iso_offenders), "; ".join(iso_offenders[:4]) or "none")
     return "exact_fields=%d exact_words=%d counted_fields=%d counted_words=%d counted_diverging=%d" % (
-        n_exact, exact_words, n_counted, counted_words, counted_div)
+        n_exact, exact_words, n_counted, counted_words, counted_div), counted_by_case
 
 
 def read_report(path):
@@ -379,7 +477,21 @@ def read_report(path):
 
 
 def span_diff(words, a, b, off, n):
-    return sum(1 for i in range(n) if words[a + i] != words[b + i])
+    """Differing words between two spans of one buffer, starting at `off` inside each span.
+
+    The `off` argument used to be accepted and ignored, which made every field-level call compare the
+    case from element 0: the pair_swap blindness check printed `gate=0 up=0 act=0` while 507 of 512
+    act words in fact differed (measured, work/dbg_case_fields.py). A comparison that looks at the wrong
+    span cannot fail, so it must not be trusted to pass.
+    """
+    return sum(1 for i in range(n) if words[a + off + i] != words[b + off + i])
+
+
+def buffers_diff(x, y, n):
+    """Differing words between two whole buffers -- a different shape of comparison from span_diff, and
+    calling span_diff with two buffers is a TypeError, which is how the grouped-vs-per-case check died
+    on its first ever execution."""
+    return sum(1 for i in range(n) if x[i] != y[i])
 
 
 def injection_gate(v, cases, words):
@@ -424,8 +536,9 @@ def injection_gate(v, cases, words):
                       for c in upf))
 
 
-def counters_gate(v, cases, words, report, expect):
+def counters_gate(v, cases, words, report, expect, counted_by_case=None):
     """The arm's per-case counters, re-derived here from the same files the arm wrote."""
+    counted_by_case = counted_by_case or {}
     by = {r["case"]: r for r in report}
     if len(report) != len(cases):
         raise Fail("the report holds %d cases, the plan has %d (parsed != printed)"
@@ -459,17 +572,27 @@ def counters_gate(v, cases, words, report, expect):
             len(cases), len(cases) - len(bad_nan), "; ".join(bad_nan[:3]) or "all cases")
     v.check("both digests re-derived by the driver equal the arm's", not bad_digest, len(cases),
             len(cases) - len(bad_digest), "; ".join(bad_digest[:3]) or "all cases")
-    srs = [r for r in report if r["bad"] != 0]
-    v.check("every case matches its own expectation word-for-word (bad == 0)", not srs, 0, len(srs),
-            "; ".join("case %d bad=%d" % (r["case"], r["bad"]) for r in srs[:4]) or "all cases")
+    mismatch = []
+    for c in cases:
+        r = by[c["index"]]
+        want_bad = counted_by_case.get(c["index"], 0)
+        if r["bad"] != want_bad:
+            mismatch.append("case %d %s: arm counted %d differing words, the driver counted %d in the "
+                            "fields this case declares counted"
+                            % (c["index"], c["label"], r["bad"], want_bad))
+    v.check("each arm's own bad-counter equals the driver's counted-field divergence for that case",
+            not mismatch, len(cases), len(cases) - len(mismatch), "; ".join(mismatch[:4])
+            or "all %d cases: every word the arm found is a word the header declares counted, and the "
+            "exact fields contributed nothing" % len(cases))
 
 
 def cross_arm_gate(v, cases, hostw, devw, band):
     offenders, counted = [], 0
     for c in cases:
-        counted_fields = counted_fields(c)
+        ccounted = counted_fields(c)          # not `counted_fields = ...`: that makes the function a
+                                              # local name and the second case raises UnboundLocalError
         for fname in ("gate", "up", "act", "raw", "out", "prob"):
-            if fname in counted_fields:
+            if fname in ccounted:
                 counted += 1
                 continue
             if fname == "prob" and c["sgate"] == "perchan":
@@ -485,7 +608,7 @@ def cross_arm_gate(v, cases, hostw, devw, band):
                                  % (c["index"], fname, nd, n))
     v.check("host and device agree bit-for-bit in every declared-exact field", not offenders, 0,
             len(offenders), "; ".join(offenders[:4]) or "%d counted fields exempt" % counted)
-    whole = span_diff(hostw, devw, 0, 0, min(len(hostw), len(devw)))
+    whole = buffers_diff(hostw, devw, min(len(hostw), len(devw)))
     print("CROSSARM whole_buffer differing_words=%d of %d (reported, not asserted: the assertion is "
           "per declared field)" % (whole, min(len(hostw), len(devw))))
 
@@ -517,6 +640,12 @@ def main():
                   os.path.join(work, "oracle-derive.log"))
     if rc != 0:
         raise Fail("oracle --mode derive failed: %s" % out.strip().splitlines()[-1:])
+    # The width anchor has to be IN the device transcript, not in a side file: a device verdict about
+    # Q8_0 bytes that does not carry the measured width rule is the kernel's opinion about its own
+    # fixture, which is the thing this lane is not allowed to be.
+    for line in out.splitlines():
+        if line.startswith(("WIDTH ", "Q8RULE ", "Q8RULEPUB ", "LAYOUTROW ", "LAYOUTRT ")):
+            print(line)
     lay = kv([l for l in out.splitlines() if l.startswith("LAYOUTRT winner")][0])
     v.check("the row map the kernel implements is the one HF's own bytes agree with",
             lay["winner"] == "gate_first" and lay["control_also_worse"] == "yes",
@@ -527,6 +656,8 @@ def main():
     v.check("the Q8_0 pack keeps each weight row in its own slot (no transpose)",
             float(lrow["min"]) > 1.05, ">1.05", lrow["min"],
             "nearest-vs-runner-up margin over 128 HF rows")
+    q8rule_gate(v, out)
+    layout_gate(v, out, [PY, ORACLE, "--mode", "derive", "--blocks", a.blocks])
     rc, out = run([PY, ORACLE, "--mode", "fixtures", "--rows", a.rows, "--blocks", a.blocks,
                    "--out", work], os.path.join(work, "oracle-fixtures.log"))
     if rc != 0:
@@ -564,8 +695,10 @@ def main():
         got, want = rec[k].split("/")
         v.check("host arm parsed==printed for %s" % k, got == want, want, got, "")
     hostw = read_words(os.path.join(work, "host_out.f32"))
-    print("SUMMARY %s" % judge_fields(v, cases, hostw, expect, band, "host-vs-oracle"))
-    counters_gate(v, cases, hostw, read_report(os.path.join(work, "host_report.tsv")), expect)
+    summ_host, counted_host = judge_fields(v, cases, hostw, expect, band, "host-vs-oracle")
+    print("SUMMARY %s" % summ_host)
+    counters_gate(v, cases, hostw, read_report(os.path.join(work, "host_report.tsv")), expect,
+                  counted_host)
     injection_gate(v, cases, hostw)
 
     rc, pout = run([HOST] + common + ["--per-case", "--out", os.path.join(work, "host_percase.f32"),
@@ -574,7 +707,7 @@ def main():
     if rc != 0:
         raise Fail("host_probe --per-case rc=%d" % rc)
     pcw = read_words(os.path.join(work, "host_percase.f32"))
-    nd = span_diff(hostw, pcw, 0, 0, min(len(hostw), len(pcw)))
+    nd = buffers_diff(hostw, pcw, min(len(hostw), len(pcw)))
     v.check("grouped and per-case launches produce the same words (launch split is inert)", nd == 0,
             0, nd, "launches grouped=4 per_case=%d (word identity, not timing)" % (4 * len(cases)))
     la = kv([l for l in hout.splitlines() if l.startswith("LAUNCHES")][0])
@@ -595,8 +728,10 @@ def main():
             got, want = rec[k].split("/")
             v.check("device arm parsed==printed for %s" % k, got == want, want, got, "")
         devw = read_words(os.path.join(work, "dev_out.f32"))
-        print("SUMMARY %s" % judge_fields(v, cases, devw, expect, band, "device-vs-oracle"))
-        counters_gate(v, cases, devw, read_report(os.path.join(work, "dev_report.tsv")), expect)
+        summ_dev, counted_dev = judge_fields(v, cases, devw, expect, band, "device-vs-oracle")
+        print("SUMMARY %s" % summ_dev)
+        counters_gate(v, cases, devw, read_report(os.path.join(work, "dev_report.tsv")), expect,
+                      counted_dev)
         injection_gate(v, cases, devw)
         cross_arm_gate(v, cases, hostw, devw, band)
         dl = kv([l for l in dout.splitlines() if l.startswith("LAUNCHES")][0])

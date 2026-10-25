@@ -1,0 +1,29 @@
+LOCKREF gate.py must reference the lock tool 0 times: 0
+NO LOCK reason=host-only (host): no device work, so the lock stays free for the main agent
+CMD /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/shared_expert/gate.py --selftest-only
+CENSUSEXP format=f32 field=sigmoid(f32) judged=34194 identical=33130 differing=1064 categories[equal=33130 finite_step=1064] ulp_histogram[1:605 2:459] max_ulp=2 subnormal_diverging=1 probe=c-vs-numpy-over-every-bf16-input
+CENSUSEXP format=f32 field=silu(f32) judged=34194 identical=33153 differing=1041 categories[equal=33153 finite_step=1041] ulp_histogram[1:624 2:417] max_ulp=2 subnormal_diverging=0 probe=c-vs-numpy-over-every-bf16-input
+FLOOREXP_NP max_ulp_f32=2 (the widest f32 divergence the two libms produce on any bf16 input; the band on an f32-carrying transcendental field is this number, derived here and not chosen)
+FLOOREXP_NP rows=34194 exp_diff_f32=3157 sigmoid_diff_f32=1064 sigmoid_diff_after_bf16_store=0
+FLOOREXP_NP verdict=stored-prob-field-exact: the bf16 store is coarser than every libm-vs-numpy disagreement
+CHECK exp floor probe: the bf16 store hides every libm disagreement    want=0          got=0          f32 disagreements=1064 over 34194 bf16 inputs; this is why the bf16-carrying fields stay exact
+CHECK exp floor probe: an f32-carrying transcendental field is measured, not assumed want=>=1        got=2          the band on f32-carrying expf fields is 2 ULP from this probe
+CHECK host selftest ran all three arms                                 want=3          got=3          PASS selftest arms=3
+CHECK host honest arm is clean                                         want=0          got=0/0        checks=26 equals=20 differs=6
+CHECK host STUB arm goes red on exactly the differing checks           want=6          got=6          a comparator that always answers equal must break exactly 6 checks
+CHECK host CROSSED arm goes red on exactly the equal checks            want=20         got=20         judging each value against the next different want must break exactly 20 checks
+CHECK host suite exits non-zero when it is honest                      want=0          got=0          
+CHECK host --arm=0 alone refuses to pass                               want=non-zero   got=1          FAIL selftest single-arm: one arm alone is not a pass (arm=0)
+CHECK host --arm=1 alone refuses to pass                               want=non-zero   got=1          FAIL selftest single-arm: one arm alone is not a pass (arm=1)
+CHECK host --arm=2 alone refuses to pass                               want=non-zero   got=1          FAIL selftest single-arm: one arm alone is not a pass (arm=2)
+CENSUSDEVICE cu_from_kfd=40 simd_count=80 simd_per_cu=2 max_waves_per_simd=16 lds_kb=64   (hipDeviceAttributeMultiprocessorCount reports 20 here; the census uses KFD)
+CENSUSSLICER empty_f32_valu=0 eight_madd_f32_valu=17 sixteen_madd_f32_valu=33 eight_mul=4 eight_add=5 want=empty:0,eight>=8,sixteen>=16,sixteen>eight verdict=ok
+LAUNCHBILL stages=4 gateup,down,prob,out grouped_launches=4 per_case_launches=4*n_cases stage1_blocks_per_case=4 stage2_blocks_per_case=16 stage3_blocks_per_case=17
+LAUNCHBILL merge_denied=gateup->down reason=every down row needs all 512 act values, which stage 1 produces across 4 distinct blocks; deleting that boundary buys no launch, it buys a grid-wide barrier. The prob and out stages are the same argument at I->H width. The grouped form is therefore the floor for a launch that is independent of case count, and per-case is exactly 4*n_cases: the two forms are word-identical (gate.py proves that), so nothing here trades blocks-per-launch for launch count.
+CHECK census slicer is witnessed (empty stub < 8-multiply stub < 16-multiply stub) want=ok         got=ok         empty=0 eight=17 sixteen=33
+CHECK the census prices the machine KFD reports, not the one HIP reports want=40         got=40         hipDeviceAttributeMultiprocessorCount says 20 here (pitfalls/20)
+SUMMARY host witnesses only checks=12 failed=0
+no timing taken
+RESULT PASS (host witnesses only): 12 checks, three arms exercised, no timing taken
+gate: host-only run complete rc=0
+LOG /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/shared_expert/evidence/shared-expert-host-2026-10-26.log

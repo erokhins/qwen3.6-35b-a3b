@@ -1,0 +1,12 @@
+import numpy as np
+pat = np.array([0, 1, 16384, 16385], dtype=np.uint32)
+t = (pat << np.uint32(16)).view(np.float32)
+print("t", t, t.dtype)
+ne = np.exp(-t)
+print("np.exp(-t)", ne, ne.dtype)
+ns = (np.float32(1.0) / (np.float32(1.0) + ne)).astype(np.float32)
+print("np sig", ns)
+b = ns.view(np.uint32)
+r = ((b >> 16) & np.uint32(1)) + np.uint32(0x7FFF)
+bf = ((b + r) & np.uint32(0xFFFF0000)).view(np.float32)
+print("np sig bf16 widened", bf, "pattern", np.array([hex(x) for x in (bf.view(np.uint32) >> np.uint32(16))]))

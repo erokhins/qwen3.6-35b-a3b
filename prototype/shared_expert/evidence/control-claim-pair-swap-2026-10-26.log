@@ -1,0 +1,29 @@
+GEOMETRY source=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/checkpoints/dump-manifest-2026-10-26.json config=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/checkpoints/Qwen3.6-35B-A3B.config.json
+GEOMETRY H=2048 I=512 twoI=1024 blocks=40 mtp=1 rows_pinned=32
+WIDTH role=gate tensor=blk.0.ffn_gate_shexp.weight dtype=Q8_0 dims_gguf=[2048, 512] shape_hf=(512, 2048) bytes=1114112
+WIDTH role=up tensor=blk.0.ffn_up_shexp.weight dtype=Q8_0 dims_gguf=[2048, 512] shape_hf=(512, 2048) bytes=1114112
+WIDTH role=down tensor=blk.0.ffn_down_shexp.weight dtype=Q8_0 dims_gguf=[512, 2048] shape_hf=(2048, 512) bytes=1114112
+WIDTH role=sgate tensor=blk.0.ffn_gate_inp_shexp.weight dtype=F32 dims_gguf=[2048] shape_hf=(2048,) bytes=8192
+WIDTH blocks_with_shared_expert=40 first=0 last=39
+WIDTH fused_gate_up_in_file=no (two tensors both present: blk.0.ffn_gate_shexp.weight, blk.0.ffn_up_shexp.weight) — the [2I,H] view the kernel reads is OUR assembly, which is why the layout is a question this lane has to answer
+WIDTH mtp_tensors_in_file=0 the GGUF carries no MTP block: mtp0 is authority-only bf16 here
+Q8RULEPUB family=down  tensor=blk.0.ffn_down_shexp.weight type=Q8_0 rule=f16(amax/127)*int8 relL2_vs_pinned_hf=0.006036182 maxabs=0.00118637
+Q8RULEPUB family=gate  tensor=blk.0.ffn_gate_shexp.weight type=Q8_0 rule=f16(amax/127)*int8 relL2_vs_pinned_hf=0.006126833 maxabs=0.00079155
+Q8RULEPUB family=up    tensor=blk.0.ffn_up_shexp.weight type=Q8_0 rule=f16(amax/127)*int8 relL2_vs_pinned_hf=0.005874989 maxabs=0.000524521
+Q8RULE family=gate  divisor=127 clamp_eq127=33138 clamp_bound_from_blockmax=34778 elements_eq_own_blockmax=33121 clamp_rate=0.031603 relL2_vs_dump=0.006123959 relL2_published=0.006126833 f32_vs_f64_inexact=0 max_sig_bits=15 max_sig_bits_f32_has=24
+Q8RULE family=up    divisor=127 clamp_eq127=33177 clamp_bound_from_blockmax=34826 elements_eq_own_blockmax=33167 clamp_rate=0.031640 relL2_vs_dump=0.005871895 relL2_published=0.005874989 f32_vs_f64_inexact=0 max_sig_bits=15 max_sig_bits_f32_has=24
+Q8RULE family=down  divisor=127 clamp_eq127=33169 clamp_bound_from_blockmax=34814 elements_eq_own_blockmax=33156 clamp_rate=0.031632 relL2_vs_dump=0.006033145 relL2_published=0.006036182 f32_vs_f64_inexact=0 max_sig_bits=15 max_sig_bits_f32_has=24
+LAYOUTROW candidate=gate_first       rows_nearest_own_hf_row=128/128 (2I=1024, 64 rows each side)
+LAYOUTROW candidate=up_first         rows_nearest_own_hf_row=0/128 (2I=1024, 64 rows each side)
+LAYOUTROW candidate=row_interleaved  rows_nearest_own_hf_row=1/128 (2I=1024, 64 rows each side)
+LAYOUTROW candidate=pair_swap        rows_nearest_own_hf_row=128/128 (2I=1024, 64 rows each side)
+LAYOUTROW margin_nearest_vs_runner_up min=91.712 median=210.379 (the nearest-row test is only a test if the winner is clearly nearer; this is by how much)
+LAYOUTRT candidate=gate_first               relL2=0.01004416 cos=0.999952078 maxabs=0.00976562 (row map (0,512)..(511,1023))
+LAYOUTRT candidate=up_first                 relL2=0.538981 cos=0.848566592 maxabs=0.527344 (row map (512,0)..(1023,511))
+LAYOUTRT candidate=row_interleaved          relL2=1.272461 cos=0.010499730 maxabs=1.25488 (row map (0,1)..(1022,1023))
+LAYOUTRT candidate=pair_swap                relL2=0.01004416 cos=0.999952078 maxabs=0.00976562 (row map (0,512)..(511,1023))
+LAYOUTRT candidate=pair_swap_silu_swapped   relL2=0.538981 cos=0.848566592 maxabs=0.527344 (the pair_swap the fixtures actually run: silu on the other half)
+LAYOUTRT candidate=row_shift1_control       relL2=1.391529 cos=-0.045516506 maxabs=1.27734 (control: reading one row early must not be the best reading either)
+LAYOUTRT candidate=col_shift1_control       relL2=1.355625 cos=0.000337727 maxabs=1.5 (control: one row late, the other direction)
+LAYOUTRT blind=gate_first reason=row_map_identical_to_pair_swap relL2_diff_vs_claim=0 seen_instead_by=pair_swap_silu_swapped
+LAYOUTRT winner=pair_swap claimed=pair_swap metric=relL2 nearest_wrong_ratio=53.661x control_also_worse=yes blind_excluded=1[gate_first] maxabs_is_load_bearing=no

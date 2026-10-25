@@ -50,7 +50,7 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(REPO, "tools"))
 
 H, I, TWO_I = 2048, 512, 1024
-Q8_ELTS, Q8_BYTES = 32, 34
+Q8_ELTS, Q8_BYTES, Q8_MAX = 32, 34, 127
 GATE_STRIDE = 64 * Q8_BYTES          # one gate/up row: 2048 columns = 64 whole Q8_0 blocks
 DOWN_STRIDE = 16 * Q8_BYTES          # one down row: 512 columns = 16 whole Q8_0 blocks
 CASE_FLOATS = 5633                   # gate|up|act|raw|out|prob, offsets in the header
@@ -92,21 +92,90 @@ def f16_bits_as_bf16(bits):
 
 
 # ---- Q8_0: the quantizer that writes the slab, and the decoder that reads it back ----------------
-def q8_quantize(w):
-    """Q8_0 per 32-column block, the llama.cpp rule: scale = amax/512, round half away from zero,
-    clamp to [-128, 127]. `w` is [rows, cols] f32 (already bf16-exact values). Returns
-    (scales f16 bits, qs int8) with shapes [rows, cols/32] and [rows, cols]."""
+def q8_quantize(w, div=Q8_MAX):
+    """Q8_0 per 32-column block, the ggml rule: d = f16(amax/127), q = round-half-away(w/d) clamped to
+    [-127, 127], value = d*q — the same rule as `tools/gguf_reader.py §_qref_q8_0` and
+    `tools/moe_stats.py §q8_0_proxy`, and the step is the f16-ROUNDED scale, because that is what the
+    decoder multiplies by. `w` is [rows, cols] f32 (already bf16-exact values). Returns
+    (scales f16 bits, qs int8) with shapes [rows, cols/32] and [rows, cols].
+
+    `div` exists ONLY so the gate can run the wrong rule as a visible control. Until 2026-10-26 this
+    function said `amax/512`, which is not Q8_0: with the same [-127,127] clamp it clips every element
+    above 24.8 % of its block max, so 52.6 % of this block's elements landed on the clamp instead of
+    the ~1-in-32 a conformant pack produces, and the decoded weights sat at relL2 0.591 against the
+    pinned dump where the published Q8_0 tensor sits at 0.0061. `q8_rule_check` refuses any divisor
+    that is not 127; a control divisor is a thing to be caught, not a thing to be shipped.
+    """
     rows, cols = w.shape
     assert cols % Q8_ELTS == 0, "a ragged row would need a boundary path this kernel does not have"
     blk = w.reshape(rows, cols // Q8_ELTS, Q8_ELTS)
     amax = np.abs(blk).max(axis=2)
-    scale = np.where(amax > 0, amax / np.float32(512.0), np.float32(0.0)).astype(np.float32)
-    inv = np.where(amax > 0, np.float32(512.0) / np.where(amax > 0, amax, np.float32(1.0)),
+    scale32 = np.where(amax > 0, amax / np.float32(float(div)), np.float32(0.0)).astype(np.float32)
+    scale16 = np.asarray(scale32, dtype=np.float16)
+    step = scale16.astype(np.float32)          # the decoder's step, f16-rounded, as ggml does it
+    inv = np.where(step > 0, np.float32(1.0) / np.where(step > 0, step, np.float32(1.0)),
                    np.float32(0.0)).astype(np.float32)
     prod = blk * inv[:, :, None]
     q = np.where(prod >= 0, np.floor(prod + 0.5), np.ceil(prod - 0.5))   # half away from zero
-    q = np.clip(q, -128.0, 127.0).astype(np.int8).reshape(rows, cols)
-    return np.asarray(scale, dtype=np.float16).view(np.uint16), q
+    q = np.clip(q, -float(Q8_MAX), float(Q8_MAX)).astype(np.int8).reshape(rows, cols)
+    return scale16.view(np.uint16), q
+
+
+def q8_decode64(scale_bits, q):
+    """The same decode in f64 — the ruler for the claim that f16(d)*int8(q) is exact in f32."""
+    sc = f16_to_f32(scale_bits).astype(np.float64)
+    qf = np.asarray(q, dtype=np.int8).astype(np.float64).reshape(sc.shape[0], sc.shape[1], Q8_ELTS)
+    return (sc[:, :, None] * qf).reshape(scale_bits.shape[0], -1)
+
+
+def sig_bits_needed(vals):
+    """Max significand bits (incl. the implicit 1) needed to write the f32 values exactly. A conformant
+    Q8_0 product is 11 bits of scale times 7 bits of mantissa: the claim is measured, never asserted."""
+    b = np.asarray(vals, dtype=np.float32).view(np.uint32)
+    exp = (b >> np.uint32(23)) & np.uint32(0xFF)
+    mant = (b & np.uint32(0x7FFFFF)).astype(np.int64)
+    frac = np.where(mant == 0, np.int64(0), 24 - np.floor(np.log2(np.maximum(mant, 1))).astype(np.int64))
+    normal = (exp != 0) & (exp != 255)
+    return int(np.where(normal, frac + 1, 0).max())
+
+
+def q8_rule_check(fams, div=Q8_MAX, ref_published=None):
+    """Is the pack this lane is about to write actually Q8_0?
+
+    The bound is geometry, not comfort: a conformant pack puts +-127 on an element only when that
+    element IS its block max (or when f16 rounding of the step nudges a near-max over the line), so
+    the count of elements equal to their own block max is the derived bound, measured on the same
+    bytes. `1/32 = 3.125 %` is what geometry predicts for a block max in a 32-element block; the
+    measured value on this tensor is 3.1587 %, and the extra 0.0016 % is f16 step rounding. The 5 %
+    slack is the gap between the two f16-rounding witnesses below, not a room to fail in.
+    """
+    worst = None
+    for nm, w in fams:
+        sc, q = q8_quantize(w, div)
+        deq = q8_decode(sc, q)
+        qi = np.abs(np.asarray(q, dtype=np.int32))
+        blk = np.abs(w.reshape(w.shape[0], -1, Q8_ELTS))
+        amax = blk.max(axis=2)
+        eq_max = int((blk == amax[:, :, None]).sum())
+        clamped = int((qi == Q8_MAX).sum())
+        bound = int(eq_max * 1.05) + 1
+        rel = float(np.linalg.norm(deq - w) / np.linalg.norm(w))
+        rel64 = float(np.linalg.norm(q8_decode64(sc, q) - deq.astype(np.float64))
+                      / np.linalg.norm(deq.astype(np.float64)))
+        inexact = int((deq.astype(np.float64) != q8_decode64(sc, q)).sum())
+        bits = sig_bits_needed(deq)
+        print("Q8RULE family=%-5s divisor=%d clamp_eq127=%d clamp_bound_from_blockmax=%d "
+              "elements_eq_own_blockmax=%d clamp_rate=%.6f relL2_vs_dump=%.7g relL2_published=%.7g "
+              "f32_vs_f64_inexact=%d max_sig_bits=%d max_sig_bits_f32_has=24"
+              % (nm, div, clamped, bound, eq_max, clamped / float(q.size), rel,
+                 (ref_published or {}).get(nm, float("nan")), inexact, bits))
+        if worst is None or rel > worst[1]:
+            worst = (nm, rel, clamped, bound, inexact, bits)
+    if div != Q8_MAX:
+        raise SystemExit("q8_rule_check: divisor=%d is not Q8_0 (the published file and both in-repo "
+                         "references use amax/%d); refusing to pack a fixture that is not the width "
+                         "this lane exists to exercise" % (div, Q8_MAX))
+    return worst
 
 
 def q8_pack(scale_bits, q):
@@ -293,57 +362,119 @@ def layout_row_order(fused, gate_vals, up_vals, n):
     return min(marg)
 
 
-def route_discriminates(x, ref_raw, wg, wu, wd):
+def route_discriminates(x, ref_raw, wg, wu, wd, claim="gate_first"):
     """Which kernel row map reproduces the pinned HF eager `shared_raw`, measured against HF's own
     bytes. Distances, not bit-identity: this route runs on Q8_0-decoded weights, so it cannot be
-    bit-equal to an eager bf16 reference, and pretending otherwise would be a band typed to fit what the
-    build produces. The claim that carries the answer is the ORDER of the distances: the honest map must
-    be far closer than every wrong one, including the one-row-early control, or a real layout bug and an
-    off-by-one would be indistinguishable. Vectorised matmul on purpose, because this half measures a
-    distance to HF and does not produce expectations; the declared association order is not what is under
-    test here."""
+    bit-equal to an eager bf16 reference, and pretending otherwise would be a band typed to fit what
+    the build produces. Vectorised matmul on purpose, because this half measures a distance to HF and
+    does not produce expectations; the declared association order is not what is under test here.
+
+    WHICH METRIC CARRIES THE CLAIM, because the wrong one silently destroyed this discriminator.
+    relL2 = ||raw - ref|| / ||ref|| is the ruler. maxabs is printed and is NEVER load-bearing: on this
+    block the honest map is beaten by the wrong one on maxabs (gate_first 0.96875 vs up_first
+    0.961426, i.e. the wrong candidate is *nearer*) because one element's absolute error is set by
+    whichever weight happens to be largest, not by the row order. An absolute metric that cannot see
+    the thing you are claiming is not a conservative choice, it is a blind one. cos is printed next to
+    relL2 as an independent second opinion; when relL2 and cos agree about the ORDER, the ordering is
+    not an artifact of one formula.
+
+    BLINDNESS, declared rather than hidden. `layout_rows("pair_swap", j)` returns the same pair of
+    rows as `layout_rows("gate_first", j)`, so NO nearest-row measure can see it, and the previous form
+    of this check -- `worst_wrong = min` over every non-claimed candidate, then refuse if
+    `worst_wrong <= honest` -- could not be satisfied by any build in existence, because the minimum
+    always contained a candidate at a distance bit-identical to the honest one (printed:
+    `nearest_wrong_ratio=1.0x`, for every build, forever). The fix is not to exclude the blind candidate
+    from the ranking, it is to score each candidate on the route its claim actually spells: pair_swap
+    puts silu on the other half, which relL2 sees at 53.7x, and the row-map-only reading is printed
+    beside it as the blindness witness rather than deleted from the population.
+    """
     import torch
     xt = torch.from_numpy(x.astype(np.float32))
+    ref = torch.from_numpy(ref_raw)
+    ref_norm = float(ref.norm())
 
     def bf(a):
         return a.to(torch.bfloat16).to(torch.float32)
 
     fused = fused_of(wg, wu)          # the [2I,H] slab the kernel actually reads; a candidate row map
                                       # is an index into THIS, not into the two tensors
+    ft = torch.from_numpy(fused)
+    dt = torch.from_numpy(wd.T)
 
-    def raw_of(grows, urows):
-        g = bf(xt @ torch.from_numpy(fused[grows]).T)   # row-major rows: the dot is x @ W^T
-        u = bf(xt @ torch.from_numpy(fused[urows]).T)
-        act = bf(bf(g * torch.sigmoid(g)) * u)
-        return bf(act @ torch.from_numpy(wd.T))
+    def raw_of(grows, urows, silu_on_up=False):
+        g = bf(xt @ ft[torch.from_numpy(grows)].T)   # row-major rows: the dot is x @ W^T
+        u = bf(xt @ ft[torch.from_numpy(urows)].T)
+        a, b = (u, g) if silu_on_up else (g, u)
+        act = bf(bf(a * torch.sigmoid(a)) * b)
+        return bf(act @ dt)
+
+    def dist(nm, raw, note=""):
+        d = raw - ref
+        rel = float(d.norm() / ref_norm)
+        cos = float((raw * ref).sum() / (raw.norm() * ref_norm))
+        print("LAYOUTRT candidate=%-24s relL2=%.7g cos=%.9f maxabs=%.6g %s"
+              % (nm, rel, cos, float(d.abs().max()), note))
+        return (rel, cos, float(d.abs().max()))
 
     rows = {lay: np.array([layout_rows(lay, j) for j in range(I)]) for lay in LAYOUTS}
+    # A candidate's distance must be the route that claim actually spells. pair_swap is not "the same
+    # rows as gate_first", it is "the same rows with silu on the other half" (that is what its fixture
+    # case does), so ranking it on its row map alone would let a wrong claim pass: measured, claiming
+    # pair_swap on the row map alone came out `winner=pair_swap nearest_wrong_ratio=53.661x` and rc=0.
+    SILU_ON_UP = {"pair_swap"}
     out = {}
     for lay in LAYOUTS:
-        raw = raw_of(rows[lay][:, 0], rows[lay][:, 1])
-        d = (raw - torch.from_numpy(ref_raw)).abs()
-        cos = float((raw * torch.from_numpy(ref_raw)).sum()
-                    / (raw.norm() * torch.from_numpy(ref_raw).norm()))
-        out[lay] = (float(d.max()), cos)
-        print("LAYOUTRT candidate=%-16s shared_raw_vs_pinned_eager maxabs=%.6g cos=%.9f"
-              % (lay, float(d.max()), cos))
-    lim = TWO_I - 1
-    ctl = raw_of(np.minimum(rows["gate_first"][:, 0] + 1, lim),
-                 np.minimum(rows["gate_first"][:, 1] + 1, lim))
-    dctl = float((ctl - torch.from_numpy(ref_raw)).abs().max())
-    honest = out["gate_first"][0]
-    worst_wrong = min(v[0] for l, v in out.items() if l != "gate_first")
-    print("LAYOUTRT candidate=row_shift1(control) shared_raw_vs_pinned_eager maxabs=%.6g"
-          "  (control: reading one row early must not be the best reading either)" % dctl)
-    print("LAYOUTRT winner=gate_first nearest_wrong_ratio=%.1fx control_also_worse=%s"
-          % (worst_wrong / honest if honest else float("inf"), "yes" if dctl > honest else "no"))
-    if worst_wrong <= honest:
-        raise SystemExit("the row map the kernel implements is not distinguishable from a wrong one: "
-                         "honest maxabs=%.6g, closest wrong=%.6g" % (honest, worst_wrong))
-    if dctl <= honest:
-        raise SystemExit("the one-row-early control is not worse than the honest map, so this "
-                         "discriminator cannot tell a layout bug from an off-by-one")
+        out[lay] = dist(lay, raw_of(rows[lay][:, 0], rows[lay][:, 1],
+                                    silu_on_up=(lay in SILU_ON_UP)),
+                        "(row map (%d,%d)..(%d,%d) silu_on=%s)" % (rows[lay][0, 0], rows[lay][0, 1],
+                                                                   rows[lay][-1, 0], rows[lay][-1, 1],
+                                                                   "up" if lay in SILU_ON_UP else "gate"))
+    rm_only = dist("pair_swap_rowmap_only",
+                   raw_of(rows["pair_swap"][:, 0], rows["pair_swap"][:, 1]),
+                   "(row map ONLY, silu left on the gate side -- the reading that is byte-identical to "
+                   "gate_first and the reason a nearest-ROW measure cannot see pair_swap)")
+    lim = TWO_I - 1        # the controls clamp at the ends so a shift cannot index outside the slab
+    ctl_rel, _, _ = dist("row_shift1_control",
+                         raw_of(np.minimum(rows[claim][:, 0] + 1, lim),
+                                np.minimum(rows[claim][:, 1] + 1, lim)),
+                         "(control: reading one row early must not be the best reading either)")
+    ctl2_rel, _, _ = dist("col_shift1_control",
+                          raw_of(np.maximum(rows[claim][:, 0] - 1, 0),
+                                 np.maximum(rows[claim][:, 1] - 1, 0)),
+                         "(control: one row late, the other direction)")
 
+    if claim not in out:
+        raise SystemExit("claim=%s is not a candidate this discriminator can evaluate" % claim)
+    honest = out[claim][0]
+    # Candidates sharing the claim's ROW MAP are blind to a nearest-row measure (LAYOUTROW) but not to
+    # this one, because the silu side separates them. Printed as information about the measure, and
+    # NOT excluded from the ranking -- excluding them is what made the old check unsatisfiable.
+    identical = [lay for lay in LAYOUTS if lay != claim and np.array_equal(rows[lay], rows[claim])]
+    for lay in identical:
+        print("LAYOUTRT rowmap_identical=%s_and_%s separated_by=silu_side rowmap_only_relL2_diff=%.9g "
+              "full_route_relL2_claim=%.7g full_route_relL2=%s=%.7g"
+              % (lay, claim, abs(rm_only[0] - out[claim][0]), honest, lay, out[lay][0]))
+    wrong = {k: v[0] for k, v in out.items() if k != claim}
+    wrong.update({"row_shift1_control": ctl_rel, "col_shift1_control": ctl2_rel})
+    nearest_wrong = min(wrong.values())
+    winner = min((v[0], k) for k, v in out.items())[1]
+    print("LAYOUTRT winner=%s claimed=%s metric=relL2 nearest_wrong_ratio=%.3fx control_also_worse=%s "
+          "rowmap_blind_candidates=%d[%s] maxabs_is_load_bearing=no"
+          % (winner, claim, nearest_wrong / honest if honest else float("inf"),
+             "yes" if ctl_rel > honest and ctl2_rel > honest else "no",
+             len(identical), ",".join(identical) or "none"))
+    if winner != claim:
+        raise SystemExit("the claimed row map is not the nearest on relL2: claimed=%s (%.7g), "
+                         "nearest=%s (%.7g). This discriminator refuses to call a winner it cannot "
+                         "rank." % (claim, honest, winner, out[winner][0]))
+    if nearest_wrong <= honest:
+        nearest_name = min(wrong, key=wrong.get)
+        raise SystemExit("the row map the kernel implements is not distinguishable from a wrong one: "
+                         "claimed relL2=%.7g, closest wrong %s=%.7g" % (honest, nearest_name, nearest_wrong))
+    if ctl_rel <= honest or ctl2_rel <= honest:
+        raise SystemExit("an off-by-one control is not worse than the claimed map, so this "
+                         "discriminator cannot tell a layout bug from an off-by-one")
+    return out
 
 # ---- the declared route, vectorised over rows but never across k -------------------------------
 def dot_rows(x, w, cols):
@@ -483,6 +614,49 @@ def derive_from_gguf(gguf_path):
     return found
 
 
+def published_rule_witness(gguf_path, dump_dir, block):
+    """Which scale rule the artifact uses, measured rather than remembered.
+
+    This lane exists to be the first exercise of the Q8_0 width claim, so the claim may not rest on
+    this file's own decoder. It decodes the PUBLISHED `blk.N.ffn_*_shexp.weight` bytes with the repo
+    reader's Q8_0 rule and compares them with the pinned HF bf16 dump of the same tensor: relL2 ~6e-3
+    means the rule is right, and the same comparison against a mis-scaled local pack comes out ~96x
+    worse. Printed in `--mode derive`, so every device-gate transcript carries the width anchor.
+    """
+    import audit_published_quant as apq
+    import gguf_reader as gr
+    if not os.path.exists(apq.SELFTEST_MARK):
+        raise SystemExit("no audit selftest marker at %s — the published file may not be read without "
+                         "it" % apq.SELFTEST_MARK)
+    gr.grant_selftest_token(apq.SELFTEST_TOKEN)
+    gg = gr.Gguf(gguf_path)
+    f0 = pinned_files(dump_dir, block)
+    want = {"ffn_gate_shexp.weight": ("gate", (I, H)), "ffn_up_shexp.weight": ("up", (I, H)),
+            "ffn_down_shexp.weight": ("down", (H, I))}
+    mm = gg.open_data(apq.SELFTEST_TOKEN,
+                      why="shared_expert lane: which Q8_0 scale rule the published file uses")
+    out = {}
+    for suf, (role, shape) in sorted(want.items()):
+        t = [x for x in gg.tensors if x.name.endswith("blk.0." + suf)]
+        if len(t) != 1:
+            gg.close()
+            raise SystemExit("published file has %d tensors ending %s, need exactly 1" % (len(t), suf))
+        t = t[0]
+        if t.type_name != "Q8_0":
+            gg.close()
+            raise SystemExit("published %s is %s, not Q8_0: policy A says this family is Q8_0, so the "
+                             "lane's premise changed underneath it" % (t.name, t.type_name))
+        buf = bytes(mm[gg.data_start + t.offset: gg.data_start + t.offset + t.row])
+        pub = np.asarray(gr.dequant(buf, "Q8_0", t.n_elts), dtype=np.float32).reshape(shape)
+        hf, _ = load_bf16(f0[role], shape)
+        rel = float(np.linalg.norm(pub - hf) / np.linalg.norm(hf))
+        out[role] = rel
+        print("Q8RULEPUB family=%-5s tensor=%s type=%s rule=f16(amax/%d)*int8 relL2_vs_pinned_hf=%.7g "
+              "maxabs=%.6g" % (role, t.name, t.type_name, Q8_MAX, rel, float(np.abs(pub - hf).max())))
+    gg.close()
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["derive", "fixtures"], required=True)
@@ -492,6 +666,12 @@ def main():
     ap.add_argument("--manifest", default=os.path.join(REPO, "checkpoints/dump-manifest-2026-10-26.json"))
     ap.add_argument("--gguf", default=os.path.join(REPO, "models/unsloth-q4km/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"))
     ap.add_argument("--rows", type=int, default=32, help="rows per block used for expectations")
+    ap.add_argument("--q8-rule", type=int, default=Q8_MAX,
+                    help="the Q8_0 scale divisor; 127 is the rule. Any other value exists so the gate "
+                         "can run the wrong rule as a control and must be refused (see q8_rule_check)")
+    ap.add_argument("--claim-candidate", default="gate_first",
+                    help="which row map this run claims is correct; the discriminator refuses a claim "
+                         "it cannot rank, so the gate can witness a wrong claim being caught")
     a = ap.parse_args()
     blocks = [b.strip() for b in a.blocks.split(",") if b.strip()]
     man = json.load(open(a.manifest))
@@ -521,13 +701,15 @@ def main():
         dw, _ = load_bf16(f0["down"], (H, I))
         x0, _ = load_bf16(f0["input"], (-1, H))
         ref_raw, _ = load_bf16(f0["shared_raw"], (-1, H))
-        gsc, gq = q8_quantize(gw)
-        usc, uq = q8_quantize(uw)
-        dsc, dq = q8_quantize(dw)
+        pubrel = published_rule_witness(a.gguf, a.dump_dir, blocks[0])
+        q8_rule_check([("gate", gw), ("up", uw), ("down", dw)], a.q8_rule, pubrel)
+        gsc, gq = q8_quantize(gw, a.q8_rule)
+        usc, uq = q8_quantize(uw, a.q8_rule)
+        dsc, dq = q8_quantize(dw, a.q8_rule)
         Wg, Wu, Wd = q8_decode(gsc, gq), q8_decode(usc, uq), q8_decode(dsc, dq)
         n = 64
         layout_row_order(fused_of(Wg, Wu), gw, uw, n)
-        route_discriminates(x0, ref_raw, Wg, Wu, Wd)
+        route_discriminates(x0, ref_raw, Wg, Wu, Wd, claim=a.claim_candidate)
         return 0
     return build_fixtures(a, blocks, man)
 
@@ -590,9 +772,14 @@ def build_fixtures(a, blocks, man):
         uw, _ = load_bf16(f["up"], (I, H))
         dw, _ = load_bf16(f["down"], (H, I))
         sgw, _ = load_bf16(f["sg"], (1, H))
-        gsc, gq = q8_quantize(gw)
-        usc, uq = q8_quantize(uw)
-        dsc, dq = q8_quantize(dw)
+        gsc, gq = q8_quantize(gw, a.q8_rule)
+        usc, uq = q8_quantize(uw, a.q8_rule)
+        dsc, dq = q8_quantize(dw, a.q8_rule)
+        if bi == 0:
+            # The fixture slab must not be packable with a wrong rule at all: derive refuses, and so
+            # does this path, because the arms would otherwise agree with the oracle about bytes that
+            # are not the width the lane claims to be testing.
+            q8_rule_check([("gate", gw), ("up", uw), ("down", dw)], a.q8_rule)
         Wg, Wu, Wd = q8_decode(gsc, gq), q8_decode(usc, uq), q8_decode(dsc, dq)
         Wgw, Wuw, Wdw = q8_decode(gsc, gq, "wide"), q8_decode(usc, uq, "wide"), q8_decode(dsc, dq, "wide")
         # the byte image the arms read, and the proof it decodes to what the oracle computed with

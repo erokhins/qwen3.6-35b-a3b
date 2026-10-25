@@ -296,9 +296,14 @@ int main(int argc, char **argv) {
     SeItem *it2 = (SeItem *)malloc(sizeof(SeItem) * n2);
     SeItem *it3 = (SeItem *)malloc(sizeof(SeItem) * n3);
     int32_t lo1 = 0, lo2 = 0, lo3 = 0;
-    int32_t *blo1 = (int32_t *)calloc(p.n_c, 4), *bhi1 = blo1 + p.n_c;
-    int32_t *blo2 = (int32_t *)calloc(p.n_c, 4), *bhi2 = blo2 + p.n_c;
-    int32_t *blo3 = (int32_t *)calloc(p.n_c, 4), *bhi3 = blo3 + p.n_c;
+    /* Each of these is TWO arrays of n_c int32s in one allocation: `bhiN = bloN + n_c`. Written as
+     * `calloc(p.n_c, 4)` it allocated n_c int32s and then wrote the second array past the end of the
+     * block, which is what aborted the first-ever device run with `malloc(): invalid size (unsorted)`
+     * (rc=-6, SIGABRT). The host twin does not use this layout, which is why the host arm was clean.
+     */
+    int32_t *blo1 = (int32_t *)calloc(2 * (size_t)p.n_c, sizeof(int32_t)), *bhi1 = blo1 + p.n_c;
+    int32_t *blo2 = (int32_t *)calloc(2 * (size_t)p.n_c, sizeof(int32_t)), *bhi2 = blo2 + p.n_c;
+    int32_t *blo3 = (int32_t *)calloc(2 * (size_t)p.n_c, sizeof(int32_t)), *bhi3 = blo3 + p.n_c;
     for (int i = 0; i < p.n_c; ++i) {
         blo1[i] = lo1; for (int b = 0; b < SE_I / SE_THREADS; ++b) { it1[lo1].case_pos = i; it1[lo1].base = b * SE_THREADS; ++lo1; } bhi1[i] = lo1;
         const int rows = rows_of_mode(p.c[i].mode);

@@ -1,0 +1,16 @@
+GEOMETRY source=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/checkpoints/dump-manifest-2026-10-26.json config=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/checkpoints/Qwen3.6-35B-A3B.config.json
+GEOMETRY H=2048 I=512 twoI=1024 blocks=40 mtp=1 rows_pinned=32
+WIDTH role=gate tensor=blk.0.ffn_gate_shexp.weight dtype=Q8_0 dims_gguf=[2048, 512] shape_hf=(512, 2048) bytes=1114112
+WIDTH role=up tensor=blk.0.ffn_up_shexp.weight dtype=Q8_0 dims_gguf=[2048, 512] shape_hf=(512, 2048) bytes=1114112
+WIDTH role=down tensor=blk.0.ffn_down_shexp.weight dtype=Q8_0 dims_gguf=[512, 2048] shape_hf=(2048, 512) bytes=1114112
+WIDTH role=sgate tensor=blk.0.ffn_gate_inp_shexp.weight dtype=F32 dims_gguf=[2048] shape_hf=(2048,) bytes=8192
+WIDTH blocks_with_shared_expert=40 first=0 last=39
+WIDTH fused_gate_up_in_file=no (two tensors both present: blk.0.ffn_gate_shexp.weight, blk.0.ffn_up_shexp.weight) — the [2I,H] view the kernel reads is OUR assembly, which is why the layout is a question this lane has to answer
+WIDTH mtp_tensors_in_file=0 the GGUF carries no MTP block: mtp0 is authority-only bf16 here
+Q8RULEPUB family=down  tensor=blk.0.ffn_down_shexp.weight type=Q8_0 rule=f16(amax/127)*int8 relL2_vs_pinned_hf=0.006036182 maxabs=0.00118637
+Q8RULEPUB family=gate  tensor=blk.0.ffn_gate_shexp.weight type=Q8_0 rule=f16(amax/127)*int8 relL2_vs_pinned_hf=0.006126833 maxabs=0.00079155
+Q8RULEPUB family=up    tensor=blk.0.ffn_up_shexp.weight type=Q8_0 rule=f16(amax/127)*int8 relL2_vs_pinned_hf=0.005874989 maxabs=0.000524521
+Q8RULE family=gate  divisor=512 clamp_eq127=551575 clamp_bound_from_blockmax=34778 elements_eq_own_blockmax=33121 clamp_rate=0.526023 relL2_vs_dump=0.5911241 relL2_published=0.006126833 f32_vs_f64_inexact=0 max_sig_bits=16 max_sig_bits_f32_has=24
+Q8RULE family=up    divisor=512 clamp_eq127=546378 clamp_bound_from_blockmax=34826 elements_eq_own_blockmax=33167 clamp_rate=0.521067 relL2_vs_dump=0.5908796 relL2_published=0.005874989 f32_vs_f64_inexact=0 max_sig_bits=16 max_sig_bits_f32_has=24
+Q8RULE family=down  divisor=512 clamp_eq127=533200 clamp_bound_from_blockmax=34814 elements_eq_own_blockmax=33156 clamp_rate=0.508499 relL2_vs_dump=0.5915036 relL2_published=0.006036182 f32_vs_f64_inexact=0 max_sig_bits=16 max_sig_bits_f32_has=24
+q8_rule_check: divisor=512 is not Q8_0 (the published file and both in-repo references use amax/127); refusing to pack a fixture that is not the width this lane exists to exercise
