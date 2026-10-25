@@ -522,3 +522,40 @@ is recorded in the decision, not left to be noticed later.
 What stays open is a measurement, not a decision: nobody has loaded the 21 GiB artifact with halogen down and
 read peak RSS and `process_vmem`. The ≈55 GiB row is still an inference from D-02's allocation probes, and it
 now carries a deployment decision on its back — which is a reason to measure it, not to keep quoting it.
+
+## The device window finally ran: a ruler, a footprint, a restart cost, and three instruments that lied
+
+Four items, one halogen-down pass, main agent, blocking, `alive=0`, `PI_PROVIDER=tensorfold`. What came back
+changed three numbers the repo had been predicting.
+
+**The ruler: 44.9 / 49.1 / 51.4 t/s** (min/median/max over seven runs, 41/41 layers offloaded, greedy, seed
+42, `-n 128`, one discarded warm run). At 2.5252 GiB/token that's ≈133 GB/s, ≈63 % of the 210 GB/s the
+roofline is written against — and it reframes the target. `README.md` predicts 77 t/s at 210 GB/s; llama.cpp
+gets 49.1. **The bar to clear is ~51 t/s, not 77**; 77 is physics, not an implementation target. Dispersion
+±7 % is wide enough that quoting the max would be a different number, so the triple is what gets recorded.
+The two `-n 32` runs read 35.5 and 51.3 — short decodes lie at the low end, which is why 128 tokens is now the
+minimum worth reporting.
+
+**The footprint: ≈26.9 GiB**, and the interesting part is that four plausible instruments were wrong about it.
+`VmHWM` said 1.47 GiB — because llama.cpp `mmap`s the GGUF and the GPU reads it over GTT, so weights never
+enter the process page tables. `mem_info_vram_used` peaked at 1.68 GiB — because `vram_total` on this APU is
+the 2 GiB dedicated BAR, so that counter *cannot* see a 21 GiB load. KFD per-process files don't exist on this
+kernel at all. The one that works is `mem_info_gtt_used` (under `card1`, not `card0`): 26.86–26.88 GiB across
+five runs, corroborated from an unrelated subsystem by host `MemAvailable` dropping 27.33 GiB. Two instruments,
+two code paths, same answer — that's what earns a residency number a place in the docs.
+
+The consequence for D-11 is uncomfortable and is now recorded there: measured demand is **7.1 GiB above** the
+modelled 19.78 GiB, because KV + compute buffers were never in that model. It still fits the ≈32 GiB
+co-resident budget, but with ~5 GiB of margin rather than ~12 — every budget conclusion drawn from the model
+alone was 7 GiB optimistic.
+
+**The restart cost: stop 14 s, ready 17 s.** `AGENTS.md`'s "batch, do not oscillate" was written on an
+unmeasured fear. One window per *campaign*, not per session.
+
+And two failures of my own instrumentation, recorded because they were invisible. The GPU lock was acquired in
+one tool call and the shell exited, so `release` later reported *"releasing lock left by a dead holder"* — the
+window was exclusive because of zero workers and a stopped server, **not** because of the lock, and a green
+`HELD` at the start proved nothing about the end. And my running-minimum of `MemAvailable` was seeded at `0`,
+so it printed `0.00 GiB` — a dramatic result that was just arithmetic. Both went into
+`pitfalls/00-measurement.md`, the second under the same rule I hold workers to: a counter at exactly its own
+initial value is unproven until witnessed non-zero.

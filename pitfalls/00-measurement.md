@@ -173,3 +173,46 @@ meanings are not until the denominator's set size is established.
 plausible. And matching on a bare kernel name fails — `Kernel_Name` carries the signature
 (`attn_slim_wave(CoreArgs)`). Correct: dedup by `(Dispatch_Id, Counter_Name)`, match on the name prefix, and
 divide by a pass count **derived** from a kernel whose per-pass site count is known.
+
+## A lock acquired in one tool call protects nothing in the next
+
+First real device window (2026-10-26). `tools/gpu_lock.sh acquire` ran, measurements were taken across the
+next several tool calls, and `release` answered: **"releasing lock left by a dead holder … pid=342295"**.
+`gpu_lock.sh` records the **acquiring process's pid**, and every tool call is its own process — so the shell
+that acquired the lock exited immediately, and for the whole window the lock was held by a corpse that any
+caller reading `status` would have seen as `STALE` and been free to take.
+
+The window was still exclusive. But it was exclusive because of the *other* preconditions — zero workers
+(`worker_lanes.sh alive=0`), halogen down, `rocm-smi --showpids` empty — and not because of the lock. **Do
+not let a green `HELD` at the start of a window be your evidence of exclusivity at the end of it.** Either
+acquire and measure inside one process (one driver script that acquires, measures, releases), or re-assert
+`status` immediately before each measurement and treat a `STALE` reading as an interrupted measurement, not
+a cosmetic one. This is the caller-side twin of the self-acquiring-deadlock trap in
+`pitfalls/50-harness-and-shell.md`: there the problem was taking the lock twice; here it is taking it once
+and having it evaporate.
+
+## `mmap` + GTT makes RSS blind to the footprint — and two sysfs counters lie about it
+
+Loading the 21 GiB artifact at 41/41 offload measured **VmHWM = 1.47 GiB** (`VmPeak` 34.48 GiB). Not a bug:
+llama.cpp `mmap`s the GGUF and the GPU reads it over the GTT, so weight pages never enter the process's page
+tables and RSS cannot see them. Two more counters look like answers and are not:
+
+- **`mem_info_vram_used` peaked at 1.68 GiB**, because on this APU `mem_info_vram_total` is the **2.0 GiB
+  dedicated BAR** — the counter is structurally incapable of seeing a 21 GiB load.
+- **`/sys/class/kfd/kfd/proc/<pid>/mem_info_vram_used` does not exist on this kernel**, so per-process device
+  memory is simply unavailable. Absent is not zero; write `NOT MEASURED`.
+
+The counter that works is **`mem_info_gtt_used`** (under `card1/device/`, *not* `card0`) — it read
+26.86–26.88 GiB across five runs — and the check that makes it trustworthy is an **independent** one: host
+`MemAvailable` fell 27.33 GiB, agreeing within 0.5 GiB from a different subsystem. Rule: for residency, name
+the instrument, and only trust it if a second, unrelated counter moves by the same amount.
+
+## A running minimum initialised to 0 reports 0 forever
+
+First version of the window probe printed `MemAvailable min during = 0.00 GiB`, which reads like a dramatic
+result and is arithmetic: the running minimum was seeded at `0`, so no sample could ever be lower. Fixed by
+seeding with `None` and printing `NOT MEASURED` when nothing was recorded — and the re-run gave 87.47 GiB with
+46 value-bearing samples. This is the repo-wide rule (`AGENTS.md` §"A check that can produce no output cannot
+fail") turned on a measurement: **a counter sitting at exactly its own initial value is unproven until it has
+been witnessed non-zero where it must fire**, and `0.00 GiB` of a 128 GiB machine should have been the tell
+that the instrumentation, not the machine, had failed.

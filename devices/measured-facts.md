@@ -129,6 +129,32 @@ Consequences, now stated against the corrected model:
    re-derives it from hope.
 
 
+### Measured engine footprint — the first one, 2026-10-26 window
+
+What the engine actually occupies, measured rather than modelled. Main agent, blocking, zero workers, halogen
+down; full record in `devices/evidence/device-window-2026-10-26.md`.
+
+| instrument | reading | usable? |
+|---|---|---|
+| process `VmHWM` | 1.47 GiB | **no** — llama.cpp `mmap`s the GGUF and the device reads it over GTT, so the weights never enter the process page tables |
+| process `VmPeak` | 34.48 GiB | no — address-space reservation, not residency |
+| `mem_info_vram_used` | 1.68 GiB peak | **no** — this is the 2.0 GiB dedicated BAR (`mem_info_vram_total` = 2,147,483,648 B); structurally cannot see a 21 GiB load |
+| KFD `/sys/class/kfd/kfd/proc/<pid>/` | **does not exist on this kernel** | per-process device memory NOT MEASURED by that route |
+| `mem_info_gtt_used` | **26.86–26.88 GiB** (5 runs, spread 0.07 %) | **yes — this is the one that works** |
+| host `MemAvailable` | 114.80 → 87.47 GiB (Δ 27.33) | yes — independent corroboration, agrees within 0.5 GiB |
+
+**≈26.9 GiB** of device-visible footprint to run the shipping artifact at 41/41 layers offloaded, single
+sequence, `n_ctx=26214`. The file is 20.624 GiB, so KV + compute buffers + scratch are **≥ 6.24 GiB** — a
+lower bound, because only the experts a 128-token generation touches get faulted into the GTT.
+
+Two consequences worth pinning. **Measured demand is 7.1 GiB above the modelled policy-A figure** (26.9 vs
+19.78 GiB): a budget decision taken from the model alone is 7 GiB optimistic. And 26.9 GiB **does** fit the
+≈32 GiB co-resident budget, but with ~5 GiB of margin rather than the ~12 GiB the model implied.
+
+Do **not** reconcile these with the sysfs totals: `mem_info_gtt_total` = 112.0 GiB and
+`mem_info_vram_total` = 2.0 GiB, and neither is the ≈55.5–56.5 GiB pool ceiling above, which stays a D-02
+allocation-probe result. The counters live under `/sys/class/drm/card1/device/` on this box, not `card0`.
+
 ## Two model endpoints, and where each one's GPU is (measured 2026-10-26)
 
 Pi on this box has two model endpoints, and they differ in the one way that decides measurement
@@ -215,6 +241,20 @@ Anchors for the arithmetic: policy A predicts 19.7848 GiB = 21.27 GB where the p
 architecture are 18.49 GB (unsloth Q4_K_M) and 19.77 GB (bartowski) — our figure is high by ~6–13 %
 in the expected direction, because those quants are dynamic (some expert tensors below Q4_K) and keep
 attention at Q4_K too. Details and sources: `quantization/evidence/`.
+
+### The first ruler: llama.cpp at full offload — 2026-10-26
+
+`llama-cli` @ `d327bf1`, the shipping Q4_K_M artifact, `-ngl 99 --temp 0 -s 42 --no-warmup -st -n 128`,
+41/41 layers on GPU, seven measured runs after a discarded warm one:
+
+- **generation 44.9 / 49.1 / 51.4 t/s** (min / median / max) — quote the triple, not the max
+- prompt 293–367 t/s; dispersion ±7 %, which is a ruler and not a single number
+- at 2.5252 GiB/token the median is **≈133 GB/s ≈ 63 % of the 210 GB/s** reference above
+
+The roofline below predicts 77 t/s at 210 GB/s. llama.cpp delivers 49.1. **The implementation target is to
+beat ~51 t/s; 77 is the physics ceiling, not the bar.** `-n 32` runs read 35.5 and 51.3 t/s — short decodes
+are unreliable at the low end, so 128 tokens is the minimum worth reporting. Full record with the instrument
+caveats: `devices/evidence/device-window-2026-10-26.md`.
 
 ## Re-measuring
 

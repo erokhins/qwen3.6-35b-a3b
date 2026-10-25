@@ -188,7 +188,7 @@ For a row that is over the co-resident budget (say 8 sequences at 256k, 32.43 Gi
 |---|---|---|---|
 | context 256k → 64k | 33.00 GiB | **user** | capability, not engineering |
 | KV container bf16 → iq4_xs / q4_k | 32.31 / 31.63 GiB | **user** | a KV width has never been decided here; attention width was decided *against* Q4 in D-01a for evidence-based reasons, and KV is the same kind of surface |
-| halogen down (budget, not bytes) | +23.66 GiB of budget | **ops** | D-11; the dedicated pool figure is UNMEASURED and the restart cost is unmeasured too (§7) |
+| halogen down (budget, not bytes) | +23.66 GiB of budget | **ops** | D-11; **restart cost measured 2026-10-26: stop 14 s, ready 17 s** (`devices/evidence/halogen-restart.log`), so this lever is cheap to pull. Measured engine demand at 41/41 offload is **≈26.9 GiB** GTT, not the modelled 19.78 (`devices/evidence/device-window-2026-10-26.md`); the ≈55.5–56.5 GiB ceiling itself is still a D-02 allocation-probe figure |
 | one fewer concurrent sequence | 5.56 GiB/lane at 256k | **ops/user** | throughput |
 | drop the draft layer's own KV rows | 4.00 GiB at 8×256k | engineering | risks the draft reading rows it did not write — only an option if the draft shares the target's KV lanes |
 | drop the MTP draft block | 0.4686 GiB + 2 KiB/token | **user** | reverses D-05 |

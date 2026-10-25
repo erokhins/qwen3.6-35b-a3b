@@ -429,6 +429,28 @@ adjudication; correct values are policy A **19.78 GiB**, policy F **35.16 GiB**,
 without the draft block and **66.1337 GiB** with it, policy A at **2.5252 GiB/token**. Re-print from
 `tools/quant_scenarios.py` rather than transcribing either set by hand (`quantization/evidence/bf16-census-adjudication-2026-10-26.md`).
 
+### Measured 2026-10-26 — the demand half of the row is no longer an inference
+
+First device window (main agent, blocking, zero workers, halogen down;
+`devices/evidence/device-window-2026-10-26.md`):
+
+- **Engine footprint: ≈26.9 GiB** running the shipping artifact at 41/41 layers offloaded, single sequence,
+  `n_ctx=26214` — `mem_info_gtt_used` 26.86–26.88 GiB over five runs, corroborated by host `MemAvailable`
+  falling 27.33 GiB. RSS (1.47 GiB) and `mem_info_vram_used` (1.68 GiB, the 2 GiB dedicated BAR) both read
+  low and both are wrong here; `devices/measured-facts.md` §"Measured engine footprint" says why.
+- **That is 7.1 GiB above the modelled 19.78 GiB** of policy A. The gap is KV plus compute buffers, and it
+  means every budget conclusion drawn from the model alone — including this section's "policy A 19.59/19.78
+  fits co-resident with room" — is about **7 GiB optimistic**. 26.9 still fits ≈32 GiB, with ~5 GiB of margin
+  rather than ~12.
+- **Restart cost measured at last: stop 14 s, ready 17 s.** D-13's "batch, do not oscillate" was written on
+  the assumption that a restart might be expensive. It is not, at this scale — so take one window per
+  measurement campaign, not one per session.
+
+**What is still not measured:** the ≈55.5–56.5 GiB ceiling remains D-02's allocation-probe result. The sysfs
+totals are *not* that number — `gtt_total` = 112.0 GiB, `vram_total` = 2.0 GiB — and must not be used to
+"correct" it. Per-process device memory is unavailable on this kernel (no KFD proc files), and the split of
+the ≥6.24 GiB non-weight footprint waits for the engine's own allocator.
+
 ## D-12 — Can llama.cpp be the oracle? — **ADOPTED as the cross-check oracle; the accuracy oracle stays bf16** (user, 2026-10-26)
 
 **The proposal, in the user's words:** "use the llama.cpp on the particular checkpoint to be the
