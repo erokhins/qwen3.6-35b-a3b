@@ -251,3 +251,73 @@ streaming, exactly at the D-13 ceiling. A "no activity for 300 s" nudge into a l
 second stream to a server that advertises five slots and that I hand four on purpose, so the counters,
 not the silence, decided it: **no nudge, no interrupt**. A worker that is thinking is not a worker that
 is stuck, and the difference is observable rather than guessable.
+
+## W3 delivered — and corrected me; and a citation inside a user decision record is now known-false
+
+W3 came back with the llama.cpp lane finished and my own alarm disproved. My "no `libggml-hip` in the
+chain" was **an artifact of my own command**: `build-hip/ggml/libggml-hip.so` does not exist, and
+`readelf -d` on a missing path prints nothing at all — which is exactly what "no NEEDED lines" looks
+like. The lib lives at `build-hip/bin/libggml-hip.so.0.27.0` (72,910,832 B), `libggml.so.0.27.0` NEEDs
+it, and the answer to "is the HIP backend really wired in" came as a **census rather than a sample**:
+`.hip_fatbin` is one 56,112,304 B section and all **141** carved code objects report
+`amdgcn-amd-amdhsa--gfx1151` under `llvm-readobj --notes`, 0 anything else — with the note that
+`--file-headers` *cannot* answer that question, and that `llvm-offload-device-info` would have passed on
+a CPU-only build because a gfx1151 GPU is attached. Two of its own first-version gate checks were
+vacuous for exactly that reason, and it replaced them rather than leaving them green. I re-ran its gate
+independently: `tools/build_llama.sh --check` → **17/17 GATE GREEN**. Committed as `8576744`.
+
+**The finding that is not mine to act on.** `quantization/evidence/llama-cpp-tensor-policy-2026-10-26.md`
+records that llama.cpp forces the latent/gate tensor categories to ≥ Q8_0, and **`DECISIONS.md` §D-01a
+cites that rule as support for the user's decision to put attention/GDN at Q8_0**; `quantization/README.md`
+repeats it. At this commit the rule is `if (arch == LLM_ARCH_MUSE_SPARK && …)` — for `Qwen35MoE`,
+llama.cpp raises nothing, so one leg of the reasoning recorded next to a user decision is false. The
+**decision stands** on its other, independent legs (unsloth's per-tensor sweep on this exact
+architecture family found `attn_*` the most sensitive class and `ssm_out` the worst single tensor, and
+Q8_0 on 1.975 GiB is cheap), but a decision must not keep standing on a citation that does not exist,
+and the record of a user's choice is the user's to amend. Escalated, not edited; W3 likewise refused to
+touch it.
+
+Same verdict batch: the `llama-quantize` per-tensor flags D-12 rests on are **CONFIRMED**, with two
+traps absent from our docs — overrides are `std::regex_search` **substring** matches, so
+`--tensor-type attn_q=q8_0` also rewrites `attn_qkv` and `attn_q_norm`; and they are **silently ignored
+unless the base type is quantized**, so an `F16`/`BF16`/`COPY` base makes them a no-op. Those matter
+because they are the difference between producing a policy-A artifact and producing a plausible-looking
+wrong one. Also **Q6_K is not K-quant-shaped** (8-bit scales, no min, single `d`), and **expert gate/up
+fusion is opt-in and off by default** upstream, so our own conversion emits *split*
+`ffn_gate_exps`/`ffn_up_exps` while the published file may be fused — the reader must accept both, as
+llama.cpp's loader does.
+
+## W2's third death: the lane was the problem, so a fourth resume was not the answer
+
+W2 failed again. The signature is diagnostic rather than random: **15 `terminated` errors with
+`totalTokens.output = 0`** — generations killed before producing anything — while W3/W4 logged zero such
+errors and W1 one compaction failure. The lanes that died were the **revived** ones, whose context had
+been accumulating for hours; the fresh lanes were fine. Resuming that conversation a fourth time with
+the same brief would have reproduced the failure, which makes it the wrong supervisory move, not a
+patient one. Both replacements launched **fresh**, with the on-disk state as their starting point and a
+work-shape rule aimed at the actual mechanism:
+
+| lane | role | brief shape |
+|---|---|---|
+| W5 `a7e9a248` | replaces W2's spec lane | `derive.py` **frozen**; one file per `write`; **≤250 lines per file**, split rather than grow; report every 2 files. Its predecessor spent 2.5 h on a 42 KB derivation script and shipped zero spec files, so the deliverable order is enforced, not suggested. |
+| W6 `ae846f77` | the engine lane, previously queued behind the cap | `prototype/q4k_dequant`: device Q4_K + Q8_0 dequant, **bit-exact** against `tools/gguf_reader.py`, already witnessed (40/40 synthetic, 150/150 injections, 0 leaks). Correctness-only, <60 s, under `gpu_lock`, PASS/FAIL, no timings. |
+
+The engine lane started **now** rather than after the spec because the dequant kernel is the one piece
+whose oracle already exists — it needs `ggml-common.h` and the audited CPU reader, neither of which
+waits on the spec or on W4's dumps. `PLAN.md` step 2 names it first for the same reason.
+
+## `tools/worker_lanes.sh`: the quiet-lane question, answerable without guessing
+
+Two "no observed activity for 300 s" alarms fired today and **both were healthy workers** — a
+`thinking high` lane emitting nothing while it composes a large file reads identically to a stall, and
+the tempting response (`steer`/`interrupt`) injects into a live stream and spends the fifth-slot margin.
+So the judgement is a command now rather than a call: endpoint counters are the authority, a lane is
+ALIVE only on its own recent event or an unclosed `message_start` with its endpoint streaming, and
+anything else is UNKNOWN — never ALIVE.
+
+Its first version was wrong in the instructive way: it counted "some file in the repo changed" as
+evidence of life, which marked **10-hour-old corpses from earlier sessions ALIVE** because other workers
+are always writing — a check that cannot report STALE is not a check. Dropping that unattributable
+signal fixed it, and `bash tools/worker_lanes.sh 1` confirms the STALE branch is reachable, so the
+verdict is witnessed rather than hoped for. It currently separates my 4 live lanes from 5 real corpses
+and 10 historical ones.
