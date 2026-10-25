@@ -1,0 +1,981 @@
+{
+ "cases": 27,
+ "copied_cases": 25,
+ "derived_cases": 2,
+ "derived_route": [
+  {
+   "elements_bit_exact": 32,
+   "elements_outside_route": 0,
+   "elements_within_route": 0,
+   "elts": 32,
+   "every_element": [
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbd153261",
+     "index": 0,
+     "route_bits": {
+      "crl": "0xbd153261",
+      "f32": "0xbd153261"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbcff3ac4",
+     "index": 1,
+     "route_bits": {
+      "crl": "0xbcff3ac4",
+      "f32": "0xbcff3ac4"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbe0cc405",
+     "index": 2,
+     "route_bits": {
+      "crl": "0xbe0cc405",
+      "f32": "0xbe0cc405"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbd6ab831",
+     "index": 3,
+     "route_bits": {
+      "crl": "0xbd6ab831",
+      "f32": "0xbd6ab831"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbc98678f",
+     "index": 4,
+     "route_bits": {
+      "crl": "0xbc98678f",
+      "f32": "0xbc98678f"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbd290fe6",
+     "index": 5,
+     "route_bits": {
+      "crl": "0xbd290fe6",
+      "f32": "0xbd290fe6"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbddb41c3",
+     "index": 6,
+     "route_bits": {
+      "crl": "0xbddb41c3",
+      "f32": "0xbddb41c3"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbcf38ab0",
+     "index": 7,
+     "route_bits": {
+      "crl": "0xbcf38ab0",
+      "f32": "0xbcf38ab0"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbda580f7",
+     "index": 8,
+     "route_bits": {
+      "crl": "0xbda580f7",
+      "f32": "0xbda580f7"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xc21add11",
+     "index": 9,
+     "route_bits": {
+      "crl": "0xc21add11",
+      "f32": "0xc21add11"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbda81c2e",
+     "index": 10,
+     "route_bits": {
+      "crl": "0xbda81c2e",
+      "f32": "0xbda81c2e"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xc287e5a1",
+     "index": 11,
+     "route_bits": {
+      "crl": "0xc287e5a1",
+      "f32": "0xc287e5a1"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbd3c9a38",
+     "index": 12,
+     "route_bits": {
+      "crl": "0xbd3c9a38",
+      "f32": "0xbd3c9a38"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbd09fc06",
+     "index": 13,
+     "route_bits": {
+      "crl": "0xbd09fc06",
+      "f32": "0xbd09fc06"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbca23bd9",
+     "index": 14,
+     "route_bits": {
+      "crl": "0xbca23bd9",
+      "f32": "0xbca23bd9"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbd2151f8",
+     "index": 15,
+     "route_bits": {
+      "crl": "0xbd2151f8",
+      "f32": "0xbd2151f8"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbcbdaba6",
+     "index": 16,
+     "route_bits": {
+      "crl": "0xbcbdaba6",
+      "f32": "0xbcbdaba6"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xc208aaa6",
+     "index": 17,
+     "route_bits": {
+      "crl": "0xc208aaa6",
+      "f32": "0xc208aaa6"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbdd13764",
+     "index": 18,
+     "route_bits": {
+      "crl": "0xbdd13764",
+      "f32": "0xbdd13764"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbd8d9019",
+     "index": 19,
+     "route_bits": {
+      "crl": "0xbd8d9019",
+      "f32": "0xbd8d9019"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbc98678f",
+     "index": 20,
+     "route_bits": {
+      "crl": "0xbc98678f",
+      "f32": "0xbc98678f"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xc290a95e",
+     "index": 21,
+     "route_bits": {
+      "crl": "0xc290a95e",
+      "f32": "0xc290a95e"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbd7dcad3",
+     "index": 22,
+     "route_bits": {
+      "crl": "0xbd7dcad3",
+      "f32": "0xbd7dcad3"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbcb7d5bf",
+     "index": 23,
+     "route_bits": {
+      "crl": "0xbcb7d5bf",
+      "f32": "0xbcb7d5bf"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbdb02d87",
+     "index": 24,
+     "route_bits": {
+      "crl": "0xbdb02d87",
+      "f32": "0xbdb02d87"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xc290a95e",
+     "index": 25,
+     "route_bits": {
+      "crl": "0xc290a95e",
+      "f32": "0xc290a95e"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbd45a754",
+     "index": 26,
+     "route_bits": {
+      "crl": "0xbd45a754",
+      "f32": "0xbd45a754"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbcc3b0f8",
+     "index": 27,
+     "route_bits": {
+      "crl": "0xbcc3b0f8",
+      "f32": "0xbcc3b0f8"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbd39adac",
+     "index": 28,
+     "route_bits": {
+      "crl": "0xbd39adac",
+      "f32": "0xbd39adac"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbd109b43",
+     "index": 29,
+     "route_bits": {
+      "crl": "0xbd109b43",
+      "f32": "0xbd109b43"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xc26fdb7b",
+     "index": 30,
+     "route_bits": {
+      "crl": "0xc26fdb7b",
+      "f32": "0xc26fdb7b"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbd2bb976",
+     "index": 31,
+     "route_bits": {
+      "crl": "0xbd2bb976",
+      "f32": "0xbd2bb976"
+     }
+    }
+   ],
+   "hf": "model.language_model.layers.0.linear_attn.A_log",
+   "max_steps_from_agreed": 0,
+   "name": "blk.0.ssm_a",
+   "order": "V-reorder",
+   "outside_route_elements": [],
+   "reference_disagreement_elements": [],
+   "reference_disagreements": 0,
+   "route": "neg_exp",
+   "routes": [
+    "crl = correctly-rounded exp (60 digits, one rounding)",
+    "f32 = double exp, then round to f32"
+   ],
+   "verdict": "PASS",
+   "within_route_elements": []
+  },
+  {
+   "elements_bit_exact": 31,
+   "elements_outside_route": 0,
+   "elements_within_route": 1,
+   "elts": 32,
+   "every_element": [
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbf02c083",
+     "index": 0,
+     "route_bits": {
+      "crl": "0xbf02c083",
+      "f32": "0xbf02c083"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbfd3094c",
+     "index": 1,
+     "route_bits": {
+      "crl": "0xbfd3094c",
+      "f32": "0xbfd3094c"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xc11f16c8",
+     "index": 2,
+     "route_bits": {
+      "crl": "0xc11f16c8",
+      "f32": "0xc11f16c8"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xc13cec40",
+     "index": 3,
+     "route_bits": {
+      "crl": "0xc13cec40",
+      "f32": "0xc13cec40"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbe0cc405",
+     "index": 4,
+     "route_bits": {
+      "crl": "0xbe0cc405",
+      "f32": "0xbe0cc405"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xc1d8396f",
+     "index": 5,
+     "route_bits": {
+      "crl": "0xc1d8396f",
+      "f32": "0xc1d8396f"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbe125f88",
+     "index": 6,
+     "route_bits": {
+      "crl": "0xbe125f88",
+      "f32": "0xbe125f88"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbfad4149",
+     "index": 7,
+     "route_bits": {
+      "crl": "0xbfad4149",
+      "f32": "0xbfad4149"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbfdb716c",
+     "index": 8,
+     "route_bits": {
+      "crl": "0xbfdb716c",
+      "f32": "0xbfdb716c"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbee5e074",
+     "index": 9,
+     "route_bits": {
+      "crl": "0xbee5e074",
+      "f32": "0xbee5e074"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbd8fcacc",
+     "index": 10,
+     "route_bits": {
+      "crl": "0xbd8fcacc",
+      "f32": "0xbd8fcacc"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbe2dd28b",
+     "index": 11,
+     "route_bits": {
+      "crl": "0xbe2dd28b",
+      "f32": "0xbe2dd28b"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbe7ee4cd",
+     "index": 12,
+     "route_bits": {
+      "crl": "0xbe7ee4cd",
+      "f32": "0xbe7ee4cd"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xc0793359",
+     "index": 13,
+     "route_bits": {
+      "crl": "0xc0793359",
+      "f32": "0xc0793359"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbe4e6b54",
+     "index": 14,
+     "route_bits": {
+      "crl": "0xbe4e6b54",
+      "f32": "0xbe4e6b54"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbded12be",
+     "index": 15,
+     "route_bits": {
+      "crl": "0xbded12be",
+      "f32": "0xbded12be"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xc10a380a",
+     "index": 16,
+     "route_bits": {
+      "crl": "0xc10a380a",
+      "f32": "0xc10a380a"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbe99baf3",
+     "index": 17,
+     "route_bits": {
+      "crl": "0xbe99baf3",
+      "f32": "0xbe99baf3"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbfcef45b",
+     "index": 18,
+     "route_bits": {
+      "crl": "0xbfcef45b",
+      "f32": "0xbfcef45b"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbf8f00ef",
+     "index": 19,
+     "route_bits": {
+      "crl": "0xbf8f00ef",
+      "f32": "0xbf8f00ef"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbe022fdf",
+     "index": 20,
+     "route_bits": {
+      "crl": "0xbe022fdf",
+      "f32": "0xbe022fdf"
+     }
+    },
+    {
+     "class": "not bit-exact; see the within/outside lists",
+     "file_bits": "0xbf68dcf7",
+     "index": 21,
+     "route_bits": {
+      "crl": "0xbf68dcf6",
+      "f32": "0xbf68dcf6"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbe41e9b7",
+     "index": 22,
+     "route_bits": {
+      "crl": "0xbe41e9b7",
+      "f32": "0xbe41e9b7"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbdf0ce7b",
+     "index": 23,
+     "route_bits": {
+      "crl": "0xbdf0ce7b",
+      "f32": "0xbdf0ce7b"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xc04e9833",
+     "index": 24,
+     "route_bits": {
+      "crl": "0xc04e9833",
+      "f32": "0xc04e9833"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xc0b27b4f",
+     "index": 25,
+     "route_bits": {
+      "crl": "0xc0b27b4f",
+      "f32": "0xc0b27b4f"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbe2b20a8",
+     "index": 26,
+     "route_bits": {
+      "crl": "0xbe2b20a8",
+      "f32": "0xbe2b20a8"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbe0a9555",
+     "index": 27,
+     "route_bits": {
+      "crl": "0xbe0a9555",
+      "f32": "0xbe0a9555"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbfe6dfdb",
+     "index": 28,
+     "route_bits": {
+      "crl": "0xbfe6dfdb",
+      "f32": "0xbfe6dfdb"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbe390874",
+     "index": 29,
+     "route_bits": {
+      "crl": "0xbe390874",
+      "f32": "0xbe390874"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbe647c3c",
+     "index": 30,
+     "route_bits": {
+      "crl": "0xbe647c3c",
+      "f32": "0xbe647c3c"
+     }
+    },
+    {
+     "class": "bit-exact",
+     "file_bits": "0xbfe186b8",
+     "index": 31,
+     "route_bits": {
+      "crl": "0xbfe186b8",
+      "f32": "0xbfe186b8"
+     }
+    }
+   ],
+   "hf": "model.language_model.layers.1.linear_attn.A_log",
+   "max_steps_from_agreed": 1,
+   "name": "blk.1.ssm_a",
+   "order": "V-reorder",
+   "outside_route_elements": [],
+   "reference_disagreement_elements": [],
+   "reference_disagreements": 0,
+   "route": "neg_exp",
+   "routes": [
+    "crl = correctly-rounded exp (60 digits, one rounding)",
+    "f32 = double exp, then round to f32"
+   ],
+   "verdict": "PASS-with-finding",
+   "within_route_elements": [
+    {
+     "abs_error": 5.960464477539063e-08,
+     "agreed": "-0.9096215963363647",
+     "agreed_bits": "0xbf68dcf6",
+     "file": "-0.9096216559410095",
+     "file_bits": "0xbf68dcf7",
+     "index": 21,
+     "neighbour_down": "-0.9096216559410095",
+     "neighbour_down_bits": "0xbf68dcf7",
+     "neighbour_up": "-0.90962153673172",
+     "neighbour_up_bits": "0xbf68dcf5",
+     "reference_bits": {
+      "crl": "0xbf68dcf6",
+      "f32": "0xbf68dcf6"
+     },
+     "steps_from_agreed": 1,
+     "ulp_step_at_agreed": 5.960464477539063e-08
+    }
+   ]
+  }
+ ],
+ "fails": [],
+ "gdn_v_order": {
+  "blk.0.ssm_a": "V-reorder",
+  "blk.0.ssm_alpha.weight": "V-reorder",
+  "blk.0.ssm_beta.weight": "V-reorder",
+  "blk.0.ssm_conv1d.weight": "V-reorder",
+  "blk.0.ssm_dt.bias": "V-reorder",
+  "blk.1.ssm_a": "V-reorder",
+  "blk.1.ssm_alpha.weight": "V-reorder",
+  "blk.1.ssm_beta.weight": "V-reorder",
+  "blk.1.ssm_conv1d.weight": "V-reorder",
+  "blk.1.ssm_dt.bias": "V-reorder"
+ },
+ "near_misses": [
+  {
+   "best_route": "V-reorder + -exp",
+   "elements_off": 1,
+   "elts": 32,
+   "first_off_indices": [
+    21
+   ],
+   "hf": "model.language_model.layers.1.linear_attn.A_log",
+   "max_ulp": 1,
+   "name": "blk.1.ssm_a",
+   "pass": "1.4b",
+   "routes_tried": [
+    "crl = correctly-rounded exp (60 digits, one rounding)",
+    "f32 = double exp, then round to f32"
+   ]
+  }
+ ],
+ "permuted_only": [
+  "blk.0.attn_norm.weight: as stored + norm+1(f32)",
+  "blk.0.ssm_conv1d.weight: V-reorder + no value transform",
+  "blk.0.ssm_dt.bias: V-reorder + no value transform",
+  "blk.0.ssm_alpha.weight: V-reorder + no value transform",
+  "blk.0.ssm_beta.weight: V-reorder + no value transform",
+  "blk.0.post_attention_norm.weight: as stored + norm+1(f32)",
+  "blk.1.attn_norm.weight: as stored + norm+1(f32)",
+  "blk.1.ssm_conv1d.weight: V-reorder + no value transform",
+  "blk.1.ssm_dt.bias: V-reorder + no value transform",
+  "blk.1.ssm_alpha.weight: V-reorder + no value transform",
+  "blk.1.ssm_beta.weight: V-reorder + no value transform",
+  "blk.1.post_attention_norm.weight: as stored + norm+1(f32)",
+  "blk.39.attn_norm.weight: as stored + norm+1(f32)",
+  "blk.39.post_attention_norm.weight: as stored + norm+1(f32)",
+  "blk.39.attn_k_norm.weight: as stored + norm+1(f32)",
+  "blk.39.attn_q_norm.weight: as stored + norm+1(f32)",
+  "output_norm.weight: as stored + norm+1(f32)"
+ ],
+ "router_cases": 3,
+ "routes_matched": {
+  "V-reorder + neg_exp (within-route)": 2,
+  "V-reorder + no value transform": 8,
+  "as stored + no value transform": 8,
+  "as stored + norm+1(f32)": 9
+ },
+ "rows": [
+  {
+   "elts": 2048,
+   "family": "norms",
+   "hf": "model.language_model.layers.0.input_layernorm.weight",
+   "mapping": "-+norm_plus_one",
+   "matched_under": "as stored + norm+1(f32)",
+   "name": "blk.0.attn_norm.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 32768,
+   "family": "GDN control",
+   "hf": "model.language_model.layers.0.linear_attn.conv1d.weight",
+   "mapping": "v_conv",
+   "matched_under": "V-reorder + no value transform",
+   "name": "blk.0.ssm_conv1d.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 32,
+   "family": "GDN control",
+   "hf": "model.language_model.layers.0.linear_attn.dt_bias",
+   "mapping": "v_1d_h1",
+   "matched_under": "V-reorder + no value transform",
+   "name": "blk.0.ssm_dt.bias",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 65536,
+   "family": "GDN control",
+   "hf": "model.language_model.layers.0.linear_attn.in_proj_a.weight",
+   "mapping": "v_rows_h1",
+   "matched_under": "V-reorder + no value transform",
+   "name": "blk.0.ssm_alpha.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 65536,
+   "family": "GDN control",
+   "hf": "model.language_model.layers.0.linear_attn.in_proj_b.weight",
+   "mapping": "v_rows_h1",
+   "matched_under": "V-reorder + no value transform",
+   "name": "blk.0.ssm_beta.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 128,
+   "family": "GDN control",
+   "hf": "model.language_model.layers.0.linear_attn.norm.weight",
+   "mapping": "-",
+   "matched_under": "as stored + no value transform",
+   "name": "blk.0.ssm_norm.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 524288,
+   "family": "router+shexp-gate",
+   "hf": "model.language_model.layers.0.mlp.gate.weight",
+   "mapping": "-",
+   "matched_under": "as stored + no value transform",
+   "name": "blk.0.ffn_gate_inp.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 2048,
+   "family": "router+shexp-gate",
+   "hf": "model.language_model.layers.0.mlp.shared_expert_gate.weight",
+   "mapping": "-",
+   "matched_under": "as stored + no value transform",
+   "name": "blk.0.ffn_gate_inp_shexp.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 2048,
+   "family": "norms",
+   "hf": "model.language_model.layers.0.post_attention_layernorm.weight",
+   "mapping": "-+norm_plus_one",
+   "matched_under": "as stored + norm+1(f32)",
+   "name": "blk.0.post_attention_norm.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 2048,
+   "family": "norms",
+   "hf": "model.language_model.layers.1.input_layernorm.weight",
+   "mapping": "-+norm_plus_one",
+   "matched_under": "as stored + norm+1(f32)",
+   "name": "blk.1.attn_norm.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 32768,
+   "family": "GDN control",
+   "hf": "model.language_model.layers.1.linear_attn.conv1d.weight",
+   "mapping": "v_conv",
+   "matched_under": "V-reorder + no value transform",
+   "name": "blk.1.ssm_conv1d.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 32,
+   "family": "GDN control",
+   "hf": "model.language_model.layers.1.linear_attn.dt_bias",
+   "mapping": "v_1d_h1",
+   "matched_under": "V-reorder + no value transform",
+   "name": "blk.1.ssm_dt.bias",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 65536,
+   "family": "GDN control",
+   "hf": "model.language_model.layers.1.linear_attn.in_proj_a.weight",
+   "mapping": "v_rows_h1",
+   "matched_under": "V-reorder + no value transform",
+   "name": "blk.1.ssm_alpha.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 65536,
+   "family": "GDN control",
+   "hf": "model.language_model.layers.1.linear_attn.in_proj_b.weight",
+   "mapping": "v_rows_h1",
+   "matched_under": "V-reorder + no value transform",
+   "name": "blk.1.ssm_beta.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 128,
+   "family": "GDN control",
+   "hf": "model.language_model.layers.1.linear_attn.norm.weight",
+   "mapping": "-",
+   "matched_under": "as stored + no value transform",
+   "name": "blk.1.ssm_norm.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 524288,
+   "family": "router+shexp-gate",
+   "hf": "model.language_model.layers.1.mlp.gate.weight",
+   "mapping": "-",
+   "matched_under": "as stored + no value transform",
+   "name": "blk.1.ffn_gate_inp.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 2048,
+   "family": "router+shexp-gate",
+   "hf": "model.language_model.layers.1.mlp.shared_expert_gate.weight",
+   "mapping": "-",
+   "matched_under": "as stored + no value transform",
+   "name": "blk.1.ffn_gate_inp_shexp.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 2048,
+   "family": "norms",
+   "hf": "model.language_model.layers.1.post_attention_layernorm.weight",
+   "mapping": "-+norm_plus_one",
+   "matched_under": "as stored + norm+1(f32)",
+   "name": "blk.1.post_attention_norm.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 2048,
+   "family": "norms",
+   "hf": "model.language_model.layers.39.input_layernorm.weight",
+   "mapping": "-+norm_plus_one",
+   "matched_under": "as stored + norm+1(f32)",
+   "name": "blk.39.attn_norm.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 524288,
+   "family": "router+shexp-gate",
+   "hf": "model.language_model.layers.39.mlp.gate.weight",
+   "mapping": "-",
+   "matched_under": "as stored + no value transform",
+   "name": "blk.39.ffn_gate_inp.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 2048,
+   "family": "router+shexp-gate",
+   "hf": "model.language_model.layers.39.mlp.shared_expert_gate.weight",
+   "mapping": "-",
+   "matched_under": "as stored + no value transform",
+   "name": "blk.39.ffn_gate_inp_shexp.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 2048,
+   "family": "norms",
+   "hf": "model.language_model.layers.39.post_attention_layernorm.weight",
+   "mapping": "-+norm_plus_one",
+   "matched_under": "as stored + norm+1(f32)",
+   "name": "blk.39.post_attention_norm.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 256,
+   "family": "norms",
+   "hf": "model.language_model.layers.39.self_attn.k_norm.weight",
+   "mapping": "-+norm_plus_one",
+   "matched_under": "as stored + norm+1(f32)",
+   "name": "blk.39.attn_k_norm.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 256,
+   "family": "norms",
+   "hf": "model.language_model.layers.39.self_attn.q_norm.weight",
+   "mapping": "-+norm_plus_one",
+   "matched_under": "as stored + norm+1(f32)",
+   "name": "blk.39.attn_q_norm.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 2048,
+   "family": "lm_head",
+   "hf": "model.language_model.norm.weight",
+   "mapping": "-+norm_plus_one",
+   "matched_under": "as stored + norm+1(f32)",
+   "name": "output_norm.weight",
+   "pass": "1.4a",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 32,
+   "family": "GDN control",
+   "hf": "model.language_model.layers.0.linear_attn.A_log",
+   "mapping": "-+neg_exp",
+   "matched_under": "V-reorder + neg_exp, 0 within-route",
+   "name": "blk.0.ssm_a",
+   "pass": "1.4b",
+   "verdict": "PASS"
+  },
+  {
+   "elts": 32,
+   "family": "GDN control",
+   "hf": "model.language_model.layers.1.linear_attn.A_log",
+   "mapping": "-+neg_exp",
+   "matched_under": "V-reorder + neg_exp, 1 within-route",
+   "name": "blk.1.ssm_a",
+   "pass": "1.4b",
+   "verdict": "PASS-with-finding"
+  }
+ ],
+ "utc": "2026-10-25T03:43:54Z",
+ "verdict": "PASS-with-finding",
+ "zero_tolerance_fails": [
+  "blk.1.ssm_a"
+ ],
+ "zero_tolerance_verdict": "FAIL"
+}

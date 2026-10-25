@@ -1,0 +1,173 @@
+{
+ "authority_widening": {
+  "bad": 0,
+  "n": 258,
+  "route": "gr.bf16_to_floats vs per-element bit mask"
+ },
+ "cases": 40,
+ "gate_sha256": "2561d174fee93bda7d7e61c3d817eabc536911c9de09fa65097a79d854419b31",
+ "index_injections_structural": {
+  "expert_transpose": true,
+  "gate_up_split": true,
+  "v_reorder": true
+ },
+ "injections": [
+  "block_shift_1",
+  "expert_stack_transpose",
+  "gate_up_swap",
+  "q4k_as_q4nl",
+  "q4k_drop_min"
+ ],
+ "max_abs_dev_clean": 0.0,
+ "must_catch_expected": 6,
+ "must_catch_fired": 6,
+ "python": "3.12.3",
+ "reader_sha256": "085dde80268980801ad40c33ad12cf03093323d37d2b01d50a7b3ae61b936a80",
+ "route_predicate": {
+  "predicate_rows": [
+   {
+    "case": "bit-exact",
+    "fired": false,
+    "must_fire": false,
+    "outside_route": 0,
+    "within_route": 0
+   },
+   {
+    "case": "one step above",
+    "fired": false,
+    "must_fire": false,
+    "outside_route": 0,
+    "within_route": 1
+   },
+   {
+    "case": "one step below",
+    "fired": false,
+    "must_fire": false,
+    "outside_route": 0,
+    "within_route": 1
+   },
+   {
+    "case": "two steps above",
+    "fired": true,
+    "must_fire": true,
+    "outside_route": 1,
+    "within_route": 0
+   },
+   {
+    "case": "two steps below",
+    "fired": true,
+    "must_fire": true,
+    "outside_route": 1,
+    "within_route": 0
+   },
+   {
+    "case": "sign flip",
+    "fired": true,
+    "must_fire": true,
+    "outside_route": 1,
+    "within_route": 0
+   },
+   {
+    "case": "permuted value",
+    "fired": true,
+    "must_fire": true,
+    "outside_route": 1,
+    "within_route": 0
+   },
+   {
+    "case": "binade edge 0.9999999403953552",
+    "fired": false,
+    "must_fire": false,
+    "outside_route": 0,
+    "within_route": 1
+   },
+   {
+    "case": "binade edge 0.9999998807907104",
+    "fired": true,
+    "must_fire": true,
+    "outside_route": 1,
+    "within_route": 0
+   },
+   {
+    "case": "binade edge 1.0000001192092896",
+    "fired": false,
+    "must_fire": false,
+    "outside_route": 0,
+    "within_route": 1
+   },
+   {
+    "case": "binade edge 1.000000238418579",
+    "fired": true,
+    "must_fire": true,
+    "outside_route": 1,
+    "within_route": 0
+   }
+  ],
+  "reference_disagreement_fires": true,
+  "reference_disagreement_note": "file bit-exact against route f32 while crl disagrees: still FAILS, because the gate may not absorb its own references",
+  "steps_are_one_step": true,
+  "ulp_rows": [
+   {
+    "expect_next": 1.0000001192092896,
+    "expect_prev": 0.9999999403953552,
+    "hand_ulp_from_frexp": 1.1920928955078125e-07,
+    "next": 1.0000001192092896,
+    "ok": true,
+    "prev": 0.9999999403953552,
+    "ulp": 1.1920928955078125e-07,
+    "x": 1.0
+   },
+   {
+    "expect_next": 0.5000000596046448,
+    "expect_prev": 0.4999999701976776,
+    "hand_ulp_from_frexp": 5.960464477539063e-08,
+    "next": 0.5000000596046448,
+    "ok": true,
+    "prev": 0.4999999701976776,
+    "ulp": 5.960464477539063e-08,
+    "x": 0.5
+   },
+   {
+    "expect_next": 2.000000238418579,
+    "expect_prev": 1.9999998807907104,
+    "hand_ulp_from_frexp": 2.384185791015625e-07,
+    "next": 2.000000238418579,
+    "ok": true,
+    "prev": 1.9999998807907104,
+    "ulp": 2.384185791015625e-07,
+    "x": 2.0
+   },
+   {
+    "expect_next": -0.9999999403953552,
+    "expect_prev": -1.0000001192092896,
+    "hand_ulp_from_frexp": 1.1920928955078125e-07,
+    "next": -0.9999999403953552,
+    "ok": true,
+    "prev": -1.0000001192092896,
+    "ulp": 1.1920928955078125e-07,
+    "x": -1.0
+   },
+   {
+    "expect_next": 0.9096216559410095,
+    "expect_prev": 0.90962153673172,
+    "hand_ulp_from_frexp": 5.960464477539063e-08,
+    "next": 0.9096216559410095,
+    "ok": true,
+    "prev": 0.90962153673172,
+    "ulp": 5.960464477539063e-08,
+    "x": 0.9096215963363647
+   }
+  ]
+ },
+ "shapes_derived_from": "checkpoints/Qwen3.6-35B-A3B.config.json geometry",
+ "types": [
+  "F32",
+  "Q8_0",
+  "Q4_K",
+  "Q5_K",
+  "Q6_K"
+ ],
+ "utc_first_selftest_pass": "2026-10-25T01:31:24Z",
+ "utc_latest_selftest_pass": "2026-10-25T03:43:53Z",
+ "wrongly_fired": 0
+}

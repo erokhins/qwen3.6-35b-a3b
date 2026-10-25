@@ -1,0 +1,73 @@
+{
+ "index_tensor_count": 1045,
+ "index_total_size": 71903645408.0,
+ "mtp": {
+  "bytes": 1689281536,
+  "elements": 844640768,
+  "extract_reparse_ok": true,
+  "extracted_to": "models/w1-mtp-extract/mtp.safetensors",
+  "names": 19,
+  "plan_claim_elements": 41943040,
+  "plan_claim_verdict": "REFUTED",
+  "present": 19
+ },
+ "shards": {
+  "model-00001-of-00026.safetensors": {
+   "bytes": 3996199712,
+   "dtypes": [
+    "BF16"
+   ],
+   "etag": "adee7bcb930aed22e0677e58d4873b48dadb1ed8001cb5c6a0487286eadb3478",
+   "etag_matches": true,
+   "header_len": 2848,
+   "n_declared": 22,
+   "n_index": 22,
+   "revision": "995ad96eacd98c81ed38be0c5b274b04031597b0",
+   "set_matches": true,
+   "sha256": "adee7bcb930aed22e0677e58d4873b48dadb1ed8001cb5c6a0487286eadb3478"
+  },
+  "model-00002-of-00026.safetensors": {
+   "bytes": 1284907696,
+   "dtypes": [
+    "BF16"
+   ],
+   "etag": "88f2dfd2b9e73e4b70be533dbf61bcfa3c9a0003758900fcbc9d9b96f5751d4b",
+   "etag_matches": true,
+   "header_len": 39376,
+   "n_declared": 348,
+   "n_index": 348,
+   "revision": "995ad96eacd98c81ed38be0c5b274b04031597b0",
+   "set_matches": true,
+   "sha256": "88f2dfd2b9e73e4b70be533dbf61bcfa3c9a0003758900fcbc9d9b96f5751d4b"
+  },
+  "model-00025-of-00026.safetensors": {
+   "bytes": 3832888256,
+   "dtypes": [
+    "BF16"
+   ],
+   "etag": "778e7f76602f05042b69ba7f3ec91f1fdffef390540b16074041c258fb81d154",
+   "etag_matches": true,
+   "header_len": 2624,
+   "n_declared": 20,
+   "n_index": 20,
+   "revision": "995ad96eacd98c81ed38be0c5b274b04031597b0",
+   "set_matches": true,
+   "sha256": "778e7f76602f05042b69ba7f3ec91f1fdffef390540b16074041c258fb81d154"
+  },
+  "model-00026-of-00026.safetensors": {
+   "bytes": 2231416848,
+   "dtypes": [
+    "BF16"
+   ],
+   "etag": "1a97404220077ed3d4182e10385b152004cab608377f50cec9f54a6b8d28b613",
+   "etag_matches": true,
+   "header_len": 4112,
+   "n_declared": 34,
+   "n_index": 34,
+   "revision": "995ad96eacd98c81ed38be0c5b274b04031597b0",
+   "set_matches": true,
+   "sha256": "1a97404220077ed3d4182e10385b152004cab608377f50cec9f54a6b8d28b613"
+  }
+ },
+ "utc": "2026-10-25T03:32:06Z"
+}

@@ -1,0 +1,181 @@
+# audit-ordering log — evidence that the gate was designed from the spec, not from the bytes
+#
+# Why this file exists (PLAN.md step 1.0 + the worker brief): the audit is only worth
+# something if the gate was written from the SPEC before any tensor-data byte was read,
+# because the whole point of the audit is that llama.cpp and our engine read the same bytes
+# and can never witness a converter bug between them (PLAN.md §"Why an audit exists at all").
+# Ordering is therefore a REPORTED FIELD, not an assumption. Rows tagged `tool:` are appended
+# by tools/audit_published_quant.py itself; rows tagged `manual:` were written by hand from the
+# command transcript. Times are `date -u` on this box; the box clock reads 2026-10-25 while the
+# repo's document convention is 2026-10-26 (progress/2026-10-26/step1-kickoff.md §"Box clock
+# note"), so both are shown wherever it matters.
+2026-10-25T00:56:58Z | manual | A: fetch of GGUF + 4 safetensors shards by the MAIN agent, before W1 existed (progress/2026-10-26/step1-kickoff.md %Section "Sequencing deviation"). Bytes on disk, unopened by W1.
+2026-10-25T00:56:58Z | manual | B: GGUF tensor-INFO records (names/types/dims/offsets) parsed over HTTP range by tools/gguf_header_types.py, by the main agent 2026-10-26 -> quantization/evidence/q4km-published-width-map-2026-10-26.txt. Structure pass, not a data read.
+2026-10-25T00:56:58Z | manual | C: W1 safetensors JSON headers only (struct.unpack <Q + json.loads of the header block) of model-00001/2/25/26-of-00026 + HF download metadata. No tensor-data byte read: commands were python3 /tmp/probe_shards.py and python3 /tmp/probe_mtp.py.
+2026-10-25T00:56:58Z | manual | D: W1 begins authoring tools/gguf_reader.py + tools/audit_published_quant.py from checkpoints/*.json, the GGUF format definition and engines/llama.cpp ggml/src/ggml-common.h + ggml-quants.c (read-only source reads of ggml-common.h, ggml-quants.c, ggml.h). Still zero tensor-data reads.
+2026-10-25T01:31:24Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T01:33:18Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T01:42:30Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T01:42:30Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=exact
+2026-10-25T01:42:30Z | tool | E3: FIRST TENSOR-DATA READ — first tensor-data read (exactness pass): blk.0.attn_norm.weight. bytes now reachable: header data_start=10990048.
+2026-10-25T01:43:45Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T01:43:45Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=exact
+2026-10-25T01:43:45Z | tool | E3: FIRST TENSOR-DATA READ — first tensor-data read (exactness pass): blk.0.attn_norm.weight. bytes now reachable: header data_start=10990048.
+2026-10-25T01:44:36Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=probe:diag (post-selftest data-read diagnosis)
+2026-10-25T01:48:01Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T01:48:01Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=exact
+2026-10-25T01:48:01Z | tool | E3: FIRST TENSOR-DATA READ — first tensor-data read (exactness pass): blk.0.attn_norm.weight. bytes now reachable: header data_start=10990048.
+2026-10-25T01:48:26Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=probe: ssm_a ulp diagnosis
+2026-10-25T01:48:56Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=probe: correctly-rounded exp test
+2026-10-25T01:50:11Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T01:50:11Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=exact
+2026-10-25T01:50:11Z | tool | E3: FIRST TENSOR-DATA READ — first tensor-data read (exactness pass): blk.0.attn_norm.weight. bytes now reachable: header data_start=10990048.
+2026-10-25T01:50:21Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T01:50:21Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=exact
+2026-10-25T01:50:21Z | tool | E3: FIRST TENSOR-DATA READ — first tensor-data read (exactness pass): blk.0.attn_norm.weight. bytes now reachable: header data_start=10990048.
+2026-10-25T01:50:30Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=floor_probe
+2026-10-25T01:50:31Z | tool | E3: FIRST TENSOR-DATA READ — tensor-data read on output.weight (type Q6_K, 513 blocks x 256 elts). bytes now reachable: header data_start=10990048.
+2026-10-25T01:50:39Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=dequant
+2026-10-25T01:50:39Z | tool | E3: FIRST TENSOR-DATA READ — tensor-data read on output.weight (type Q6_K, 513 blocks x 256 elts). bytes now reachable: header data_start=10990048.
+2026-10-25T01:50:49Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=injections
+2026-10-25T01:50:49Z | tool | E3: FIRST TENSOR-DATA READ — tensor-data read on output.weight (type Q6_K, 65 blocks x 256 elts). bytes now reachable: header data_start=10990048.
+2026-10-25T01:52:30Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T01:52:30Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=floor_probe
+2026-10-25T01:52:30Z | tool | E3: FIRST TENSOR-DATA READ — tensor-data read on output.weight (type Q6_K, 513 blocks x 256 elts). bytes now reachable: header data_start=10990048.
+2026-10-25T01:52:33Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=dequant
+2026-10-25T01:52:35Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=injections
+2026-10-25T01:53:22Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T01:53:22Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=floor_probe
+2026-10-25T01:53:22Z | tool | E3: FIRST TENSOR-DATA READ — tensor-data read on output.weight (type Q6_K, 513 blocks x 256 elts). bytes now reachable: header data_start=10990048.
+2026-10-25T01:53:25Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=dequant
+2026-10-25T01:53:27Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=injections
+2026-10-25T01:53:32Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=shared
+2026-10-25T01:53:38Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=summary
+2026-10-25T01:55:07Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T01:55:07Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=summary
+2026-10-25T01:55:38Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T01:55:38Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=summary
+2026-10-25T01:56:40Z | manual | F: section runs, in order, from the command transcript. Times are `date -u` at the start of each command; `tool:` E-rows above are appended by the tool itself and are the authoritative gate events.
+2026-10-25T01:20:39Z | manual | F0: `python3 tools/audit_published_quant.py --selftest` -> FAIL. Three of five synthetic fixtures generated ZERO elements (block-list vs flat-list mismatch in the K-quant packers), Q8_0 indices were stored with a +128 bias and read back as int8, Q5_K applied `>>4` twice on the high nibble, Q6_K took the scale index from the 32-element chunk instead of the 16-element sub-block, and the floor-honesty bound was computed from the ideal step rather than the realized one. Every one of these was the reader's own bug, caught before any file byte was judged — which is the entire argument for step 1.0.
+2026-10-25T01:23:38Z | manual | F0: `--selftest` -> FAIL (Q6_K scale index still `2g+2k`, and the size guard now makes a silent empty fixture impossible).
+2026-10-25T01:25:01Z | manual | F0: `--selftest` -> FAIL (Q6_K scale index must be `8g+2k+(l>>4)`; floor bound must use the realized step).
+2026-10-25T01:31:23Z | manual | F1: `--selftest` -> PASS (40/40 cases bit-exact, 6/6 must-catch fired, 0 wrongly fired, 3 index witnesses OK, floor honesty OK). Tool rows E1 in the log above; from here on a value byte may be read.
+2026-10-25T01:31:42Z | manual | F2 (step 1.1): `python3 tools/audit_published_quant.py --hash` -> PASS. sha256 twice over 22,134,528,992 B, equal to each other and to the HF LFS etag; 733 records declared = parsed = expected; `sum(row_bytes)+data_start == file size`.
+2026-10-25T01:34:50Z | manual | F3 (step 1.2): `python3 tools/audit_published_quant.py --shards` -> PASS. 4/4 shard tensor sets equal the committed `weight_map`, 4/4 sha256 equal the HF etags, 19 `mtp.*` tensors present and extracted; PLAN's 41,943,040-element MTP claim REFUTED (actual 844,640,768).
+2026-10-25T01:41:38Z | manual | F4 (step 1.3) first run -> FAIL, and correctly so: the audit's own HF->GGUF map was missing `post_attention_norm` (it had `ffn_norm`), used `ssm_a.weight`/`ssm_dt.weight` where the template says `ssm_a`/`ssm_dt.bias`, sized `q_proj` without `attn_output_gate`, and did not model the documented `conv1d` squeeze or `ggml_n_dims`'s trailing-1 drop. Fixed from `gguf-py/gguf/constants.py` and `conversion/qwen.py`, not from the file's own shapes.
+2026-10-25T01:42:18Z | manual | F4 (step 1.3): `--structure` -> PASS. 733/733 reconciled, 0 unreconciled, 0 expected-but-absent, 0 dim mismatches, 40 rank-convention rows.
+2026-10-25T01:42:26Z | manual | F5: `--exact` REFUSED because the tool files had changed since the selftest PASS — the marker carries both SHA-256s and the refusal is the witness that the gate bites. `--selftest` re-run after each edit; the first-PASS timestamp above is preserved across re-runs on purpose.
+2026-10-25T01:43:45Z | manual | F5 (step 1.4) first data run -> FAIL: routers/norms/ssm_norm matched, everything else did not. Diagnosis (`/tmp/dbg3.py`, post-gate reads) showed the audit's V-reorder index map had the k and v axes swapped and the norm `+1` was done in f32, not bf16. Both fixed from the converter source; `v_grouped_order()` was added as an independent formulation of the reorder so the witness no longer checks the mapper against itself.
+2026-10-25T01:50:21Z | manual | F5 (step 1.4): `--exact` -> FAIL with exactly one element outside: `blk.1.ssm_a` element 21 is 1 f32 ulp from `-exp(A_log)` (route `V-reorder + -exp(f32)`). A 60-digit `Decimal` exp agrees with the double route, so the file's producer computed `exp` in float32 with a non-correctly-rounded libm. Recorded as a near miss and still judged FAIL: zero tolerance, no carve-out invented here. Router rows: 3/3 bit-exact as stored.
+2026-10-25T01:50:30Z | manual | F6 (step 1.5a): `python3 tools/audit_published_quant.py --floor-probe` -> RUN (bands written before any published value was judged by 1.5b).
+2026-10-25T01:50:39Z | manual | F7 (step 1.5b): `--dequant` -> PASS, 30 tensors, worst family 1.00x its own floor against a 1.5x band.
+2026-10-25T01:50:48Z | manual | F8 (step 1.5c) first run -> FAIL (46 of 150 wrong): `block_shift_1` and `q4k_as_q4nl` did not fire because the byte-level injections were never passed to the real-data reader, and a NaN `rms` compared as "inside the band" (clean). Both are gate bugs, not file findings: the injections are now wired through `sample_pair`, and a non-finite deviation counts as FIRED by definition. `gate_up_swap` also leaked onto the GDN tensors because "injection does not apply" was implemented as "drop the mapping", which is not the same thing.
+2026-10-25T01:53:22Z | manual | F8 (step 1.5c): `--floor-probe --dequant --injections` -> all PASS. 150/150 injection cases correct: 30/30, 9/9, 6/6, 6/6, 6/6 fired, 0 leaks into any must-not-catch set.
+2026-10-25T01:53:32Z | manual | F9 (step 1.6): `python3 tools/audit_published_quant.py --shared` -> PASS. No aliased name pair and no overlapping byte range in the GGUF, none in the 4 shards; the untied pair `token_embd`/`output` is witnessed DISTINCT (65,306 of 65,536 bytes differ). Pin written to `checkpoints/Qwen3.6-35B-A3B.gguf-pin.json`.
+2026-10-25T01:55:38Z | manual | F10: `--selftest` then `--summary` -> `quantization/evidence/audit-published-quant-2026-10-26.md` written from the section JSONs on disk, not from memory. Verdicts: 1.1 PASS, 1.2 PASS, 1.3 PASS, 1.4 FAIL (one 1-ulp near miss), 1.5a RUN, 1.5b PASS, 1.5c PASS, 1.6 PASS.
+2026-10-25T01:56:40Z | manual | G: no device access, no timing figure appears anywhere in this audit or its evidence; no llama.cpp binary was built or run; nothing under `models/` was modified (the `mtp.*` extraction is a new gitignored file `models/w1-mtp-extract/mtp.safetensors`).
+2026-10-25T01:57:43Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T01:57:43Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=summary
+2026-10-25T02:18:25Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T02:19:13Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=exact
+2026-10-25T02:19:13Z | tool | E3: FIRST TENSOR-DATA READ — first tensor-data read (exactness pass): blk.0.attn_norm.weight. bytes now reachable: header data_start=10990048.
+2026-10-25T02:19:14Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=floor_probe
+2026-10-25T02:19:17Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=dequant
+2026-10-25T02:19:20Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=injections
+2026-10-25T02:19:21Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=shared
+2026-10-25T02:19:21Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=summary
+2026-10-25T02:20:20Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T02:20:20Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=summary
+2026-10-25T02:18:25Z | manual | F11: `python3 tools/audit_published_quant.py --all` — one command, PLAN order 1.0->1.6->summary, from a fresh selftest PASS. Section rc: selftest 0, hash 0, shards 0, structure 0, exact 1, floor_probe 0, dequant 0, injections 0, shared 0, summary 0; run rc 1 because 1.4 fails. **Every section JSON on disk is from this run**, so the artifact set is one code revision end to end.
+2026-10-25T02:20:20Z | manual | F12: `--selftest` then `--summary` re-run after summary-text-only edits to the tool (the 1.6 block above); no measurement code changed, so the section JSONs above stay current. The marker's `utc_first_selftest_pass` still reads 2026-10-25T01:31:24Z across those re-runs, which is the point of storing the first pass separately from the latest.
+2026-10-25T03:05:19Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T03:10:01Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T03:10:01Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=exact
+2026-10-25T03:10:01Z | tool | E3: FIRST TENSOR-DATA READ — first tensor-data read (exactness pass): blk.0.attn_norm.weight. bytes now reachable: header data_start=10990048.
+2026-10-25T03:15:57Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T03:16:01Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=exact
+2026-10-25T03:16:02Z | tool | E3: FIRST TENSOR-DATA READ — first tensor-data read (exactness pass): blk.0.attn_norm.weight. bytes now reachable: header data_start=10990048.
+2026-10-25T03:16:06Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=floor_probe
+2026-10-25T03:16:06Z | tool | E3: FIRST TENSOR-DATA READ — tensor-data read on output.weight (type Q6_K, 513 blocks x 256 elts). bytes now reachable: header data_start=10990048.
+2026-10-25T03:16:09Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=dequant
+2026-10-25T03:16:12Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=injections
+2026-10-25T03:18:48Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T03:19:35Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=exact
+2026-10-25T03:19:35Z | tool | E3: FIRST TENSOR-DATA READ — first tensor-data read (exactness pass): blk.0.attn_norm.weight. bytes now reachable: header data_start=10990048.
+2026-10-25T03:19:36Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=floor_probe
+2026-10-25T03:19:39Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=dequant
+2026-10-25T03:19:41Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=injections
+2026-10-25T03:19:43Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=shared
+2026-10-25T03:19:43Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=summary
+2026-10-25T03:20:43Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T03:21:33Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=exact
+2026-10-25T03:21:34Z | tool | E3: FIRST TENSOR-DATA READ — first tensor-data read (exactness pass): blk.0.attn_norm.weight. bytes now reachable: header data_start=10990048.
+2026-10-25T03:21:34Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=floor_probe
+2026-10-25T03:21:38Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=dequant
+2026-10-25T03:21:41Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=injections
+2026-10-25T03:21:42Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=shared
+2026-10-25T03:21:43Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=summary
+2026-10-25T03:23:55Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T03:23:55Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=selfcheck_widths
+2026-10-25T03:24:15Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T03:24:15Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=selfcheck_widths
+2026-10-25T03:24:33Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T03:24:33Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=selfcheck_widths
+2026-10-25T03:25:05Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T03:25:52Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=exact
+2026-10-25T03:25:52Z | tool | E3: FIRST TENSOR-DATA READ — first tensor-data read (exactness pass): blk.0.attn_norm.weight. bytes now reachable: header data_start=10990048.
+2026-10-25T03:25:53Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=floor_probe
+2026-10-25T03:25:56Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=dequant
+2026-10-25T03:25:59Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=injections
+2026-10-25T03:26:00Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=shared
+2026-10-25T03:26:00Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=selfcheck_widths
+2026-10-25T03:26:01Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=summary
+2026-10-25T03:26:41Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T03:26:41Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T03:27:28Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=exact
+2026-10-25T03:27:28Z | tool | E3: FIRST TENSOR-DATA READ — first tensor-data read (exactness pass): blk.0.attn_norm.weight. bytes now reachable: header data_start=10990048.
+2026-10-25T03:27:28Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=floor_probe
+2026-10-25T03:27:32Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=dequant
+2026-10-25T03:27:34Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=injections
+2026-10-25T03:27:35Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=shared
+2026-10-25T03:27:35Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=selfcheck_widths
+2026-10-25T03:27:36Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=summary
+2026-10-25T03:28:10Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T03:28:10Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T03:28:57Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=exact
+2026-10-25T03:28:57Z | tool | E3: FIRST TENSOR-DATA READ — first tensor-data read (exactness pass): blk.0.attn_norm.weight. bytes now reachable: header data_start=10990048.
+2026-10-25T03:28:58Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=floor_probe
+2026-10-25T03:29:01Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=dequant
+2026-10-25T03:29:03Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=injections
+2026-10-25T03:29:04Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=shared
+2026-10-25T03:29:05Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=selfcheck_widths
+2026-10-25T03:29:05Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=summary
+2026-10-25T03:20:00Z | manual | G1: supervisor decision recorded — 1.4 split into 1.4a COPIED (zero tolerance, unchanged) and 1.4b DERIVED-TRANSCENDENTAL (route predicate keyed to the documented `-exp(A_log)` route only). Implemented as a predicate, not a tolerance: no ulp knob, no epsilon constant; the bound is one `nextafter` hop from the value two independent correctly-rounded routes agree on, and a disagreement between those routes fails the case outright. Q5_K width fix authorised for `gguf_header_types.py` + `quant_scenarios.py`, with the instruction to derive widths from the pinned header rather than swap one typed constant for another.
+2026-10-25T03:20:30Z | manual | G2: new tool `tools/ggml_block_geom.py` derives (elts/block, bytes/block, bpw) from `engines/llama.cpp/ggml/src/ggml-common.h` at run time — member-size sums including inline `union { struct {...} }` accessors, cross-checked against each struct's own `static_assert`. **It immediately refuted my own claim: Q5_K is 176 B/256 = 5.5 bpw, so the drift over 37 tensors is 74.00 MiB, not the ~232 MiB my previous summary asserted.** Widths for `gguf_reader.py`, `gguf_header_types.py`, `quant_scenarios.py` and the audit now come from here.
+2026-10-25T03:22:00Z | manual | G3: `--selftest` gained witnesses for the new predicate, because the first version of `f32_nextafter` inverted its own bit-mapping and made "within one step" mean "within 3.8" — a bound that could not fail. The witness checks nextafter/ulp against hand-worked binary neighbours (2**-23 on [1,2), 2**-24 on [0.5,1), 2**-22 on [2,4)), checks a step measured by spacing equals a step measured in bits, and probes the predicate at 1 step (must stay clean), 2 steps, sign flip, permutation, both binade edges, and a reference disagreement (must fire). All OK; the real `blk.1.ssm_a` element is 1 step away under the corrected bound, same verdict, now for the right reason.
+2026-10-25T03:24:00Z | manual | G4: `--selfcheck-widths` added and run — four negative controls, each must abort: a stale hand-typed row diffed against the header, a 2 B/block geometry error, the width-map tool facing a lying file size, and a policy row literal that is no derived width. 4/4 fired. `--emit` also gained a row-count witness, which caught two of its own bugs (a missing key and an off-by-two expectation) before it could write a short evidence file.
+2026-10-25T03:27:00Z | manual | G5: full re-run in PLAN order from a fresh selftest PASS: selftest, 1.1, 1.2, 1.3, 1.4 (1.4a 25 cases 0 outside; 1.4b 2 cases, 64 elements, 63 bit-exact + 1 within-route, 0 outside, 0 reference disagreements), floor probe, dequant, injections (150 band + 14 route cases, 0 wrong), shared, width controls, summary. 1.4 verdict is PASS-with-finding and the zero-tolerance FAIL on `blk.1.ssm_a` is retained beside it in `audit-exactness-2026-10-26.json`. No timing taken anywhere; CPU only.
+2026-10-25T03:29:33Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T03:29:34Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T03:30:20Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=exact
+2026-10-25T03:30:20Z | tool | E3: FIRST TENSOR-DATA READ — first tensor-data read (exactness pass): blk.0.attn_norm.weight. bytes now reachable: header data_start=10990048.
+2026-10-25T03:30:21Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=floor_probe
+2026-10-25T03:30:24Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=dequant
+2026-10-25T03:30:26Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=injections
+2026-10-25T03:30:27Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=shared
+2026-10-25T03:30:28Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=selfcheck_widths
+2026-10-25T03:30:28Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=summary
+2026-10-25T03:31:29Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T03:31:29Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T03:32:15Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=exact
+2026-10-25T03:32:15Z | tool | E3: FIRST TENSOR-DATA READ — first tensor-data read (exactness pass): blk.0.attn_norm.weight. bytes now reachable: header data_start=10990048.
+2026-10-25T03:32:16Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=floor_probe
+2026-10-25T03:32:19Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=dequant
+2026-10-25T03:32:21Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=injections
+2026-10-25T03:32:23Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=shared
+2026-10-25T03:32:23Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=selfcheck_widths
+2026-10-25T03:32:23Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=summary
+2026-10-25T03:32:00Z | manual | G6: exit-code meanings separated in `ggml_block_geom.py` — a bare run now exits 0 whenever the geometry derived (it did), and the retired hand-typed table's drift is asserted only by `--check-history` (exits 1 by design, because the retired Q5_K row is kept on the record as 5.5625). Final state: `--selftest` PASS (first pass 01:31:24Z preserved, latest 03:31:29Z), 1.1 PASS, 1.2 PASS, 1.3 PASS, 1.4a PASS / 1.4b PASS-with-finding (zero-tolerance FAIL on blk.1.ssm_a retained beside it), 1.5a RUN, 1.5b PASS, 1.5c PASS (150 band + 14 route cases, 0 wrong), 1.6 PASS + pin, width negative controls 4/4 fired, summary 228 lines. Nothing staged, no device use, no timing of any kind.
+2026-10-25T03:43:53Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T03:43:54Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=exact
+2026-10-25T03:43:54Z | tool | E3: FIRST TENSOR-DATA READ — first tensor-data read (exactness pass): blk.0.attn_norm.weight. bytes now reachable: header data_start=10990048.

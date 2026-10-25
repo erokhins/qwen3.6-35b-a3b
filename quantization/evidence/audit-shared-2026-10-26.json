@@ -1,0 +1,19 @@
+{
+ "alias_byte_agreement": [],
+ "detector_witness": true,
+ "gguf_alias_groups": [],
+ "gguf_overlaps": [],
+ "safetensors_alias_groups": 0,
+ "untied_witness": [
+  [
+   "token_embd.weight",
+   "output.weight",
+   417185792,
+   0,
+   "65306/65536 bytes differ in the first 64 KiB",
+   "DISTINCT"
+  ]
+ ],
+ "utc": "2026-10-25T03:32:23Z",
+ "verdict": "PASS"
+}
