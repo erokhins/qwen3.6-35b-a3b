@@ -1,0 +1,241 @@
+# speccheck/evidence/gdn-band-loadband-controls-2026-10-26.txt — the refusals the GDN band
+# rests on, each watched to fire.
+#
+# `speccheck/gdn_ref.py`'s whole position was that no band exists because `load_band()` refuses
+# to invent one. A refusal nobody has seen happen is a comment, so every refusal in the band
+# path is fired here against a COPY of the probe's own band file. The real
+# `speccheck/evidence/gdn-band-2026-10-26.json` is opened read-only; nothing under `data/` is
+# written by anything in this file.
+#
+# Seventeen controls, all required to behave: six `load_band` refusals (missing file, foreign
+# derivation string, a band number widened 10x "for safety", probe maxima inflated without the
+# band following, a licensed row for a pass that never ran, and every licence emptied); three
+# `band_from_probe` refusals (no records, a NaN maximum, a record for a stage outside the probed
+# set); the bf16 rule in both directions (a bf16 stage whose rows all measured 0 keeps its
+# numbers and LOSES its licence, and the same stage with one real measurement earns the licence
+# back — otherwise the rule is a ban wearing a test); the adjudicator accepting exactly at the
+# band and rejecting one ten-millionth over it, and refusing a stage with no band entry; and
+# `band_licenses` refusing a row for a pass that never ran and a `pinned` row on a fresh
+# fixture.
+#
+# command: /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python tmp/w21_band_controls.py
+# rc=0 — BAND CONTROLS PASS. CPU only; no clock read.
+#
+# ---- the driver, in full ----
+
+```python
+#!/usr/bin/env python3
+"""tmp/w21_band_controls.py — witness that `load_band()` and `band_from_probe()` can refuse.
+
+The lane's whole claim was that no band exists because `load_band()` refuses to invent one. A
+refusal nobody has watched fire is a comment, so each of the four refusals is fired here on a
+COPY of the probe's own band file — the real file under `speccheck/evidence/` is never modified,
+and nothing under `data/` is touched.
+
+  1 MISSING      — a band file that is not there must be an error, not a default.
+  2 DERIVATION   — a file whose `band_derivation` string is not the triangle-inequality one is
+                   a different derivation and is refused unread.
+  3 WIDENED      — one band number moved up by a factor of 10, "for safety": the file must fail
+                   its own `probe x factor` arithmetic. This is the AGENTS.md rule ("never
+                   loosen a gate to make it pass") turned into a check that fires.
+  4 BOGUS LICENCE— a licensed row added for a pass the probe never ran at: refused by the
+                   coverage cross-check.
+  5 INFLATED PROBE — the probe maxima raised without the bands: also refused, because the
+                   arithmetic runs both ways.
+  6 EMPTY LICENCE — every `licensed_rows` emptied: refused, because a band that licenses no row
+                   cannot be the evidence for a banded verdict.
+
+CPU only; no clock read. W21 lane.
+"""
+import json
+import sys
+from pathlib import Path
+
+REPO = Path("/home/erokhins/erokhins_projects/qwen3.6-35b-a3b")
+sys.path.insert(0, str(REPO / "speccheck"))
+import gdn_ref as G  # noqa: E402
+
+SRC = REPO / "speccheck" / "evidence" / "gdn-band-2026-10-26.json"
+WORK = REPO / "tmp" / "w21_band_mutants"
+WORK.mkdir(parents=True, exist_ok=True)
+base = json.loads(SRC.read_text())
+
+
+def mutate(label, fn, expect):
+    doc = json.loads(json.dumps(base))
+    fn(doc)
+    p = WORK / f"band-{label}.json"
+    p.write_text(json.dumps(doc, indent=1) + "\n")
+    try:
+        G.load_band(p)
+        got = "ACCEPTED"
+    except AssertionError as exc:
+        got = f"REFUSED: {str(exc)[:150]}"
+    fired = got.startswith("REFUSED")
+    print(f"  {label:<16} {'FIRED' if fired else 'DID NOT FIRE':<13} {got}")
+    if not fired:
+        print(f"    expected a refusal: {expect}")
+    return fired, got
+
+
+print("# load_band controls — each row must FIRE (refuse)")
+results = {}
+p_missing = WORK / "band-does-not-exist.json"
+if p_missing.exists():
+    p_missing.unlink()
+try:
+    G.load_band(p_missing)
+    results["missing"] = (False, "ACCEPTED a missing band file")
+except AssertionError as exc:
+    results["missing"] = (True, f"REFUSED: {str(exc)[:150]}")
+print(f"  {'missing':<16} {'FIRED' if results['missing'][0] else 'DID NOT FIRE':<13} "
+      f"{results['missing'][1]}")
+results["derivation"] = mutate(
+    "derivation", lambda d: d.update(band_derivation="typed-by-eye"),
+    "the derivation string is not the triangle-inequality one")
+results["widened"] = mutate(
+    "widened", lambda d: d["band"]["scan_out"].__setitem__(
+        "max_abs", d["band"]["scan_out"]["max_abs"] * 10.0),
+    "a band 10x wider than its own probe")
+results["inflated"] = mutate(
+    "inflated-probe", lambda d: d["band"]["state"]["probe"].__setitem__(
+        "mean_rel", d["band"]["state"]["probe"]["mean_rel"] * 100.0),
+    "probe maxima inflated without the band following")
+
+
+def add_bogus_row(d):
+    st = "scan_out"
+    ent = d["band"][st]
+    ent["licensed_rows"] = sorted(ent["licensed_rows"]
+                                  + ["layer0/fixture/no_such_fixture#decode9|chunked|recurrent"])
+
+
+results["bogus-licence"] = mutate("bogus-licence", add_bogus_row,
+                                  "a row no probe record supports")
+
+
+def empty_licences(d):
+    for ent in d["band"].values():
+        ent["licensed_rows"] = []
+
+
+results["empty-licence"] = mutate("empty-licence", empty_licences,
+                                  "a band that licenses no row at all")
+
+print("\n# band_from_probe controls — the derivation itself must be able to refuse")
+
+
+def try_probe(label, rows, stages, expect):
+    try:
+        G.band_from_probe(rows, stages=stages)
+        got = "ACCEPTED"
+        fired = False
+    except AssertionError as exc:
+        got = f"REFUSED: {str(exc)[:150]}"
+        fired = True
+    print(f"  {label:<22} {'FIRED' if fired else 'DID NOT FIRE':<13} {got}")
+    if not fired:
+        print(f"    expected: {expect}")
+    results[label] = fired
+
+
+stages = tuple(base["population"]["stages_probed"])
+try_probe("missing-stage", [], stages, "no floor-probe record for the stage list")
+
+
+def rec(stage, arm, pk, key, val, bf16=False):
+    return {"block": "layer0", "pass": pk, "arm": arm, "stage": stage, "anchor": "exact",
+            "aggregates": {k: (val if k == key else 0.0) for k in G.BAND_FACTORS},
+            "in_band": True, "bf16_storage": bf16, "source": "pinned", "kind": "prefill"}
+
+
+try_probe("nan-is-not-a-number", [rec("q_hat", "chunked", "p", "max_abs", float("nan"))],
+          ("q_hat",), "a non-finite maximum")
+try_probe("stage-outside-list", [rec("mixed_qkv", "chunked", "p", "max_abs", 1e-8)],
+          ("q_hat",), "a record for a stage the probe does not floor")
+# a bf16 stage whose only rows measured zero: coverage exists, nothing is foldable, so the stage
+# keeps its numbers and loses its licence — the `pitfalls/30` byte-identity trap.
+bf_rows = [rec("core_attn", a, "layer0/pinned/prefill", "max_abs", 0.0, bf16=True)
+           for a in ("chunked", "recurrent", "pinned")]
+b = G.band_from_probe(bf_rows, stages=("core_attn",))
+ent = b["core_attn"]
+fired = ent["licensed_rows"] == [] and "unlicensed_because" in ent
+print(f"  {'bf16-zero-unlicensed':<22} {'FIRED' if fired else 'DID NOT FIRE':<13} "
+      f"licensed_rows={ent['licensed_rows']} reason={ent.get('unlicensed_because', '-')[:90]}")
+results["bf16-zero-unlicensed"] = fired
+# and the same stage with a real measurement must earn its licence back, or the rule is a ban
+# rather than a test.
+b2 = G.band_from_probe(bf_rows + [rec("core_attn", "substitution", "layer0/pinned/prefill",
+                                      "max_abs", 3e-6, bf16=True)], stages=("core_attn",))
+fired = len(b2["core_attn"]["licensed_rows"]) > 0
+print(f"  {'bf16-nonzero-licensed':<22} {'FIRED' if fired else 'DID NOT FIRE':<13} "
+      f"{len(b2['core_attn']['licensed_rows'])} rows licensed once one row measured 3e-06")
+results["bf16-nonzero-licensed"] = fired
+
+print("\n# band_check_row: the adjudicator must be able to say no, and refuses an unbanded stage")
+band = G.load_band(SRC)
+ag_in = {k: band["scan_out"][k] for k in G.BAND_FACTORS}
+ag_out = dict(ag_in, max_abs=band["scan_out"]["max_abs"] * 1.0000001)
+ok_in, _ = G.band_check_row(band, "scan_out", ag_in)
+ok_out, why_out = G.band_check_row(band, "scan_out", ag_out)
+ok_none, why_none = G.band_check_row(band, "mixed_qkv", ag_in)
+print(f"  exactly-at-band              {'ACCEPT' if ok_in else 'REJECT'} (must ACCEPT)")
+print(f"  one-ten-millionth-over       {'ACCEPT' if ok_out else 'REJECT'} (must REJECT): {why_out}")
+print(f"  a stage with no band entry   {'ACCEPT' if ok_none else 'REJECT'} (must REJECT): "
+      f"{why_none}")
+results["check-at-limit"] = ok_in
+results["check-over"] = (not ok_out)
+results["check-unbanded"] = (not ok_none)
+
+print("\n# band_licenses: a row the probe never measured must not be adjudicable")
+ok_a, why_a = G.band_licenses(band, "layer0/pinned/prefill", "scan_out", "chunked", "recurrent")
+ok_b, why_b = G.band_licenses(band, "layer0/fixture/ghost#decode9", "scan_out", "chunked",
+                              "recurrent")
+ok_c, why_c = G.band_licenses(band, "layer0/fixture/prefill_2chunk_padded", "scan_out",
+                              "chunked", "pinned")
+print(f"  measured pair                {'LICENSED' if ok_a else 'NOT'} (must LICENSED)")
+print(f"  pass that never ran          {'LICENSED' if ok_b else 'NOT'} (must NOT): {why_b}")
+print(f"  pinned arm on a fresh pass   {'LICENSED' if ok_c else 'NOT'} (must NOT): {why_c}")
+results["licence-real"] = ok_a
+results["licence-ghost-pass"] = (not ok_b)
+results["licence-pinned-on-fixture"] = (not ok_c)
+
+bad = [k for k, v in results.items() if not (v[0] if isinstance(v, tuple) else v)]
+print(f"\n# controls evaluated {len(results)}, refused/behaved as required "
+      f"{len(results) - len(bad)}")
+for k in bad:
+    print("  DID NOT BEHAVE AS REQUIRED: " + k)
+print("BAND CONTROLS PASS" if not bad else "BAND CONTROLS FAIL")
+print("no timing taken")
+sys.exit(0 if not bad else 1)
+```
+
+---- its output ----
+# load_band controls — each row must FIRE (refuse)
+  missing          FIRED         REFUSED: /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tmp/w21_band_mutants/band-does-not-exist.json does not exist: run `speccheck/gdn_ref.py --floor-probe
+  derivation       FIRED         REFUSED: /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tmp/w21_band_mutants/band-derivation.json was written by a different derivation ('typed-by-eye'); ref
+  widened          FIRED         REFUSED: /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tmp/w21_band_mutants/band-widened.json: scan_out.max_abs = 3.4827832798289826e-07 is not the derived 
+  inflated-probe   FIRED         REFUSED: /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tmp/w21_band_mutants/band-inflated-probe.json: state.mean_rel = 4.3893513513769253e-07 is not the der
+  bogus-licence    FIRED         REFUSED: /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tmp/w21_band_mutants/band-bogus-licence.json: scan_out licenses 'layer0/fixture/no_such_fixture#decod
+  empty-licence    FIRED         REFUSED: /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tmp/w21_band_mutants/band-empty-licence.json licenses 0 cross-form rows; either nothing was probed or
+
+# band_from_probe controls — the derivation itself must be able to refuse
+  missing-stage          FIRED         REFUSED: no floor-probe record for stage(s) ['q_hat', 'k_hat', 'scan_out', 'core_attn', 'state', 'normed', 'y']; the band cannot be derived and this gate refus
+  nan-is-not-a-number    FIRED         REFUSED: probe chunked/q_hat: max_abs=nan is not a number
+  stage-outside-list     FIRED         REFUSED: probe record for stage 'mixed_qkv' outside the stage list
+  bf16-zero-unlicensed   FIRED         licensed_rows=[] reason=bf16 storage with a floor of exactly 0: the storage quantum hides any smaller difference, 
+  bf16-nonzero-licensed  FIRED         6 rows licensed once one row measured 3e-06
+
+# band_check_row: the adjudicator must be able to say no, and refuses an unbanded stage
+  exactly-at-band              ACCEPT (must ACCEPT)
+  one-ten-millionth-over       REJECT (must REJECT): max_abs=3.483e-08 > licensed 3.483e-08
+  a stage with no band entry   REJECT (must REJECT): no band entry (refusing to invent one)
+
+# band_licenses: a row the probe never measured must not be adjudicable
+  measured pair                LICENSED (must LICENSED)
+  pass that never ran          NOT (must NOT): no probe record for one of the two arms at this pass
+  pinned arm on a fresh pass   NOT (must NOT): no probe record for one of the two arms at this pass
+
+# controls evaluated 17, refused/behaved as required 17
+BAND CONTROLS PASS
+no timing taken

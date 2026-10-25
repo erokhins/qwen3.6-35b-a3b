@@ -1,0 +1,2323 @@
+{
+ "band_derivation": "triangle-inequality-on-floor-probe",
+ "produced_by": "speccheck/gdn_ref.py --floor-probe",
+ "command": "speccheck/gdn_ref.py --floor-probe",
+ "date": "2026-10-26",
+ "interpreter": {
+  "executable": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python",
+  "torch": "2.14.1+cpu"
+ },
+ "anchor": {
+  "form": "exact",
+  "twin": "exact_matrix",
+  "scan_inputs": "f64 (enter_scan) \u2014 an f32 anchor would measure 0"
+ },
+ "arms": {
+  "oracle": [
+   "chunked",
+   "substitution",
+   "chunked32",
+   "recurrent",
+   "reassoc"
+  ],
+  "pinned": "pinned",
+  "dispatch_rule": "specification/04b-gdn-chunked-form.md \u00a704b.1: a decode step is measured under the recurrent family only"
+ },
+ "manifest": {
+  "path": "checkpoints/dump-manifest-gdn-2026-10-26.json",
+  "sha256": "44f9f4bcc40aabc5ad54cc262e3ea3d6de318ee54106acdc276865e42fb73032",
+  "records": 178,
+  "bytes": 162519680
+ },
+ "files_read": 178,
+ "files_read_sha256": [
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.prefill.input.bin",
+   "sha256": "f82d402d574a785b0d310a043ff6f3d8d6a03c19bd4ef46f3fb5b48f1f052ac3"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode0.input.bin",
+   "sha256": "7ed42018a6e40298a29e9435423d6dddc9f29714a6c30898e371208780f546a3"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode1.input.bin",
+   "sha256": "9100bdbddb7613e170442c135138846cc73980e54271045b932ac538f626af21"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode2.input.bin",
+   "sha256": "e93763f6453023fe854094725d14307aab1a206d9089c0e6f1bb999d2491d3c0"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.prefill.mixed_qkv.bin",
+   "sha256": "360a59f88ffdf2431c7e8a1bc5b791f9ed0ec92d5a72b0a29e81f82211478b97"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.prefill.z.bin",
+   "sha256": "2be9a0dc414c72b77c897ea041afaeee763ce525f665f7292f972897fd63bf41"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.prefill.b_raw.bin",
+   "sha256": "f3d5f678035b87b277bb71a90e338216e497c69be70087e5a2d15b2555fd4a38"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.prefill.a_raw.bin",
+   "sha256": "4d8cc225cb94def5ece31b5415a06db47121be6798795c8f267f6d4e1ee8612b"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.prefill.conv_pre.bin",
+   "sha256": "afc30ce339e92d62dcd70a7e2bd5c590a04ae64a3a351e4c3e957392456c11a8"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.prefill.conv_out.bin",
+   "sha256": "cfe34f7b42d805239d82563f3b2af665723717aa59d92036b1d3687813232bf4"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.prefill.conv_window.bin",
+   "sha256": "6a0bd0ec9650faa57a282a55f6ae59560e1e4dcda966c90d79056b0e046ee5db"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.prefill.q_pre.bin",
+   "sha256": "f739ebdb82f1b4f92fdbef41e7fab126ac1dfe8dc7b4acb8e746ea4372db6102"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.prefill.k_pre.bin",
+   "sha256": "2b9afe1988ab8521a1f77e1749bbca6900ae841386e751c83171a943aa53b9e6"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.prefill.v_pre.bin",
+   "sha256": "7f115831e3762160e4d370fa2db2e2d50931339c31cddf678898cfbb59e2fede"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.prefill.beta.bin",
+   "sha256": "04edc592119398f5a603fa84a62d174019ba98650ce1d4e8e76c63b4bf671382"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.prefill.g_decay.bin",
+   "sha256": "f255ee03a66879a77b8e616049f49786352ccc81dd84ed5f984272bf6590ef08"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.prefill.q_hat.bin",
+   "sha256": "4a792664a61163d6ad11ab67ed9f9662195df6ae5e6cc299c4dc9bc1534cf43d"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.prefill.k_hat.bin",
+   "sha256": "72c997139ce4ea0816a18aaa42e29c6eff443db6c14d4fbf0d20451e41ab2f70"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.prefill.scan_out.bin",
+   "sha256": "d59da17555f0a004a59ca7414bbefcef716d63ae69efcc55293ade1ab52f8013"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.prefill.core_attn.bin",
+   "sha256": "3de16e2ec3af9404818e0f1878b1bdb577d4da16ec2189448788fdc105cdd2f3"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.prefill.state.bin",
+   "sha256": "214d4694098a01a2190a3660e12bf6a41d88b25ca5ca14e0804e0309ca7f8d4e"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.prefill.normed.bin",
+   "sha256": "c2d60adbea0789afdaac6a45d9c2a23260c53766aca8981315634dfec3255aaa"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.prefill.y.bin",
+   "sha256": "86aa2c885e9161073fc21804657c401d2dbded468b8f70a64f44efc0ed17e116"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode0.mixed_qkv.bin",
+   "sha256": "8f6206174fb3073810ed78893991df9fd96f25776a5a04568fea667e972d8a11"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode0.z.bin",
+   "sha256": "78ae71eb0f8cc00213fc4814d94e0a0b5245f42c34fb9b2e4786c35b82db805e"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode0.b_raw.bin",
+   "sha256": "6b272c2b3225104667bc2a45626a3d8cb5156a574fb4bc98bac5c822cd95dc0c"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode0.a_raw.bin",
+   "sha256": "cebd4ab035503d7bbbae674ebd0722c99d14290de27818e1a9f0a96f381c021d"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode0.conv_pre.bin",
+   "sha256": "061b638ec85c01aa1485d5c153ff41fad4e2e2369054fb1d4a70dfbd58c4eb97"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode0.conv_out.bin",
+   "sha256": "b862622e827ea05a7d5608103256e44b1d1ac19642599497f87ff80bf6342051"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode0.conv_window.bin",
+   "sha256": "48a6e1419aab7b183dc715c39933be8b736cbd223e812f888d63615f62a17875"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode0.q_pre.bin",
+   "sha256": "b7af6307c7ab3d4a9656c12e57ca54f9b4bc73037c1bf317652a8321c840c21e"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode0.k_pre.bin",
+   "sha256": "a1b0909ad2d5e4ad5511817328e83cd136783bde1d2ba3c1dea4f156dab0221d"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode0.v_pre.bin",
+   "sha256": "ebc42dcba205a902dc73e5427059712790710916288aa4b3427605bde44475ab"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode0.beta.bin",
+   "sha256": "fece6f6a059e1fbdbdeff67a89f07497835bd96b5a83fe91bdbd7e26edbd95f3"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode0.g_decay.bin",
+   "sha256": "79a8d63ba6ca681d8826fc8bcab2481a9bbc3dcf278bfd8f0fac6ce53ab0e86e"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode0.q_hat.bin",
+   "sha256": "0ae5afc52dd8bfb1219e8850be9853bfa5e45eff4e7c1e33984e8d9bd6636c51"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode0.k_hat.bin",
+   "sha256": "c9f0b217ae9440a9a42e1f66efbf2d999f33c4afa04adb9698ca70ddc79e924c"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode0.scan_out.bin",
+   "sha256": "4ed99251789de89cc22907baf467ad4ab75d545adb544320951969569ff90d88"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode0.core_attn.bin",
+   "sha256": "5fb2b7da211cd0cca12493174279695dfda7c069d440fd4ee8de2c321edede21"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode0.state.bin",
+   "sha256": "365134aa176f7854a074dcd692c5cf76a7261c4e2ac23bb2d4fd8f65c5268c10"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode0.normed.bin",
+   "sha256": "b90716f9fc05521f36da044d0adedc35aec50fd930464adcfb02e3b0ccdff5ad"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode0.y.bin",
+   "sha256": "d11d238567f90767783c740fc5ab0b83784ecfc922914042b241dc8ceebf4161"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode1.mixed_qkv.bin",
+   "sha256": "ebb84a54a0e1b877bd8db3a41f434302e1818fd1710945e2952b04b85f990761"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode1.z.bin",
+   "sha256": "d4729ec75b39bea7fd9237ad62625e352a4e35e47046c6f3835ede71d25dbdb9"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode1.b_raw.bin",
+   "sha256": "8ce1b36a2ddba10c1654a1d40f5b319cefd7e919b69ee167ad57e954d93a1736"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode1.a_raw.bin",
+   "sha256": "21238d8c0e9d3495b6b998a5edbf4c5bd32c58d1e7df4246d3eaba462dce33ee"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode1.conv_pre.bin",
+   "sha256": "77d55c033228d77bfc933f86228d571c31d7c2fe2976eb1a5b7a3bd34b2cd068"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode1.conv_out.bin",
+   "sha256": "af3a699cc12351477610250c8dd0c7870824712eb823c896b780e08cdfb059a6"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode1.conv_window.bin",
+   "sha256": "1ae6f7f901d23549d011bbcb7909398dc568cd7f2b6ca5eacbc6334636424edc"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode1.q_pre.bin",
+   "sha256": "2055276cad30898736d6bd3c05863c03bfcf5a72f38eb730e8fe06d672631d0d"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode1.k_pre.bin",
+   "sha256": "b1e1f67af5ef16931618e701673ee84c6fe4dd5335da16d4f55474611c92933e"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode1.v_pre.bin",
+   "sha256": "cf92cd7b6cf14bf67e3dc20551f0ace54f2b696dee0c219cba159c99521147a7"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode1.beta.bin",
+   "sha256": "b961912e29a36740b7b9e175107a773d0a3e3dd7a50f8e078debd32346c42b65"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode1.g_decay.bin",
+   "sha256": "8832cb669eb9842787212809a6d272e51cfeaa421da50acabda49b5c45fab792"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode1.q_hat.bin",
+   "sha256": "ae4e77131630e86bc5954791afdb32da2cb6a37127b370ea8eb5f1a9eab6f610"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode1.k_hat.bin",
+   "sha256": "2eb384129381c0493ed07ea1dfbb4785b178ea23bb10182171fad864551cd1bc"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode1.scan_out.bin",
+   "sha256": "dfa2f84bc35c4e1253ba81e2bc5ce20ff93ecaab62c4fcf954ba87bdb2d46d6e"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode1.core_attn.bin",
+   "sha256": "117be7b619217a7a6d678ec6270c4971143beae7864ef1648a27bc46daecb28c"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode1.state.bin",
+   "sha256": "66c76fe78a58d13f610365305680aba673c8b687cbc1288204de8e47ab75f491"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode1.normed.bin",
+   "sha256": "f008351365b36c3602b4c5cf09efdb0d8b60c5a4f36fbfa521008ff7612c99a3"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode1.y.bin",
+   "sha256": "075f8f1ab3538fa5b6feecba1e8dbf65798343d134f1425e784677d072003d79"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode2.mixed_qkv.bin",
+   "sha256": "e44db265b85a528104c53398d4dd25ed086626584048a8be6da3fd5cb19b9900"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode2.z.bin",
+   "sha256": "3109b61defa8c6736655d8e17e948098ce679dfb795e63d90c72bd09195f3eeb"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode2.b_raw.bin",
+   "sha256": "0a577359f0fafcca9374af0d94ec4cdbf0bacb33baedeace4ec2516d68d4a8e6"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode2.a_raw.bin",
+   "sha256": "2dcb92a731c875bfd1e16346825bde50880a6c85e9a743288bce44b7bab5ee0d"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode2.conv_pre.bin",
+   "sha256": "7daea419d5fbd9a6e248c6b98df00d4e7531f98625ee43b3d8d5a38b564660ef"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode2.conv_out.bin",
+   "sha256": "e93528d9b8fb491194ad890d2d7945b2bb07409384bbc1253efb4449ad6288d6"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode2.conv_window.bin",
+   "sha256": "fc123e6f71d61c545ba9149a31fab8333967609e43f91ed12d9e6f73080972f8"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode2.q_pre.bin",
+   "sha256": "63799d810d0c00ea43b0806dd3f3c478c1dcd1d2dc63ef7eb855baa5b3ae27c7"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode2.k_pre.bin",
+   "sha256": "908c97384c7714d7cb67785ccdb14a1d6765bc4884b0ef491d34cbda60b72000"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode2.v_pre.bin",
+   "sha256": "3d882cb11dc868547a3ce5e4afc45060e14b116ca27c6dc2447ffc92888b2bdd"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode2.beta.bin",
+   "sha256": "db5e866b369a8b148aa5634004631fcf8f6e496737db68b057582ed45c62b871"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode2.g_decay.bin",
+   "sha256": "c60333fdc52d177b05bca657cba04b19a8fb52a3b4e1e0905f5fdb7ed13eecfd"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode2.q_hat.bin",
+   "sha256": "4e78e9663663605931c511f1f6eed66b89b47556ad5694a51aa3b96e276a0bb8"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode2.k_hat.bin",
+   "sha256": "b8a5bb3e0c00fa830c6e501c0aa653f74f8f6db1811304f2957f1132ab2f5922"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode2.scan_out.bin",
+   "sha256": "3522d86d18aac471f88c807d42abf18b92d1ede6d885a3e7a2938c8fbda6aca1"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode2.core_attn.bin",
+   "sha256": "30a4838b42c3f10f14e77b16314e8006e8b1c31713161523530e8abbf3473647"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode2.state.bin",
+   "sha256": "0938a954e6616aa1517e3f32160a8406deb8ffe9f8e0de505054ff622b2672c9"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode2.normed.bin",
+   "sha256": "b6e9c1e61c48c932482fd5b5fbe4039942e76937b4bcf03bfcb596966cb0f520"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.decode2.y.bin",
+   "sha256": "eeec6ed4afda318e1046de985c2bd23abc0771fddb57375f254576b9affa81c1"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.weights.qkv.bin",
+   "sha256": "b06edcc9973be74f862d072f89a195e2eecea067ee615144be8510656122401f"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.weights.z.bin",
+   "sha256": "8cc5be8e1a62cc4088f800b3d4cd3ad1892b1ac871b0d5f76aec014b4b14cf16"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.weights.a.bin",
+   "sha256": "16bea87b244f5a7b28d809e68e35148fc3fcbce533479a8479ba07bfe2b57c42"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.weights.b.bin",
+   "sha256": "908969c4aa9b431756794610716ddf0474d93aee69b02f79de84710ab9b886ee"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.weights.conv.bin",
+   "sha256": "196f8a5383dcc575e70695b134e8756f5c682e724e2c74dbbe2eecdd2a07ca38"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.weights.A_log.bin",
+   "sha256": "5ececb99e657f82558eeb3331bf8426a207885d9d851f784d51b5698a715cd36"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.weights.dt_bias.bin",
+   "sha256": "cea51c808c757af6ca7cbcf409da4013883284d48ab62b12177a5561952775bd"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.weights.norm.bin",
+   "sha256": "7ebc17576e1c103ebb3d74bc593c0ab5d43afdcc0fdcad5cef7e11c2351c8a20"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer0.weights.out.bin",
+   "sha256": "cc08048a238bc33be13fc3cb4b0b3771d34e92793911875ee680e9b4b85e4ca1"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.prefill.input.bin",
+   "sha256": "f82d402d574a785b0d310a043ff6f3d8d6a03c19bd4ef46f3fb5b48f1f052ac3"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode0.input.bin",
+   "sha256": "7ed42018a6e40298a29e9435423d6dddc9f29714a6c30898e371208780f546a3"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode1.input.bin",
+   "sha256": "9100bdbddb7613e170442c135138846cc73980e54271045b932ac538f626af21"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode2.input.bin",
+   "sha256": "e93763f6453023fe854094725d14307aab1a206d9089c0e6f1bb999d2491d3c0"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.prefill.mixed_qkv.bin",
+   "sha256": "892d78300156ce3ed87846d567dd90324d3cb620c07a3a834c8d9059559e7418"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.prefill.z.bin",
+   "sha256": "173144261ba42b0172597d7594682cbf9c7bf262bc8604758e619dd2566a5b39"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.prefill.b_raw.bin",
+   "sha256": "b9e98fb592ddb491a6ce969dcd733da1c6fc453900903dabc3cbff531a5e5ca6"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.prefill.a_raw.bin",
+   "sha256": "8bfacea1a424376a88e13097570e0efd8fcff157486cb85b90509f44b0e77edf"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.prefill.conv_pre.bin",
+   "sha256": "d7726173276fe12f63ba169b18bc218cc2ebfcf4734ae9f61f6fc651b048439a"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.prefill.conv_out.bin",
+   "sha256": "40971d40668abc34602821314f811774d03f97518bfbbdfa504d291400abc2f2"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.prefill.conv_window.bin",
+   "sha256": "5a4f4b3a9fb08fb81b2884052c02e68404e0635e022f6f2102f86772cc94ba3e"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.prefill.q_pre.bin",
+   "sha256": "32218863d9592ff25433ca6e803634b80d43f8bcf8221503273d1570b7e77eeb"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.prefill.k_pre.bin",
+   "sha256": "6b8055cb3eb321ac126322103ab8adff48b04ca1e8e541341b9095fef839666f"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.prefill.v_pre.bin",
+   "sha256": "0e853b3b7ca9afa479c8221242bb73eebd41fea8b9654a982c29b9983bfe1788"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.prefill.beta.bin",
+   "sha256": "718388decc5cd1a690d39d814d87ddb422ed74ef547e96e00aa2f38a1f86963d"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.prefill.g_decay.bin",
+   "sha256": "2647964f2aae4941701a653dec828e020856d70c73e7e6a6d20744f0f0b4bfed"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.prefill.q_hat.bin",
+   "sha256": "2583cf2af637a26df7dde1567286f4f98bf34ec2dd9de9c9cc1c764940326c5e"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.prefill.k_hat.bin",
+   "sha256": "43e908609a4c501b729d7af886332dce330be500e9a2ced8fb1f6c9ffc4dc4a2"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.prefill.scan_out.bin",
+   "sha256": "d3934ac2511fcba7ccb6b2c5790533b389693555d4359f031bb90326549ad210"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.prefill.core_attn.bin",
+   "sha256": "7a7fbadc6a061b969ee0888b46416792949bf809014cad5fb4a3af80d430e870"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.prefill.state.bin",
+   "sha256": "231f614762781800e5da5faa8a040af91f1eafc20a1fbe9acf7718e2b306b0f0"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.prefill.normed.bin",
+   "sha256": "45b6792ba8ba60922ee4dbacaffd7fec7b64c2485f5d28efc7df71c7be3c132d"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.prefill.y.bin",
+   "sha256": "ae662c317dd40ea3f517ea96cbe90e1d04ff8e2604915e5ccf839301f1472832"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode0.mixed_qkv.bin",
+   "sha256": "aab878fc8e37d58668cdaf2dc16de6197696798e25cb81606b377034bc9ce177"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode0.z.bin",
+   "sha256": "fb6c2c134354da51d1e6153c1c01eb9ed886b2cd532e9a0dff010cc3448d2c56"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode0.b_raw.bin",
+   "sha256": "88b9cef9c3ebbabada6b071ec889fffdf5371bdbc82663b7f9c30676c7006905"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode0.a_raw.bin",
+   "sha256": "9e883154b306b87c1b7150e249d48e8c9cd1a7a3401b98a421cdeb6a45ed75f2"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode0.conv_pre.bin",
+   "sha256": "27b9a821e4143196b442bb44ea9a0082753c18cd0a2c1c2afe41b0482ca87df4"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode0.conv_out.bin",
+   "sha256": "ed842411f60cbaa3172b4f355868ea967750181c1b525f5aef7ee912429dd9a0"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode0.conv_window.bin",
+   "sha256": "26dcdd4dc664497bb0afe493a30812c24337c29c378c0c4a447391125de18a80"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode0.q_pre.bin",
+   "sha256": "ef5094126eb997b15ce7c0efeb7b1108d17de3a6d3c393e5b8f0e924123a4980"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode0.k_pre.bin",
+   "sha256": "c7fcc860a0a3a13128ba324f72ae83881827b19f3e96cd686491badab05be896"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode0.v_pre.bin",
+   "sha256": "c8f34ea113b1523fc730cd004e1eeef03c7969be8d40a0016fc89620790511ea"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode0.beta.bin",
+   "sha256": "feb3ce6b1b79c4d0651177e80f3ae37248cdc113dcf6be61c11e7595e0f68a72"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode0.g_decay.bin",
+   "sha256": "ac0b8fa4915768c6c834433839fe75b587e9dcaab9623578b49cb17ec43e0f5c"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode0.q_hat.bin",
+   "sha256": "8bcc0810bbce48a47053d40fe441da8996928086e3b38ab2a546889dbcbf14be"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode0.k_hat.bin",
+   "sha256": "221c13feaa2a80060aa7bab5ca9cfd24eb52628bcb29ab1899344e30991ee46f"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode0.scan_out.bin",
+   "sha256": "cccc555dc4399d241d6432b04311db9449abc1788ef23139e288b3c1c5d703e1"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode0.core_attn.bin",
+   "sha256": "5ff8f91479a2cdcfccb51f979d9eacaa5ff25846df42bc99fb82bd357d78564b"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode0.state.bin",
+   "sha256": "3bb46e14be27cc7108938f1f89ec8a78ec7f572fd92464dcac7d274c570f6782"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode0.normed.bin",
+   "sha256": "81a33676048b1c0fe1622593b0ab30e2b787a83538c6b79d43c678e92693d5dc"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode0.y.bin",
+   "sha256": "d92f4adf191803c7dacbe927db2ca3135f0db55d966f04bbcce8af1796757c3c"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode1.mixed_qkv.bin",
+   "sha256": "3b1737166037dd2964f4c29025704df092481facf2079b998c80f12c5e84116e"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode1.z.bin",
+   "sha256": "426fd55bc63929805d69ffd6142af0496861b98f65fc8348b963a00a9f96985b"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode1.b_raw.bin",
+   "sha256": "bde6ca49f16edcc16ffa444bfbdf0d6b4b96ed6bcc93ac6fd336030444676196"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode1.a_raw.bin",
+   "sha256": "3f82b3232f4f4c79fef94f4bacf644f682edd7556ebc454f9bef4c691b1d710f"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode1.conv_pre.bin",
+   "sha256": "625e821d9023e19271fe6541d358d986b54ce626694e3c299d377900ad81d7af"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode1.conv_out.bin",
+   "sha256": "d3870697efbf9b97ba06dceea7049f9878c3dc68aa771ea43c281e9160f18c5a"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode1.conv_window.bin",
+   "sha256": "672b22fe1b46fe65530c399c0d71e935994a6c306ba3a8cabd98f8d60329dd0b"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode1.q_pre.bin",
+   "sha256": "882cfeab9fdccf88f38a789127d22b41d7556857c26f942f7d97abf615342856"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode1.k_pre.bin",
+   "sha256": "7594afcd3c8aba9af648149da3627471b01d004142e905f8adefa2688f4e97e1"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode1.v_pre.bin",
+   "sha256": "7894560976e33d7ffdf4fcc39ccac1b3e1c1a9d13df15853076064525459a34b"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode1.beta.bin",
+   "sha256": "5ef9ce739c448fb7a29e73a2866bad030c9cf3e955740b43d3f1629930e38a8a"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode1.g_decay.bin",
+   "sha256": "9a860ef1f4179b16dc6b01b8f83888905fd63ea3aa77aade3183021680032504"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode1.q_hat.bin",
+   "sha256": "ee1430ade028289eccfdd4eaeb7fe5bb864df00a4779e6deed6c9554eaaf24e1"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode1.k_hat.bin",
+   "sha256": "fecb69f4302bbfa58f7ac758dabc35500b66a7d3d1467b5a6d0b26ea5496ec71"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode1.scan_out.bin",
+   "sha256": "66778caa6621f3aaa9d017b131f4acccc94271181d500365bff5fa719bc261e7"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode1.core_attn.bin",
+   "sha256": "12163fcfa0f3084b476cd62e5252099e01337ccb1a97186636f7dd9ebac88e17"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode1.state.bin",
+   "sha256": "c5d43e64d4851a754bb21bd52227ac58d8b6183f0d04c64b53d9c5e3320d91d6"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode1.normed.bin",
+   "sha256": "44af31afdd838b162d608306b0ad8b99f43c3cec23c32f3277dc74d74dcb2b67"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode1.y.bin",
+   "sha256": "4580bc8114fb2b3c03ae4ba7fa544aa86ceabed6afc9a5b1d6ecb0f55bcfb983"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode2.mixed_qkv.bin",
+   "sha256": "07f416876b9d6da5eb53afb6d19bd5fa070f3dc8e264c94392a6304d02b33998"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode2.z.bin",
+   "sha256": "f70aca424547e482179a5221fff10b346ae07753b57bda6c8f00e16a9451c229"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode2.b_raw.bin",
+   "sha256": "1ad41d0b81559beeda43da07e33db8baf2e7137f42b4fd41bcf3558f4d87e673"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode2.a_raw.bin",
+   "sha256": "e272d134fbf1aa9052ff4107d123960ffaa88bc0ae291c6d1c3aeeed48a944a3"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode2.conv_pre.bin",
+   "sha256": "38b74e4063fca8356970ff6bb0d2217fa8e37082d862292a9e8ef6427867ebf7"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode2.conv_out.bin",
+   "sha256": "87bea1776c018dd4c4f869fe1d2dae003deb4961a81b05e34924f6ca8bf24087"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode2.conv_window.bin",
+   "sha256": "bd38c4165f6beac5c00ebf0d868a31445591d60ee7c09f1e91143dc8b83d6593"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode2.q_pre.bin",
+   "sha256": "0dbe71e44213fb20682e5bace604862efb9fa8160c6b4d22387b2687f1f81354"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode2.k_pre.bin",
+   "sha256": "ea65ad6dfe4b60fb84799dbd8af748215e8618fd6b0825f157788a157716ea8a"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode2.v_pre.bin",
+   "sha256": "99c9eb0de0cfbd7933f0992c999997aa52764ee3d1890d8bf75e6f04cd8e7c4d"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode2.beta.bin",
+   "sha256": "7923eb8f34dde19237dc40f7c57bf126657af7b8f8d153bfbd73e133a2497e09"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode2.g_decay.bin",
+   "sha256": "2609e9c6517c4a4e3a6eeac65fdd9827318cbf3bbb672ff6464a0f9218059a49"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode2.q_hat.bin",
+   "sha256": "8784d07a7c35f04e204a327ed17a3d82be52e2e4d47d968861a99182aa13f92d"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode2.k_hat.bin",
+   "sha256": "71bdad86d4439f27c65a5e26cfebfead257785994610e5f9558a5e8045c249c8"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode2.scan_out.bin",
+   "sha256": "34b81d53953009973168650b96171ecc817f5030451115b5f7e73c245e5738bb"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode2.core_attn.bin",
+   "sha256": "e3fb0079a94c7bc426ef9a6f449fefda6c1d9b0ea6331bbfa350795f7b8576c8"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode2.state.bin",
+   "sha256": "575fd0936d999a496dd17b21972df95c820870f46a2f244d3fa7695eadf6b8cd"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode2.normed.bin",
+   "sha256": "bd8895dc6cd86cb123aee3736110a9290f5a803b1a047acb7f707d28799085a5"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.decode2.y.bin",
+   "sha256": "7301bf789a4cef20933939aa6fab30947aa7b0d15ed1c82c126346c574062937"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.weights.qkv.bin",
+   "sha256": "f08266d6011df90a7444531470a4a50bcdabbcc3b05e274941798f611f4d77c3"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.weights.z.bin",
+   "sha256": "acfafe96e194bcdf5417e8909796cd555790c92c5fd23301ddab36b9982a8871"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.weights.a.bin",
+   "sha256": "53358eb9d0a90157de3b5dcd301dd575d7c8ca83315981dfcb7bb6838cdc2957"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.weights.b.bin",
+   "sha256": "8d52b71b718589dfdbf2a8751320e24ee4543a924dcd46818fa7871cf0c05307"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.weights.conv.bin",
+   "sha256": "8174138832d50c5e60262f87ecd3d896bc0e7ff54200e9988a2e227e0f378c6e"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.weights.A_log.bin",
+   "sha256": "49a41cd0609ae79ada98358ed031d3ce9ba9a8e04dc979b5cd69b0977ff775d6"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.weights.dt_bias.bin",
+   "sha256": "812d1c0f3aa57fd40e04411e3235e64cd510b380dc22730458db6a69805c1f54"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.weights.norm.bin",
+   "sha256": "8efef48583f3f0cf1c43977728817a09ff4f6497e0e85945f8162cfbdd7ad240"
+  },
+  {
+   "file": "data/dumps/2026-10-26-gdn/layer1.weights.out.bin",
+   "sha256": "048de822b4472cbbf47c9c80e95e096eb4971d6c4215f47ff03934854f596692"
+  }
+ ],
+ "population": {
+  "blocks": 2,
+  "passes": 26,
+  "arm_pass_pairs": 102,
+  "stages_probed": [
+   "q_hat",
+   "k_hat",
+   "scan_out",
+   "core_attn",
+   "state",
+   "normed",
+   "y"
+  ],
+  "probe_records": 714,
+  "cross_form_rows": 1218,
+  "anchor_rows": 182,
+  "files": 178
+ },
+ "band": {
+  "q_hat": {
+   "probe": {
+    "one_minus_cos": 3.885780586188048e-14,
+    "mean_rel": 5.7861468409670656e-08,
+    "max_abs": 1.4500060693811712e-08,
+    "per_head_max": 1.4500060693811712e-08
+   },
+   "one_minus_cos": 1.5543122344752192e-13,
+   "mean_rel": 1.1572293681934131e-07,
+   "max_abs": 2.9000121387623423e-08,
+   "per_head_max": 2.9000121387623423e-08,
+   "derived_from": "floor probe (f64 anchor) x the triangle inequality",
+   "bf16_storage": false,
+   "arms": [
+    "chunked",
+    "chunked32",
+    "pinned",
+    "reassoc",
+    "recurrent",
+    "substitution"
+   ],
+   "passes": [
+    "layer0/fixture/decode_3step#decode0",
+    "layer0/fixture/decode_3step#decode1",
+    "layer0/fixture/decode_3step#decode2",
+    "layer0/fixture/decode_3step#prefill",
+    "layer0/fixture/prefill_1chunk_padded",
+    "layer0/fixture/prefill_2chunk_exact",
+    "layer0/fixture/prefill_2chunk_padded",
+    "layer0/fixture/prefill_3chunk_dirty_pad",
+    "layer0/fixture/prefill_3chunk_padded",
+    "layer0/pinned/decode0",
+    "layer0/pinned/decode1",
+    "layer0/pinned/decode2",
+    "layer0/pinned/prefill",
+    "layer1/fixture/decode_3step#decode0",
+    "layer1/fixture/decode_3step#decode1",
+    "layer1/fixture/decode_3step#decode2",
+    "layer1/fixture/decode_3step#prefill",
+    "layer1/fixture/prefill_1chunk_padded",
+    "layer1/fixture/prefill_2chunk_exact",
+    "layer1/fixture/prefill_2chunk_padded",
+    "layer1/fixture/prefill_3chunk_dirty_pad",
+    "layer1/fixture/prefill_3chunk_padded",
+    "layer1/pinned/decode0",
+    "layer1/pinned/decode1",
+    "layer1/pinned/decode2",
+    "layer1/pinned/prefill"
+   ],
+   "blocks": [
+    "layer0",
+    "layer1"
+   ],
+   "records": 102,
+   "folded_records": 102,
+   "licensed_rows": [
+    "layer0/fixture/decode_3step#decode0|reassoc|recurrent",
+    "layer0/fixture/decode_3step#decode1|reassoc|recurrent",
+    "layer0/fixture/decode_3step#decode2|reassoc|recurrent",
+    "layer0/fixture/decode_3step#prefill|chunked32|reassoc",
+    "layer0/fixture/decode_3step#prefill|chunked32|recurrent",
+    "layer0/fixture/decode_3step#prefill|chunked32|substitution",
+    "layer0/fixture/decode_3step#prefill|chunked|chunked32",
+    "layer0/fixture/decode_3step#prefill|chunked|reassoc",
+    "layer0/fixture/decode_3step#prefill|chunked|recurrent",
+    "layer0/fixture/decode_3step#prefill|chunked|substitution",
+    "layer0/fixture/decode_3step#prefill|reassoc|recurrent",
+    "layer0/fixture/decode_3step#prefill|reassoc|substitution",
+    "layer0/fixture/decode_3step#prefill|recurrent|substitution",
+    "layer0/fixture/prefill_1chunk_padded|chunked32|reassoc",
+    "layer0/fixture/prefill_1chunk_padded|chunked32|recurrent",
+    "layer0/fixture/prefill_1chunk_padded|chunked32|substitution",
+    "layer0/fixture/prefill_1chunk_padded|chunked|chunked32",
+    "layer0/fixture/prefill_1chunk_padded|chunked|reassoc",
+    "layer0/fixture/prefill_1chunk_padded|chunked|recurrent",
+    "layer0/fixture/prefill_1chunk_padded|chunked|substitution",
+    "layer0/fixture/prefill_1chunk_padded|reassoc|recurrent",
+    "layer0/fixture/prefill_1chunk_padded|reassoc|substitution",
+    "layer0/fixture/prefill_1chunk_padded|recurrent|substitution",
+    "layer0/fixture/prefill_2chunk_exact|chunked32|reassoc",
+    "layer0/fixture/prefill_2chunk_exact|chunked32|recurrent",
+    "layer0/fixture/prefill_2chunk_exact|chunked32|substitution",
+    "layer0/fixture/prefill_2chunk_exact|chunked|chunked32",
+    "layer0/fixture/prefill_2chunk_exact|chunked|reassoc",
+    "layer0/fixture/prefill_2chunk_exact|chunked|recurrent",
+    "layer0/fixture/prefill_2chunk_exact|chunked|substitution",
+    "layer0/fixture/prefill_2chunk_exact|reassoc|recurrent",
+    "layer0/fixture/prefill_2chunk_exact|reassoc|substitution",
+    "layer0/fixture/prefill_2chunk_exact|recurrent|substitution",
+    "layer0/fixture/prefill_2chunk_padded|chunked32|reassoc",
+    "layer0/fixture/prefill_2chunk_padded|chunked32|recurrent",
+    "layer0/fixture/prefill_2chunk_padded|chunked32|substitution",
+    "layer0/fixture/prefill_2chunk_padded|chunked|chunked32",
+    "layer0/fixture/prefill_2chunk_padded|chunked|reassoc",
+    "layer0/fixture/prefill_2chunk_padded|chunked|recurrent",
+    "layer0/fixture/prefill_2chunk_padded|chunked|substitution",
+    "layer0/fixture/prefill_2chunk_padded|reassoc|recurrent",
+    "layer0/fixture/prefill_2chunk_padded|reassoc|substitution",
+    "layer0/fixture/prefill_2chunk_padded|recurrent|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked32|reassoc",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked32|recurrent",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked32|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|chunked32",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|reassoc",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|recurrent",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|reassoc|recurrent",
+    "layer0/fixture/prefill_3chunk_dirty_pad|reassoc|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|recurrent|substitution",
+    "layer0/fixture/prefill_3chunk_padded|chunked32|reassoc",
+    "layer0/fixture/prefill_3chunk_padded|chunked32|recurrent",
+    "layer0/fixture/prefill_3chunk_padded|chunked32|substitution",
+    "layer0/fixture/prefill_3chunk_padded|chunked|chunked32",
+    "layer0/fixture/prefill_3chunk_padded|chunked|reassoc",
+    "layer0/fixture/prefill_3chunk_padded|chunked|recurrent",
+    "layer0/fixture/prefill_3chunk_padded|chunked|substitution",
+    "layer0/fixture/prefill_3chunk_padded|reassoc|recurrent",
+    "layer0/fixture/prefill_3chunk_padded|reassoc|substitution",
+    "layer0/fixture/prefill_3chunk_padded|recurrent|substitution",
+    "layer0/pinned/decode0|pinned|reassoc",
+    "layer0/pinned/decode0|pinned|recurrent",
+    "layer0/pinned/decode0|reassoc|recurrent",
+    "layer0/pinned/decode1|pinned|reassoc",
+    "layer0/pinned/decode1|pinned|recurrent",
+    "layer0/pinned/decode1|reassoc|recurrent",
+    "layer0/pinned/decode2|pinned|reassoc",
+    "layer0/pinned/decode2|pinned|recurrent",
+    "layer0/pinned/decode2|reassoc|recurrent",
+    "layer0/pinned/prefill|chunked32|pinned",
+    "layer0/pinned/prefill|chunked32|reassoc",
+    "layer0/pinned/prefill|chunked32|recurrent",
+    "layer0/pinned/prefill|chunked32|substitution",
+    "layer0/pinned/prefill|chunked|chunked32",
+    "layer0/pinned/prefill|chunked|pinned",
+    "layer0/pinned/prefill|chunked|reassoc",
+    "layer0/pinned/prefill|chunked|recurrent",
+    "layer0/pinned/prefill|chunked|substitution",
+    "layer0/pinned/prefill|pinned|reassoc",
+    "layer0/pinned/prefill|pinned|recurrent",
+    "layer0/pinned/prefill|pinned|substitution",
+    "layer0/pinned/prefill|reassoc|recurrent",
+    "layer0/pinned/prefill|reassoc|substitution",
+    "layer0/pinned/prefill|recurrent|substitution",
+    "layer1/fixture/decode_3step#decode0|reassoc|recurrent",
+    "layer1/fixture/decode_3step#decode1|reassoc|recurrent",
+    "layer1/fixture/decode_3step#decode2|reassoc|recurrent",
+    "layer1/fixture/decode_3step#prefill|chunked32|reassoc",
+    "layer1/fixture/decode_3step#prefill|chunked32|recurrent",
+    "layer1/fixture/decode_3step#prefill|chunked32|substitution",
+    "layer1/fixture/decode_3step#prefill|chunked|chunked32",
+    "layer1/fixture/decode_3step#prefill|chunked|reassoc",
+    "layer1/fixture/decode_3step#prefill|chunked|recurrent",
+    "layer1/fixture/decode_3step#prefill|chunked|substitution",
+    "layer1/fixture/decode_3step#prefill|reassoc|recurrent",
+    "layer1/fixture/decode_3step#prefill|reassoc|substitution",
+    "layer1/fixture/decode_3step#prefill|recurrent|substitution",
+    "layer1/fixture/prefill_1chunk_padded|chunked32|reassoc",
+    "layer1/fixture/prefill_1chunk_padded|chunked32|recurrent",
+    "layer1/fixture/prefill_1chunk_padded|chunked32|substitution",
+    "layer1/fixture/prefill_1chunk_padded|chunked|chunked32",
+    "layer1/fixture/prefill_1chunk_padded|chunked|reassoc",
+    "layer1/fixture/prefill_1chunk_padded|chunked|recurrent",
+    "layer1/fixture/prefill_1chunk_padded|chunked|substitution",
+    "layer1/fixture/prefill_1chunk_padded|reassoc|recurrent",
+    "layer1/fixture/prefill_1chunk_padded|reassoc|substitution",
+    "layer1/fixture/prefill_1chunk_padded|recurrent|substitution",
+    "layer1/fixture/prefill_2chunk_exact|chunked32|reassoc",
+    "layer1/fixture/prefill_2chunk_exact|chunked32|recurrent",
+    "layer1/fixture/prefill_2chunk_exact|chunked32|substitution",
+    "layer1/fixture/prefill_2chunk_exact|chunked|chunked32",
+    "layer1/fixture/prefill_2chunk_exact|chunked|reassoc",
+    "layer1/fixture/prefill_2chunk_exact|chunked|recurrent",
+    "layer1/fixture/prefill_2chunk_exact|chunked|substitution",
+    "layer1/fixture/prefill_2chunk_exact|reassoc|recurrent",
+    "layer1/fixture/prefill_2chunk_exact|reassoc|substitution",
+    "layer1/fixture/prefill_2chunk_exact|recurrent|substitution",
+    "layer1/fixture/prefill_2chunk_padded|chunked32|reassoc",
+    "layer1/fixture/prefill_2chunk_padded|chunked32|recurrent",
+    "layer1/fixture/prefill_2chunk_padded|chunked32|substitution",
+    "layer1/fixture/prefill_2chunk_padded|chunked|chunked32",
+    "layer1/fixture/prefill_2chunk_padded|chunked|reassoc",
+    "layer1/fixture/prefill_2chunk_padded|chunked|recurrent",
+    "layer1/fixture/prefill_2chunk_padded|chunked|substitution",
+    "layer1/fixture/prefill_2chunk_padded|reassoc|recurrent",
+    "layer1/fixture/prefill_2chunk_padded|reassoc|substitution",
+    "layer1/fixture/prefill_2chunk_padded|recurrent|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked32|reassoc",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked32|recurrent",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked32|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|chunked32",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|reassoc",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|recurrent",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|reassoc|recurrent",
+    "layer1/fixture/prefill_3chunk_dirty_pad|reassoc|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|recurrent|substitution",
+    "layer1/fixture/prefill_3chunk_padded|chunked32|reassoc",
+    "layer1/fixture/prefill_3chunk_padded|chunked32|recurrent",
+    "layer1/fixture/prefill_3chunk_padded|chunked32|substitution",
+    "layer1/fixture/prefill_3chunk_padded|chunked|chunked32",
+    "layer1/fixture/prefill_3chunk_padded|chunked|reassoc",
+    "layer1/fixture/prefill_3chunk_padded|chunked|recurrent",
+    "layer1/fixture/prefill_3chunk_padded|chunked|substitution",
+    "layer1/fixture/prefill_3chunk_padded|reassoc|recurrent",
+    "layer1/fixture/prefill_3chunk_padded|reassoc|substitution",
+    "layer1/fixture/prefill_3chunk_padded|recurrent|substitution",
+    "layer1/pinned/decode0|pinned|reassoc",
+    "layer1/pinned/decode0|pinned|recurrent",
+    "layer1/pinned/decode0|reassoc|recurrent",
+    "layer1/pinned/decode1|pinned|reassoc",
+    "layer1/pinned/decode1|pinned|recurrent",
+    "layer1/pinned/decode1|reassoc|recurrent",
+    "layer1/pinned/decode2|pinned|reassoc",
+    "layer1/pinned/decode2|pinned|recurrent",
+    "layer1/pinned/decode2|reassoc|recurrent",
+    "layer1/pinned/prefill|chunked32|pinned",
+    "layer1/pinned/prefill|chunked32|reassoc",
+    "layer1/pinned/prefill|chunked32|recurrent",
+    "layer1/pinned/prefill|chunked32|substitution",
+    "layer1/pinned/prefill|chunked|chunked32",
+    "layer1/pinned/prefill|chunked|pinned",
+    "layer1/pinned/prefill|chunked|reassoc",
+    "layer1/pinned/prefill|chunked|recurrent",
+    "layer1/pinned/prefill|chunked|substitution",
+    "layer1/pinned/prefill|pinned|reassoc",
+    "layer1/pinned/prefill|pinned|recurrent",
+    "layer1/pinned/prefill|pinned|substitution",
+    "layer1/pinned/prefill|reassoc|recurrent",
+    "layer1/pinned/prefill|reassoc|substitution",
+    "layer1/pinned/prefill|recurrent|substitution"
+   ]
+  },
+  "k_hat": {
+   "probe": {
+    "one_minus_cos": 3.8746783559417963e-14,
+    "mean_rel": 5.651893479366179e-08,
+    "max_abs": 1.3012621424834947e-07,
+    "per_head_max": 1.3012621424834947e-07
+   },
+   "one_minus_cos": 1.5498713423767185e-13,
+   "mean_rel": 1.1303786958732358e-07,
+   "max_abs": 2.6025242849669894e-07,
+   "per_head_max": 2.6025242849669894e-07,
+   "derived_from": "floor probe (f64 anchor) x the triangle inequality",
+   "bf16_storage": false,
+   "arms": [
+    "chunked",
+    "chunked32",
+    "pinned",
+    "reassoc",
+    "recurrent",
+    "substitution"
+   ],
+   "passes": [
+    "layer0/fixture/decode_3step#decode0",
+    "layer0/fixture/decode_3step#decode1",
+    "layer0/fixture/decode_3step#decode2",
+    "layer0/fixture/decode_3step#prefill",
+    "layer0/fixture/prefill_1chunk_padded",
+    "layer0/fixture/prefill_2chunk_exact",
+    "layer0/fixture/prefill_2chunk_padded",
+    "layer0/fixture/prefill_3chunk_dirty_pad",
+    "layer0/fixture/prefill_3chunk_padded",
+    "layer0/pinned/decode0",
+    "layer0/pinned/decode1",
+    "layer0/pinned/decode2",
+    "layer0/pinned/prefill",
+    "layer1/fixture/decode_3step#decode0",
+    "layer1/fixture/decode_3step#decode1",
+    "layer1/fixture/decode_3step#decode2",
+    "layer1/fixture/decode_3step#prefill",
+    "layer1/fixture/prefill_1chunk_padded",
+    "layer1/fixture/prefill_2chunk_exact",
+    "layer1/fixture/prefill_2chunk_padded",
+    "layer1/fixture/prefill_3chunk_dirty_pad",
+    "layer1/fixture/prefill_3chunk_padded",
+    "layer1/pinned/decode0",
+    "layer1/pinned/decode1",
+    "layer1/pinned/decode2",
+    "layer1/pinned/prefill"
+   ],
+   "blocks": [
+    "layer0",
+    "layer1"
+   ],
+   "records": 102,
+   "folded_records": 102,
+   "licensed_rows": [
+    "layer0/fixture/decode_3step#decode0|reassoc|recurrent",
+    "layer0/fixture/decode_3step#decode1|reassoc|recurrent",
+    "layer0/fixture/decode_3step#decode2|reassoc|recurrent",
+    "layer0/fixture/decode_3step#prefill|chunked32|reassoc",
+    "layer0/fixture/decode_3step#prefill|chunked32|recurrent",
+    "layer0/fixture/decode_3step#prefill|chunked32|substitution",
+    "layer0/fixture/decode_3step#prefill|chunked|chunked32",
+    "layer0/fixture/decode_3step#prefill|chunked|reassoc",
+    "layer0/fixture/decode_3step#prefill|chunked|recurrent",
+    "layer0/fixture/decode_3step#prefill|chunked|substitution",
+    "layer0/fixture/decode_3step#prefill|reassoc|recurrent",
+    "layer0/fixture/decode_3step#prefill|reassoc|substitution",
+    "layer0/fixture/decode_3step#prefill|recurrent|substitution",
+    "layer0/fixture/prefill_1chunk_padded|chunked32|reassoc",
+    "layer0/fixture/prefill_1chunk_padded|chunked32|recurrent",
+    "layer0/fixture/prefill_1chunk_padded|chunked32|substitution",
+    "layer0/fixture/prefill_1chunk_padded|chunked|chunked32",
+    "layer0/fixture/prefill_1chunk_padded|chunked|reassoc",
+    "layer0/fixture/prefill_1chunk_padded|chunked|recurrent",
+    "layer0/fixture/prefill_1chunk_padded|chunked|substitution",
+    "layer0/fixture/prefill_1chunk_padded|reassoc|recurrent",
+    "layer0/fixture/prefill_1chunk_padded|reassoc|substitution",
+    "layer0/fixture/prefill_1chunk_padded|recurrent|substitution",
+    "layer0/fixture/prefill_2chunk_exact|chunked32|reassoc",
+    "layer0/fixture/prefill_2chunk_exact|chunked32|recurrent",
+    "layer0/fixture/prefill_2chunk_exact|chunked32|substitution",
+    "layer0/fixture/prefill_2chunk_exact|chunked|chunked32",
+    "layer0/fixture/prefill_2chunk_exact|chunked|reassoc",
+    "layer0/fixture/prefill_2chunk_exact|chunked|recurrent",
+    "layer0/fixture/prefill_2chunk_exact|chunked|substitution",
+    "layer0/fixture/prefill_2chunk_exact|reassoc|recurrent",
+    "layer0/fixture/prefill_2chunk_exact|reassoc|substitution",
+    "layer0/fixture/prefill_2chunk_exact|recurrent|substitution",
+    "layer0/fixture/prefill_2chunk_padded|chunked32|reassoc",
+    "layer0/fixture/prefill_2chunk_padded|chunked32|recurrent",
+    "layer0/fixture/prefill_2chunk_padded|chunked32|substitution",
+    "layer0/fixture/prefill_2chunk_padded|chunked|chunked32",
+    "layer0/fixture/prefill_2chunk_padded|chunked|reassoc",
+    "layer0/fixture/prefill_2chunk_padded|chunked|recurrent",
+    "layer0/fixture/prefill_2chunk_padded|chunked|substitution",
+    "layer0/fixture/prefill_2chunk_padded|reassoc|recurrent",
+    "layer0/fixture/prefill_2chunk_padded|reassoc|substitution",
+    "layer0/fixture/prefill_2chunk_padded|recurrent|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked32|reassoc",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked32|recurrent",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked32|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|chunked32",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|reassoc",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|recurrent",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|reassoc|recurrent",
+    "layer0/fixture/prefill_3chunk_dirty_pad|reassoc|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|recurrent|substitution",
+    "layer0/fixture/prefill_3chunk_padded|chunked32|reassoc",
+    "layer0/fixture/prefill_3chunk_padded|chunked32|recurrent",
+    "layer0/fixture/prefill_3chunk_padded|chunked32|substitution",
+    "layer0/fixture/prefill_3chunk_padded|chunked|chunked32",
+    "layer0/fixture/prefill_3chunk_padded|chunked|reassoc",
+    "layer0/fixture/prefill_3chunk_padded|chunked|recurrent",
+    "layer0/fixture/prefill_3chunk_padded|chunked|substitution",
+    "layer0/fixture/prefill_3chunk_padded|reassoc|recurrent",
+    "layer0/fixture/prefill_3chunk_padded|reassoc|substitution",
+    "layer0/fixture/prefill_3chunk_padded|recurrent|substitution",
+    "layer0/pinned/decode0|pinned|reassoc",
+    "layer0/pinned/decode0|pinned|recurrent",
+    "layer0/pinned/decode0|reassoc|recurrent",
+    "layer0/pinned/decode1|pinned|reassoc",
+    "layer0/pinned/decode1|pinned|recurrent",
+    "layer0/pinned/decode1|reassoc|recurrent",
+    "layer0/pinned/decode2|pinned|reassoc",
+    "layer0/pinned/decode2|pinned|recurrent",
+    "layer0/pinned/decode2|reassoc|recurrent",
+    "layer0/pinned/prefill|chunked32|pinned",
+    "layer0/pinned/prefill|chunked32|reassoc",
+    "layer0/pinned/prefill|chunked32|recurrent",
+    "layer0/pinned/prefill|chunked32|substitution",
+    "layer0/pinned/prefill|chunked|chunked32",
+    "layer0/pinned/prefill|chunked|pinned",
+    "layer0/pinned/prefill|chunked|reassoc",
+    "layer0/pinned/prefill|chunked|recurrent",
+    "layer0/pinned/prefill|chunked|substitution",
+    "layer0/pinned/prefill|pinned|reassoc",
+    "layer0/pinned/prefill|pinned|recurrent",
+    "layer0/pinned/prefill|pinned|substitution",
+    "layer0/pinned/prefill|reassoc|recurrent",
+    "layer0/pinned/prefill|reassoc|substitution",
+    "layer0/pinned/prefill|recurrent|substitution",
+    "layer1/fixture/decode_3step#decode0|reassoc|recurrent",
+    "layer1/fixture/decode_3step#decode1|reassoc|recurrent",
+    "layer1/fixture/decode_3step#decode2|reassoc|recurrent",
+    "layer1/fixture/decode_3step#prefill|chunked32|reassoc",
+    "layer1/fixture/decode_3step#prefill|chunked32|recurrent",
+    "layer1/fixture/decode_3step#prefill|chunked32|substitution",
+    "layer1/fixture/decode_3step#prefill|chunked|chunked32",
+    "layer1/fixture/decode_3step#prefill|chunked|reassoc",
+    "layer1/fixture/decode_3step#prefill|chunked|recurrent",
+    "layer1/fixture/decode_3step#prefill|chunked|substitution",
+    "layer1/fixture/decode_3step#prefill|reassoc|recurrent",
+    "layer1/fixture/decode_3step#prefill|reassoc|substitution",
+    "layer1/fixture/decode_3step#prefill|recurrent|substitution",
+    "layer1/fixture/prefill_1chunk_padded|chunked32|reassoc",
+    "layer1/fixture/prefill_1chunk_padded|chunked32|recurrent",
+    "layer1/fixture/prefill_1chunk_padded|chunked32|substitution",
+    "layer1/fixture/prefill_1chunk_padded|chunked|chunked32",
+    "layer1/fixture/prefill_1chunk_padded|chunked|reassoc",
+    "layer1/fixture/prefill_1chunk_padded|chunked|recurrent",
+    "layer1/fixture/prefill_1chunk_padded|chunked|substitution",
+    "layer1/fixture/prefill_1chunk_padded|reassoc|recurrent",
+    "layer1/fixture/prefill_1chunk_padded|reassoc|substitution",
+    "layer1/fixture/prefill_1chunk_padded|recurrent|substitution",
+    "layer1/fixture/prefill_2chunk_exact|chunked32|reassoc",
+    "layer1/fixture/prefill_2chunk_exact|chunked32|recurrent",
+    "layer1/fixture/prefill_2chunk_exact|chunked32|substitution",
+    "layer1/fixture/prefill_2chunk_exact|chunked|chunked32",
+    "layer1/fixture/prefill_2chunk_exact|chunked|reassoc",
+    "layer1/fixture/prefill_2chunk_exact|chunked|recurrent",
+    "layer1/fixture/prefill_2chunk_exact|chunked|substitution",
+    "layer1/fixture/prefill_2chunk_exact|reassoc|recurrent",
+    "layer1/fixture/prefill_2chunk_exact|reassoc|substitution",
+    "layer1/fixture/prefill_2chunk_exact|recurrent|substitution",
+    "layer1/fixture/prefill_2chunk_padded|chunked32|reassoc",
+    "layer1/fixture/prefill_2chunk_padded|chunked32|recurrent",
+    "layer1/fixture/prefill_2chunk_padded|chunked32|substitution",
+    "layer1/fixture/prefill_2chunk_padded|chunked|chunked32",
+    "layer1/fixture/prefill_2chunk_padded|chunked|reassoc",
+    "layer1/fixture/prefill_2chunk_padded|chunked|recurrent",
+    "layer1/fixture/prefill_2chunk_padded|chunked|substitution",
+    "layer1/fixture/prefill_2chunk_padded|reassoc|recurrent",
+    "layer1/fixture/prefill_2chunk_padded|reassoc|substitution",
+    "layer1/fixture/prefill_2chunk_padded|recurrent|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked32|reassoc",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked32|recurrent",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked32|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|chunked32",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|reassoc",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|recurrent",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|reassoc|recurrent",
+    "layer1/fixture/prefill_3chunk_dirty_pad|reassoc|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|recurrent|substitution",
+    "layer1/fixture/prefill_3chunk_padded|chunked32|reassoc",
+    "layer1/fixture/prefill_3chunk_padded|chunked32|recurrent",
+    "layer1/fixture/prefill_3chunk_padded|chunked32|substitution",
+    "layer1/fixture/prefill_3chunk_padded|chunked|chunked32",
+    "layer1/fixture/prefill_3chunk_padded|chunked|reassoc",
+    "layer1/fixture/prefill_3chunk_padded|chunked|recurrent",
+    "layer1/fixture/prefill_3chunk_padded|chunked|substitution",
+    "layer1/fixture/prefill_3chunk_padded|reassoc|recurrent",
+    "layer1/fixture/prefill_3chunk_padded|reassoc|substitution",
+    "layer1/fixture/prefill_3chunk_padded|recurrent|substitution",
+    "layer1/pinned/decode0|pinned|reassoc",
+    "layer1/pinned/decode0|pinned|recurrent",
+    "layer1/pinned/decode0|reassoc|recurrent",
+    "layer1/pinned/decode1|pinned|reassoc",
+    "layer1/pinned/decode1|pinned|recurrent",
+    "layer1/pinned/decode1|reassoc|recurrent",
+    "layer1/pinned/decode2|pinned|reassoc",
+    "layer1/pinned/decode2|pinned|recurrent",
+    "layer1/pinned/decode2|reassoc|recurrent",
+    "layer1/pinned/prefill|chunked32|pinned",
+    "layer1/pinned/prefill|chunked32|reassoc",
+    "layer1/pinned/prefill|chunked32|recurrent",
+    "layer1/pinned/prefill|chunked32|substitution",
+    "layer1/pinned/prefill|chunked|chunked32",
+    "layer1/pinned/prefill|chunked|pinned",
+    "layer1/pinned/prefill|chunked|reassoc",
+    "layer1/pinned/prefill|chunked|recurrent",
+    "layer1/pinned/prefill|chunked|substitution",
+    "layer1/pinned/prefill|pinned|reassoc",
+    "layer1/pinned/prefill|pinned|recurrent",
+    "layer1/pinned/prefill|pinned|substitution",
+    "layer1/pinned/prefill|reassoc|recurrent",
+    "layer1/pinned/prefill|reassoc|substitution",
+    "layer1/pinned/prefill|recurrent|substitution"
+   ]
+  },
+  "scan_out": {
+   "probe": {
+    "one_minus_cos": 5.728750807065808e-14,
+    "mean_rel": 3.273806858382863e-07,
+    "max_abs": 1.7413916399144913e-08,
+    "per_head_max": 1.7413916399144913e-08
+   },
+   "one_minus_cos": 2.291500322826323e-13,
+   "mean_rel": 6.547613716765726e-07,
+   "max_abs": 3.4827832798289826e-08,
+   "per_head_max": 3.4827832798289826e-08,
+   "derived_from": "floor probe (f64 anchor) x the triangle inequality",
+   "bf16_storage": false,
+   "arms": [
+    "chunked",
+    "chunked32",
+    "pinned",
+    "reassoc",
+    "recurrent",
+    "substitution"
+   ],
+   "passes": [
+    "layer0/fixture/decode_3step#decode0",
+    "layer0/fixture/decode_3step#decode1",
+    "layer0/fixture/decode_3step#decode2",
+    "layer0/fixture/decode_3step#prefill",
+    "layer0/fixture/prefill_1chunk_padded",
+    "layer0/fixture/prefill_2chunk_exact",
+    "layer0/fixture/prefill_2chunk_padded",
+    "layer0/fixture/prefill_3chunk_dirty_pad",
+    "layer0/fixture/prefill_3chunk_padded",
+    "layer0/pinned/decode0",
+    "layer0/pinned/decode1",
+    "layer0/pinned/decode2",
+    "layer0/pinned/prefill",
+    "layer1/fixture/decode_3step#decode0",
+    "layer1/fixture/decode_3step#decode1",
+    "layer1/fixture/decode_3step#decode2",
+    "layer1/fixture/decode_3step#prefill",
+    "layer1/fixture/prefill_1chunk_padded",
+    "layer1/fixture/prefill_2chunk_exact",
+    "layer1/fixture/prefill_2chunk_padded",
+    "layer1/fixture/prefill_3chunk_dirty_pad",
+    "layer1/fixture/prefill_3chunk_padded",
+    "layer1/pinned/decode0",
+    "layer1/pinned/decode1",
+    "layer1/pinned/decode2",
+    "layer1/pinned/prefill"
+   ],
+   "blocks": [
+    "layer0",
+    "layer1"
+   ],
+   "records": 102,
+   "folded_records": 102,
+   "licensed_rows": [
+    "layer0/fixture/decode_3step#decode0|reassoc|recurrent",
+    "layer0/fixture/decode_3step#decode1|reassoc|recurrent",
+    "layer0/fixture/decode_3step#decode2|reassoc|recurrent",
+    "layer0/fixture/decode_3step#prefill|chunked32|reassoc",
+    "layer0/fixture/decode_3step#prefill|chunked32|recurrent",
+    "layer0/fixture/decode_3step#prefill|chunked32|substitution",
+    "layer0/fixture/decode_3step#prefill|chunked|chunked32",
+    "layer0/fixture/decode_3step#prefill|chunked|reassoc",
+    "layer0/fixture/decode_3step#prefill|chunked|recurrent",
+    "layer0/fixture/decode_3step#prefill|chunked|substitution",
+    "layer0/fixture/decode_3step#prefill|reassoc|recurrent",
+    "layer0/fixture/decode_3step#prefill|reassoc|substitution",
+    "layer0/fixture/decode_3step#prefill|recurrent|substitution",
+    "layer0/fixture/prefill_1chunk_padded|chunked32|reassoc",
+    "layer0/fixture/prefill_1chunk_padded|chunked32|recurrent",
+    "layer0/fixture/prefill_1chunk_padded|chunked32|substitution",
+    "layer0/fixture/prefill_1chunk_padded|chunked|chunked32",
+    "layer0/fixture/prefill_1chunk_padded|chunked|reassoc",
+    "layer0/fixture/prefill_1chunk_padded|chunked|recurrent",
+    "layer0/fixture/prefill_1chunk_padded|chunked|substitution",
+    "layer0/fixture/prefill_1chunk_padded|reassoc|recurrent",
+    "layer0/fixture/prefill_1chunk_padded|reassoc|substitution",
+    "layer0/fixture/prefill_1chunk_padded|recurrent|substitution",
+    "layer0/fixture/prefill_2chunk_exact|chunked32|reassoc",
+    "layer0/fixture/prefill_2chunk_exact|chunked32|recurrent",
+    "layer0/fixture/prefill_2chunk_exact|chunked32|substitution",
+    "layer0/fixture/prefill_2chunk_exact|chunked|chunked32",
+    "layer0/fixture/prefill_2chunk_exact|chunked|reassoc",
+    "layer0/fixture/prefill_2chunk_exact|chunked|recurrent",
+    "layer0/fixture/prefill_2chunk_exact|chunked|substitution",
+    "layer0/fixture/prefill_2chunk_exact|reassoc|recurrent",
+    "layer0/fixture/prefill_2chunk_exact|reassoc|substitution",
+    "layer0/fixture/prefill_2chunk_exact|recurrent|substitution",
+    "layer0/fixture/prefill_2chunk_padded|chunked32|reassoc",
+    "layer0/fixture/prefill_2chunk_padded|chunked32|recurrent",
+    "layer0/fixture/prefill_2chunk_padded|chunked32|substitution",
+    "layer0/fixture/prefill_2chunk_padded|chunked|chunked32",
+    "layer0/fixture/prefill_2chunk_padded|chunked|reassoc",
+    "layer0/fixture/prefill_2chunk_padded|chunked|recurrent",
+    "layer0/fixture/prefill_2chunk_padded|chunked|substitution",
+    "layer0/fixture/prefill_2chunk_padded|reassoc|recurrent",
+    "layer0/fixture/prefill_2chunk_padded|reassoc|substitution",
+    "layer0/fixture/prefill_2chunk_padded|recurrent|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked32|reassoc",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked32|recurrent",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked32|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|chunked32",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|reassoc",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|recurrent",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|reassoc|recurrent",
+    "layer0/fixture/prefill_3chunk_dirty_pad|reassoc|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|recurrent|substitution",
+    "layer0/fixture/prefill_3chunk_padded|chunked32|reassoc",
+    "layer0/fixture/prefill_3chunk_padded|chunked32|recurrent",
+    "layer0/fixture/prefill_3chunk_padded|chunked32|substitution",
+    "layer0/fixture/prefill_3chunk_padded|chunked|chunked32",
+    "layer0/fixture/prefill_3chunk_padded|chunked|reassoc",
+    "layer0/fixture/prefill_3chunk_padded|chunked|recurrent",
+    "layer0/fixture/prefill_3chunk_padded|chunked|substitution",
+    "layer0/fixture/prefill_3chunk_padded|reassoc|recurrent",
+    "layer0/fixture/prefill_3chunk_padded|reassoc|substitution",
+    "layer0/fixture/prefill_3chunk_padded|recurrent|substitution",
+    "layer0/pinned/decode0|pinned|reassoc",
+    "layer0/pinned/decode0|pinned|recurrent",
+    "layer0/pinned/decode0|reassoc|recurrent",
+    "layer0/pinned/decode1|pinned|reassoc",
+    "layer0/pinned/decode1|pinned|recurrent",
+    "layer0/pinned/decode1|reassoc|recurrent",
+    "layer0/pinned/decode2|pinned|reassoc",
+    "layer0/pinned/decode2|pinned|recurrent",
+    "layer0/pinned/decode2|reassoc|recurrent",
+    "layer0/pinned/prefill|chunked32|pinned",
+    "layer0/pinned/prefill|chunked32|reassoc",
+    "layer0/pinned/prefill|chunked32|recurrent",
+    "layer0/pinned/prefill|chunked32|substitution",
+    "layer0/pinned/prefill|chunked|chunked32",
+    "layer0/pinned/prefill|chunked|pinned",
+    "layer0/pinned/prefill|chunked|reassoc",
+    "layer0/pinned/prefill|chunked|recurrent",
+    "layer0/pinned/prefill|chunked|substitution",
+    "layer0/pinned/prefill|pinned|reassoc",
+    "layer0/pinned/prefill|pinned|recurrent",
+    "layer0/pinned/prefill|pinned|substitution",
+    "layer0/pinned/prefill|reassoc|recurrent",
+    "layer0/pinned/prefill|reassoc|substitution",
+    "layer0/pinned/prefill|recurrent|substitution",
+    "layer1/fixture/decode_3step#decode0|reassoc|recurrent",
+    "layer1/fixture/decode_3step#decode1|reassoc|recurrent",
+    "layer1/fixture/decode_3step#decode2|reassoc|recurrent",
+    "layer1/fixture/decode_3step#prefill|chunked32|reassoc",
+    "layer1/fixture/decode_3step#prefill|chunked32|recurrent",
+    "layer1/fixture/decode_3step#prefill|chunked32|substitution",
+    "layer1/fixture/decode_3step#prefill|chunked|chunked32",
+    "layer1/fixture/decode_3step#prefill|chunked|reassoc",
+    "layer1/fixture/decode_3step#prefill|chunked|recurrent",
+    "layer1/fixture/decode_3step#prefill|chunked|substitution",
+    "layer1/fixture/decode_3step#prefill|reassoc|recurrent",
+    "layer1/fixture/decode_3step#prefill|reassoc|substitution",
+    "layer1/fixture/decode_3step#prefill|recurrent|substitution",
+    "layer1/fixture/prefill_1chunk_padded|chunked32|reassoc",
+    "layer1/fixture/prefill_1chunk_padded|chunked32|recurrent",
+    "layer1/fixture/prefill_1chunk_padded|chunked32|substitution",
+    "layer1/fixture/prefill_1chunk_padded|chunked|chunked32",
+    "layer1/fixture/prefill_1chunk_padded|chunked|reassoc",
+    "layer1/fixture/prefill_1chunk_padded|chunked|recurrent",
+    "layer1/fixture/prefill_1chunk_padded|chunked|substitution",
+    "layer1/fixture/prefill_1chunk_padded|reassoc|recurrent",
+    "layer1/fixture/prefill_1chunk_padded|reassoc|substitution",
+    "layer1/fixture/prefill_1chunk_padded|recurrent|substitution",
+    "layer1/fixture/prefill_2chunk_exact|chunked32|reassoc",
+    "layer1/fixture/prefill_2chunk_exact|chunked32|recurrent",
+    "layer1/fixture/prefill_2chunk_exact|chunked32|substitution",
+    "layer1/fixture/prefill_2chunk_exact|chunked|chunked32",
+    "layer1/fixture/prefill_2chunk_exact|chunked|reassoc",
+    "layer1/fixture/prefill_2chunk_exact|chunked|recurrent",
+    "layer1/fixture/prefill_2chunk_exact|chunked|substitution",
+    "layer1/fixture/prefill_2chunk_exact|reassoc|recurrent",
+    "layer1/fixture/prefill_2chunk_exact|reassoc|substitution",
+    "layer1/fixture/prefill_2chunk_exact|recurrent|substitution",
+    "layer1/fixture/prefill_2chunk_padded|chunked32|reassoc",
+    "layer1/fixture/prefill_2chunk_padded|chunked32|recurrent",
+    "layer1/fixture/prefill_2chunk_padded|chunked32|substitution",
+    "layer1/fixture/prefill_2chunk_padded|chunked|chunked32",
+    "layer1/fixture/prefill_2chunk_padded|chunked|reassoc",
+    "layer1/fixture/prefill_2chunk_padded|chunked|recurrent",
+    "layer1/fixture/prefill_2chunk_padded|chunked|substitution",
+    "layer1/fixture/prefill_2chunk_padded|reassoc|recurrent",
+    "layer1/fixture/prefill_2chunk_padded|reassoc|substitution",
+    "layer1/fixture/prefill_2chunk_padded|recurrent|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked32|reassoc",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked32|recurrent",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked32|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|chunked32",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|reassoc",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|recurrent",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|reassoc|recurrent",
+    "layer1/fixture/prefill_3chunk_dirty_pad|reassoc|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|recurrent|substitution",
+    "layer1/fixture/prefill_3chunk_padded|chunked32|reassoc",
+    "layer1/fixture/prefill_3chunk_padded|chunked32|recurrent",
+    "layer1/fixture/prefill_3chunk_padded|chunked32|substitution",
+    "layer1/fixture/prefill_3chunk_padded|chunked|chunked32",
+    "layer1/fixture/prefill_3chunk_padded|chunked|reassoc",
+    "layer1/fixture/prefill_3chunk_padded|chunked|recurrent",
+    "layer1/fixture/prefill_3chunk_padded|chunked|substitution",
+    "layer1/fixture/prefill_3chunk_padded|reassoc|recurrent",
+    "layer1/fixture/prefill_3chunk_padded|reassoc|substitution",
+    "layer1/fixture/prefill_3chunk_padded|recurrent|substitution",
+    "layer1/pinned/decode0|pinned|reassoc",
+    "layer1/pinned/decode0|pinned|recurrent",
+    "layer1/pinned/decode0|reassoc|recurrent",
+    "layer1/pinned/decode1|pinned|reassoc",
+    "layer1/pinned/decode1|pinned|recurrent",
+    "layer1/pinned/decode1|reassoc|recurrent",
+    "layer1/pinned/decode2|pinned|reassoc",
+    "layer1/pinned/decode2|pinned|recurrent",
+    "layer1/pinned/decode2|reassoc|recurrent",
+    "layer1/pinned/prefill|chunked32|pinned",
+    "layer1/pinned/prefill|chunked32|reassoc",
+    "layer1/pinned/prefill|chunked32|recurrent",
+    "layer1/pinned/prefill|chunked32|substitution",
+    "layer1/pinned/prefill|chunked|chunked32",
+    "layer1/pinned/prefill|chunked|pinned",
+    "layer1/pinned/prefill|chunked|reassoc",
+    "layer1/pinned/prefill|chunked|recurrent",
+    "layer1/pinned/prefill|chunked|substitution",
+    "layer1/pinned/prefill|pinned|reassoc",
+    "layer1/pinned/prefill|pinned|recurrent",
+    "layer1/pinned/prefill|pinned|substitution",
+    "layer1/pinned/prefill|reassoc|recurrent",
+    "layer1/pinned/prefill|reassoc|substitution",
+    "layer1/pinned/prefill|recurrent|substitution"
+   ]
+  },
+  "core_attn": {
+   "probe": {
+    "one_minus_cos": 7.688979453135403e-10,
+    "mean_rel": 9.924415650406505e-07,
+    "max_abs": 7.62939453125e-06,
+    "per_head_max": 7.62939453125e-06
+   },
+   "one_minus_cos": 3.075591781254161e-09,
+   "mean_rel": 1.984883130081301e-06,
+   "max_abs": 1.52587890625e-05,
+   "per_head_max": 1.52587890625e-05,
+   "derived_from": "floor probe (f64 anchor) x the triangle inequality",
+   "bf16_storage": true,
+   "arms": [
+    "chunked",
+    "chunked32",
+    "pinned",
+    "reassoc",
+    "recurrent",
+    "substitution"
+   ],
+   "passes": [
+    "layer0/fixture/decode_3step#decode0",
+    "layer0/fixture/decode_3step#decode1",
+    "layer0/fixture/decode_3step#decode2",
+    "layer0/fixture/decode_3step#prefill",
+    "layer0/fixture/prefill_1chunk_padded",
+    "layer0/fixture/prefill_2chunk_exact",
+    "layer0/fixture/prefill_2chunk_padded",
+    "layer0/fixture/prefill_3chunk_dirty_pad",
+    "layer0/fixture/prefill_3chunk_padded",
+    "layer0/pinned/decode0",
+    "layer0/pinned/decode1",
+    "layer0/pinned/decode2",
+    "layer0/pinned/prefill",
+    "layer1/fixture/decode_3step#decode0",
+    "layer1/fixture/decode_3step#decode1",
+    "layer1/fixture/decode_3step#decode2",
+    "layer1/fixture/decode_3step#prefill",
+    "layer1/fixture/prefill_1chunk_padded",
+    "layer1/fixture/prefill_2chunk_exact",
+    "layer1/fixture/prefill_2chunk_padded",
+    "layer1/fixture/prefill_3chunk_dirty_pad",
+    "layer1/fixture/prefill_3chunk_padded",
+    "layer1/pinned/decode0",
+    "layer1/pinned/decode1",
+    "layer1/pinned/decode2",
+    "layer1/pinned/prefill"
+   ],
+   "blocks": [
+    "layer0",
+    "layer1"
+   ],
+   "records": 102,
+   "folded_records": 102,
+   "licensed_rows": [
+    "layer0/fixture/decode_3step#decode0|reassoc|recurrent",
+    "layer0/fixture/decode_3step#prefill|chunked32|reassoc",
+    "layer0/fixture/decode_3step#prefill|chunked32|recurrent",
+    "layer0/fixture/decode_3step#prefill|chunked32|substitution",
+    "layer0/fixture/decode_3step#prefill|chunked|chunked32",
+    "layer0/fixture/decode_3step#prefill|chunked|reassoc",
+    "layer0/fixture/decode_3step#prefill|chunked|recurrent",
+    "layer0/fixture/decode_3step#prefill|chunked|substitution",
+    "layer0/fixture/decode_3step#prefill|reassoc|recurrent",
+    "layer0/fixture/decode_3step#prefill|reassoc|substitution",
+    "layer0/fixture/decode_3step#prefill|recurrent|substitution",
+    "layer0/fixture/prefill_1chunk_padded|chunked32|recurrent",
+    "layer0/fixture/prefill_1chunk_padded|chunked32|substitution",
+    "layer0/fixture/prefill_1chunk_padded|chunked|chunked32",
+    "layer0/fixture/prefill_1chunk_padded|chunked|recurrent",
+    "layer0/fixture/prefill_1chunk_padded|chunked|substitution",
+    "layer0/fixture/prefill_1chunk_padded|recurrent|substitution",
+    "layer0/fixture/prefill_2chunk_exact|chunked32|reassoc",
+    "layer0/fixture/prefill_2chunk_exact|chunked32|recurrent",
+    "layer0/fixture/prefill_2chunk_exact|chunked32|substitution",
+    "layer0/fixture/prefill_2chunk_exact|chunked|chunked32",
+    "layer0/fixture/prefill_2chunk_exact|chunked|reassoc",
+    "layer0/fixture/prefill_2chunk_exact|chunked|recurrent",
+    "layer0/fixture/prefill_2chunk_exact|chunked|substitution",
+    "layer0/fixture/prefill_2chunk_exact|reassoc|recurrent",
+    "layer0/fixture/prefill_2chunk_exact|reassoc|substitution",
+    "layer0/fixture/prefill_2chunk_exact|recurrent|substitution",
+    "layer0/fixture/prefill_2chunk_padded|chunked32|reassoc",
+    "layer0/fixture/prefill_2chunk_padded|chunked32|recurrent",
+    "layer0/fixture/prefill_2chunk_padded|chunked32|substitution",
+    "layer0/fixture/prefill_2chunk_padded|chunked|chunked32",
+    "layer0/fixture/prefill_2chunk_padded|chunked|reassoc",
+    "layer0/fixture/prefill_2chunk_padded|chunked|recurrent",
+    "layer0/fixture/prefill_2chunk_padded|chunked|substitution",
+    "layer0/fixture/prefill_2chunk_padded|reassoc|recurrent",
+    "layer0/fixture/prefill_2chunk_padded|reassoc|substitution",
+    "layer0/fixture/prefill_2chunk_padded|recurrent|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked32|reassoc",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked32|recurrent",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked32|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|chunked32",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|reassoc",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|recurrent",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|reassoc|recurrent",
+    "layer0/fixture/prefill_3chunk_dirty_pad|reassoc|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|recurrent|substitution",
+    "layer0/fixture/prefill_3chunk_padded|chunked32|reassoc",
+    "layer0/fixture/prefill_3chunk_padded|chunked32|recurrent",
+    "layer0/fixture/prefill_3chunk_padded|chunked32|substitution",
+    "layer0/fixture/prefill_3chunk_padded|chunked|chunked32",
+    "layer0/fixture/prefill_3chunk_padded|chunked|reassoc",
+    "layer0/fixture/prefill_3chunk_padded|chunked|recurrent",
+    "layer0/fixture/prefill_3chunk_padded|chunked|substitution",
+    "layer0/fixture/prefill_3chunk_padded|reassoc|recurrent",
+    "layer0/fixture/prefill_3chunk_padded|reassoc|substitution",
+    "layer0/fixture/prefill_3chunk_padded|recurrent|substitution",
+    "layer0/pinned/decode0|reassoc|recurrent",
+    "layer0/pinned/decode2|pinned|reassoc",
+    "layer0/pinned/decode2|pinned|recurrent",
+    "layer0/pinned/decode2|reassoc|recurrent",
+    "layer0/pinned/prefill|chunked32|pinned",
+    "layer0/pinned/prefill|chunked32|reassoc",
+    "layer0/pinned/prefill|chunked32|recurrent",
+    "layer0/pinned/prefill|chunked32|substitution",
+    "layer0/pinned/prefill|chunked|chunked32",
+    "layer0/pinned/prefill|chunked|pinned",
+    "layer0/pinned/prefill|chunked|reassoc",
+    "layer0/pinned/prefill|chunked|recurrent",
+    "layer0/pinned/prefill|chunked|substitution",
+    "layer0/pinned/prefill|pinned|reassoc",
+    "layer0/pinned/prefill|pinned|recurrent",
+    "layer0/pinned/prefill|pinned|substitution",
+    "layer0/pinned/prefill|reassoc|recurrent",
+    "layer0/pinned/prefill|reassoc|substitution",
+    "layer0/pinned/prefill|recurrent|substitution",
+    "layer1/fixture/decode_3step#decode0|reassoc|recurrent",
+    "layer1/fixture/decode_3step#decode1|reassoc|recurrent",
+    "layer1/fixture/decode_3step#prefill|chunked32|reassoc",
+    "layer1/fixture/decode_3step#prefill|chunked32|recurrent",
+    "layer1/fixture/decode_3step#prefill|chunked32|substitution",
+    "layer1/fixture/decode_3step#prefill|chunked|chunked32",
+    "layer1/fixture/decode_3step#prefill|chunked|reassoc",
+    "layer1/fixture/decode_3step#prefill|chunked|recurrent",
+    "layer1/fixture/decode_3step#prefill|chunked|substitution",
+    "layer1/fixture/decode_3step#prefill|reassoc|recurrent",
+    "layer1/fixture/decode_3step#prefill|reassoc|substitution",
+    "layer1/fixture/decode_3step#prefill|recurrent|substitution",
+    "layer1/fixture/prefill_1chunk_padded|chunked32|substitution",
+    "layer1/fixture/prefill_1chunk_padded|chunked|chunked32",
+    "layer1/fixture/prefill_1chunk_padded|chunked|substitution",
+    "layer1/fixture/prefill_2chunk_exact|chunked32|reassoc",
+    "layer1/fixture/prefill_2chunk_exact|chunked32|recurrent",
+    "layer1/fixture/prefill_2chunk_exact|chunked32|substitution",
+    "layer1/fixture/prefill_2chunk_exact|chunked|chunked32",
+    "layer1/fixture/prefill_2chunk_exact|chunked|reassoc",
+    "layer1/fixture/prefill_2chunk_exact|chunked|recurrent",
+    "layer1/fixture/prefill_2chunk_exact|chunked|substitution",
+    "layer1/fixture/prefill_2chunk_exact|reassoc|recurrent",
+    "layer1/fixture/prefill_2chunk_exact|reassoc|substitution",
+    "layer1/fixture/prefill_2chunk_exact|recurrent|substitution",
+    "layer1/fixture/prefill_2chunk_padded|chunked32|reassoc",
+    "layer1/fixture/prefill_2chunk_padded|chunked32|recurrent",
+    "layer1/fixture/prefill_2chunk_padded|chunked32|substitution",
+    "layer1/fixture/prefill_2chunk_padded|chunked|chunked32",
+    "layer1/fixture/prefill_2chunk_padded|chunked|reassoc",
+    "layer1/fixture/prefill_2chunk_padded|chunked|recurrent",
+    "layer1/fixture/prefill_2chunk_padded|chunked|substitution",
+    "layer1/fixture/prefill_2chunk_padded|reassoc|recurrent",
+    "layer1/fixture/prefill_2chunk_padded|reassoc|substitution",
+    "layer1/fixture/prefill_2chunk_padded|recurrent|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked32|reassoc",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked32|recurrent",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked32|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|chunked32",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|reassoc",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|recurrent",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|reassoc|recurrent",
+    "layer1/fixture/prefill_3chunk_dirty_pad|reassoc|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|recurrent|substitution",
+    "layer1/fixture/prefill_3chunk_padded|chunked32|reassoc",
+    "layer1/fixture/prefill_3chunk_padded|chunked32|recurrent",
+    "layer1/fixture/prefill_3chunk_padded|chunked32|substitution",
+    "layer1/fixture/prefill_3chunk_padded|chunked|chunked32",
+    "layer1/fixture/prefill_3chunk_padded|chunked|reassoc",
+    "layer1/fixture/prefill_3chunk_padded|chunked|recurrent",
+    "layer1/fixture/prefill_3chunk_padded|chunked|substitution",
+    "layer1/fixture/prefill_3chunk_padded|reassoc|recurrent",
+    "layer1/fixture/prefill_3chunk_padded|reassoc|substitution",
+    "layer1/fixture/prefill_3chunk_padded|recurrent|substitution",
+    "layer1/pinned/decode0|pinned|reassoc",
+    "layer1/pinned/decode0|pinned|recurrent",
+    "layer1/pinned/decode0|reassoc|recurrent",
+    "layer1/pinned/decode1|pinned|reassoc",
+    "layer1/pinned/decode1|pinned|recurrent",
+    "layer1/pinned/decode1|reassoc|recurrent",
+    "layer1/pinned/prefill|chunked32|pinned",
+    "layer1/pinned/prefill|chunked32|reassoc",
+    "layer1/pinned/prefill|chunked32|recurrent",
+    "layer1/pinned/prefill|chunked32|substitution",
+    "layer1/pinned/prefill|chunked|chunked32",
+    "layer1/pinned/prefill|chunked|pinned",
+    "layer1/pinned/prefill|chunked|reassoc",
+    "layer1/pinned/prefill|chunked|recurrent",
+    "layer1/pinned/prefill|chunked|substitution",
+    "layer1/pinned/prefill|pinned|reassoc",
+    "layer1/pinned/prefill|pinned|recurrent",
+    "layer1/pinned/prefill|pinned|substitution",
+    "layer1/pinned/prefill|reassoc|recurrent",
+    "layer1/pinned/prefill|reassoc|substitution",
+    "layer1/pinned/prefill|recurrent|substitution"
+   ]
+  },
+  "state": {
+   "probe": {
+    "one_minus_cos": 5.395683899678261e-14,
+    "mean_rel": 2.1946756756884627e-07,
+    "max_abs": 5.765726809325855e-07,
+    "per_head_max": 5.765726809325855e-07
+   },
+   "one_minus_cos": 2.1582735598713043e-13,
+   "mean_rel": 4.3893513513769253e-07,
+   "max_abs": 1.153145361865171e-06,
+   "per_head_max": 1.153145361865171e-06,
+   "derived_from": "floor probe (f64 anchor) x the triangle inequality",
+   "bf16_storage": false,
+   "arms": [
+    "chunked",
+    "chunked32",
+    "pinned",
+    "reassoc",
+    "recurrent",
+    "substitution"
+   ],
+   "passes": [
+    "layer0/fixture/decode_3step#decode0",
+    "layer0/fixture/decode_3step#decode1",
+    "layer0/fixture/decode_3step#decode2",
+    "layer0/fixture/decode_3step#prefill",
+    "layer0/fixture/prefill_1chunk_padded",
+    "layer0/fixture/prefill_2chunk_exact",
+    "layer0/fixture/prefill_2chunk_padded",
+    "layer0/fixture/prefill_3chunk_dirty_pad",
+    "layer0/fixture/prefill_3chunk_padded",
+    "layer0/pinned/decode0",
+    "layer0/pinned/decode1",
+    "layer0/pinned/decode2",
+    "layer0/pinned/prefill",
+    "layer1/fixture/decode_3step#decode0",
+    "layer1/fixture/decode_3step#decode1",
+    "layer1/fixture/decode_3step#decode2",
+    "layer1/fixture/decode_3step#prefill",
+    "layer1/fixture/prefill_1chunk_padded",
+    "layer1/fixture/prefill_2chunk_exact",
+    "layer1/fixture/prefill_2chunk_padded",
+    "layer1/fixture/prefill_3chunk_dirty_pad",
+    "layer1/fixture/prefill_3chunk_padded",
+    "layer1/pinned/decode0",
+    "layer1/pinned/decode1",
+    "layer1/pinned/decode2",
+    "layer1/pinned/prefill"
+   ],
+   "blocks": [
+    "layer0",
+    "layer1"
+   ],
+   "records": 102,
+   "folded_records": 102,
+   "licensed_rows": [
+    "layer0/fixture/decode_3step#decode0|reassoc|recurrent",
+    "layer0/fixture/decode_3step#decode1|reassoc|recurrent",
+    "layer0/fixture/decode_3step#decode2|reassoc|recurrent",
+    "layer0/fixture/decode_3step#prefill|chunked32|reassoc",
+    "layer0/fixture/decode_3step#prefill|chunked32|recurrent",
+    "layer0/fixture/decode_3step#prefill|chunked32|substitution",
+    "layer0/fixture/decode_3step#prefill|chunked|chunked32",
+    "layer0/fixture/decode_3step#prefill|chunked|reassoc",
+    "layer0/fixture/decode_3step#prefill|chunked|recurrent",
+    "layer0/fixture/decode_3step#prefill|chunked|substitution",
+    "layer0/fixture/decode_3step#prefill|reassoc|recurrent",
+    "layer0/fixture/decode_3step#prefill|reassoc|substitution",
+    "layer0/fixture/decode_3step#prefill|recurrent|substitution",
+    "layer0/fixture/prefill_1chunk_padded|chunked32|reassoc",
+    "layer0/fixture/prefill_1chunk_padded|chunked32|recurrent",
+    "layer0/fixture/prefill_1chunk_padded|chunked32|substitution",
+    "layer0/fixture/prefill_1chunk_padded|chunked|chunked32",
+    "layer0/fixture/prefill_1chunk_padded|chunked|reassoc",
+    "layer0/fixture/prefill_1chunk_padded|chunked|recurrent",
+    "layer0/fixture/prefill_1chunk_padded|chunked|substitution",
+    "layer0/fixture/prefill_1chunk_padded|reassoc|recurrent",
+    "layer0/fixture/prefill_1chunk_padded|reassoc|substitution",
+    "layer0/fixture/prefill_1chunk_padded|recurrent|substitution",
+    "layer0/fixture/prefill_2chunk_exact|chunked32|reassoc",
+    "layer0/fixture/prefill_2chunk_exact|chunked32|recurrent",
+    "layer0/fixture/prefill_2chunk_exact|chunked32|substitution",
+    "layer0/fixture/prefill_2chunk_exact|chunked|chunked32",
+    "layer0/fixture/prefill_2chunk_exact|chunked|reassoc",
+    "layer0/fixture/prefill_2chunk_exact|chunked|recurrent",
+    "layer0/fixture/prefill_2chunk_exact|chunked|substitution",
+    "layer0/fixture/prefill_2chunk_exact|reassoc|recurrent",
+    "layer0/fixture/prefill_2chunk_exact|reassoc|substitution",
+    "layer0/fixture/prefill_2chunk_exact|recurrent|substitution",
+    "layer0/fixture/prefill_2chunk_padded|chunked32|reassoc",
+    "layer0/fixture/prefill_2chunk_padded|chunked32|recurrent",
+    "layer0/fixture/prefill_2chunk_padded|chunked32|substitution",
+    "layer0/fixture/prefill_2chunk_padded|chunked|chunked32",
+    "layer0/fixture/prefill_2chunk_padded|chunked|reassoc",
+    "layer0/fixture/prefill_2chunk_padded|chunked|recurrent",
+    "layer0/fixture/prefill_2chunk_padded|chunked|substitution",
+    "layer0/fixture/prefill_2chunk_padded|reassoc|recurrent",
+    "layer0/fixture/prefill_2chunk_padded|reassoc|substitution",
+    "layer0/fixture/prefill_2chunk_padded|recurrent|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked32|reassoc",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked32|recurrent",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked32|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|chunked32",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|reassoc",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|recurrent",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|reassoc|recurrent",
+    "layer0/fixture/prefill_3chunk_dirty_pad|reassoc|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|recurrent|substitution",
+    "layer0/fixture/prefill_3chunk_padded|chunked32|reassoc",
+    "layer0/fixture/prefill_3chunk_padded|chunked32|recurrent",
+    "layer0/fixture/prefill_3chunk_padded|chunked32|substitution",
+    "layer0/fixture/prefill_3chunk_padded|chunked|chunked32",
+    "layer0/fixture/prefill_3chunk_padded|chunked|reassoc",
+    "layer0/fixture/prefill_3chunk_padded|chunked|recurrent",
+    "layer0/fixture/prefill_3chunk_padded|chunked|substitution",
+    "layer0/fixture/prefill_3chunk_padded|reassoc|recurrent",
+    "layer0/fixture/prefill_3chunk_padded|reassoc|substitution",
+    "layer0/fixture/prefill_3chunk_padded|recurrent|substitution",
+    "layer0/pinned/decode0|pinned|reassoc",
+    "layer0/pinned/decode0|pinned|recurrent",
+    "layer0/pinned/decode0|reassoc|recurrent",
+    "layer0/pinned/decode1|pinned|reassoc",
+    "layer0/pinned/decode1|pinned|recurrent",
+    "layer0/pinned/decode1|reassoc|recurrent",
+    "layer0/pinned/decode2|pinned|reassoc",
+    "layer0/pinned/decode2|pinned|recurrent",
+    "layer0/pinned/decode2|reassoc|recurrent",
+    "layer0/pinned/prefill|chunked32|pinned",
+    "layer0/pinned/prefill|chunked32|reassoc",
+    "layer0/pinned/prefill|chunked32|recurrent",
+    "layer0/pinned/prefill|chunked32|substitution",
+    "layer0/pinned/prefill|chunked|chunked32",
+    "layer0/pinned/prefill|chunked|pinned",
+    "layer0/pinned/prefill|chunked|reassoc",
+    "layer0/pinned/prefill|chunked|recurrent",
+    "layer0/pinned/prefill|chunked|substitution",
+    "layer0/pinned/prefill|pinned|reassoc",
+    "layer0/pinned/prefill|pinned|recurrent",
+    "layer0/pinned/prefill|pinned|substitution",
+    "layer0/pinned/prefill|reassoc|recurrent",
+    "layer0/pinned/prefill|reassoc|substitution",
+    "layer0/pinned/prefill|recurrent|substitution",
+    "layer1/fixture/decode_3step#decode0|reassoc|recurrent",
+    "layer1/fixture/decode_3step#decode1|reassoc|recurrent",
+    "layer1/fixture/decode_3step#decode2|reassoc|recurrent",
+    "layer1/fixture/decode_3step#prefill|chunked32|reassoc",
+    "layer1/fixture/decode_3step#prefill|chunked32|recurrent",
+    "layer1/fixture/decode_3step#prefill|chunked32|substitution",
+    "layer1/fixture/decode_3step#prefill|chunked|chunked32",
+    "layer1/fixture/decode_3step#prefill|chunked|reassoc",
+    "layer1/fixture/decode_3step#prefill|chunked|recurrent",
+    "layer1/fixture/decode_3step#prefill|chunked|substitution",
+    "layer1/fixture/decode_3step#prefill|reassoc|recurrent",
+    "layer1/fixture/decode_3step#prefill|reassoc|substitution",
+    "layer1/fixture/decode_3step#prefill|recurrent|substitution",
+    "layer1/fixture/prefill_1chunk_padded|chunked32|reassoc",
+    "layer1/fixture/prefill_1chunk_padded|chunked32|recurrent",
+    "layer1/fixture/prefill_1chunk_padded|chunked32|substitution",
+    "layer1/fixture/prefill_1chunk_padded|chunked|chunked32",
+    "layer1/fixture/prefill_1chunk_padded|chunked|reassoc",
+    "layer1/fixture/prefill_1chunk_padded|chunked|recurrent",
+    "layer1/fixture/prefill_1chunk_padded|chunked|substitution",
+    "layer1/fixture/prefill_1chunk_padded|reassoc|recurrent",
+    "layer1/fixture/prefill_1chunk_padded|reassoc|substitution",
+    "layer1/fixture/prefill_1chunk_padded|recurrent|substitution",
+    "layer1/fixture/prefill_2chunk_exact|chunked32|reassoc",
+    "layer1/fixture/prefill_2chunk_exact|chunked32|recurrent",
+    "layer1/fixture/prefill_2chunk_exact|chunked32|substitution",
+    "layer1/fixture/prefill_2chunk_exact|chunked|chunked32",
+    "layer1/fixture/prefill_2chunk_exact|chunked|reassoc",
+    "layer1/fixture/prefill_2chunk_exact|chunked|recurrent",
+    "layer1/fixture/prefill_2chunk_exact|chunked|substitution",
+    "layer1/fixture/prefill_2chunk_exact|reassoc|recurrent",
+    "layer1/fixture/prefill_2chunk_exact|reassoc|substitution",
+    "layer1/fixture/prefill_2chunk_exact|recurrent|substitution",
+    "layer1/fixture/prefill_2chunk_padded|chunked32|reassoc",
+    "layer1/fixture/prefill_2chunk_padded|chunked32|recurrent",
+    "layer1/fixture/prefill_2chunk_padded|chunked32|substitution",
+    "layer1/fixture/prefill_2chunk_padded|chunked|chunked32",
+    "layer1/fixture/prefill_2chunk_padded|chunked|reassoc",
+    "layer1/fixture/prefill_2chunk_padded|chunked|recurrent",
+    "layer1/fixture/prefill_2chunk_padded|chunked|substitution",
+    "layer1/fixture/prefill_2chunk_padded|reassoc|recurrent",
+    "layer1/fixture/prefill_2chunk_padded|reassoc|substitution",
+    "layer1/fixture/prefill_2chunk_padded|recurrent|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked32|reassoc",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked32|recurrent",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked32|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|chunked32",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|reassoc",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|recurrent",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|reassoc|recurrent",
+    "layer1/fixture/prefill_3chunk_dirty_pad|reassoc|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|recurrent|substitution",
+    "layer1/fixture/prefill_3chunk_padded|chunked32|reassoc",
+    "layer1/fixture/prefill_3chunk_padded|chunked32|recurrent",
+    "layer1/fixture/prefill_3chunk_padded|chunked32|substitution",
+    "layer1/fixture/prefill_3chunk_padded|chunked|chunked32",
+    "layer1/fixture/prefill_3chunk_padded|chunked|reassoc",
+    "layer1/fixture/prefill_3chunk_padded|chunked|recurrent",
+    "layer1/fixture/prefill_3chunk_padded|chunked|substitution",
+    "layer1/fixture/prefill_3chunk_padded|reassoc|recurrent",
+    "layer1/fixture/prefill_3chunk_padded|reassoc|substitution",
+    "layer1/fixture/prefill_3chunk_padded|recurrent|substitution",
+    "layer1/pinned/decode0|pinned|reassoc",
+    "layer1/pinned/decode0|pinned|recurrent",
+    "layer1/pinned/decode0|reassoc|recurrent",
+    "layer1/pinned/decode1|pinned|reassoc",
+    "layer1/pinned/decode1|pinned|recurrent",
+    "layer1/pinned/decode1|reassoc|recurrent",
+    "layer1/pinned/decode2|pinned|reassoc",
+    "layer1/pinned/decode2|pinned|recurrent",
+    "layer1/pinned/decode2|reassoc|recurrent",
+    "layer1/pinned/prefill|chunked32|pinned",
+    "layer1/pinned/prefill|chunked32|reassoc",
+    "layer1/pinned/prefill|chunked32|recurrent",
+    "layer1/pinned/prefill|chunked32|substitution",
+    "layer1/pinned/prefill|chunked|chunked32",
+    "layer1/pinned/prefill|chunked|pinned",
+    "layer1/pinned/prefill|chunked|reassoc",
+    "layer1/pinned/prefill|chunked|recurrent",
+    "layer1/pinned/prefill|chunked|substitution",
+    "layer1/pinned/prefill|pinned|reassoc",
+    "layer1/pinned/prefill|pinned|recurrent",
+    "layer1/pinned/prefill|pinned|substitution",
+    "layer1/pinned/prefill|reassoc|recurrent",
+    "layer1/pinned/prefill|reassoc|substitution",
+    "layer1/pinned/prefill|recurrent|substitution"
+   ]
+  },
+  "normed": {
+   "probe": {
+    "one_minus_cos": 6.654684470142058e-09,
+    "mean_rel": 1.9704014801782027e-06,
+    "max_abs": 0.015625,
+    "per_head_max": 0.015625
+   },
+   "one_minus_cos": 2.6618737880568233e-08,
+   "mean_rel": 3.940802960356405e-06,
+   "max_abs": 0.03125,
+   "per_head_max": 0.03125,
+   "derived_from": "floor probe (f64 anchor) x the triangle inequality",
+   "bf16_storage": true,
+   "arms": [
+    "chunked",
+    "chunked32",
+    "pinned",
+    "reassoc",
+    "recurrent",
+    "substitution"
+   ],
+   "passes": [
+    "layer0/fixture/decode_3step#decode0",
+    "layer0/fixture/decode_3step#decode1",
+    "layer0/fixture/decode_3step#decode2",
+    "layer0/fixture/decode_3step#prefill",
+    "layer0/fixture/prefill_1chunk_padded",
+    "layer0/fixture/prefill_2chunk_exact",
+    "layer0/fixture/prefill_2chunk_padded",
+    "layer0/fixture/prefill_3chunk_dirty_pad",
+    "layer0/fixture/prefill_3chunk_padded",
+    "layer0/pinned/decode0",
+    "layer0/pinned/decode1",
+    "layer0/pinned/decode2",
+    "layer0/pinned/prefill",
+    "layer1/fixture/decode_3step#decode0",
+    "layer1/fixture/decode_3step#decode1",
+    "layer1/fixture/decode_3step#decode2",
+    "layer1/fixture/decode_3step#prefill",
+    "layer1/fixture/prefill_1chunk_padded",
+    "layer1/fixture/prefill_2chunk_exact",
+    "layer1/fixture/prefill_2chunk_padded",
+    "layer1/fixture/prefill_3chunk_dirty_pad",
+    "layer1/fixture/prefill_3chunk_padded",
+    "layer1/pinned/decode0",
+    "layer1/pinned/decode1",
+    "layer1/pinned/decode2",
+    "layer1/pinned/prefill"
+   ],
+   "blocks": [
+    "layer0",
+    "layer1"
+   ],
+   "records": 102,
+   "folded_records": 102,
+   "licensed_rows": [
+    "layer0/fixture/decode_3step#decode0|reassoc|recurrent",
+    "layer0/fixture/decode_3step#prefill|chunked32|reassoc",
+    "layer0/fixture/decode_3step#prefill|chunked32|recurrent",
+    "layer0/fixture/decode_3step#prefill|chunked32|substitution",
+    "layer0/fixture/decode_3step#prefill|chunked|chunked32",
+    "layer0/fixture/decode_3step#prefill|chunked|reassoc",
+    "layer0/fixture/decode_3step#prefill|chunked|recurrent",
+    "layer0/fixture/decode_3step#prefill|chunked|substitution",
+    "layer0/fixture/decode_3step#prefill|reassoc|recurrent",
+    "layer0/fixture/decode_3step#prefill|reassoc|substitution",
+    "layer0/fixture/decode_3step#prefill|recurrent|substitution",
+    "layer0/fixture/prefill_1chunk_padded|chunked32|substitution",
+    "layer0/fixture/prefill_1chunk_padded|chunked|chunked32",
+    "layer0/fixture/prefill_1chunk_padded|chunked|substitution",
+    "layer0/fixture/prefill_2chunk_exact|chunked32|reassoc",
+    "layer0/fixture/prefill_2chunk_exact|chunked32|recurrent",
+    "layer0/fixture/prefill_2chunk_exact|chunked32|substitution",
+    "layer0/fixture/prefill_2chunk_exact|chunked|chunked32",
+    "layer0/fixture/prefill_2chunk_exact|chunked|reassoc",
+    "layer0/fixture/prefill_2chunk_exact|chunked|recurrent",
+    "layer0/fixture/prefill_2chunk_exact|chunked|substitution",
+    "layer0/fixture/prefill_2chunk_exact|reassoc|recurrent",
+    "layer0/fixture/prefill_2chunk_exact|reassoc|substitution",
+    "layer0/fixture/prefill_2chunk_exact|recurrent|substitution",
+    "layer0/fixture/prefill_2chunk_padded|chunked32|reassoc",
+    "layer0/fixture/prefill_2chunk_padded|chunked32|recurrent",
+    "layer0/fixture/prefill_2chunk_padded|chunked32|substitution",
+    "layer0/fixture/prefill_2chunk_padded|chunked|chunked32",
+    "layer0/fixture/prefill_2chunk_padded|chunked|reassoc",
+    "layer0/fixture/prefill_2chunk_padded|chunked|recurrent",
+    "layer0/fixture/prefill_2chunk_padded|chunked|substitution",
+    "layer0/fixture/prefill_2chunk_padded|reassoc|recurrent",
+    "layer0/fixture/prefill_2chunk_padded|reassoc|substitution",
+    "layer0/fixture/prefill_2chunk_padded|recurrent|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked32|reassoc",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked32|recurrent",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked32|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|chunked32",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|reassoc",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|recurrent",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|reassoc|recurrent",
+    "layer0/fixture/prefill_3chunk_dirty_pad|reassoc|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|recurrent|substitution",
+    "layer0/fixture/prefill_3chunk_padded|chunked32|reassoc",
+    "layer0/fixture/prefill_3chunk_padded|chunked32|recurrent",
+    "layer0/fixture/prefill_3chunk_padded|chunked32|substitution",
+    "layer0/fixture/prefill_3chunk_padded|chunked|chunked32",
+    "layer0/fixture/prefill_3chunk_padded|chunked|reassoc",
+    "layer0/fixture/prefill_3chunk_padded|chunked|recurrent",
+    "layer0/fixture/prefill_3chunk_padded|chunked|substitution",
+    "layer0/fixture/prefill_3chunk_padded|reassoc|recurrent",
+    "layer0/fixture/prefill_3chunk_padded|reassoc|substitution",
+    "layer0/fixture/prefill_3chunk_padded|recurrent|substitution",
+    "layer0/pinned/decode0|reassoc|recurrent",
+    "layer0/pinned/decode2|pinned|reassoc",
+    "layer0/pinned/decode2|pinned|recurrent",
+    "layer0/pinned/decode2|reassoc|recurrent",
+    "layer0/pinned/prefill|chunked32|pinned",
+    "layer0/pinned/prefill|chunked32|reassoc",
+    "layer0/pinned/prefill|chunked32|recurrent",
+    "layer0/pinned/prefill|chunked32|substitution",
+    "layer0/pinned/prefill|chunked|chunked32",
+    "layer0/pinned/prefill|chunked|pinned",
+    "layer0/pinned/prefill|chunked|reassoc",
+    "layer0/pinned/prefill|chunked|recurrent",
+    "layer0/pinned/prefill|chunked|substitution",
+    "layer0/pinned/prefill|pinned|reassoc",
+    "layer0/pinned/prefill|pinned|recurrent",
+    "layer0/pinned/prefill|pinned|substitution",
+    "layer0/pinned/prefill|reassoc|recurrent",
+    "layer0/pinned/prefill|reassoc|substitution",
+    "layer0/pinned/prefill|recurrent|substitution",
+    "layer1/fixture/decode_3step#decode0|reassoc|recurrent",
+    "layer1/fixture/decode_3step#decode1|reassoc|recurrent",
+    "layer1/fixture/decode_3step#prefill|chunked32|reassoc",
+    "layer1/fixture/decode_3step#prefill|chunked32|recurrent",
+    "layer1/fixture/decode_3step#prefill|chunked32|substitution",
+    "layer1/fixture/decode_3step#prefill|chunked|chunked32",
+    "layer1/fixture/decode_3step#prefill|chunked|reassoc",
+    "layer1/fixture/decode_3step#prefill|chunked|recurrent",
+    "layer1/fixture/decode_3step#prefill|chunked|substitution",
+    "layer1/fixture/decode_3step#prefill|reassoc|recurrent",
+    "layer1/fixture/decode_3step#prefill|reassoc|substitution",
+    "layer1/fixture/decode_3step#prefill|recurrent|substitution",
+    "layer1/fixture/prefill_1chunk_padded|chunked32|substitution",
+    "layer1/fixture/prefill_1chunk_padded|chunked|chunked32",
+    "layer1/fixture/prefill_1chunk_padded|chunked|substitution",
+    "layer1/fixture/prefill_2chunk_exact|chunked32|reassoc",
+    "layer1/fixture/prefill_2chunk_exact|chunked32|recurrent",
+    "layer1/fixture/prefill_2chunk_exact|chunked32|substitution",
+    "layer1/fixture/prefill_2chunk_exact|chunked|chunked32",
+    "layer1/fixture/prefill_2chunk_exact|chunked|reassoc",
+    "layer1/fixture/prefill_2chunk_exact|chunked|recurrent",
+    "layer1/fixture/prefill_2chunk_exact|chunked|substitution",
+    "layer1/fixture/prefill_2chunk_exact|reassoc|recurrent",
+    "layer1/fixture/prefill_2chunk_exact|reassoc|substitution",
+    "layer1/fixture/prefill_2chunk_exact|recurrent|substitution",
+    "layer1/fixture/prefill_2chunk_padded|chunked32|reassoc",
+    "layer1/fixture/prefill_2chunk_padded|chunked32|recurrent",
+    "layer1/fixture/prefill_2chunk_padded|chunked32|substitution",
+    "layer1/fixture/prefill_2chunk_padded|chunked|chunked32",
+    "layer1/fixture/prefill_2chunk_padded|chunked|reassoc",
+    "layer1/fixture/prefill_2chunk_padded|chunked|recurrent",
+    "layer1/fixture/prefill_2chunk_padded|chunked|substitution",
+    "layer1/fixture/prefill_2chunk_padded|reassoc|recurrent",
+    "layer1/fixture/prefill_2chunk_padded|reassoc|substitution",
+    "layer1/fixture/prefill_2chunk_padded|recurrent|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked32|reassoc",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked32|recurrent",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked32|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|chunked32",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|reassoc",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|recurrent",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|reassoc|recurrent",
+    "layer1/fixture/prefill_3chunk_dirty_pad|reassoc|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|recurrent|substitution",
+    "layer1/fixture/prefill_3chunk_padded|chunked32|reassoc",
+    "layer1/fixture/prefill_3chunk_padded|chunked32|recurrent",
+    "layer1/fixture/prefill_3chunk_padded|chunked32|substitution",
+    "layer1/fixture/prefill_3chunk_padded|chunked|chunked32",
+    "layer1/fixture/prefill_3chunk_padded|chunked|reassoc",
+    "layer1/fixture/prefill_3chunk_padded|chunked|recurrent",
+    "layer1/fixture/prefill_3chunk_padded|chunked|substitution",
+    "layer1/fixture/prefill_3chunk_padded|reassoc|recurrent",
+    "layer1/fixture/prefill_3chunk_padded|reassoc|substitution",
+    "layer1/fixture/prefill_3chunk_padded|recurrent|substitution",
+    "layer1/pinned/decode0|pinned|reassoc",
+    "layer1/pinned/decode0|pinned|recurrent",
+    "layer1/pinned/decode0|reassoc|recurrent",
+    "layer1/pinned/decode1|pinned|reassoc",
+    "layer1/pinned/decode1|pinned|recurrent",
+    "layer1/pinned/decode1|reassoc|recurrent",
+    "layer1/pinned/prefill|chunked32|pinned",
+    "layer1/pinned/prefill|chunked32|reassoc",
+    "layer1/pinned/prefill|chunked32|recurrent",
+    "layer1/pinned/prefill|chunked32|substitution",
+    "layer1/pinned/prefill|chunked|chunked32",
+    "layer1/pinned/prefill|chunked|pinned",
+    "layer1/pinned/prefill|chunked|reassoc",
+    "layer1/pinned/prefill|chunked|recurrent",
+    "layer1/pinned/prefill|chunked|substitution",
+    "layer1/pinned/prefill|pinned|reassoc",
+    "layer1/pinned/prefill|pinned|recurrent",
+    "layer1/pinned/prefill|pinned|substitution",
+    "layer1/pinned/prefill|reassoc|recurrent",
+    "layer1/pinned/prefill|reassoc|substitution",
+    "layer1/pinned/prefill|recurrent|substitution"
+   ]
+  },
+  "y": {
+   "probe": {
+    "one_minus_cos": 5.6416667226777406e-08,
+    "mean_rel": 4.155637395182738e-05,
+    "max_abs": 0.00390625,
+    "per_head_max": 0.00390625
+   },
+   "one_minus_cos": 2.2566666890710962e-07,
+   "mean_rel": 8.311274790365477e-05,
+   "max_abs": 0.0078125,
+   "per_head_max": 0.0078125,
+   "derived_from": "floor probe (f64 anchor) x the triangle inequality",
+   "bf16_storage": true,
+   "arms": [
+    "chunked",
+    "chunked32",
+    "pinned",
+    "reassoc",
+    "recurrent",
+    "substitution"
+   ],
+   "passes": [
+    "layer0/fixture/decode_3step#decode0",
+    "layer0/fixture/decode_3step#decode1",
+    "layer0/fixture/decode_3step#decode2",
+    "layer0/fixture/decode_3step#prefill",
+    "layer0/fixture/prefill_1chunk_padded",
+    "layer0/fixture/prefill_2chunk_exact",
+    "layer0/fixture/prefill_2chunk_padded",
+    "layer0/fixture/prefill_3chunk_dirty_pad",
+    "layer0/fixture/prefill_3chunk_padded",
+    "layer0/pinned/decode0",
+    "layer0/pinned/decode1",
+    "layer0/pinned/decode2",
+    "layer0/pinned/prefill",
+    "layer1/fixture/decode_3step#decode0",
+    "layer1/fixture/decode_3step#decode1",
+    "layer1/fixture/decode_3step#decode2",
+    "layer1/fixture/decode_3step#prefill",
+    "layer1/fixture/prefill_1chunk_padded",
+    "layer1/fixture/prefill_2chunk_exact",
+    "layer1/fixture/prefill_2chunk_padded",
+    "layer1/fixture/prefill_3chunk_dirty_pad",
+    "layer1/fixture/prefill_3chunk_padded",
+    "layer1/pinned/decode0",
+    "layer1/pinned/decode1",
+    "layer1/pinned/decode2",
+    "layer1/pinned/prefill"
+   ],
+   "blocks": [
+    "layer0",
+    "layer1"
+   ],
+   "records": 102,
+   "folded_records": 102,
+   "licensed_rows": [
+    "layer0/fixture/decode_3step#decode0|reassoc|recurrent",
+    "layer0/fixture/decode_3step#prefill|chunked32|reassoc",
+    "layer0/fixture/decode_3step#prefill|chunked32|recurrent",
+    "layer0/fixture/decode_3step#prefill|chunked32|substitution",
+    "layer0/fixture/decode_3step#prefill|chunked|chunked32",
+    "layer0/fixture/decode_3step#prefill|chunked|reassoc",
+    "layer0/fixture/decode_3step#prefill|chunked|recurrent",
+    "layer0/fixture/decode_3step#prefill|chunked|substitution",
+    "layer0/fixture/decode_3step#prefill|reassoc|recurrent",
+    "layer0/fixture/decode_3step#prefill|reassoc|substitution",
+    "layer0/fixture/decode_3step#prefill|recurrent|substitution",
+    "layer0/fixture/prefill_1chunk_padded|chunked32|substitution",
+    "layer0/fixture/prefill_1chunk_padded|chunked|chunked32",
+    "layer0/fixture/prefill_1chunk_padded|chunked|substitution",
+    "layer0/fixture/prefill_2chunk_exact|chunked32|reassoc",
+    "layer0/fixture/prefill_2chunk_exact|chunked32|recurrent",
+    "layer0/fixture/prefill_2chunk_exact|chunked32|substitution",
+    "layer0/fixture/prefill_2chunk_exact|chunked|chunked32",
+    "layer0/fixture/prefill_2chunk_exact|chunked|reassoc",
+    "layer0/fixture/prefill_2chunk_exact|chunked|recurrent",
+    "layer0/fixture/prefill_2chunk_exact|chunked|substitution",
+    "layer0/fixture/prefill_2chunk_exact|reassoc|recurrent",
+    "layer0/fixture/prefill_2chunk_exact|reassoc|substitution",
+    "layer0/fixture/prefill_2chunk_exact|recurrent|substitution",
+    "layer0/fixture/prefill_2chunk_padded|chunked32|reassoc",
+    "layer0/fixture/prefill_2chunk_padded|chunked32|recurrent",
+    "layer0/fixture/prefill_2chunk_padded|chunked32|substitution",
+    "layer0/fixture/prefill_2chunk_padded|chunked|chunked32",
+    "layer0/fixture/prefill_2chunk_padded|chunked|reassoc",
+    "layer0/fixture/prefill_2chunk_padded|chunked|recurrent",
+    "layer0/fixture/prefill_2chunk_padded|chunked|substitution",
+    "layer0/fixture/prefill_2chunk_padded|reassoc|recurrent",
+    "layer0/fixture/prefill_2chunk_padded|reassoc|substitution",
+    "layer0/fixture/prefill_2chunk_padded|recurrent|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked32|reassoc",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked32|recurrent",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked32|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|chunked32",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|reassoc",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|recurrent",
+    "layer0/fixture/prefill_3chunk_dirty_pad|chunked|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|reassoc|recurrent",
+    "layer0/fixture/prefill_3chunk_dirty_pad|reassoc|substitution",
+    "layer0/fixture/prefill_3chunk_dirty_pad|recurrent|substitution",
+    "layer0/fixture/prefill_3chunk_padded|chunked32|reassoc",
+    "layer0/fixture/prefill_3chunk_padded|chunked32|recurrent",
+    "layer0/fixture/prefill_3chunk_padded|chunked32|substitution",
+    "layer0/fixture/prefill_3chunk_padded|chunked|chunked32",
+    "layer0/fixture/prefill_3chunk_padded|chunked|reassoc",
+    "layer0/fixture/prefill_3chunk_padded|chunked|recurrent",
+    "layer0/fixture/prefill_3chunk_padded|chunked|substitution",
+    "layer0/fixture/prefill_3chunk_padded|reassoc|recurrent",
+    "layer0/fixture/prefill_3chunk_padded|reassoc|substitution",
+    "layer0/fixture/prefill_3chunk_padded|recurrent|substitution",
+    "layer0/pinned/decode0|reassoc|recurrent",
+    "layer0/pinned/decode2|pinned|reassoc",
+    "layer0/pinned/prefill|chunked32|pinned",
+    "layer0/pinned/prefill|chunked32|reassoc",
+    "layer0/pinned/prefill|chunked32|recurrent",
+    "layer0/pinned/prefill|chunked32|substitution",
+    "layer0/pinned/prefill|chunked|chunked32",
+    "layer0/pinned/prefill|chunked|pinned",
+    "layer0/pinned/prefill|chunked|reassoc",
+    "layer0/pinned/prefill|chunked|recurrent",
+    "layer0/pinned/prefill|chunked|substitution",
+    "layer0/pinned/prefill|pinned|reassoc",
+    "layer0/pinned/prefill|pinned|recurrent",
+    "layer0/pinned/prefill|pinned|substitution",
+    "layer0/pinned/prefill|reassoc|recurrent",
+    "layer0/pinned/prefill|reassoc|substitution",
+    "layer0/pinned/prefill|recurrent|substitution",
+    "layer1/fixture/decode_3step#prefill|chunked32|reassoc",
+    "layer1/fixture/decode_3step#prefill|chunked32|recurrent",
+    "layer1/fixture/decode_3step#prefill|chunked32|substitution",
+    "layer1/fixture/decode_3step#prefill|chunked|chunked32",
+    "layer1/fixture/decode_3step#prefill|chunked|reassoc",
+    "layer1/fixture/decode_3step#prefill|chunked|recurrent",
+    "layer1/fixture/decode_3step#prefill|chunked|substitution",
+    "layer1/fixture/decode_3step#prefill|reassoc|recurrent",
+    "layer1/fixture/decode_3step#prefill|reassoc|substitution",
+    "layer1/fixture/decode_3step#prefill|recurrent|substitution",
+    "layer1/fixture/prefill_1chunk_padded|chunked32|substitution",
+    "layer1/fixture/prefill_1chunk_padded|chunked|chunked32",
+    "layer1/fixture/prefill_1chunk_padded|chunked|substitution",
+    "layer1/fixture/prefill_2chunk_exact|chunked32|reassoc",
+    "layer1/fixture/prefill_2chunk_exact|chunked32|recurrent",
+    "layer1/fixture/prefill_2chunk_exact|chunked32|substitution",
+    "layer1/fixture/prefill_2chunk_exact|chunked|chunked32",
+    "layer1/fixture/prefill_2chunk_exact|chunked|reassoc",
+    "layer1/fixture/prefill_2chunk_exact|chunked|recurrent",
+    "layer1/fixture/prefill_2chunk_exact|chunked|substitution",
+    "layer1/fixture/prefill_2chunk_exact|reassoc|recurrent",
+    "layer1/fixture/prefill_2chunk_exact|reassoc|substitution",
+    "layer1/fixture/prefill_2chunk_exact|recurrent|substitution",
+    "layer1/fixture/prefill_2chunk_padded|chunked32|reassoc",
+    "layer1/fixture/prefill_2chunk_padded|chunked32|recurrent",
+    "layer1/fixture/prefill_2chunk_padded|chunked32|substitution",
+    "layer1/fixture/prefill_2chunk_padded|chunked|chunked32",
+    "layer1/fixture/prefill_2chunk_padded|chunked|reassoc",
+    "layer1/fixture/prefill_2chunk_padded|chunked|recurrent",
+    "layer1/fixture/prefill_2chunk_padded|chunked|substitution",
+    "layer1/fixture/prefill_2chunk_padded|reassoc|recurrent",
+    "layer1/fixture/prefill_2chunk_padded|reassoc|substitution",
+    "layer1/fixture/prefill_2chunk_padded|recurrent|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked32|reassoc",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked32|recurrent",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked32|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|chunked32",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|reassoc",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|recurrent",
+    "layer1/fixture/prefill_3chunk_dirty_pad|chunked|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|reassoc|recurrent",
+    "layer1/fixture/prefill_3chunk_dirty_pad|reassoc|substitution",
+    "layer1/fixture/prefill_3chunk_dirty_pad|recurrent|substitution",
+    "layer1/fixture/prefill_3chunk_padded|chunked32|reassoc",
+    "layer1/fixture/prefill_3chunk_padded|chunked32|recurrent",
+    "layer1/fixture/prefill_3chunk_padded|chunked32|substitution",
+    "layer1/fixture/prefill_3chunk_padded|chunked|chunked32",
+    "layer1/fixture/prefill_3chunk_padded|chunked|reassoc",
+    "layer1/fixture/prefill_3chunk_padded|chunked|recurrent",
+    "layer1/fixture/prefill_3chunk_padded|chunked|substitution",
+    "layer1/fixture/prefill_3chunk_padded|reassoc|recurrent",
+    "layer1/fixture/prefill_3chunk_padded|reassoc|substitution",
+    "layer1/fixture/prefill_3chunk_padded|recurrent|substitution",
+    "layer1/pinned/prefill|chunked32|pinned",
+    "layer1/pinned/prefill|chunked32|reassoc",
+    "layer1/pinned/prefill|chunked32|recurrent",
+    "layer1/pinned/prefill|chunked32|substitution",
+    "layer1/pinned/prefill|chunked|chunked32",
+    "layer1/pinned/prefill|chunked|pinned",
+    "layer1/pinned/prefill|chunked|reassoc",
+    "layer1/pinned/prefill|chunked|recurrent",
+    "layer1/pinned/prefill|chunked|substitution",
+    "layer1/pinned/prefill|pinned|reassoc",
+    "layer1/pinned/prefill|pinned|recurrent",
+    "layer1/pinned/prefill|pinned|substitution",
+    "layer1/pinned/prefill|reassoc|recurrent",
+    "layer1/pinned/prefill|reassoc|substitution",
+    "layer1/pinned/prefill|recurrent|substitution"
+   ]
+  }
+ },
+ "unverified_stages": [
+  "a banded floor for `mixed_qkv`",
+  "a banded floor for `z`",
+  "a banded floor for `b_raw`",
+  "a banded floor for `a_raw`",
+  "a banded floor for `conv_pre`",
+  "a banded floor for `conv_out`",
+  "a banded floor for `conv_window`",
+  "a banded floor for `q_pre`",
+  "a banded floor for `k_pre`",
+  "a banded floor for `v_pre`",
+  "a banded floor for `beta`",
+  "a banded floor for `g_decay`"
+ ]
+}

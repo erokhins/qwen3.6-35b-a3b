@@ -1,0 +1,224 @@
+# speccheck/evidence/gdn-bf16-arm-disposition-2026-10-26.txt — how the `scan_in_bf16` arm is
+# disposed of, and the measurement that disposes of it.
+#
+# The arm used to be adjudicated for CONTAINMENT only: every stage it moved had to sit inside
+# `AFFECTED["scan_in_bf16"]`, and at least one had to move. That is not enough to answer the
+# question the lane owed, because the licence it is contained by is the arm's own contract — a
+# wrong contract would have been witnessed as containment. The question is: the arm declares it
+# touches the scan, and it moves SEVEN stages. Is the declaration wrong, or does a bf16 scan
+# really propagate past its own boundary?
+#
+# Decided by measurement, on the pinned rows, both blocks, both dispatch shapes:
+#   (1) the stages whose STORAGE WIDTH the arm changed are exactly the scan-local four —
+#       `q_hat, k_hat, scan_out, state` — asserted equal to `SCAN_LOCAL_STAGES`;
+#   (2) the stages whose BYTES moved while their dtype did not are exactly the downstream
+#       closure — `core_attn, normed, y` — asserted equal to `downstream_closure(SCAN_LOCAL)`;
+#   (3) the other 12 stages, every one of them upstream of the scan, are bit-identical; a
+#       pre-scan move would be bf16 propagating BACKWARDS and is a separate failure;
+#   (4) the attribution: feed the reference's OWN `core_attn` bytes through the oracle's
+#       `gated_norm` + `out_proj` and they reproduce the reference's `normed` and `y` BIT FOR
+#       BIT. The downstream therefore contributes nothing to the disagreement, which leaves the
+#       scan's storage width as the only cause.
+#
+# Verdict: the bf16 path really does propagate, and the contract was not wrong so much as
+# UNTYPED — it is now derived (`AFFECTED["scan_in_bf16"] == downstream_closure(SCAN_LOCAL)`,
+# asserted at import, and the derived stage set is the same seven stages, so the injection
+# matrix's `arm=stub must_catch_missed == derived` denominator is unchanged at 2084). The arm is
+# kept, not deleted, not skipped, not narrowed.
+#
+# What stays NOT ESTABLISHED, with its measured reason: torch's CPU backend has no BFloat16
+# kernel for `triangular_solve` — the live probe returns
+# `NotImplementedError: "triangular_solve_cpu" not implemented for 'BFloat16'` — so the arm does
+# the solve the way the reference does it, F32 then cast back to the scan's storage width
+# (`specification/04-gdn-linear-attention.md §04.4`'s scan-dtype row and
+# `specification/04b-gdn-chunked-form.md §04b.4`: `torch_chunk_gated_delta_rule` casts
+# q/k/v/beta/decay to float32 at the scan entry and solves in float32). The numerics of a bf16
+# SOLVE therefore remain this lane's to establish, and are carried in `NOT_ESTABLISHED` with the
+# probe's own exception string, which `section_selftest` requires to match the live probe.
+#
+# command: /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python speccheck/gdn_ref.py --selftest
+#   (the bf16-arm table lives inside `--compare-hf`, which `--selftest` runs; rc=0, SELFTEST
+#   PASS). CPU only; no clock read, so no ms / tok/s / GB/s figure appears in this file.
+#
+# ---- the table, extracted from the run ----
+### layer0 the scan_in_bf16 arm — bf16 scan storage, F32 UT solve. Adjudicated: containment inside the contract, the storage/propagation split, and the attribution below. NOT adjudicated: agreement.
+   a bf16 `solve_triangular` on this backend: UNAVAILABLE — NotImplementedError: "triangular_solve_cpu" not implemented for 'BFloat16'. That is not why the arm differs: torch's CPU backend has no BFloat16 kernel for `triangular_solve`, so the arm does the solve the way the reference does it — F32, cast back to the scan's storage width — per `specification/04-gdn-linear-attention.md §04.4`'s scan-dtype row and `specification/04b-gdn-chunked-form.md §04b.4` (`torch_chunk_gated_delta_rule` casts q/k/v/beta/decay to float32 at the scan entry and solves in float32). The width of the scan STORAGE is the arm's real effect and is measured below; a bf16 SOLVE remains NOT ESTABLISHED.
+  prefill on prefill_2chunk_padded
+  stage        provenance             dtype  shape                bit_identical            ndiff maxabs
+  mixed_qkv    captured               bfloat16 (1, 96, 8192)                  YES         0/786432 -
+  z            captured               bfloat16 (1, 96, 32, 128)               YES         0/393216 -
+  b_raw        captured               bfloat16 (1, 96, 32)                    YES           0/3072 -
+  a_raw        captured               bfloat16 (1, 96, 32)                    YES           0/3072 -
+  conv_pre     captured               bfloat16 (1, 8192, 96)                  YES         0/786432 -
+  conv_out     captured               bfloat16 (1, 8192, 96)                  YES         0/786432 -
+  conv_window  captured               bfloat16 (1, 8192, 4)                   YES          0/32768 -
+  q_pre        derived-from-captured  bfloat16 (1, 96, 16, 128)               YES         0/196608 -
+  k_pre        derived-from-captured  bfloat16 (1, 96, 16, 128)               YES         0/196608 -
+  v_pre        derived-from-captured  bfloat16 (1, 96, 32, 128)               YES         0/393216 -
+  beta         captured               bfloat16 (1, 96, 32)                    YES           0/3072 -
+  g_decay      captured               float32 (1, 96, 32)                    YES           0/3072 -
+  q_hat        reference-side-call    REFUSED (1, 32, 96, 128)                NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  k_hat        reference-side-call    REFUSED (1, 32, 96, 128)                NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  scan_out     reference-side-call    REFUSED (1, 32, 96, 128)                NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  core_attn    captured               bfloat16 (1, 96, 32, 128)                NO    280070/393216 2.441e-04
+  state        captured               REFUSED (1, 32, 128, 128)               NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  normed       captured               bfloat16 (1, 96, 32, 128)                NO    257776/393216 1.250e-01
+  y            captured               bfloat16 (1, 96, 2048)                   NO    147232/196608 1.562e-02
+    widened q_hat: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 382456/393216, maxabs 5.406e-04 (NOT a bit-identity claim)
+    widened k_hat: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 382452/393216, maxabs 4.661e-03 (NOT a bit-identity claim)
+    widened scan_out: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 393213/393216, maxabs 2.627e-04 (NOT a bit-identity claim)
+    widened state: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 509951/524288, maxabs 6.107e-03 (NOT a bit-identity claim)
+    containment: moved 7/19 stages, all inside the contract: True; outside: -
+    split: 4 stored narrow q_hat,k_hat,scan_out,state
+           3 value-only (dtype unchanged, bytes moved) core_attn,normed,y
+           12 bit-identical, including every pre-scan stage: mixed_qkv,z,b_raw,a_raw,conv_pre,conv_out,conv_window,q_pre,k_pre,v_pre,beta,g_decay
+    attribution: the reference's own core_attn through the oracle's gated_norm+out_proj reproduces its normed: YES bit-for-bit (ndiff 0/393216, maxabs -)
+    attribution: the reference's own core_attn through the oracle's gated_norm+out_proj reproduces its y: YES bit-for-bit (ndiff 0/196608, maxabs -)
+    disposition: containment HELD; the 3 non-scan movers are 3 stages of DOWNSTREAM dataflow from the 4 stages the arm stores bf16, and the downstream itself was shown faithful given identical input. The bf16 scan propagates; the contract is the closure, not a guess.
+  decode on decode_3step
+  stage        provenance             dtype  shape                bit_identical            ndiff maxabs
+  mixed_qkv    captured               bfloat16 (1, 1, 8192)                   YES           0/8192 -
+  z            captured               bfloat16 (1, 1, 32, 128)                YES           0/4096 -
+  b_raw        captured               bfloat16 (1, 1, 32)                     YES             0/32 -
+  a_raw        captured               bfloat16 (1, 1, 32)                     YES             0/32 -
+  conv_pre     captured               bfloat16 (1, 8192, 1)                   YES           0/8192 -
+  conv_out     captured               bfloat16 (1, 8192, 1)                   YES           0/8192 -
+  conv_window  captured               bfloat16 (1, 8192, 4)                   YES          0/32768 -
+  q_pre        derived-from-captured  bfloat16 (1, 1, 16, 128)                YES           0/2048 -
+  k_pre        derived-from-captured  bfloat16 (1, 1, 16, 128)                YES           0/2048 -
+  v_pre        derived-from-captured  bfloat16 (1, 1, 32, 128)                YES           0/4096 -
+  beta         captured               bfloat16 (1, 1, 32)                     YES             0/32 -
+  g_decay      captured               float32 (1, 1, 32)                     YES             0/32 -
+  q_hat        reference-side-call    REFUSED (1, 32, 1, 128)                 NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  k_hat        reference-side-call    REFUSED (1, 32, 1, 128)                 NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  scan_out     reference-side-call    REFUSED (1, 32, 1, 128)                 NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  core_attn    captured               bfloat16 (1, 1, 32, 128)                 NO        3038/4096 1.221e-04
+  state        captured               REFUSED (1, 32, 128, 128)               NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  normed       captured               bfloat16 (1, 1, 32, 128)                 NO        2813/4096 2.344e-02
+  y            captured               bfloat16 (1, 1, 2048)                    NO        1619/2048 1.465e-03
+    widened q_hat: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 3982/4096, maxabs 2.634e-04 (NOT a bit-identity claim)
+    widened k_hat: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 3980/4096, maxabs 1.794e-03 (NOT a bit-identity claim)
+    widened scan_out: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 4096/4096, maxabs 9.690e-05 (NOT a bit-identity claim)
+    widened state: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 509947/524288, maxabs 7.073e-03 (NOT a bit-identity claim)
+    containment: moved 7/19 stages, all inside the contract: True; outside: -
+    split: 4 stored narrow q_hat,k_hat,scan_out,state
+           3 value-only (dtype unchanged, bytes moved) core_attn,normed,y
+           12 bit-identical, including every pre-scan stage: mixed_qkv,z,b_raw,a_raw,conv_pre,conv_out,conv_window,q_pre,k_pre,v_pre,beta,g_decay
+    attribution: the reference's own core_attn through the oracle's gated_norm+out_proj reproduces its normed: YES bit-for-bit (ndiff 0/4096, maxabs -)
+    attribution: the reference's own core_attn through the oracle's gated_norm+out_proj reproduces its y: YES bit-for-bit (ndiff 0/2048, maxabs -)
+    disposition: containment HELD; the 3 non-scan movers are 3 stages of DOWNSTREAM dataflow from the 4 stages the arm stores bf16, and the downstream itself was shown faithful given identical input. The bf16 scan propagates; the contract is the closure, not a guess.
+
+### layer1 the scan_in_bf16 arm — bf16 scan storage, F32 UT solve. Adjudicated: containment inside the contract, the storage/propagation split, and the attribution below. NOT adjudicated: agreement.
+   a bf16 `solve_triangular` on this backend: UNAVAILABLE — NotImplementedError: "triangular_solve_cpu" not implemented for 'BFloat16'. That is not why the arm differs: torch's CPU backend has no BFloat16 kernel for `triangular_solve`, so the arm does the solve the way the reference does it — F32, cast back to the scan's storage width — per `specification/04-gdn-linear-attention.md §04.4`'s scan-dtype row and `specification/04b-gdn-chunked-form.md §04b.4` (`torch_chunk_gated_delta_rule` casts q/k/v/beta/decay to float32 at the scan entry and solves in float32). The width of the scan STORAGE is the arm's real effect and is measured below; a bf16 SOLVE remains NOT ESTABLISHED.
+  prefill on prefill_2chunk_padded
+  stage        provenance             dtype  shape                bit_identical            ndiff maxabs
+  mixed_qkv    captured               bfloat16 (1, 96, 8192)                  YES         0/786432 -
+  z            captured               bfloat16 (1, 96, 32, 128)               YES         0/393216 -
+  b_raw        captured               bfloat16 (1, 96, 32)                    YES           0/3072 -
+  a_raw        captured               bfloat16 (1, 96, 32)                    YES           0/3072 -
+  conv_pre     captured               bfloat16 (1, 8192, 96)                  YES         0/786432 -
+  conv_out     captured               bfloat16 (1, 8192, 96)                  YES         0/786432 -
+  conv_window  captured               bfloat16 (1, 8192, 4)                   YES          0/32768 -
+  q_pre        derived-from-captured  bfloat16 (1, 96, 16, 128)               YES         0/196608 -
+  k_pre        derived-from-captured  bfloat16 (1, 96, 16, 128)               YES         0/196608 -
+  v_pre        derived-from-captured  bfloat16 (1, 96, 32, 128)               YES         0/393216 -
+  beta         captured               bfloat16 (1, 96, 32)                    YES           0/3072 -
+  g_decay      captured               float32 (1, 96, 32)                    YES           0/3072 -
+  q_hat        reference-side-call    REFUSED (1, 32, 96, 128)                NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  k_hat        reference-side-call    REFUSED (1, 32, 96, 128)                NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  scan_out     reference-side-call    REFUSED (1, 32, 96, 128)                NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  core_attn    captured               bfloat16 (1, 96, 32, 128)                NO    312058/393216 6.523e-04
+  state        captured               REFUSED (1, 32, 128, 128)               NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  normed       captured               bfloat16 (1, 96, 32, 128)                NO    294471/393216 1.328e-01
+  y            captured               bfloat16 (1, 96, 2048)                   NO    162519/196608 3.906e-02
+    widened q_hat: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 374208/393216, maxabs 6.899e-04 (NOT a bit-identity claim)
+    widened k_hat: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 374204/393216, maxabs 4.972e-03 (NOT a bit-identity claim)
+    widened scan_out: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 393216/393216, maxabs 6.534e-04 (NOT a bit-identity claim)
+    widened state: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 498942/524288, maxabs 3.706e-03 (NOT a bit-identity claim)
+    containment: moved 7/19 stages, all inside the contract: True; outside: -
+    split: 4 stored narrow q_hat,k_hat,scan_out,state
+           3 value-only (dtype unchanged, bytes moved) core_attn,normed,y
+           12 bit-identical, including every pre-scan stage: mixed_qkv,z,b_raw,a_raw,conv_pre,conv_out,conv_window,q_pre,k_pre,v_pre,beta,g_decay
+    attribution: the reference's own core_attn through the oracle's gated_norm+out_proj reproduces its normed: YES bit-for-bit (ndiff 0/393216, maxabs -)
+    attribution: the reference's own core_attn through the oracle's gated_norm+out_proj reproduces its y: YES bit-for-bit (ndiff 0/196608, maxabs -)
+    disposition: containment HELD; the 3 non-scan movers are 3 stages of DOWNSTREAM dataflow from the 4 stages the arm stores bf16, and the downstream itself was shown faithful given identical input. The bf16 scan propagates; the contract is the closure, not a guess.
+  decode on decode_3step
+  stage        provenance             dtype  shape                bit_identical            ndiff maxabs
+  mixed_qkv    captured               bfloat16 (1, 1, 8192)                   YES           0/8192 -
+  z            captured               bfloat16 (1, 1, 32, 128)                YES           0/4096 -
+  b_raw        captured               bfloat16 (1, 1, 32)                     YES             0/32 -
+  a_raw        captured               bfloat16 (1, 1, 32)                     YES             0/32 -
+  conv_pre     captured               bfloat16 (1, 8192, 1)                   YES           0/8192 -
+  conv_out     captured               bfloat16 (1, 8192, 1)                   YES           0/8192 -
+  conv_window  captured               bfloat16 (1, 8192, 4)                   YES          0/32768 -
+  q_pre        derived-from-captured  bfloat16 (1, 1, 16, 128)                YES           0/2048 -
+  k_pre        derived-from-captured  bfloat16 (1, 1, 16, 128)                YES           0/2048 -
+  v_pre        derived-from-captured  bfloat16 (1, 1, 32, 128)                YES           0/4096 -
+  beta         captured               bfloat16 (1, 1, 32)                     YES             0/32 -
+  g_decay      captured               float32 (1, 1, 32)                     YES             0/32 -
+  q_hat        reference-side-call    REFUSED (1, 32, 1, 128)                 NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  k_hat        reference-side-call    REFUSED (1, 32, 1, 128)                 NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  scan_out     reference-side-call    REFUSED (1, 32, 1, 128)                 NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  core_attn    captured               bfloat16 (1, 1, 32, 128)                 NO        2950/4096 6.104e-05
+  state        captured               REFUSED (1, 32, 128, 128)               NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  normed       captured               bfloat16 (1, 1, 32, 128)                 NO        2726/4096 7.812e-03
+  y            captured               bfloat16 (1, 1, 2048)                    NO        1526/2048 1.038e-03
+    widened q_hat: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 3898/4096, maxabs 4.519e-04 (NOT a bit-identity claim)
+    widened k_hat: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 3898/4096, maxabs 2.108e-03 (NOT a bit-identity claim)
+    widened scan_out: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 4096/4096, maxabs 7.142e-05 (NOT a bit-identity claim)
+    widened state: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 498941/524288, maxabs 3.681e-03 (NOT a bit-identity claim)
+    containment: moved 7/19 stages, all inside the contract: True; outside: -
+    split: 4 stored narrow q_hat,k_hat,scan_out,state
+           3 value-only (dtype unchanged, bytes moved) core_attn,normed,y
+           12 bit-identical, including every pre-scan stage: mixed_qkv,z,b_raw,a_raw,conv_pre,conv_out,conv_window,q_pre,k_pre,v_pre,beta,g_decay
+    attribution: the reference's own core_attn through the oracle's gated_norm+out_proj reproduces its normed: YES bit-for-bit (ndiff 0/4096, maxabs -)
+    attribution: the reference's own core_attn through the oracle's gated_norm+out_proj reproduces its y: YES bit-for-bit (ndiff 0/2048, maxabs -)
+    disposition: containment HELD; the 3 non-scan movers are 3 stages of DOWNSTREAM dataflow from the 4 stages the arm stores bf16, and the downstream itself was shown faithful given identical input. The bf16 scan propagates; the contract is the closure, not a guess.
+
+
+# ---- the whole-run context, so the table above cannot be read out of proportion: the three-arm tallies and the derived denominator from the same rc=0 run ----
+
+# three-arm tallies (arm=honest carries localisation, arm=stub carries the derived allowed-stage count, arm=crossed carries the must-not-catch side)
+  honest   cases                        300
+  honest   caught                       300
+  honest   localised                    300
+  honest   stage_diffs                  2084
+  honest   scan_moved_cases             252
+  honest   pre_scan_moved_cases         122
+  honest   must_not_catch_violations    0
+  honest   must_catch_missed            0
+  honest   crossed_breaches_injected    0
+  honest   crossed_alarms_fired         0
+  stub     cases                        300
+  stub     caught                       0
+  stub     localised                    0
+  stub     stage_diffs                  0
+  stub     scan_moved_cases             0
+  stub     pre_scan_moved_cases         0
+  stub     must_not_catch_violations    2084
+  stub     must_catch_missed            2084
+  stub     crossed_breaches_injected    0
+  stub     crossed_alarms_fired         0
+  crossed  cases                        300
+  crossed  caught                       300
+  crossed  localised                    0
+  crossed  stage_diffs                  2384
+  crossed  scan_moved_cases             264
+  crossed  pre_scan_moved_cases         181
+  crossed  must_not_catch_violations    300
+  crossed  must_catch_missed            0
+  crossed  crossed_breaches_injected    300
+  crossed  crossed_alarms_fired         300
+
+  unconditional   2060   |AFFECTED[fault]| x derived cases x 2 blocks
+  conditional total   24
+  derived total     2084   the blinded differ must miss exactly this many allowed stages, no more and no fewer
+
+## what each witness is evidence for
+  arm=honest   scan_moved_cases / pre_scan_moved_cases == counts derived from the case list — the two sides that must be able to fire
+  arm=honest   must_not_catch_violations==0 and localised==cases — localisation
+  arm=stub     caught==0, stage_diffs==0, must_catch_missed==derived>0 — the gate reads the differ, not a constant
+  facts        `state` untouched and the deferred conv-state fire are asserted outright from torch.equal, and agreed across all three arms
+  arm=crossed  crossed_alarms_fired==cases — the must-not-catch side can fail, so its 0 in arm=honest is earned
+
+SELFTEST PASS — three arms over the derived matrix, and every HF row bit-identical with its positive controls firing; no timing taken

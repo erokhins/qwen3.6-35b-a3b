@@ -1,0 +1,92 @@
+# speccheck/evidence/gdn-dump-reader-check-2026-10-26.txt — the reader on the pinned side.
+#
+# `--floor-probe` and `--compare-hf` both take pinned bytes off disk, so everything bit-exact in
+# `speccheck/results-gdn.md` rests on `tools/dump_reference_gdn.py:read_dump_tensor` being right
+# about three things it has to guess at: the dtype (from the file size, not from a header — there
+# is no header), the bf16 bit image (two bytes per element reinterpreted as uint16 then
+# bitcast, never a float load), and the shape (from the manifest record, never inferred). A reader
+# that got a width wrong would produce tensors that are *plausibly* wrong, and every comparison
+# downstream would still print a number.
+#
+# So the reader is checked on its own, against the thing the reader is for: all 152 pinned stage
+# tensors (19 stages x 4 passes x 2 blocks) are read back from disk and compared with the oracle's
+# own clean pass by `gdn_ref._bit_diff`, with the population printed and asserted equal to the
+# derived 152 before the PASS line. This is the 0-mismatch capture.
+#
+# It is a separate instrument from `--verify`: `--verify` proves the bytes hash to the manifest
+# (identity), this proves the bytes parse to the tensors the manifest says they are (meaning).
+# Neither implies the other — a corrupted file fails `--verify` and reads fine, and a reader with
+# the wrong element width produces the right byte count every time.
+#
+# command: /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python tmp/w21_reader_check.py
+# rc=0 — READER PASS. CPU only; no clock read, so no ms / tok/s / GB/s figure appears here.
+#
+# ---- the driver, in full ----
+
+```python
+#!/usr/bin/env python3
+"""tmp/w21_reader_check.py — does `read_dump_tensor` reproduce the oracle's own clean pass
+from the pinned bytes, for every pinned stage of both blocks?
+
+This is the smoke test for the reader added to `tools/dump_reference_gdn.py`: the floor probe
+measures the pinned bytes, so if the reader mis-reads a dtype or an orientation the probe would
+measure garbage and still print numbers. Every stage of every pinned pass is compared with the
+oracle's `_bit_diff`, so a wrong bf16 bitcast shows up as a huge ndiff rather than as a
+plausible floor. CPU only; no clock is read.
+"""
+import sys
+from pathlib import Path
+
+REPO = Path("/home/erokhins/erokhins_projects/qwen3.6-35b-a3b")
+sys.path.insert(0, str(REPO / "speccheck"))
+sys.path.insert(0, str(REPO / "tools"))
+
+import torch  # noqa: E402
+import gdn_ref as G  # noqa: E402
+import dump_reference_gdn as DG  # noqa: E402
+
+m = DG.load_manifest()
+g = G.load_gdn_geometry()
+
+recs = {(r["block"], r["mode"], r["tensor_key"]): r for r in m["dumps"]}
+modes = ["prefill", "decode0", "decode1", "decode2"]
+bad, rows = [], 0
+for bname in ("layer0", "layer1"):
+    block = G.Block.parse(bname)
+    w = G.load_gdn_block_weights(block, g)
+    x_pf = DG.read_dump_tensor(recs[(bname, "prefill", "input")])
+    steps_in = [DG.read_dump_tensor(recs[(bname, f"decode{i}", "input")])
+                for i in range(len(modes) - 1)]
+    x_st = torch.cat(steps_in, dim=1)
+    prefill = G.gdn_block(x_pf, w, g, "chunked", G.NO_FAULTS, mode="prefill")
+    seq = G.gdn_sequence(x_pf, x_st, w, g, "chunked", "recurrent", faults=G.NO_FAULTS)
+    ours = {"prefill": prefill}
+    for i, st in enumerate(seq["all_steps"]):
+        ours[f"decode{i}"] = st
+    for mode in modes:
+        # the pinned INPUT is a dump file too: reading it back is what makes the whole pass
+        # come off the disk rather than from the generator
+        for stage in G.STAGES:
+            rec = recs[(bname, mode, stage)]
+            disk = DG.read_dump_tensor(rec)
+            rows += 1
+            d = G._bit_diff(disk, ours[mode][stage])
+            if not d["bit_identical"]:
+                bad.append(f"{bname}/{mode}/{stage}: ndiff={d['ndiff']}/{d['n']} "
+                           f"maxabs={d['max_abs']:.3e} disk={disk.dtype}{tuple(disk.shape)} "
+                           f"ours={ours[mode][stage].dtype}{tuple(ours[mode][stage].shape)}")
+    del w
+print(f"# reader check: {rows} pinned stage tensors read back and compared with the oracle's "
+      f"clean pass; {len(bad)} not bit-identical")
+for b in bad[:20]:
+    print("  " + b)
+print("READER PASS" if not bad else "READER FAIL")
+print("no timing taken")
+sys.exit(0 if not bad else 1)
+```
+
+---- its output ----
+
+# reader check: 152 pinned stage tensors read back and compared with the oracle's clean pass; 0 not bit-identical
+READER PASS
+no timing taken

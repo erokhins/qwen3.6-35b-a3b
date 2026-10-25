@@ -61,26 +61,34 @@ Run (CPU-only, PASS/FAIL, no timing):
 §What this file does, and what it does not do yet
 ------------------------------------------------------------------------------
 Implemented and running: the oracle, the comparators, the band derivation, the three-arm
-injection matrix (`--selftest`), and the installed-reference comparison (`--compare-hf`,
-which `--selftest` also runs): 19 stages x 2 modes x 2 pinned blocks, every row printed with
+injection matrix (`--selftest`), the installed-reference comparison (`--compare-hf`, which
+`--selftest` also runs): 19 stages x 2 modes x 2 pinned blocks, every row printed with
 `bit_identical / ndiff / maxabs` and with the provenance of the HF-side tensor (`captured`,
 `derived-from-captured`, or `reference-side-call`), per-step rows for `y`, `state` and
 `conv_window`, seam rows that license the non-`captured` provenances, seven positive controls
-per block that must be REPORTED as differences, and an explicit UNVERIFIED list. A sabotage
-run (`--sabotage FAULT`) injects the oracle side and FAILS unless the comparison differs.
-**Not implemented yet — no flag exists for them, so they cannot print a PASS:** the floor probe
-and its evidence file (`--floor-probe`), the cross-form rows of §04b.6 (`--cross-form`), the
-capability/dispatch probe (`--capability`) and `--against-dumps` (reading the pinned dumps that
-`tools/dump_reference_gdn.py` writes). `aggregates`, `band_from_probe` and `load_band` are
-written and exercised by scratch scripts under `tmp/w20_*`, but until their sections exist
-no gate credits them. This is recorded here rather than advertised in the usage block
-because a flag that cannot fail is worse than a missing one (`pitfalls/40`).
+per block that must be REPORTED as differences, the `scan_in_bf16` arm's storage/propagation
+split with its attribution test, and an explicit UNVERIFIED list beside an explicitly re-
+witnessed CLOSED list. A sabotage run (`--sabotage FAULT`) injects the oracle side and FAILS
+unless the comparison differs. And `--floor-probe`: the §10.3 floor probe over the pinned dump
+bytes plus the fresh fixtures, which derives the band, licenses only the cross-form rows it
+measured, adjudicates every one of them, perturbs its own input by 1 ULP and by a band-exceeding
+value to watch the accept/reject flip both ways, and writes
+`speccheck/evidence/gdn-band-2026-10-26.json` for `load_band()` to re-derive or refuse.
+
+**Not implemented yet — no flag exists for them, so they cannot print a PASS:** the cross-form
+rows of §04b.6 as a verdict of their own (`--cross-form`), which is the section that would
+consume the band outside the probe, and the capability/dispatch probe (`--capability`).
+`aggregates` is exercised by every section; `band_from_probe`, `band_check_row`,
+`band_licenses` and `load_band` are exercised by `--floor-probe` itself, so none of them is a
+function no gate calls. This is recorded here rather than advertised in the usage block because
+a flag that cannot fail is worse than a missing one (`pitfalls/40`).
 """
 
 from __future__ import annotations
 
 import argparse
 import dataclasses
+import hashlib
 import json
 import math
 import sys
@@ -652,7 +660,16 @@ def enter_scan(heads: dict, beta: torch.Tensor, g_decay: torch.Tensor,
     """file 04 §04.4: cast to the scan dtype, transpose to `[B, heads, T, ...]`, l2norm q
     and k, scale q. The grouped K->V expansion happens here, in the activation dtype, as
     the reference does it (`repeat_interleave(2, dim=2)` before the scan call)."""
-    dtype = torch.bfloat16 if faults.scan_in_bf16 else g.scan_dtype
+    # The f64 arms keep the scan's INPUTS in f64 too. This is a probe requirement, not a
+    # convenience: `--floor-probe` bounds each legal F32 arm's error by its distance to the f64
+    # anchor, and if the anchor l2-normalised in F32 like the arms do, `q_hat`/`k_hat` would be
+    # the same bytes on both sides, the probe would measure exactly 0, and a 0 floor licenses
+    # nothing (`band_from_probe` would be handing out a band derived from no measurement). The
+    # two f64 arms are the only consumers of this branch; every F32 arm still enters at
+    # `mamba_ssm_dtype`, and `scan_in_bf16` still overrides everything (§04.4's scan-dtype row,
+    # `specification/04-gdn-linear-attention.md §04.4`).
+    dtype = torch.bfloat16 if faults.scan_in_bf16 else (
+        torch.float64 if form.is_f64 else g.scan_dtype)
     q, k, v = heads["q_pre"], heads["k_pre"], heads["v_pre"]
     if g.expansion > 1:
         if faults.head_pairing_tiled:                              # §04.9 tiled pairing
@@ -1204,42 +1221,203 @@ def stage_moved(a: torch.Tensor, b: torch.Tensor, predicate=None) -> tuple:
 # maximum is exactly 0 the gate refuses to run rather than falling back to a number.
 BAND_FACTORS = {"one_minus_cos": 4.0, "mean_rel": 2.0, "max_abs": 2.0, "per_head_max": 2.0}
 
+# §The scan's own blast radius, derived rather than typed.
+# [SPEC] `specification/04-gdn-linear-attention.md §04.4` puts the state, the decay, the two
+# l2norms and the scan's output in `mamba_ssm_dtype`; the stages below those are produced FROM
+# the scan output by §04.6 (the exit cast), §04.7 (the gated norm) and §04.8 (`out_proj`), so a
+# change to the scan's width reaches them by dataflow and no extra rule is needed to license
+# it. This is the table that answers "does a bf16 scan touch only the scan?": it does not, and
+# the reason is here rather than in a prose claim.
+#
+# Read by TWO consumers, deliberately (`pitfalls/40` §one contract, two readers):
+#   * `section_floor_probe` — only a stage downstream of the scan-dtype decision can have a
+#     non-vacuous floor, because every other stage is computed by code the f64 anchor SHARES
+#     with the arms, where a measured floor of 0 would be a check that cannot fail;
+#   * `AFFECTED["scan_in_bf16"]` — the arm's contract is this closure, so it is derived from
+#     the pipeline instead of typed, and a new downstream stage that is not entered here makes
+#     the injection matrix's must-not-catch check fire rather than being quietly licensed.
+STAGE_CONSUMERS = {"scan_out": ("core_attn",), "core_attn": ("normed",),
+                   "normed": ("y",), "state": (), "q_hat": (), "k_hat": ()}
+SCAN_LOCAL_STAGES = ("q_hat", "k_hat", "scan_out", "state")
+
+
+def downstream_closure(seeds) -> tuple:
+    """Transitive closure of `STAGE_CONSUMERS` over `seeds`, in `STAGES` order.
+
+    Refuses a seed or a consumer outside `STAGES`, and refuses an empty result: a closure that
+    silently returns nothing would silently un-license the bf16 arm and silently shrink the
+    probe to zero rows, which is the empty-parse failure mode in a new costume
+    (`pitfalls/40` §a check that produces no output cannot fail)."""
+    seen, queue = set(seeds), list(seeds)
+    for s in seeds:
+        if s not in STAGES:
+            raise AssertionError(f"closure seed {s!r} is not a stage")
+    while queue:
+        for nxt in STAGE_CONSUMERS.get(queue.pop(), ()):    # noqa: S110  (accumulating)
+            if nxt not in STAGES:
+                raise AssertionError(f"STAGE_CONSUMERS names {nxt!r}, which is not a stage")
+            if nxt not in seen:
+                seen.add(nxt)
+                queue.append(nxt)
+    out = tuple(s for s in STAGES if s in seen)
+    if not out:
+        raise AssertionError(f"the closure of {tuple(seeds)} is empty; the pipeline and the "
+                             "consumer table disagree, and an empty stage set would license "
+                             "nothing while looking like a pass")
+    return out
+
+
+# The seven stages a scan-width change can reach, and therefore the seven a floor probe can
+# measure against an f64 anchor without measuring shared code. `AFFECTED["scan_in_bf16"]` is
+# this tuple; the assertion next to the contract table says so out loud.
+SCAN_WIDTH_STAGES = downstream_closure(SCAN_LOCAL_STAGES)
+
+
+def band_check_row(band: dict, stage: str, ag: dict) -> tuple:
+    """Is one measured row inside the band `band` licenses for `stage`?
+
+    Returns `(accepted, why)`. Every judged key is a band key, so a key added to `BAND_FACTORS`
+    is judged the moment it is derived; nothing here has a constant predicate, and a stage with
+    no band entry is REFUSED rather than accepted (`load_band` and `band_from_probe` already
+    refuse to invent one). A band of exactly 0 is therefore a demand for bit-identity, which is
+    the honest reading of "the probe measured no distance at all"."""
+    if stage not in band:
+        return False, "no band entry (refusing to invent one)"
+    ent = band[stage]
+    for key, factor in BAND_FACTORS.items():
+        if factor == 0.0:
+            raise AssertionError(f"band factor for {key} is 0; the derivation is broken")
+        v, lim = ag[key], ent[key]
+        if v != v or v == float("inf"):
+            return False, f"{key}={v} is not a number"
+        if v > lim:
+            return False, f"{key}={v:.3e} > licensed {lim:.3e}"
+    return True, "all four derived keys inside the probe-derived band"
+
+
+def band_licenses(band: dict, pass_key: str, stage: str, arm_a: str, arm_b: str) -> tuple:
+    """Does the probe license this cross-form row? Returns `(licensed, why)`.
+
+    A row is licensed only if a probe record exists for BOTH arms at THIS pass and stage, so
+    `band_from_probe` cannot license a row it never measured — the pinned arm in particular
+    exists only on the pinned passes, and a fresh fixture has no reference bytes to license
+    against. This is the only gate a future `--cross-form` section may consult; the probe
+    section adjudicates its licensed rows through it, so the licence is exercised rather than
+    printed and hoped in."""
+    ent = band.get(stage)
+    if ent is None:
+        return False, "stage is not banded (no probe records)"
+    rows = set(ent.get("licensed_rows", []))
+    want = cross_form_key(pass_key, arm_a, arm_b)
+    if want not in rows:
+        return False, "no probe record for one of the two arms at this pass"
+    return True, "licensed by probe records for both arms at this pass"
+
+
+def cross_form_key(pass_key: str, arm_a: str, arm_b: str) -> str:
+    """One key shape for a cross-form row, shared by the licensor and the adjudicator."""
+    a, b = sorted((arm_a, arm_b))
+    return f"{pass_key}|{a}|{b}"
+
 
 def band_from_probe(probe_rows: list, stages: tuple = tuple(STAGES)) -> dict:
     """Fold probe records into per-stage bands. `probe_rows` is the list of
     `{arm, stage, aggregates}` records from `--floor-probe`.
 
-    Refusals, all of them loud: no records for a stage; a maximum of exactly 0 (a probe
-    that measured nothing cannot license a band); a non-finite maximum."""
-    worst = {}
+    Refusals, all of them loud: no records for a stage; a non-finite maximum; a stage whose
+    only evidence is a bf16 pair that measured exactly 0, because that 0 is the storage quantum
+    hiding the difference and not exactness (`pitfalls/30` §byte-identity claims state the
+    width they cover) — such a stage is banded at 0 but licenses NO rows.
+
+    Records with `in_band` False (an excluded measurement, printed by the section with its
+    reason) set no maximum and license no row, but they still count as coverage of the pass and
+    the arm, so "this shape was looked at" and "this row may be judged" stay different claims.
+    """
+    worst, coverage = {}, {}
     for rec in probe_rows:
         st, m = rec["stage"], rec["aggregates"]
         if st not in stages:
             raise AssertionError(f"probe record for stage {st!r} outside the stage list")
+        cov = coverage.setdefault(st, {"passes": set(), "arms": set(), "blocks": set(),
+                                       "arms_by_pass": {}, "records": 0, "bf16": set()})
+        cov["passes"].add(rec["pass"])
+        cov["arms"].add(rec["arm"])
+        cov["blocks"].add(rec["block"])
+        cov["records"] += 1
+        cov["bf16"].add(bool(rec.get("bf16_storage")))
+        if not rec.get("in_band", True):
+            continue
+        # A cross-form row is licensed where BOTH arms were measured at the SAME pass against
+        # the SAME anchor, so the licence is built from the per-pass arm set rather than from
+        # the stage-wide arm set: the `pinned` arm exists only on the pinned passes, and a
+        # fresh fixture has no reference bytes to license against.
+        cov["arms_by_pass"].setdefault(rec["pass"], set()).add(rec["arm"])
         cur = worst.setdefault(st, {k: 0.0 for k in BAND_FACTORS})
         for key in BAND_FACTORS:
             v = m[key]
             if v != v or v == float("inf"):
                 raise AssertionError(f"probe {rec['arm']}/{st}: {key}={v} is not a number")
             cur[key] = max(cur[key], v)
-    missing = [s for s in stages if s not in worst]
+    missing = [s for s in stages if s not in coverage]
     if missing:
         raise AssertionError(f"no floor-probe record for stage(s) {missing}; the band cannot "
                              "be derived and this gate refuses to invent one "
                              "(specification/10 §10.3, pitfalls/30)")
     band = {}
-    for st, cur in worst.items():
+    for st, cov in coverage.items():
+        cur = worst.get(st, {k: 0.0 for k in BAND_FACTORS})
+        folded = st in worst
+        if cov["bf16"] == {True, False}:
+            raise AssertionError(f"stage {st}: the probe mixed bf16 and non-bf16 pairings, so "
+                                 "the band would be one number measuring two different things")
         band[st] = {"probe": dict(cur),
                     **{k: cur[k] * BAND_FACTORS[k] for k in BAND_FACTORS},
-                    "derived_from": "floor probe (f64 anchor) x the triangle inequality"}
+                    "derived_from": "floor probe (f64 anchor) x the triangle inequality",
+                    "bf16_storage": bool(cov["bf16"] == {True}),
+                    "arms": sorted(cov["arms"]), "passes": sorted(cov["passes"]),
+                    "blocks": sorted(cov["blocks"]), "records": cov["records"],
+                    "folded_records": cov["records"] if folded else 0,
+                    "licensed_rows": ([] if not folded else sorted(
+                        cross_form_key(p, a, b)
+                        for p, arms in cov["arms_by_pass"].items()
+                        for i, a in enumerate(sorted(arms)) for b in sorted(arms)[i + 1:]))}
         for k in BAND_FACTORS:
             if cur[k] == 0.0:
                 band[st]["vacuous"] = (band[st].get("vacuous", []) + [k])
+        # A row that measured nothing must not license anything. Two shapes of that: no record
+        # was folded at all (every bf16 row came back ndiff 0), and a stage whose every
+        # aggregate is 0 on bf16 storage. Both keep their numbers and lose their licence, and
+        # both say why in `unlicensed_because` so the section can print it by name.
+        if not folded:
+            band[st]["licensed_rows"] = []
+            band[st]["unlicensed_because"] = (
+                "no probe row for this stage could be folded: every one measured ndiff 0 on a "
+                "bf16 tensor, where the storage quantum hides any difference smaller than "
+                "itself, so this stage has no measurable floor and no banded verdict may be "
+                "credited from it (pitfalls/30 §byte-identity claims state the width they "
+                "cover)")
+        elif band[st].get("vacuous") == list(BAND_FACTORS):
+            if st not in SCAN_WIDTH_STAGES:
+                raise AssertionError(f"stage {st} is outside the scan-width closure and measured "
+                                     "0 everywhere; it should never have been probed")
+            if band[st]["bf16_storage"]:
+                band[st]["licensed_rows"] = []
+                band[st]["unlicensed_because"] = ("bf16 storage with a floor of exactly 0: the "
+                                                  "storage quantum hides any smaller "
+                                                  "difference, so this measures nothing "
+                                                  "(pitfalls/30)")
     return band
 
 
 def load_band(path: Path) -> dict:
-    """Read a band written by `--floor-probe`. Missing file is an ERROR, not a default."""
+    """Read a band written by `--floor-probe`. Missing file is an ERROR, not a default.
+
+    The re-read is not a trust exercise: the derivation string, the per-stage coverage and the
+    licensed-row set are all re-checked against the file's own record counts, so a band whose
+    licence claims a row it has no records for is refused rather than honoured. A hand-edited
+    band (numbers widened, a row added to `licensed_rows`) fails the arithmetic here exactly as
+    a poisoned probe would fail the sha256 at the dump reader.
+    """
     if not Path(path).exists():
         raise AssertionError(f"{path} does not exist: run "
                              "`speccheck/gdn_ref.py --floor-probe` first. A gate with no "
@@ -1248,7 +1426,34 @@ def load_band(path: Path) -> dict:
     if doc.get("band_derivation") != "triangle-inequality-on-floor-probe":
         raise AssertionError(f"{path} was written by a different derivation "
                              f"({doc.get('band_derivation')!r}); refuse to read it")
-    return doc["band"]
+    band = doc["band"]
+    if not band:
+        raise AssertionError(f"{path} carries an empty band")
+    licensed = 0
+    for st, ent in sorted(band.items()):
+        for key in BAND_FACTORS:
+            probe, lim = ent["probe"][key], ent[key]
+            want = probe * BAND_FACTORS[key]
+            if lim != want:
+                raise AssertionError(f"{path}: {st}.{key} = {lim!r} is not the derived "
+                                     f"{probe!r} x {BAND_FACTORS[key]}; a band is never typed "
+                                     "or rounded up for safety (AGENTS.md §Standing rules)")
+        if not ent.get("passes") or not ent.get("arms"):
+            raise AssertionError(f"{path}: {st} has no coverage; a band with no measured "
+                                 "population cannot license anything")
+        for row in ent.get("licensed_rows", []):
+            parts = row.split("|")
+            if len(parts) != 3 or parts[0] not in ent["passes"] \
+                    or parts[1] not in ent["arms"] or parts[2] not in ent["arms"]:
+                raise AssertionError(f"{path}: {st} licenses {row!r}, which its own coverage "
+                                     "does not contain")
+        licensed += len(ent.get("licensed_rows", []))
+    if licensed == 0:
+        raise AssertionError(f"{path} licenses 0 cross-form rows; either nothing was probed or "
+                             "every stage was unlicensed, and either way no banded verdict may "
+                             "be credited from it")
+    doc["licensed_rows_total"] = licensed
+    return band
 
 
 # ================================================================== the HF witness
@@ -1350,17 +1555,66 @@ HF_UNVERIFIED = [
             "the reference's choice and not the engine's; the engine's 3-column window is a "
             "different tensor and is not checked here",
      "closes_when": "the engine's residency layout is gated against a dump of its own window"},
-    {"item": "the MTP draft block's mixer",
-     "why": "load_gdn_block_weights refuses a non-`layer` block; file 09's draft mixer is a "
-            "different task",
-     "closes_when": "file 09 is in scope with its own pinned dump"},
-    {"item": "banded (not bit-exact) agreement on any stage",
-     "why": "no --floor-probe section exists yet, so no band file exists to load and "
-            "load_band() refuses to invent one; every credited row here is bit-exact or it is a "
-            "failure",
-     "closes_when": "--floor-probe writes the per-stage probe and band_from_probe licenses the "
-                    "cross-form rows"},
+    {"item": "banded (not bit-exact) agreement as a VERDICT",
+     "why": "`--floor-probe` now exists and derives the band "
+            "(`speccheck/evidence/gdn-band-2026-10-26.json`), and that section adjudicates "
+            "every licensed cross-form row inside it — but no `--cross-form` section exists, so "
+            "outside the probe no PASS credits a band. Every row `--compare-hf` and `--selftest` "
+            "credit is still bit-exact or it is a failure, which is the admission this lane "
+            "ships on",
+     "closes_when": "a `--cross-form` section loads the band through `load_band()` and "
+                    "adjudicates arm-to-arm rows with `band_check_row()`, with its own "
+                    "denominators and its own sabotage witnesses"},
+    {"item": "a banded floor for any of the 12 stages upstream of the scan",
+     "why": "they are computed by code the F32 arms and the f64 anchor share, so their distance "
+            "to the anchor is 0 by construction; `--floor-probe` prints each by name rather than "
+            "flooring it, because a floor measured on shared code is a check that cannot fail",
+     "closes_when": "one of those stages gains a second legal implementation (a kernel, or a "
+                    "re-associated producer), which is what makes a floor measurable"},
 ]
+
+# §Items that were open and are now CLOSED, with the witness that closes them. Kept in the file
+# and re-asserted on every run rather than deleted: an entry that is merely removed is a claim
+# nobody can re-check, and a closure that stops being true has to come back as a failure.
+HF_CLOSED = [
+    {"item": "the MTP draft block's mixer",
+     "was": "listed UNVERIFIED with `closes_when: file 09 is in scope with its own pinned "
+            "dump` — which asked this lane to pin a tensor family the checkpoint does not have",
+     "closed_by": "the draft block has no GDN block to pin. "
+                  "`specification/09-mtp-draft-layer.md §09.3` is the prose (`the draft layer "
+                  "is a full-attention layer`); the instrument is "
+                  "`specification/derive.py §--check`, which asserts no `mtp.*` key contains "
+                  "`linear_attn`. Re-derived here from the committed safetensors index on every "
+                  "run by `_witness_draft_block_has_no_gdn()`, together with the positive half "
+                  "(the index DOES carry `mtp.layers.0.self_attn.*`) so the negative is not the "
+                  "empty-file case (`pitfalls/40` §a check that produces no output cannot fail). "
+                  "MTP itself stays in scope (DECISIONS.md D-05); what is closed is the claim "
+                  "that the GDN lane owes it a mixer dump, which it does not",
+     "reopens_when": "a checkpoint whose `mtp.*` keys include `linear_attn`, which the witness "
+                     "turns back into a FAIL rather than a silent gap"},
+]
+
+
+def _witness_draft_block_has_no_gdn() -> tuple:
+    """The live witness behind the closed MTP-mixer item: read the committed index, not a quote.
+
+    Returns `(holds, detail)`. `holds` is True only when the draft block has no `linear_attn.*`
+    tensor AND it does have `self_attn.*` tensors — the positive half is what stops an empty or
+    mis-named index from 'proving' the negative.
+    """
+    if not INDEX_PATH.exists():
+        return False, f"{INDEX_PATH} is missing; the witness cannot run"
+    keys = set(json.loads(INDEX_PATH.read_text()).get("weight_map", {}))
+    draft_gdn = sorted(k for k in keys if k.startswith("mtp.") and "linear_attn" in k)
+    draft_attn = sorted(k for k in keys if k.startswith("mtp.layers.0.self_attn."))
+    if draft_gdn:
+        return False, f"the draft block DOES carry a GDN tensor: {draft_gdn[:3]}"
+    if not draft_attn:
+        return False, ("the index carries no `mtp.layers.0.self_attn.*` key either, so the "
+                       "negative would be uninformative rather than witnessed")
+    return True, (f"0 `mtp.*linear_attn*` keys of {len(keys)}; "
+                  f"{len(draft_attn)} `mtp.layers.0.self_attn.*` keys present as the "
+                  "positive control")
 
 
 class _HfCapture:
@@ -1782,7 +2036,14 @@ AFFECTED = {
     # bf16 scan moves them and they are must-CATCH here, not a leak. `beta`/`g_decay` stay
     # must-not-catch: they are produced before the scan, `g_decay` in F32 by §04.5's own
     # explicit casts, so the scan's storage dtype cannot reach either.
-    "scan_in_bf16": ["q_hat", "k_hat"] + _D_SCAN,
+    #
+    # The set is the DATAFLOW CLOSURE of the scan's own stages (`STAGE_CONSUMERS`), not a list:
+    # `core_attn`, `normed` and `y` are in it because §04.6's exit cast, §04.7's gated norm and
+    # §04.8's `out_proj` are functions of the scan output, so a scan-width change reaches them
+    # whether or not anyone declared it. Measured on the pinned rows, `--bf16-audit` moves
+    # exactly this set and nothing else (`speccheck/results-gdn.md`
+    # §The `scan_in_bf16` arm — how it is disposed of, and the measurement that disposes of it).
+    "scan_in_bf16": list(SCAN_WIDTH_STAGES),
     "norm_plus_one": _D_NORM,
     "norm_gate_first": _D_NORM,
     "norm_weight_f32": _D_NORM,
@@ -1916,6 +2177,15 @@ REQUIRES = {
 }
 for _f in FAULT_FIELDS:
     REQUIRES.setdefault(_f, (_always, ""))
+
+# The bf16 arm's contract is derived, and the derivation is asserted rather than trusted: if
+# `STAGE_CONSUMERS` ever fails to reach a stage the arm can move, the injection matrix's
+# must-not-catch check fires on the arm's own case, and this assertion fires here.
+if set(AFFECTED["scan_in_bf16"]) != set(SCAN_WIDTH_STAGES):
+    raise AssertionError("AFFECTED['scan_in_bf16'] is not the scan-width closure: "
+                         f"{sorted(AFFECTED['scan_in_bf16'])} vs {list(SCAN_WIDTH_STAGES)}")
+if set(SCAN_LOCAL_STAGES) - set(AFFECTED["scan_in_bf16"]):
+    raise AssertionError("the closure lost a scan-local stage")
 
 # The CONDITIONAL half, and it is conditional on **geometry**, not on data: stages a case may
 # move only when a structural fact about the fixture holds. Read by BOTH `allowed_stages()`
@@ -2572,13 +2842,19 @@ NOT_ESTABLISHED = [
                          "in F32 and cast back, which is the reference's own width (§04.4's "
                          "scan-dtype row, §04b.4)",
      "measured_cost": "printed per stage, per mode, per block by the bf16-arm table in "
-                      "--compare-hf, and deliberately not copied here where it would rot: the "
-                      "four scan tensors the arm stores bf16 where the reference keeps f32 "
-                      "(q_hat, k_hat, scan_out, state) are REFUSED by the bit comparator and "
-                      "then measured again after an explicit widening; core_attn, normed and y "
-                      "differ numerically. What IS adjudicated is containment — every moved "
-                      "stage must sit inside AFFECTED['scan_in_bf16'] and at least one must "
-                      "move — so the arm is neither inert nor leaking",
+                      "--compare-hf, and deliberately not copied here where it would rot. What "
+                      "THAT table now adjudicates, beside containment: (i) the stages whose "
+                      "STORAGE width the arm changed are exactly the scan-local four "
+                      "(q_hat, k_hat, scan_out, state); (ii) the value-only movers are exactly "
+                      "the downstream closure (core_attn, normed, y) and every pre-scan stage is "
+                      "bit-identical, so bf16 propagates forward and not backward; (iii) given "
+                      "the reference's OWN core_attn bytes, the oracle's gated_norm+out_proj "
+                      "reproduces the reference's normed and y bit for bit — so the downstream "
+                      "contributes nothing to the disagreement and the four non-scan movers are "
+                      "explained by the scan's storage width rather than by the arm touching "
+                      "them. That is why the arm's contract is the closure and not a guess "
+                      "(speccheck/results-gdn.md §The `scan_in_bf16` arm — how it is disposed "
+                      "of, and the measurement that disposes of it)",
      "would_close": "a backend with a bf16 solve_triangular, or the §04b.4 export branch "
                     "(forward substitution) implemented at bf16 and gated"},
     {"item": "q_scaled_by_dv",
@@ -2653,7 +2929,724 @@ def _compare_rows(tag, stages, ours, theirs, fails, counts, print_rows=True,
     return differing
 
 
+# ================================================================== the floor probe
+# §What `--floor-probe` is, what it measures, and what it refuses to do.
+#
+# `specification/10-reference-dumps-and-gates.md §10.3` step 1: "run a **floor probe**: re-run
+# the reference's own F32 math with its summation re-associated, over the pinned rows, per
+# family". Step 3 gives the GDN scan the long-dot metric: cos + mean-rel plus a cancellation
+# band, "both sized by the probe". `specification/04b-gdn-chunked-form.md §04b.6` then names
+# the comparisons the band has to carry: state after T tokens chunked vs recurrent, the scan
+# output before the gated norm, the prefill/decode handoff, and both forms against a pinned HF
+# dump — "the band comes from a floor probe over the pinned rows; no band is copied from another
+# project or another model".
+#
+# How each of those becomes a measurement here:
+#
+#   * THE ANCHOR is `Form.named("exact")`, the f64 rank-1 form, run with its scan inputs in f64
+#     (see `enter_scan`). Every legal arm's distance to it is the floor. The twin,
+#     `exact_matrix`, is run against the anchor too and is the anchor's own credibility check:
+#     a pair of f64 implementations that drift further apart than some F32 arm drifts from the
+#     anchor is an anchor that cannot bound anything, so that comparison is a hard FAIL, not a
+#     note (`specification/04-gdn-linear-attention.md §04.6`'s "equivalent" claim is the thing
+#     under test, not a premise).
+#   * THE ARMS are the five legal F32 forms — `chunked`, `substitution`, `chunked32` (the
+#     A-16 branch and width pairs) and `recurrent`, `reassoc` (the recurrent form, and that
+#     form with its sums split in half, which is §10.3 step 1's re-association verbatim) — plus
+#     the pinned dump bytes themselves as the arm `pinned`. The last one is what makes this
+#     §10.3's probe rather than a comparison of our own two implementations against each other:
+#     it is the reference's own F32 math over the pinned rows, read off disk through
+#     `tools/dump_reference_gdn.py:read_dump_tensor`, which sha256-verifies every file.
+#   * THE STAGES are `SCAN_WIDTH_STAGES`, the dataflow closure of the scan. A stage upstream of
+#     it is computed by code the anchor SHARES with the arms, so its floor would be 0 by
+#     construction — a check that cannot fail (`pitfalls/40`), and it is refused here rather
+#     than printed. Those stages are listed by name in `probe_unverified()` with the reason,
+#     which is a different claim from "banded": for them the lane claims bit-identity against
+#     the pinned reference bytes (`--compare-hf`, and the reconciliation table below), never a
+#     band.
+#   * THE POPULATION is derived twice and compared: once by building the pass/arm/stage grid
+#     and once by arithmetic on the manifest record set and the fixture list.
+#
+# What it does NOT do. It never types a number into a band, never rounds a band up (the
+# derivation is `probe x BAND_FACTORS[key]`, byte-exact, and `load_band` re-derives it and
+# refuses a file where the two disagree). It never writes to the dump directory, and every
+# pinned byte it reads is sha256-checked first — the two sabotage witnesses below print what
+# the band *would* have become had a perturbed dump been folded in, which is the argument for
+# why the digest check runs before any measurement. It takes no timings and reads no clock.
+# And it does not make `--cross-form` a verdict: no such section exists, so no PASS outside
+# this section credits the band (`HF_UNVERIFIED`).
+
+PROBE_ARMS = ("chunked", "substitution", "chunked32", "recurrent", "reassoc")
+PROBE_ANCHOR = "exact"
+PROBE_ANCHOR_TWIN = "exact_matrix"
+ARM_PINNED = "pinned"
+PROBE_DATE = "2026-10-26"
+PROBE_DUMP_DIR = REPO / "data" / "dumps" / "2026-10-26-gdn"
+PROBE_MANIFEST = REPO / "checkpoints" / "dump-manifest-gdn-2026-10-26.json"
+BAND_PATH = EVIDENCE / "gdn-band-2026-10-26.json"
+
+
+@dataclass(frozen=True)
+class ProbePass:
+    """One measured pass shape. `key` is the pass identity the licence is keyed on, so a row
+    can only be licensed where both arms were actually run at the same shape."""
+    key: str
+    block: str
+    source: str            # "pinned" | "fixture"
+    kind: str              # "prefill" | "decode"
+    group: str             # the run group: "pinned" or the fixture name
+    step: int = -1         # -1 for a prefill pass
+
+
+def probe_arms_for(pass_key_kind: str, source: str) -> tuple:
+    """Which arms exist at one pass, from §04b.1's dispatch table.
+
+    A prefill-shaped pass is measured under every legal form, because §04b.6's first row is
+    literally "state after T tokens, chunked vs recurrent" — the recurrent form has to be run
+    over the prefill's T tokens for that row to mean anything, even though the engine dispatches
+    a prefill to the chunked form. A cached decode step is measured only under the recurrent
+    family, because §04b.1 gives it the recurrent program and running a one-token decode through
+    the UT solve would be measuring a shape no engine takes.
+    """
+    out = []
+    for a in PROBE_ARMS:
+        scan = Form.named(a).scan
+        if pass_key_kind == "decode" and scan not in ("recurrent", "reassoc"):
+            continue
+        out.append(a)
+    if source == "pinned":
+        out.append(ARM_PINNED)
+    return tuple(out)
+
+
+def probe_unverified(stages_probed) -> list:
+    """The stages the probe cannot floor, each with the reason it cannot.
+
+    Non-empty by construction: the twelve stages upstream of the scan-dtype decision are shared
+    code between the arms and the f64 anchor, so any floor measured there is 0 by construction.
+    A probe that printed a floor for them would be printing a check that cannot fail."""
+    out = []
+    for s in STAGES:
+        if s in stages_probed:
+            continue
+        out.append({"item": f"a banded floor for `{s}`",
+                    "why": "computed by code the F32 arms and the f64 anchor share (upstream of "
+                           "the scan-dtype decision of "
+                           "`specification/04-gdn-linear-attention.md §04.4`), so its distance to "
+                           "the anchor is 0 by construction and a band derived from it would "
+                           "license nothing that bit-identity does not already",
+                    "closes_when": "the stage acquires a second legal implementation of its own "
+                                   "(a kernel, or a re-associated producer), which is what makes "
+                                   "a floor measurable rather than structural"})
+    return out
+
+
+def _probe_passes(g, blocks, manifest) -> list:
+    """The pass grid: the pinned passes named by the manifest, and the fixture passes derived
+    from `default_fixtures`. Neither list is typed — the pinned modes come from the dump's own
+    record set and are checked against the geometry, and the fixture set is the same object the
+    injection matrix runs."""
+    passes = []
+    want_pinned = ["prefill"] + [f"decode{i}" for i in range(max(2, g.k_conv - 1))]
+    for b in blocks:
+        modes = sorted({r["mode"] for r in manifest["dumps"]
+                        if r["block"] == b.name and r["tensor_key"] == "input"})
+        if modes != sorted(want_pinned):
+            raise AssertionError(f"{b.name}: the manifest pins modes {modes}, the geometry says "
+                                 f"{sorted(want_pinned)}; the probe's pinned population must be "
+                                 "the dump's own, not a typed list")
+        for m in want_pinned:
+            passes.append(ProbePass(f"{b.name}/pinned/{m}", b.name, "pinned",
+                                    "prefill" if m == "prefill" else "decode", "pinned",
+                                    -1 if m == "prefill" else int(m.replace("decode", ""))))
+        for fx in default_fixtures(g):
+            if fx.kind == "prefill":
+                passes.append(ProbePass(f"{b.name}/fixture/{fx.name}", b.name, "fixture",
+                                        "prefill", fx.name))
+                continue
+            passes.append(ProbePass(f"{b.name}/fixture/{fx.name}#prefill", b.name, "fixture",
+                                    "prefill", fx.name))
+            for i in range(fx.n_steps):
+                passes.append(ProbePass(f"{b.name}/fixture/{fx.name}#decode{i}", b.name,
+                                        "fixture", "decode", fx.name, i))
+    return passes
+
+
+def probe_covers(arm: str, kind: str, source: str) -> bool:
+    """Does this arm exist at this pass? The two f64 anchors exist everywhere — they are the
+    truth every pass is measured against — and every other arm obeys §04b.1's dispatch."""
+    if arm in (PROBE_ANCHOR, PROBE_ANCHOR_TWIN):
+        return True
+    return arm in probe_arms_for(kind, source)
+
+
+def _probe_run_group(g, w, passes, arm, pinned_inputs, fixtures_by_name):
+    """Run one arm over every pass it exists at, one pass *program* per run.
+
+    Two rules do the work here. (1) A pass the arm does not exist at is skipped, not run and
+    dropped: §04b.1 gives a cached decode step the recurrent program, so measuring a chunked arm
+    there would be measuring a shape no engine takes, and the pass grid would then license a row
+    that was never legitimately run. (2) A cached-decode pass is not independent of the prefill
+    that produced its state, so a sequence is folded once with `gdn_sequence` and its prefill
+    pass and its steps are harvested from the same fold — which is what makes §04b.6's prefill/
+    decode handoff row a measurement rather than an assertion.
+    """
+    by_group = {}
+    for p in passes:
+        if not probe_covers(arm, p.kind, p.source):
+            continue
+        by_group.setdefault((p.source, p.group), []).append(p)
+    out = {}
+    for (source, group), grp in sorted(by_group.items()):
+        if source == "pinned":
+            x_pf, x_st, pad = pinned_inputs[0], pinned_inputs[1], 0
+        else:
+            fx = fixtures_by_name[group]
+            x_pf, x_st = fixture_input(g, fx)
+            pad = fx.pad_noise
+        kinds = {p.kind for p in grp}
+        stages = {}
+        if "prefill" in kinds:
+            if Form.named(arm).scan in ("recurrent", "reassoc"):
+                stages["prefill"] = gdn_block(x_pf, w, g, arm, NO_FAULTS, mode="prefill")
+            else:
+                stages["prefill"] = gdn_block(x_pf, w, g, arm, NO_FAULTS, mode="prefill",
+                                              pad_noise=pad)
+        if "decode" in kinds:
+            seq = gdn_sequence(x_pf, x_st, w, g, arm, arm, faults=NO_FAULTS, pad_noise=pad)
+            if len(seq["all_steps"]) != max(p.step for p in grp if p.kind == "decode") + 1:
+                raise AssertionError(f"{group}: the {arm} fold produced "
+                                     f"{len(seq['all_steps'])} decode steps, the pass grid asks "
+                                     "for more; the grid and the run grouping disagree")
+            for i, st in enumerate(seq["all_steps"]):
+                stages[f"decode{i}"] = st
+        for p in grp:
+            label = "prefill" if p.kind == "prefill" else f"decode{p.step}"
+            if label not in stages:
+                raise AssertionError(f"{p.key}: the {arm} run produced no {label}; the pass grid "
+                                     "and the run grouping disagree")
+            out[p.key] = {s: stages[label][s] for s in SCAN_WIDTH_STAGES}
+    return out
+
+
+def _probe_pinned_stages(manifest, DG, block_name, mode, files_read, stages=STAGES):
+    """The pinned side of one pass: every stage read off disk and sha256-checked.
+
+    All 19 are read, not just the floored seven: the reconciliation table below needs them to
+    witness that the bytes the probe is about to call "the reference's own F32 math" are the
+    bytes the oracle produces, and the `pinned` arm indexes the seven it needs out of the same
+    read. Every file is hashed before it is measured, and a file whose digest does not match the
+    manifest raises out of `read_dump_tensor` rather than being measured.
+    """
+    out = {}
+    for stage in stages:
+        rec = next((r for r in manifest["dumps"] if r["block"] == block_name
+                    and r["mode"] == mode and r["tensor_key"] == stage), None)
+        if rec is None:
+            raise AssertionError(f"the manifest has no {block_name}.{mode}.{stage} record")
+        out[stage] = DG.read_dump_tensor(rec)
+        files_read.append((rec["file"], rec["sha256"], rec["bytes"], rec["dtype"]))
+    return out
+
+
+# --------------------------------------------------------------------- the section
+def section_floor_probe(g, args) -> list:
+    """`--floor-probe`: measure the floors, derive the band, license only what was measured."""
+    fails = []
+    sys.path.insert(0, str(REPO / "tools"))
+    import dump_reference_gdn as DG  # noqa: E402  (lazy: only this section reads a dump, and
+    #                                    the dumper imports this module, so the import is one-way
+    #                                    at module scope and this one here)
+
+    blocks = [Block.parse(s) for s in args.blocks.split(",") if s.strip()]
+    if not blocks:
+        raise AssertionError("no blocks selected; an empty probe cannot pass")
+    if args.only_fixture or args.only_fault:
+        fails.append("--floor-probe does not honour --only-fixture/--only-fault: the band is "
+                     "derived from a population, so a subset probe would size a band from rows "
+                     "that were never run. Drop the subset flag.")
+        return fails
+    manifest = DG.load_manifest(PROBE_MANIFEST)
+    mgeo = manifest["geometry"]
+    for key, ours in (("linear_key_head_dim", g.d_k), ("linear_value_head_dim", g.d_v),
+                      ("linear_num_value_heads", g.h_v), ("linear_conv_kernel_dim", g.k_conv),
+                      ("chunk_width", g.chunk_width)):
+        if mgeo.get(key) != ours:
+            fails.append(f"manifest geometry {key}={mgeo.get(key)} != config {ours}: the probe "
+                         "would be measuring a dump of a different model")
+    if fails:
+        return fails
+
+    passes = _probe_passes(g, blocks, manifest)
+    fixtures_by_name = {f.name: f for f in default_fixtures(g)}
+    probed = tuple(SCAN_WIDTH_STAGES)
+
+    # §The population, derived before anything is measured, from the manifest's record set and
+    # the fixture list — not from what the loops below happen to emit (`pitfalls/40`).
+    n_pinned_modes = 1 + max(2, g.k_conv - 1)
+    exp_passes = len(blocks) * (n_pinned_modes
+                                + sum(1 + (f.n_steps if f.kind == "decode" else 0)
+                                      for f in default_fixtures(g)))
+    exp_arm_pass = sum(len(probe_arms_for(p.kind, p.source)) for p in passes)
+    exp_records = exp_arm_pass * len(probed)
+    exp_crossform = sum(len(probe_arms_for(p.kind, p.source))
+                        * (len(probe_arms_for(p.kind, p.source)) - 1) // 2 for p in passes)
+    exp_crossform *= len(probed)
+    exp_anchor_rows = len(passes) * len(probed)
+    exp_files = len(blocks) * (len(SUFFIXES) + n_pinned_modes * (1 + len(STAGES)))
+    exp_recon = len(blocks) * (n_pinned_modes * len(STAGES) + len(SUFFIXES))
+    exp_sabotages = 2 * len(blocks)
+
+    print(f"# command: {' '.join(sys.argv)}")
+    print(f"# floor-probe — torch {torch.__version__} CPU threads={getattr(args, 'threads_used', '?')}")
+    print(f"# dump: {PROBE_DUMP_DIR.relative_to(REPO)}  manifest: "
+          f"{PROBE_MANIFEST.relative_to(REPO)} ({manifest['counts']['dumps']} records, "
+          f"{manifest['bytes']['declared_records']:,} B declared)")
+    print(f"# anchor: Form({PROBE_ANCHOR}) f64, twin Form({PROBE_ANCHOR_TWIN}) f64. "
+          f"arms: {', '.join(PROBE_ARMS)} + '{ARM_PINNED}' (the pinned bytes themselves — "
+          "§10.3 step 1's 'the reference's own F32 math, over the pinned rows')")
+    print(f"# stages probed: {len(probed)} = the scan-width closure {list(probed)}; "
+          f"{len(STAGES) - len(probed)} of {len(STAGES)} stages are NOT floored here "
+          "(listed by name at the end, with the reason)")
+    print(f"# population: files {exp_files} x stages {len(probed)} x blocks {len(blocks)} x "
+          f"passes {exp_passes} (pinned {n_pinned_modes} + fixture "
+          f"{exp_passes // len(blocks) - n_pinned_modes} per block) — records are a sum over "
+          f"passes because arm coverage differs between a pinned and a fresh pass: "
+          f"{exp_arm_pass} arm-pass pairs, {exp_records} probe records, "
+          f"{exp_crossform} cross-form rows, {exp_anchor_rows} anchor rows")
+
+    counts, printed = {}, {}
+    files_read, records, anchor_rows, cross_rows, recon_rows = [], [], [], [], []
+    anchors, tensors_all = {}, {}
+    anchor_worst, arm_worst = {}, {}
+
+    def emit(table, line=""):
+        printed[table] = printed.get(table, 0) + 1
+        print(line)
+
+    for block in blocks:
+        w = load_gdn_block_weights(block, g)
+        # ---- the pinned bytes, sha256-verified before anything is measured off them
+        recs = {(r["mode"], r["tensor_key"]): r for r in manifest["dumps"]
+                if r["block"] == block.name}
+        x_pf = DG.read_dump_tensor(recs[("prefill", "input")])
+        files_read.append((recs[("prefill", "input")]["file"],
+                           recs[("prefill", "input")]["sha256"],
+                           recs[("prefill", "input")]["bytes"], "input"))
+        steps = [DG.read_dump_tensor(recs[(f"decode{i}", "input")])
+                 for i in range(n_pinned_modes - 1)]
+        for i in range(n_pinned_modes - 1):
+            files_read.append((recs[(f"decode{i}", "input")]["file"],
+                               recs[(f"decode{i}", "input")]["sha256"],
+                               recs[(f"decode{i}", "input")]["bytes"], "input"))
+        x_st = torch.cat(steps, dim=1)
+        pinned_stage_bytes = {m: _probe_pinned_stages(manifest, DG, block.name, m, files_read)
+                              for m in ["prefill"] + [f"decode{i}"
+                                                      for i in range(n_pinned_modes - 1)]}
+
+        # ---- the reconciliation: the bytes the probe is about to call "the reference's own
+        # F32 math" must be the bytes the oracle produces under NO_FAULTS, bit for bit, and the
+        # weights the probe reads from the shard must be the weights that made them.
+        clean_pf = gdn_block(x_pf, w, g, "chunked", NO_FAULTS, mode="prefill")
+        clean_seq = gdn_sequence(x_pf, x_st, w, g, "chunked", "recurrent", faults=NO_FAULTS)
+        clean = {"prefill": clean_pf}
+        for i, st in enumerate(clean_seq["all_steps"]):
+            clean[f"decode{i}"] = st
+        for mode, ours in sorted(clean.items()):
+            for stage in STAGES:
+                d = _bit_diff(pinned_stage_bytes[mode][stage], ours[stage])
+                recon_rows.append((block.name, mode, stage, d))
+                emit("recon", f"  {block.name:<7} {mode:<8} {stage:<12} "
+                              f"{'bit-identical' if d['bit_identical'] else 'DIFFERS':<14} "
+                              f"{d['dtype'].replace('torch.', ''):<8} "
+                              f"{str(d['ndiff']) + '/' + str(d['n']):>14} "
+                              f"{_fmt_maxabs(d['max_abs'])}")
+                if not d["bit_identical"]:
+                    fails.append(f"{block.name}/{mode}/{stage}: the pinned bytes are NOT what "
+                                 "the oracle's clean pass produces — the probe's `pinned` arm "
+                                 "is not the reference's math, and a band derived from it would "
+                                 "license the wrong thing")
+        for role in SUFFIXES:
+            wrec = next(r for r in manifest["dumps"]
+                        if r["name"] == f"{block.name}.weights.{role}")
+            d = _bit_diff(DG.read_dump_tensor(wrec), w.tensors[role])
+            files_read.append((wrec["file"], wrec["sha256"], wrec["bytes"], wrec["dtype"]))
+            recon_rows.append((block.name, "stored", f"weights.{role}", d))
+            emit("recon", f"  {block.name:<7} {'stored':<8} {'weights.' + role:<12} "
+                          f"{'bit-identical' if d['bit_identical'] else 'DIFFERS':<14} "
+                          f"{d['dtype'].replace('torch.', ''):<8} "
+                          f"{str(d['ndiff']) + '/' + str(d['n']):>14} "
+                          f"{_fmt_maxabs(d['max_abs'])}")
+            if not d["bit_identical"]:
+                fails.append(f"{block.name}/weights.{role}: the shard read and the pinned weight "
+                             "bytes disagree; the probe would be measuring a different model")
+        if fails:
+            return fails
+
+        # ---- the anchors, then every arm, one pass at a time
+        here = [p for p in passes if p.block == block.name]
+        anchors[block.name] = {}
+        for arm in (PROBE_ANCHOR, PROBE_ANCHOR_TWIN):
+            run = _probe_run_group(g, w, here, arm, (x_pf, x_st), fixtures_by_name)
+            for p in here:
+                src = anchors[block.name].setdefault(p.key, {})
+                src[arm] = run[p.key]
+        stage_tensors = {p.key: {} for p in here}
+        tensors_all[block.name] = stage_tensors
+        for p in here:
+            if p.source == "pinned":
+                mode = "prefill" if p.kind == "prefill" else f"decode{p.step}"
+                stage_tensors[p.key][ARM_PINNED] = pinned_stage_bytes[mode]
+        for arm in PROBE_ARMS:
+            run = _probe_run_group(g, w, here, arm, (x_pf, x_st), fixtures_by_name)
+            for key, st in run.items():
+                stage_tensors[key][arm] = st
+
+        print(f"\n### {block.name}: floor records — every legal arm against the f64 anchor "
+              f"(Form({PROBE_ANCHOR})); this is the population the band is derived from")
+        emit("hdr_probe", f"  {'pass':<44} {'arm':<12} {'stage':<10} {'dtype':<8} "
+                          f"{'maxabs':>10} {'1-cos':>10} {'meanrel':>10} {'perhead':>10} "
+                          f"{'ndiff/n':>14} band")
+        for p in here:
+            anch = anchors[block.name][p.key][PROBE_ANCHOR]
+            twin = anchors[block.name][p.key][PROBE_ANCHOR_TWIN]
+            for stage in probed:
+                a_t = twin[stage]
+                ag_t = aggregates(a_t, anch[stage], name=f"{p.key}/twin/{stage}", stage=stage,
+                                  anchor=anch[stage])
+                anchor_rows.append((p.key, stage, ag_t))
+                awn = anchor_worst.setdefault(stage, {k: 0.0 for k in BAND_FACTORS})
+                for k in BAND_FACTORS:
+                    awn[k] = max(awn[k], ag_t[k])
+                emit("anchor", f"  {p.key:<44} {'twin':<12} {stage:<10} "
+                               f"{ag_t['dtype'].replace('torch.', ''):<8} "
+                               f"{ag_t['max_abs']:10.3e} {ag_t['one_minus_cos']:10.3e} "
+                               f"{ag_t['mean_rel']:10.3e} {ag_t['per_head_max']:10.3e} "
+                               f"{str(ag_t['ndiff']) + '/' + str(ag_t['n']):>14}")
+                for arm in probe_arms_for(p.kind, p.source):
+                    t = stage_tensors[p.key][arm][stage]
+                    ag = aggregates(t, anch[stage], name=f"{p.key}/{arm}/{stage}", stage=stage,
+                                    anchor=anch[stage])
+                    # A bf16 row that came back with ndiff 0 measured nothing: the two sides
+                    # may differ below the bf16 quantum and this comparator cannot see it, so
+                    # the row is excluded from the maximum and from the licence rather than
+                    # folded in as a 0 (`pitfalls/30` §byte-identity claims state the width).
+                    in_band = not (t.dtype is torch.bfloat16 and ag["ndiff"] == 0)
+                    rec = {"block": block.name, "pass": p.key, "arm": arm, "stage": stage,
+                           "anchor": PROBE_ANCHOR, "aggregates": ag, "in_band": in_band,
+                           "bf16_storage": t.dtype is torch.bfloat16,
+                           "source": p.source, "kind": p.kind}
+                    records.append(rec)
+                    if in_band:
+                        aw = arm_worst.setdefault(stage, {k: 0.0 for k in BAND_FACTORS})
+                        for k in BAND_FACTORS:
+                            aw[k] = max(aw[k], ag[k])
+                    emit("probe", f"  {p.key:<44} {arm:<12} {stage:<10} "
+                                  f"{ag['dtype'].replace('torch.', ''):<8} "
+                                  f"{ag['max_abs']:10.3e} {ag['one_minus_cos']:10.3e} "
+                                  f"{ag['mean_rel']:10.3e} {ag['per_head_max']:10.3e} "
+                                  f"{str(ag['ndiff']) + '/' + str(ag['n']):>14} "
+                                  f"{'folded' if in_band else 'excluded:bf16-ndiff0'}")
+        del w
+
+    # ---- fold, write, re-read through the same reader a future gate will use
+    band = band_from_probe(records, stages=probed)
+    doc = {"band_derivation": "triangle-inequality-on-floor-probe",
+           "produced_by": "speccheck/gdn_ref.py --floor-probe",
+           "command": " ".join(sys.argv), "date": PROBE_DATE,
+           "interpreter": {"executable": sys.executable, "torch": torch.__version__},
+           "anchor": {"form": PROBE_ANCHOR, "twin": PROBE_ANCHOR_TWIN,
+                      "scan_inputs": "f64 (enter_scan) — an f32 anchor would measure 0"},
+           "arms": {"oracle": list(PROBE_ARMS), "pinned": ARM_PINNED,
+                    "dispatch_rule": "specification/04b-gdn-chunked-form.md §04b.1: a decode "
+                                     "step is measured under the recurrent family only"},
+           "manifest": {"path": str(PROBE_MANIFEST.relative_to(REPO)),
+                        "sha256": hashlib.sha256(PROBE_MANIFEST.read_bytes()).hexdigest(),
+                        "records": manifest["counts"]["dumps"],
+                        "bytes": manifest["bytes"]["declared_records"]},
+           "files_read": len(files_read),
+           "files_read_sha256": [{"file": f, "sha256": s} for f, s, _b, _d in files_read],
+           "population": {"blocks": len(blocks), "passes": exp_passes,
+                          "arm_pass_pairs": exp_arm_pass, "stages_probed": list(probed),
+                          "probe_records": exp_records, "cross_form_rows": exp_crossform,
+                          "anchor_rows": exp_anchor_rows, "files": exp_files},
+           "band": band,
+           "unverified_stages": [e["item"] for e in probe_unverified(probed)]}
+    out_path = Path(args.band_out)
+    if not out_path.is_absolute():
+        out_path = REPO / out_path
+    if out_path.resolve() != BAND_PATH.resolve():
+        # A band written off the evidence path is a scratch artifact, and saying so IN the file is
+        # what keeps `--band-out tmp/x.json` from producing a document that reads like the pinned
+        # one. It is not a permission: the section that credits a band loads BAND_PATH, and
+        # load_band() runs the same arithmetic on either file.
+        doc["scratch_artifact"] = {
+            "written_to": str(out_path.relative_to(REPO)),
+            "pinned_band": str(BAND_PATH.relative_to(REPO)),
+            "why": "--band-out pointed outside speccheck/evidence/, so this copy is a scratch "
+                   "artifact: its numbers are re-derivable and load_band() checks them, but no "
+                   "verdict is credited from this path and it must not be cited as the pinned band",
+        }
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(doc, indent=1, sort_keys=False) + "\n")
+    band_digest = hashlib.sha256(json.dumps(
+        band, sort_keys=True).encode()).hexdigest()[:16]
+    band = load_band(out_path)
+    print(f"\n### band — written to {out_path.relative_to(REPO)} and re-read through load_band() "
+          f"(digest {band_digest}); every number in it is `probe x factor`, never typed"
+          + ("" if out_path.resolve() == BAND_PATH.resolve() else
+             " — SCRATCH COPY, marked as one inside the file; the credited band is "
+             f"{BAND_PATH.relative_to(REPO)}"))
+    emit("hdr_band", f"  {'stage':<10} {'arm-count':>9} {'pass-count':>10} {'records':>7} "
+                     f"{'probe maxabs':>13} {'band maxabs':>12} {'probe 1-cos':>12} "
+                     f"{'band 1-cos':>11} {'probe meanrel':>14} {'band meanrel':>13} "
+                     f"{'licensed rows':>13}")
+    for st in probed:
+        ent = band[st]
+        emit("band", f"  {st:<10} {len(ent['arms']):>9} {len(ent['passes']):>10} "
+                    f"{ent['records']:>7} {ent['probe']['max_abs']:13.3e} "
+                    f"{ent['max_abs']:12.3e} {ent['probe']['one_minus_cos']:12.3e} "
+                    f"{ent['one_minus_cos']:11.3e} {ent['probe']['mean_rel']:14.3e} "
+                    f"{ent['mean_rel']:13.3e} {len(ent['licensed_rows']):>13}"
+                    + ("  UNLICENSED: " + ent["unlicensed_because"]
+                       if "unlicensed_because" in ent else ""))
+    # ---- the anchor's own credibility, measured. `specification/04-gdn-linear-attention.md
+    # §04.6` says the two outer-product spellings are equivalent; that claim is what the band
+    # leans on, so it is put under test rather than quoted: the f64 twin must never be further
+    # from the anchor than the WORST F32 arm at that stage. If it is, an f64 anchor buys nothing
+    # and a band derived from it bounds nothing.
+    print("\n### anchor credibility — Form(exact_matrix) against Form(exact), per stage, against "
+          "the worst F32 arm's own distance to the anchor")
+    emit("hdr_cred", f"  {'stage':<10} {'twin maxabs':>12} {'arm maxabs':>12} "
+                     f"{'twin meanrel':>13} {'arm meanrel':>13} {'ok':>5} "
+                     f"{'twin rows differing':>20}")
+    twin_diff_rows = 0
+    for st in probed:
+        tw = anchor_worst.get(st, {k: 0.0 for k in BAND_FACTORS})
+        ar = arm_worst.get(st, {k: 0.0 for k in BAND_FACTORS})
+        ndiff_twin = sum(1 for (_k, s, a) in anchor_rows if s == st and a["ndiff"] > 0)
+        twin_diff_rows += ndiff_twin
+        ok = all(tw[key] <= ar[key] for key in BAND_FACTORS)
+        emit("cred", f"  {st:<10} {tw['max_abs']:12.3e} {ar['max_abs']:12.3e} "
+                     f"{tw['mean_rel']:13.3e} {ar['mean_rel']:13.3e} "
+                     f"{'YES' if ok else 'NO':>5} {ndiff_twin:>20}")
+        if not ok:
+            bad = [key for key in BAND_FACTORS if tw[key] > ar[key]]
+            fails.append(f"anchor credibility: the f64 twin `{PROBE_ANCHOR_TWIN}` sits further "
+                         f"from the anchor on `{st}` ({', '.join(bad)}) than the worst F32 arm "
+                         "does — an f64 anchor that bounds nothing cannot license a band, so "
+                         "this run yields a finding rather than a wider band")
+    if twin_diff_rows == 0:
+        fails.append("anchor credibility: the two f64 forms were bit-identical on every one of "
+                     f"{exp_anchor_rows} rows, so the twin witnessed nothing — a counter that "
+                     "reads exactly 0 is vacuous until it has fired somewhere (pitfalls/40)")
+
+    # ---- adjudicate every cross-form row the licence actually grants, using the band as a
+    # future gate will read it (out of the file, through `load_band`).
+    # The licence's own denominator, derived a second way: a row is licensed exactly where BOTH
+    # arms have a FOLDED record at that pass, so this counts pairs out of the record list rather
+    # than out of the band file the licence is read from. `band_from_probe` and this must agree
+    # without either one being read back off the other (`pitfalls/40` §an unnamed denominator).
+    arms_folded = {}
+    for r in records:
+        if r["in_band"]:
+            arms_folded.setdefault((r["pass"], r["stage"]), set()).add(r["arm"])
+    exp_licensed = sum(len(a) * (len(a) - 1) // 2 for a in arms_folded.values())
+    if sum(len(band[st]["licensed_rows"]) for st in probed) != exp_licensed:
+        fails.append("the band file's licensed-row set does not equal the population derived "
+                     f"from the folded records ({sum(len(band[st]['licensed_rows']) for st in probed)} "
+                     f"vs {exp_licensed}): the licence and the measurement disagree")
+    print(f"\n### cross-form adjudication — every row the licence grants, measured arm-to-arm "
+          f"against the shared f64 anchor and judged by the band re-read from {out_path.name}")
+    emit("hdr_xform", f"  {'pass':<44} {'arms':<26} {'stage':<10} {'maxabs':>10} "
+                      f"{'1-cos':>10} {'meanrel':>10} {'perhead':>10} {'ndiff/n':>14} verdict")
+    licensed_printed, unlicensed, accepted = 0, [], 0
+    for p in passes:
+        arms = sorted(probe_arms_for(p.kind, p.source))
+        anch = anchors[p.block][p.key][PROBE_ANCHOR]
+        for stage in probed:
+            for i, a in enumerate(arms):
+                for b in arms[i + 1:]:
+                    ok, why = band_licenses(band, p.key, stage, a, b)
+                    key = cross_form_key(p.key, a, b)
+                    if not ok:
+                        unlicensed.append((p.key, stage, key, why))
+                        continue
+                    ag = aggregates(tensors_all[p.block][p.key][a][stage],
+                                    tensors_all[p.block][p.key][b][stage],
+                                    name=f"{key}/{stage}", stage=stage, anchor=anch[stage])
+                    good, why2 = band_check_row(band, stage, ag)
+                    licensed_printed += 1
+                    cross_rows.append((p.key, stage, key, ag, good))
+                    if good:
+                        accepted += 1
+                    else:
+                        fails.append(f"cross-form {key} on `{stage}` is outside the band this "
+                                     f"very probe derived: {why2} — the triangle inequality "
+                                     "failed, which is a finding, not a band to widen")
+                    emit("xform", f"  {p.key:<44} {a + '|' + b:<26} {stage:<10} "
+                                  f"{ag['max_abs']:10.3e} {ag['one_minus_cos']:10.3e} "
+                                  f"{ag['mean_rel']:10.3e} {ag['per_head_max']:10.3e} "
+                                  f"{str(ag['ndiff']) + '/' + str(ag['n']):>14} "
+                                  f"{'ACCEPT' if good else 'REJECT'}")
+    print(f"  licensed rows adjudicated {licensed_printed}, all ACCEPTed {accepted}, "
+          f"unlicensed (named, not silently absent) {len(unlicensed)}")
+    for (pk, stage, key, why) in unlicensed[:20]:
+        print(f"    NOT ESTABLISHED {pk} {stage} {key}: {why}")
+    if licensed_printed == 0:
+        fails.append("0 cross-form rows were licensed: a band that licenses nothing cannot be "
+                     "the evidence for a banded verdict, and `load_band` would have refused it")
+
+    # §The sabotage witnesses. The probe's own input — a pinned dump tensor, in the field the
+    # band is meant to license — is perturbed two ways and the SAME adjudicator must accept the
+    # 1-ULP nudge and reject the band-exceeding one. Only one of the two directions is a test on
+    # its own: an adjudicator that rejects everything passes the second and fails the first, and
+    # one that accepts everything passes the first and fails the second, so both are required and
+    # neither is a note. The perturbation is applied to bytes held in memory after
+    # `read_dump_tensor` has hashed them; nothing here writes to the dump.
+    print("\n### sabotage witnesses — the probe's input perturbed, the accept/reject flip "
+          "watched in both directions")
+    emit("hdr_sab", f"  {'block':<7} {'kind':<7} {'pass':<38} {'stage':<10} {'delta':>11} "
+                    f"{'ndiff vs clean':>15} {'maxabs vs anchor':>17} verdict  must")
+    for block in blocks:
+        cand = [st for st in probed
+                if band[st]["licensed_rows"] and band[st]["max_abs"] > 0.0
+                and not band[st]["bf16_storage"]]
+        if not cand:
+            cand = [st for st in probed if band[st]["licensed_rows"] and band[st]["max_abs"] > 0]
+        if not cand:
+            fails.append(f"{block.name}: no licensed stage of this block has a positive max_abs "
+                         "band, so the reject direction of the sabotage cannot be witnessed and "
+                         "the band would be an untested claim")
+            continue
+        stage = max(cand, key=lambda s: (not band[s]["bf16_storage"], band[s]["mean_rel"],
+                                         band[s]["max_abs"], s))
+        here = [r for r in records if r["block"] == block.name and r["stage"] == stage
+                and r["arm"] == ARM_PINNED]
+        if not here:
+            fails.append(f"{block.name}: no pinned record for {stage}; nothing to perturb")
+            continue
+        target = max(here, key=lambda r: (r["aggregates"]["mean_rel"], r["pass"]))
+        p = next(q for q in passes if q.key == target["pass"])
+        mode = "prefill" if p.kind == "prefill" else f"decode{p.step}"
+        rec = next(r for r in manifest["dumps"] if r["block"] == block.name
+                   and r["mode"] == mode and r["tensor_key"] == stage)
+        clean_t = DG.read_dump_tensor(rec)
+        anch = anchors[block.name][p.key][PROBE_ANCHOR][stage]
+        flat = clean_t.reshape(-1)
+        idx = int(flat.abs().argmax().item())
+        v0 = float(flat[idx].item())
+        step = float((torch.nextafter(flat[idx], flat[idx] + 1.0) - flat[idx]).item())
+        if step <= 0.0 or step != step:
+            fails.append(f"{block.name}/{stage}: could not derive a 1-ULP step at the largest "
+                         f"element ({v0}); the perturbation would not be a 1-ULP perturbation")
+            continue
+        for kind, want, delta in (("ulp", "ACCEPT", step),
+                                 ("exceed", "REJECT", 4.0 * band[stage]["max_abs"] + step)):
+            t = clean_t.clone()
+            with torch.no_grad():
+                t.reshape(-1)[idx] = v0 + delta
+            ag_move = aggregates(t, clean_t, name=f"sab/{kind}", stage=stage, anchor=clean_t)
+            ag = aggregates(t, anch, name=f"sab/{kind}", stage=stage, anchor=anch)
+            good, why = band_check_row(band, stage, ag)
+            verdict = "ACCEPT" if good else "REJECT"
+            emit("sab", f"  {block.name:<7} {kind:<7} {p.key:<38} {stage:<10} {delta:11.3e} "
+                        f"{str(ag_move['ndiff']) + '/' + str(ag_move['n']):>15} "
+                        f"{ag['max_abs']:17.3e} {verdict:<8} {want}")
+            cross_rows.append((p.key, stage, f"sabotage-{kind}", ag, good))
+            if verdict != want:
+                fails.append(f"{block.name}/{kind} sabotage on {stage}: the adjudicator said "
+                             f"{verdict}, required {want} ({why}) — an accept/reject flip that "
+                             "is not watched in BOTH directions proves nothing")
+            if ag_move["ndiff"] != 1:
+                fails.append(f"{block.name}/{kind} sabotage on {stage}: moved "
+                             f"{ag_move['ndiff']} element(s), required exactly 1 — the sabotage "
+                             "did not do what it claims, so the verdict below is unattributed")
+            # the digest gate is what keeps a perturbed dump off disk out of the band: hash the
+            # perturbed bytes and show the manifest refuses them, then show what the band WOULD
+            # have become had the poisoned row been folded in.
+            poison = hashlib.sha256(
+                (t.view(torch.uint16) if t.dtype is torch.bfloat16
+                 else t).contiguous().numpy().tobytes()).hexdigest()
+            digest_ok = poison != rec["sha256"]
+            loose = band_from_probe(records + [dict(target, aggregates=ag)], stages=probed)
+            grew = loose[stage]["max_abs"] > band[stage]["max_abs"]
+            print(f"    {kind}: sha256 of the perturbed bytes {poison[:16]}… refused by the "
+                  f"manifest digest {rec['sha256'][:16]}…: {digest_ok}; folding that row into "
+                  f"the probe would have moved the `{stage}` max_abs band from "
+                  f"{band[stage]['max_abs']:.3e} to {loose[stage]['max_abs']:.3e} "
+                  f"({loose[stage]['max_abs'] / max(band[stage]['max_abs'], 1e-300):.1f}x looser) "
+                  f"— so the band is a function of the probe's input, and the sha256 that runs "
+                  f"before any measurement is what keeps it honest")
+            if not digest_ok:
+                fails.append(f"{block.name}/{kind}: the perturbed bytes hashed the same as the "
+                             "pinned file; the integrity gate cannot be doing what it claims")
+            if kind == "exceed" and not grew:
+                fails.append(f"{block.name}: a poisoned dump did NOT loosen the band, so the "
+                             "band is not being derived from the probe after all")
+    if printed.get("sab", 0) != exp_sabotages:
+        fails.append(f"sabotage rows printed {printed.get('sab', 0)}, derived {exp_sabotages} "
+                     "(2 per block: the accept side and the reject side)")
+    after = hashlib.sha256(json.dumps(band, sort_keys=True).encode()).hexdigest()[:16]
+    if after != band_digest:
+        fails.append("the band changed between being written and the end of the run; a sabotage "
+                     "witness relicensed something, which is exactly what must not happen")
+
+    # ---- every table against its own denominator, and the parsed record lists against the
+    # printed line counts (`pitfalls/40` §a check that produces no output cannot fail).
+    print("\n## populations — printed lines, parsed records, derived denominator")
+    checks = [("recon", len(recon_rows), exp_recon),
+              ("probe", len(records), exp_records),
+              ("anchor", len(anchor_rows), exp_anchor_rows),
+              ("xform", len([c for c in cross_rows
+                             if not c[2].startswith("sabotage-")]), licensed_printed),
+              ("cred", len(probed), len(probed)),
+              ("band", len(probed), len(probed)),
+              ("sab", len([c for c in cross_rows if c[2].startswith("sabotage-")]),
+               exp_sabotages)]
+    for name, parsed, want in checks:
+        got = printed.get(name, 0)
+        ok = got == parsed == want
+        print(f"  {name:<8} printed {got:>6} parsed {parsed:>6} derived {want:>6}  "
+              f"{'ok' if ok else 'MISMATCH'}")
+        if not ok:
+            fails.append(f"count {name}: printed {got}, parsed {parsed}, derived {want} — a "
+                         "section whose rows do not equal its own denominator compared nothing "
+                         "for the rest")
+    files_total = sum(b for _f, _s, b, _d in files_read)
+    print(f"  files    hashed {len(files_read)} derived {exp_files} "
+          f"({files_total:,} B read, every one sha256-checked before it was measured)")
+    if len(files_read) != exp_files:
+        fails.append(f"files read {len(files_read)} != derived {exp_files}: a file the probe "
+                     "needed was never hashed, or it hashed one the population does not name")
+    print(f"  arm-pass pairs {exp_arm_pass} over {exp_passes} passes on {len(blocks)} blocks; "
+          f"stages probed {len(probed)} of {len(STAGES)}; licensed cross-form rows adjudicated "
+          f"{licensed_printed} of derived {exp_licensed}")
+    if licensed_printed != exp_licensed:
+        fails.append(f"licensed rows {licensed_printed} != derived {exp_licensed}: the licence "
+                     "and the population disagree about what was measured")
+
+    print("\n## UNVERIFIED by this probe — named, because an absent row reads as agreement")
+    for e in probe_unverified(probed):
+        print(f"  NOT ESTABLISHED: {e['item']}")
+        print(f"      why: {e['why']}")
+        print(f"      closes when: {e['closes_when']}")
+    for st in probed:
+        if "unlicensed_because" in band[st]:
+            print(f"  NOT ESTABLISHED: a banded licence for `{st}`")
+            print(f"      why: {band[st]['unlicensed_because']}")
+    if not probe_unverified(probed):
+        fails.append("probe_unverified() printed nothing: a probe that can floor every stage "
+                     "has started measuring shared code")
+    print("# no band, floor or route allowance was imported from another project or model "
+          "(AGENTS.md §Traps that do NOT transfer); this band is this checkpoint's, from these "
+          "pinned rows.")
+    print(f"# band factors (the triangle inequality, not taste): {BAND_FACTORS}")
+    return fails
+
+
 def section_compare_hf(g: GdnGeometry, args, blocks=None, sabotage: str = "") -> list:
+
     fails = []
     blocks = blocks if blocks is not None else [
         Block.parse(s) for s in args.blocks.split(",") if s.strip()]
@@ -2842,11 +3835,17 @@ def section_compare_hf(g: GdnGeometry, args, blocks=None, sabotage: str = "") ->
         # adjective, are what the NOT_ESTABLISHED entry for this arm carries.
         runs, why = bf16_solve_supported()
         print(f"\n### {block.name} the scan_in_bf16 arm — bf16 scan storage, F32 UT solve. "
-              f"Adjudicated: containment inside the contract. NOT adjudicated: agreement.")
+              f"Adjudicated: containment inside the contract, the storage/propagation split, "
+              f"and the attribution below. NOT adjudicated: agreement.")
         print(f"   a bf16 `solve_triangular` on this backend: "
-              f"{'runs' if runs else 'UNAVAILABLE (' + why + ')'}; the arm therefore solves in "
-              f"F32 and casts back (§04.4, §04b.4 — the reference's own width). The width of the "
-              f"scan STORAGE is the arm's real effect and is measured below.")
+              f"{'runs' if runs else 'UNAVAILABLE — ' + why}. That is not why the arm differs: "
+              f"torch's CPU backend has no BFloat16 kernel for `triangular_solve`, so the arm "
+              f"does the solve the way the reference does it — F32, cast back to the scan's "
+              f"storage width — per `specification/04-gdn-linear-attention.md §04.4`'s "
+              f"scan-dtype row and `specification/04b-gdn-chunked-form.md §04b.4` "
+              f"(`torch_chunk_gated_delta_rule` casts q/k/v/beta/decay to float32 at the scan "
+              f"entry and solves in float32). The width of the scan STORAGE is the arm's real "
+              f"effect and is measured below; a bf16 SOLVE remains NOT ESTABLISHED.")
         for mode, fx, theirs in (("prefill", fx_pf, hf_pf["prefill"]),
                                  ("decode", fx_dec, hf_dec["decode"][-1])):
             xp, xs = fixture_input(g, fx)
@@ -2892,6 +3891,100 @@ def section_compare_hf(g: GdnGeometry, args, blocks=None, sabotage: str = "") ->
                           f"{_fmt_maxabs(d['max_abs'])} (NOT a bit-identity claim)")
             print(f"    containment: moved {len(caught)}/{len(STAGES)} stages, all inside the "
                   f"contract: {bool(caught) and not leak}; outside: {','.join(leak) or '-'}")
+
+            # §The disposition of this arm, decided by measurement rather than by argument.
+            # The question the lane owed: the arm declares it touches the scan, and it moves
+            # SEVEN stages. Either the declaration is wrong, or a bf16 scan really does propagate
+            # past its own boundary. Those are not distinguishable by the containment check
+            # above — it only asks whether the moves are inside the licence, and the licence is
+            # the arm's own contract, so a wrong licence would be witnessed as containment too.
+            # What distinguishes them is WHETHER THE MOVES ARE EXPLAINED, so this asks it:
+            #   (a) split the moved stages into the ones whose STORAGE width the arm changed
+            #       (bf16 where the reference keeps f32) and the ones whose bytes moved while
+            #       their dtype did not;
+            #   (b) feed the reference's own `core_attn` bytes through the ARM's downstream
+            #       (`gated_norm` then `out_proj`) and require the reference's `normed` and `y`
+            #       back bit for bit. If they come back identical, the arm's downstream is a
+            #       faithful function of its input and contributes nothing to the disagreement,
+            #       which leaves only the scan's storage width as the cause — the bf16 path
+            #       propagates, and a contract that claimed otherwise was the wrong contract.
+            #   (c) the converse: the ARM's `core_attn` through the CLEAN downstream must
+            #       reproduce the arm's own `normed`/`y`, or the arm is doing something besides
+            #       storing the scan narrow.
+            stored, propagated, untouched = [], [], []
+            for stage in STAGES:
+                a, b = ours_arm[stage], theirs[stage]
+                if a.shape != b.shape:
+                    fails.append(f"{block.name}/{mode}/scan_in_bf16/{stage}: shape moved")
+                    continue
+                moved, _mx = stage_moved(a, b)
+                if a.dtype != b.dtype:
+                    stored.append(stage)
+                elif moved:
+                    propagated.append(stage)
+                else:
+                    untouched.append(stage)
+            want_stored = [s for s in STAGES if s in SCAN_LOCAL_STAGES]
+            want_prop = [s for s in STAGES if s in downstream_closure(SCAN_LOCAL_STAGES)
+                         and s not in SCAN_LOCAL_STAGES]
+            print(f"    split: {len(stored)} stored narrow "
+                  f"{','.join(stored) or '-'}\n           "
+                  f"{len(propagated)} value-only (dtype unchanged, bytes moved) "
+                  f"{','.join(propagated) or '-'}\n           "
+                  f"{len(untouched)} bit-identical, including every pre-scan stage: "
+                  f"{','.join(untouched)}")
+            counts["bf16_split"] = counts.get("bf16_split", 0) + 1
+            if sorted(stored) != sorted(want_stored):
+                fails.append(f"{block.name}/{mode}/scan_in_bf16: the stages whose STORAGE width "
+                             f"the arm changed are {stored}, not the scan-local {want_stored} — "
+                             "bf16 reached a tensor §04.4's scan-dtype row does not cover, so "
+                             "the contract IS wrong, not merely wide")
+            if sorted(propagated) != sorted(want_prop):
+                fails.append(f"{block.name}/{mode}/scan_in_bf16: the value-only movers are "
+                             f"{propagated}, expected the downstream closure {want_prop}")
+            if not propagated:
+                fails.append(f"{block.name}/{mode}/scan_in_bf16: NOTHING propagated — the "
+                             "claim that a bf16 scan reaches the gated norm and out_proj is "
+                             "unwitnessed on this shape, and the arm's 7-stage contract would be "
+                             "licensed by a closure nobody measured")
+            if [s for s in untouched if s not in SCAN_WIDTH_STAGES] != \
+                    [s for s in STAGES if s not in SCAN_WIDTH_STAGES]:
+                fails.append(f"{block.name}/{mode}/scan_in_bf16: a stage upstream of the scan "
+                             "moved — bf16 propagated BACKWARDS, which is a different finding "
+                             "than propagation and a worse one")
+            # (b) the reference's core_attn through the arm's downstream.
+            rb_norm = gated_norm(theirs["core_attn"], theirs["z"], w, g, NO_FAULTS)
+            rb_out = out_proj(rb_norm["normed"], w, g, NO_FAULTS)
+            for stage, ref_t in (("normed", theirs["normed"]), ("y", theirs["y"])):
+                d = _bit_diff(rb_norm["normed"] if stage == "normed" else rb_out["y"], ref_t)
+                counts["bf16_attrib"] = counts.get("bf16_attrib", 0) + 1
+                print(f"    attribution: the reference's own core_attn through the oracle's "
+                      f"gated_norm+out_proj reproduces its {stage}: "
+                      f"{'YES bit-for-bit' if d['bit_identical'] else 'NO'} "
+                      f"(ndiff {d['ndiff']}/{d['n']}, maxabs {_fmt_maxabs(d['max_abs'])})")
+                if not d["bit_identical"]:
+                    fails.append(f"{block.name}/{mode}/scan_in_bf16: given IDENTICAL core_attn "
+                                 f"bytes the downstream does not reproduce the reference's "
+                                 f"{stage} (ndiff {d['ndiff']}/{d['n']}) — the disagreement in "
+                                 "this stage is therefore NOT explained by the scan's storage "
+                                 "width, and the arm cannot be disposed of as propagation")
+            # (c) the arm's own core_attn through the clean downstream must give the arm's own
+            # normed/y back: the arm stores narrow, it does not compute differently.
+            rb2_norm = gated_norm(ours_arm["core_attn"], ours_arm["z"], w, g, NO_FAULTS)
+            rb2_out = out_proj(rb2_norm["normed"], w, g, NO_FAULTS)
+            for stage in ("normed", "y"):
+                d = _bit_diff(rb2_norm["normed"] if stage == "normed" else rb2_out["y"],
+                              ours_arm[stage])
+                counts["bf16_attrib"] = counts.get("bf16_attrib", 0) + 1
+                if not d["bit_identical"]:
+                    fails.append(f"{block.name}/{mode}/scan_in_bf16: the arm's {stage} is not "
+                                 "the clean downstream applied to the arm's own core_attn — the "
+                                 "arm changes more than the scan's storage width")
+            print(f"    disposition: containment {'HELD' if not leak else 'BROKEN'}; the "
+                  f"{len(propagated)} non-scan movers are {len(propagated)} stages of "
+                  f"DOWNSTREAM dataflow from the {len(stored)} stages the arm stores bf16, and "
+                  f"the downstream itself was shown faithful given identical input. "
+                  f"The bf16 scan propagates; the contract is the closure, not a guess.")
 
         # §The positive controls. Each must be REPORTED as a difference by the comparison above,
         # confined to the stages its contract licenses — the same `allowed_stages` table the
@@ -2950,6 +4043,8 @@ def section_compare_hf(g: GdnGeometry, args, blocks=None, sabotage: str = "") ->
     exp_seam = len(HF_SEAM_CHECKS) * (1 + fx_dec.n_steps) * len(blocks)
     exp_arm = 0 if sabotage else len(STAGES) * 2 * len(blocks)
     exp_arm_checks = 0 if sabotage else 2 * len(blocks)
+    exp_bf16_split = 0 if sabotage else 2 * len(blocks)
+    exp_bf16_attrib = 0 if sabotage else 4 * 2 * len(blocks)
     exp_controls = len(plan) * len(blocks)
     if sabotage:
         # A sabotage run is the main tables only: the controls are what a clean run uses to
@@ -2965,6 +4060,7 @@ def section_compare_hf(g: GdnGeometry, args, blocks=None, sabotage: str = "") ->
     for key, want in (("rows", exp_main), ("per_step_rows", exp_steps),
                       ("seam_rows", exp_seam), ("controls", exp_controls),
                       ("arm_rows", exp_arm), ("arm_checks", exp_arm_checks),
+                      ("bf16_split", exp_bf16_split), ("bf16_attrib", exp_bf16_attrib),
                       ("captures", exp_captures)):
         got = counts.get(key, 0)
         print(f"# count {key:<14} {got:>5} derived {want:>5}")
@@ -3007,6 +4103,21 @@ def section_compare_hf(g: GdnGeometry, args, blocks=None, sabotage: str = "") ->
         print(f"      closes when: {e['closes_when']}")
     if not HF_UNVERIFIED:
         fails.append("the UNVERIFIED list printed nothing")
+    print("\n## CLOSED, and re-witnessed rather than deleted — a closure nobody can re-check is "
+          "an opinion")
+    for e in HF_CLOSED:
+        for key in ("item", "was", "closed_by", "reopens_when"):
+            if not str(e.get(key, "")).strip():
+                fails.append(f"HF_CLOSED entry {e.get('item')!r} has an empty {key!r}")
+        holds, detail = _witness_draft_block_has_no_gdn()
+        print(f"  CLOSED: {e['item']}")
+        print(f"      was : {e['was']}")
+        print(f"      by  : {e['closed_by']}")
+        print(f"      live witness this run: {detail}")
+        print(f"      reopens if: {e['reopens_when']}")
+        if not holds:
+            fails.append(f"HF_CLOSED entry {e['item']!r} is no longer closed: {detail} — the "
+                         "entry has to come back into HF_UNVERIFIED")
     return fails
 
 
@@ -3018,6 +4129,14 @@ def main() -> int:
     ap.add_argument("--compare-hf", action="store_true",
                     help="the installed reference compared stage by stage, with its own "
                          "positive controls (--selftest runs it too)")
+    ap.add_argument("--floor-probe", action="store_true",
+                    help="the §10.3 floor probe: every legal arm and the pinned dump bytes "
+                         "against the f64 anchor, the band derived from the maxima, the "
+                         "cross-form rows licensed and adjudicated, and the probe's own input "
+                         "perturbed both ways to watch the accept/reject flip")
+    ap.add_argument("--band-out", default=str(BAND_PATH.relative_to(REPO)),
+                    help="where --floor-probe writes the band it derived (default: "
+                         "speccheck/evidence/gdn-band-2026-10-26.json)")
     ap.add_argument("--sabotage", default="", metavar="FAULT",
                     help="evidence only: run the HF comparison with the ORACLE side injected; "
                          "a run that differs nowhere is a FAILURE, and it never prints PASS")
@@ -3026,8 +4145,9 @@ def main() -> int:
     ap.add_argument("--only-fault", default="", help="debug only; prints a SUBSET banner")
     ap.add_argument("--only-fixture", default="", help="debug only; prints a SUBSET banner")
     args = ap.parse_args()
-    if not (args.selftest or args.compare_hf or args.sabotage):
-        print("SELFTEST FAIL: nothing selected (--selftest / --compare-hf / --sabotage)")
+    if not (args.selftest or args.compare_hf or args.sabotage or args.floor_probe):
+        print("SELFTEST FAIL: nothing selected (--selftest / --compare-hf / --floor-probe / "
+              "--sabotage)")
         return 1
     args.threads_used = R.set_threads(args.threads)
     g = load_gdn_geometry()
@@ -3036,8 +4156,12 @@ def main() -> int:
         fails += section_selftest(g, args)
     if args.selftest or args.compare_hf or args.sabotage:
         fails += section_compare_hf(g, args, sabotage=args.sabotage)
+    if args.floor_probe:
+        fails += section_floor_probe(g, args)
     if fails:
-        tag = "SABOTAGE RUN FAIL" if args.sabotage else "SELFTEST FAIL"
+        tag = "SABOTAGE RUN FAIL" if args.sabotage else (
+            "FLOOR PROBE FAIL" if args.floor_probe and not (args.selftest or args.compare_hf)
+            else "SELFTEST FAIL")
         print(f"\n{tag}")
         for f in fails:
             print("  - " + f)
@@ -3045,6 +4169,11 @@ def main() -> int:
     if args.sabotage:
         print(f"\nSABOTAGE RUN OK — Faults({args.sabotage}=True) was reported as a difference; "
               "this is not an agreement verdict and no timing was taken")
+        return 0
+    if args.floor_probe and not (args.selftest or args.compare_hf):
+        print("\nFLOOR PROBE PASS — the band is the probe's maxima times the triangle-inequality "
+              "factors, every licensed cross-form row was adjudicated inside it, and both "
+              "sabotage directions flipped; no timing was taken")
         return 0
     print("\nSELFTEST PASS — three arms over the derived matrix, and every HF row bit-identical "
           "with its positive controls firing; no timing taken")
