@@ -210,14 +210,26 @@ directory does not make.
 * **No GPU work of any kind.** No allocation, no copy, no kernel, no residency measurement. `engine/` is
   byte-accurate bookkeeping. The gate never invokes the stream lock and prints no rate figures, and it
   checks that nobody has added either.
-* **No data-section bytes were read in this certification run.** The probe arm (`engine/loader.py
-  --probe`, gate flag `--probe`) exists and computes byte-for-byte comparisons, but it spends the audit
-  selftest token, whose grant appends a line to `quantization/evidence/audit-ordering-2026-10-26.log` —
-  outside this lane's write boundary. It is reported `SKIPPED`, never `PASS`. Real block *sizes* are
-  nevertheless validated against the real file by the file-size identity (residue 0 B), not only by a
-  block table.
-* **`read_file_range` has not been exercised against the real data section in this run**, for the same
-  token reason; its range arithmetic is exercised by the fault arms that expect refusals.
+* **The data section has been read — by the probe arm, and it crashed first.** This bullet used to read
+  "No data-section bytes were read in this certification run", which was true when it was written: the
+  arm had never executed and the gate printed `SKIPPED`, never `PASS`. It was run on 2026-10-26 with the
+  audit selftest token earned by
+  `tools/audit_published_quant.py --selftest` (whose grant appends a line to
+  `quantization/evidence/audit-ordering-2026-10-26.log`), and the first execution died with
+  `AttributeError: 'TensorRecord' object has no attribute 'slab_off'` — a tensor's slab coordinate lives
+  on its *placement* (`layout.py §Placement.__slots__`), not on the record. Fixed by resolving
+  name → (slab_off, row) through the slabs. It now reports
+  `staging probe: marker selftest passed 2026-10-25T23:20:50Z; 464 runs planned, 90 sampled, 180 preads,
+  92160 B read, 0 short`, and the gate carries `probe-reads-real-bytes PASS n=180` at
+  `RESULT PASS checks=28 findings=0 arms=41`. Bytes are read and **counted, never interpreted**, and no
+  timing is taken. The certification command is therefore
+  `engine/gate.py --probe --keep-evidence engine/evidence/gate-run-2026-10-26.log`; without `--probe` the
+  arm is `SKIPPED` and the count is 27, which is an honest state, not a failure.
+* **What the probe still does not establish.** It reads a 512 B window at each end of 90 sampled runs —
+  not the 464 — and it never *executes* the staging plan, so `read_file_range`'s arithmetic is now
+  witnessed against real bytes at the sampled positions while the fault arms remain the only witness for
+  its refusals. Real block *sizes* are validated against the real file by the file-size identity
+  (residue 0 B), not only by a block table.
 * **The staging plan is a plan.** 464 runs / 23,812,820,480 B has never been executed, so what staging
   actually costs at peak is unconfirmed, and so is the allocation-*count* question §7 item 2 was written
   for. And the shape that would be executed is *not* the shape §7 item 2 proposes to probe: this plan is

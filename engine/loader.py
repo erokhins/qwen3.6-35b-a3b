@@ -430,14 +430,26 @@ class Loader:
                 if id(r) not in seen:
                     seen.add(id(r))
                     sample.append(r)
+        # A tensor's slab coordinate lives on its PLACEMENT, not on the TensorRecord (layout.py
+        # §Placement.__slots__ = rec, slab, slab_off, offsets, read_class, policy_type, policy_row),
+        # so resolve name -> (slab_off, row) through the slabs themselves. This was an AttributeError
+        # on the arm's first-ever execution: the loop below read rec.slab_off, which does not exist,
+        # and the arm had only ever printed SKIPPED, so nothing had ever reached this line.
+        placed = {}
+        for s in LAY.SLAB_ORDER:
+            for p in self.lay.slab(s).placements:
+                placed[p.rec.name] = (p.slab_off, p.rec.row)
         for li in range(self.cfg["L"]):
             for role in ("blk.N.ffn_gate_exps.weight", "blk.N.ffn_down_exps.weight"):
                 rec = self.by_name.get(role.replace("N", str(li)))
                 if rec is None:
                     continue
+                pos = placed.get(rec.name)
+                if pos is None:
+                    continue
+                off, row = pos
                 for r in runs:
-                    if (r["slab_off"] <= rec.slab_off
-                            and r["slab_off"] + r["length"] >= rec.slab_off + rec.row):
+                    if r["slab_off"] <= off and r["slab_off"] + r["length"] >= off + row:
                         if id(r) not in seen:
                             seen.add(id(r))
                             sample.append(r)

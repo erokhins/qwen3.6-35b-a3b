@@ -1,13 +1,13 @@
 RUN STARTED gate=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/engine/gate.py
-RUN STARTED argv=--keep-evidence engine/evidence/gate-run-2026-10-26.log
-RUN STARTED arms=40 checks=27 notes=41
+RUN STARTED argv=--probe --keep-evidence engine/evidence/gate-run-2026-10-26.log
+RUN STARTED arms=41 checks=28 notes=41
 
 NOTE  artifact-selftest                          exit=0 
 NOTE  layout-selftest                            exit=0 
 NOTE  loader-selftest                            exit=0 
 NOTE  loader-record-dump                         exit=0 
 NOTE  loader-sha256                              exit=0 
-NOTE  loader-probe                               SKIPPED (not PASS): needs --probe, which spends the audit selftest token by appending to quantization/evidence/audit-ordering-2026-10-26.log
+NOTE  loader-probe                               exit=0 
 NOTE  ruler-witness                              exit=0 
 NOTE  ruler-selftest                             exit=0 
 NOTE  inject add_draft_tensor (a mtp.* tensor claimed present) exit=1 
@@ -56,6 +56,7 @@ CHECK loader-trailer-agrees                      PASS n=17    trailer LOADER che
 CHECK record-dump-parse-equals-printed           PASS n=752   752 RECORD lines parsed; trailer parsed=752 printed=752; 752 = 733 gguf + 19 draft
 CHECK record-dump-names-unique                   PASS n=752   752 lines, 752 distinct names (a duplicate tensor name would be a second tensor nobody budgeted for)
 CHECK sha-vs-pin-on-a-real-hash                  PASS n=4     three committed digests plus a fresh full-file hash agree (ac0e2c1189e0…) and the audit record's verdict is PASS
+CHECK probe-reads-real-bytes                     PASS n=180   staging probe: marker selftest passed 2026-10-25T23:20:50Z; 464 runs planned, 90 sampled, 180 preads
 CHECK independent-ruler-witness                  PASS n=1     tools/gguf_width_table.py exit=0; the byte table is pinned by the file size
 CHECK independent-ruler-can-fail                 PASS n=3     the ruler's own 3 injected block-size faults all fired, so the identity above is not vacuous
 CHECK must-catch-all-fire                        PASS n=31    31/31 injections turned the named check red; silent none; wrong-check none
@@ -69,9 +70,9 @@ CHECK unbuilt-paths-raise                        PASS n=3     device_slabs() and
 CHECK handle-carries-an-address                  PASS n=1     handle() gives a kernel lane slab=weights.experts slab_off=184549376 length=150994944 file_off=1180930528 type=Q4_K class=per_token_gathered
 CHECK no-constant-predicates                     PASS n=29    29 v.check() calls in gate.py, 0 of them with a literal-True/False predicate (pitfalls/40 §a-check-whose-predicate-is-True)
 CHECK no-device-or-lock-references               PASS n=5     5 engine files scanned: no stream-lock invocation, no HIP import, no allocation call -- this gate takes no device lock because it touches no iGPU; failures {}
-CHECK no-rate-figures-in-output                  PASS n=40    40 arm transcripts scanned for tok/s, GB/s, MB/s, ms, elapsed or duration: none
+CHECK no-rate-figures-in-output                  PASS n=41    41 arm transcripts scanned for tok/s, GB/s, MB/s, ms, elapsed or duration: none
 CHECK readme-carries-the-claims                  PASS n=5     engine/README.md is 259 lines and names every claim this gate enforces; missing nothing
-RESULT PASS checks=27 findings=0 notes=41 arms=40 evidence=engine/evidence/gate-run-2026-10-26.log
+RESULT PASS checks=28 findings=0 notes=41 arms=41 evidence=engine/evidence/gate-run-2026-10-26.log
 
 === artifact-selftest
 $ PY engine/artifact.py
@@ -1183,6 +1184,80 @@ resident set, per budget (D-11: two questions, never one answer):
     (weights + the measured non-weight floor) resident=19.7848 GiB + allowance=6.2760 GiB = 26.0608 GiB | verdict=NOT-ADJUDICABLE (this budget's bound is unmeasured, so no fit claim is lawful)
 
 staging plan: 464 runs, 23812820480 B, slabs weights.experts=19568525312 B/120 runs, weights.attention=1359216640 B/90 runs, weights.shared=133693440 B/120 runs, weights.tables=957521920 B/2 runs, weights.exact=104581632 B/131 runs, weights.draft=1689281536 B/1 runs
+
+LOADER checks=17 passed=17 failed=0 faults=0
+
+
+=== loader-probe
+$ PY engine/loader.py --probe
+exit=0
+engine/loader.py — policy A's resident set
+
+checks — every registered check prints an outcome; n=0 cannot pass:
+  [PASS] ruler-parse-complete             n=733   second tokenizer parsed 733 records of 733 declared, 733 unique names, 733 printed by --records; header_end 10990035 alignment 32 (artifact.py read the same file with tools/gguf_reader.py and got 733)
+  [PASS] ruler-family-bytes-vs-artifact   n=5     per-family count and byte sum identical to artifact.py's for all 5 stored types
+  [PASS] ruler-records-vs-artifact        n=733   all 733 records agree on dims, stored type, data-section offset and row bytes across two tokenizers and two block tables
+  [PASS] data-start-arithmetic            n=4     data_start 10990048 = ceil(header_end 10990035 / 32) * 32 and every reader agrees: recomputed here 10990048, ruler header claim 10990048, artifact.py 10990048, pin 10990048
+  [PASS] file-size-identity               n=733   ruler sum(row_bytes) 22123538944 + data_start 10990048 == file size 22134528992 (residue +0 B); artifact.py reports the same identity on its own parse
+  [PASS] residency-set-complete           n=893   733 names match the set derived from the safetensors index x config shapes; 40 layers, each carrying one role set (full_attention x10, linear_attention x30); 120 routed records all carry 256 experts; 19 draft names
+  [PASS] width-veto-admits-artifact       n=752   752/752 tensors admitted; waivers exercised by ['output.weight']; refusals 0
+  [PASS] offsets-in-range                 n=752   every admitted tensor's byte range lies inside the file it is staged from (752 tensors, 22123538944 bytes of the 22134528992 B gguf)
+  [PASS] file-ranges-disjoint             n=750   750 adjacent record pairs in file order, no two claim the same byte
+  [PASS] final-range-complete             n=2     last record ends exactly at EOF in both files: Qwen3.6-35B-A3B-UD-Q4_K_M.gguf via blk.39.post_attention_norm.weight residue +0 B; mtp.safetensors via last draft span residue +0 B
+  [PASS] sha-vs-pin                       n=3     three committed digests agree (ac0e2c1189e0…) and the audit record's verdict is PASS
+  [PASS] q6k-layer-set                    n=40    ffn_down_exps: Q5_K x37, Q6_K x3 on layers [34, 38, 39], independently derived from this parse and identical to artifact.py's [34, 38, 39]
+  [PASS] width-delta-attributed           n=28    as-stored 22123538944 B minus policy-A modelled 20740587816 B = +1382951128 B, attributed in full: never-quantized roles stored wider +56985816 B, priced-above-policy roles +1449132032 B, the below-policy waiver -123166720 B, unexplained +0 B across 0 roles
+  [PASS] staging-plan-matches-ruler       n=464   464 copy runs carry 23812820480 B, equal to the 23812820480 B this loader priced itself; every run lies inside the file it reads from (maximal runs, so the allocation recipe gets 464 memcpys and not 752)
+  [PASS] expert-slices-addressable        n=122   120 gguf routed records x 5 sampled experts addressed and agreed with layout.py to the byte; 480 out-of-range refusals (4 per record, so the bound is witnessed, not assumed); 2 draft routed records refused as strided
+  [PASS] draft-requantize-not-wired       n=19    all 19 draft tensors refused staging: 1689281536 B of bf16 on disk would have to become 503143072 B of policy-A widths (+1.1047 GiB the requantizer owes) and no bf16 bytes were handed back
+  [PASS] budget-lines-separate            n=2     2 budgets printed with different bounds and their own evidence states: development bound 31.84 GiB (pessimistic end of a 31.84-33.88 bracket) [measured] -> FITS co-resident (<= the pessimistic bound); deployment bound ≥55.50 GiB [unmeasured] -> no verdict (unmeasured bound)
+
+artifact     models/unsloth-q4km/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf (22134528992 B), data_start 10990048, alignment 32
+draft block  models/w1-mtp-extract/mtp.safetensors (1689283656 B), 19 tensors
+
+stored families (second tokenizer):
+  Q4_K        80 tensors    12079595520 B   11.2500 GiB  4.5000 bpw
+  Q5_K        37 tensors     6828326912 B    6.3594 GiB  5.5000 bpw
+  Q8_0       251 tensors     2033254400 B    1.8936 GiB  8.5000 bpw
+  Q6_K         4 tensors     1077780480 B    1.0038 GiB  6.5625 bpw
+  F32        361 tensors      104581632 B    0.0974 GiB  32.0000 bpw
+  TOTAL      733 tensors    22123538944 B   20.6042 GiB
+
+width attribution: as-stored 22123538944 B (20.6042 GiB) vs policy-A modelled 20740587816 B (19.3162 GiB); delta +1382951128 B = never-quantized +56985816 B + priced-above-policy +1449132032 B + below-policy waiver -123166720 B + unexplained +0 B
+
+width rules: floor per family (policy A, derived bits/weight) routed_experts>=4.5000, gdn_linear_attn>=8.5000, full_attn>=8.5000, shared_experts>=8.5000, embed>=8.5000, lm_head>=8.5000, routers>=16.0000, norms_misc>=16.0000
+  below-floor waiver admitted by name: output.weight (narrower than the Q8_0 floor: 6.5625 bpw, 1.0037 GiB stored vs 1.2960 GiB modelled)
+  priced-above-policy, no waiver needed: blk.N.ffn_down_exps.weight (wider than the Q4_K floor: +1.3502 GiB across 40 layers)
+
+resident set, per budget (D-11: two questions, never one answer):
+  [development]
+    budget=development
+    budget-label=development, co-resident with the local serving container (halogen up)
+    basis=weights-only
+    resident=19.7848 GiB + allowance=0.0000 GiB = 19.7848 GiB
+    budget-bound=31.84 GiB (pessimistic end of a 31.84-33.88 bracket)
+    budget-bound-evidence=measured
+    budget-bound-basis=pool 55.5 granted / 57.5 refused (devices/measured-facts.md §"Residency above the pool") minus flash_serve's measured 22.62-23.66 GiB (§"The footprint has two readings"); the bracket is arithmetic on two measurements, not a guess
+    budget-rule=Design against 31.84 GiB, the pessimistic end. A row inside 31.84-33.88 GiB has no determinate answer today and must be treated as NOT fitting (quantization/residency-layout.md §1).
+    verdict=FITS co-resident (<= the pessimistic bound)
+      note=the number quoted is weights and nothing else
+    (weights + the measured non-weight floor) resident=19.7848 GiB + allowance=6.2760 GiB = 26.0608 GiB | verdict=FITS co-resident (<= the pessimistic bound)
+  [deployment]
+    budget=deployment
+    budget-label=deployment, with the serving container stopped (D-11: the engine owns the box)
+    basis=weights-only
+    resident=19.7848 GiB + allowance=0.0000 GiB = 19.7848 GiB
+    budget-bound=≥55.50 GiB
+    budget-bound-evidence=unmeasured
+    budget-bound-basis=≥55.5 GiB is an inference from D-02's co-resident probes, never observed with halogen stopped; the 48 GiB single-hipMalloc probe is still queued (quantization/residency-layout.md §7 item 1)
+    budget-rule=>=55.5 GiB is an inference from D-02's allocation probes, not an observation: the 48 GiB single-hipMalloc probe is still queued (quantization/residency-layout.md §7 item 1). Say "expected", never "measured", for this budget.
+    verdict=NOT-ADJUDICABLE (this budget's bound is unmeasured, so no fit claim is lawful)
+      note=the number quoted is weights and nothing else
+    (weights + the measured non-weight floor) resident=19.7848 GiB + allowance=6.2760 GiB = 26.0608 GiB | verdict=NOT-ADJUDICABLE (this budget's bound is unmeasured, so no fit claim is lawful)
+
+staging plan: 464 runs, 23812820480 B, slabs weights.experts=19568525312 B/120 runs, weights.attention=1359216640 B/90 runs, weights.shared=133693440 B/120 runs, weights.tables=957521920 B/2 runs, weights.exact=104581632 B/131 runs, weights.draft=1689281536 B/1 runs
+
+staging probe: marker selftest passed 2026-10-25T23:20:50Z; 464 runs planned, 90 sampled, 180 preads, 92160 B read, 0 short
 
 LOADER checks=17 passed=17 failed=0 faults=0
 
