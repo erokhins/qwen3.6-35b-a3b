@@ -54,3 +54,6 @@ compile_commands.json
 prototype/q4k_dequant/q4k_dequant
 prototype/q4k_dequant/host_probe
 prototype/q4k_dequant/work/
+prototype/moe_router/moe_router
+prototype/moe_router/host_probe
+prototype/moe_router/work/

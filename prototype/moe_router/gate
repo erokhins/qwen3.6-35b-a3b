@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# gate — the device gate for prototype/moe_router.
+#
+# THIS WRAPPER IS THE ONLY FILE IN THIS OP THAT ACQUIRES THE GPU LOCK. gate.py never does: a driver
+# that self-acquires and is called by a caller already holding the lock parks forever with no CPU,
+# no GPU, no message and no exit, and `gpu_lock.sh status` afterwards reads STALE
+# (pitfalls/50-harness-and-shell.md §"Self-locking gate drivers deadlock silently"). The check is
+# printed below at run time rather than remembered: `grep -c` for the lock tool in gate.py must be 0.
+#
+#   ./gate                 full device gate (correctness only, PASS/FAIL, under ~60 s)
+#   ./gate --selftest      host-only witnesses: no device, so no lock is taken
+#   ./gate --check-only    plan + driver structural verification: no device, so no lock is taken
+#   ./gate --max-rows N    cut the sampled rows (never the assertions) if the run looks too long
+#
+# No timing: this script takes no duration of the gate's own work. The wall-clock line it prints is
+# the lock record AGENTS.md asks a device run to carry (command line, wall time, util, and the
+# literal words "no timing taken"), not a measurement of the kernel.
+#
+# The whole transcript is also written into evidence/ (git-tracked), because work/*.log is gitignored:
+# without it nothing on disk records that the device run was correctness-only under the lock, and a
+# future session could not tell this from a timing run without trusting a worker's prose. The gate's
+# own verdict is tee'd, not piped — the driver's stdout still goes to work/driver.log and is parsed
+# from the file inside gate.py, and the exit code comes from PIPESTATUS[0], never from tee.
+set -uo pipefail
+
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REPO=$(cd "$HERE/../.." && pwd)
+LOCK="$REPO/tools/gpu_lock.sh"
+TAG="q36 W13 moe_router device gate"
+DAY=2026-10-26
+LOCKED=0
+
+MODE=device
+for a in "$@"; do
+  case "$a" in
+    --selftest|--check-only) MODE=host ;;
+  esac
+done
+
+EVDIR="$HERE/evidence"
+LOG="$EVDIR/moe-router-$MODE-$DAY.log"
+if mkdir -p "$EVDIR" 2>/dev/null && : > "$LOG" 2>/dev/null; then
+  :
+else
+  LOG=/dev/null          # an unwritable evidence dir must never stop the gate itself
+fi
+
+# Every line the wrapper says is both printed and recorded, so the lock transcript is the artifact.
+say() {
+  printf '%s\n' "$*"
+  printf '%s\n' "$*" >> "$LOG"
+}
+
+release() {
+  if [ "$LOCKED" = 1 ]; then
+    LOCKED=0
+    "$LOCK" release "$TAG" || say "gate: WARNING the lock release was refused; check $LOCK status"
+    say "LOCK released tag=$TAG"
+  fi
+}
+trap release EXIT INT TERM
+
+if [ ! -x "$HERE/moe_router" ] || [ ! -x "$HERE/host_probe" ]; then
+  say "gate: binaries missing, building (compile only, no device, no lock)"
+  "$HERE/build.sh" || { say "RESULT FAIL build"; exit 1; }
+fi
+
+say "LOCKREF gate.py references to the lock tool must be 0: $(grep -c 'gpu_lock' "$HERE/gate.py")"
+if [ "$MODE" = host ]; then
+  say "NO LOCK reason=host-only ($MODE): no device work, so the lock stays free for the main agent"
+  say "CMD python3 $HERE/gate.py $*"
+  python3 "$HERE/gate.py" "$@" 2>&1 | tee -a "$LOG"
+  rc=${PIPESTATUS[0]}
+  say "gate: host-only run complete rc=$rc"
+  say "LOG $LOG"
+  exit $rc
+fi
+
+ST=$("$LOCK" status)
+case "$ST" in
+  free) ;;
+  HELD*)
+    say "LOCK refused: $ST"
+    say "gate: another holder is live; refusing to queue a device run on top of it. Not run."
+    say "RESULT FAIL not-run lock-held"
+    exit 3
+    ;;
+  *)
+    say "LOCK status unreadable: $ST"
+    say "RESULT FAIL not-run lock-status"
+    exit 3
+    ;;
+esac
+
+if ! "$LOCK" acquire-noblock "$TAG"; then
+  say "LOCK refused: raced with another acquirer ($("$LOCK" status))"
+  say "RESULT FAIL not-run lock-race"
+  exit 3
+fi
+LOCKED=1
+say "LOCK acquired tag=$TAG status=$("$LOCK" status)"
+say "UTIL_BEFORE $("$LOCK" util)"
+say "CMD python3 $HERE/gate.py $*"
+START=$(date -u +%FT%TZ)
+python3 "$HERE/gate.py" "$@" 2>&1 | tee -a "$LOG"
+rc=${PIPESTATUS[0]}
+END=$(date -u +%FT%TZ)
+say "UTIL_AFTER $("$LOCK" util)"
+say "WALL started=$START finished=$END  (lock record only; no timing taken)"
+say "no timing taken"
+say "LOG $LOG"
+say "LOCK releasing"
+exit $rc
