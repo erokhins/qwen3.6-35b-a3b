@@ -1,0 +1,1744 @@
+#!/usr/bin/env python3
+"""gate.py — the judge for prototype/lm_head. It never touches the GPU lock and never touches a timer.
+
+    ./gate --selftest            host-only controls: the instruments that must be able to fail
+    ./gate --check-only          population + oracle + host arm + all judgements, no device, no lock
+    ./gate                       the same, plus the device arm and the three-arm agreement
+    ./gate --control NAME        a deliberately broken run (used by --selftest; must exit non-zero)
+    ./gate --max-rows N          cut the SAMPLED row count only; no class, mode or assertion moves
+
+`gate` (the shell wrapper) is the only acquirer of the repo's GPU lock tool, and it greps this file for
+any mention of that tool at run time: a driver that self-acquires and is called by a caller already
+holding the lock parks forever with no CPU, no GPU, no message and no exit
+(`pitfalls/50-harness-and-shell.md` §"Self-locking gate drivers deadlock silently").
+
+WHAT IS JUDGED, AND BY WHOM
+  * each arm's words against the oracle's words, inside the band the DATA derives
+    (gamma_K * sum_k |h_k||w_k|, K = terms summed, u = 2^-24) — `BAND`;
+  * bit identity, zero tolerance, between cases that share an association — `EXACT`:
+    batched vs per-row, gather vs dense, tied role A vs tied role B;
+  * injections: `FIRES` must move at least one word FURTHER than that band from its honest twin, and
+    `IMMUNE` must leave every word bit-identical to it. Which of the two a case is is DERIVED from the
+    materialised bytes here (`derive_class`), compared against what the plan declares, and a
+    disagreement is a finding. An immunity true by construction is not evidence, so every mode with an
+    immune arm must also have a firing arm somewhere in the same plan (`ALTREACH`);
+  * `BYTES` cases are judged on the read-set: bytes/loads/xorb/vsum/bsum/min/max/cross/peer_hits/lanes
+    are recomputed here from the slab bytes — the audited decoder for values, this file's own address
+    derivation — and required to equal what the driver printed. No counter is believed on the
+    driver's authority;
+  * host arm vs device arm vs oracle: the three-arm agreement, per class.
+
+WHAT EACH DIGEST PROVABLY SEES (results.md carries this table; one of them is provably blind):
+  oxor  XOR of the f32 bit images this case wrote        blind to any uniform XOR-cancelling change
+  osum  real sum of those words                          blind to a permutation of them
+  xorb  XOR of the decoded weight elements it loaded     BLIND to a uniform power-of-two rescale
+                                                         (measured: d=0.5 and d=1.0 both give 0xFF400000,
+                                                         tmp/worker-lm-head/probe10_digest.cpp)
+  vsum  INTEGER SUM of those same bit images             sees that rescale; carries the value verdict
+  bsum  sum of the RAW STORAGE byte values               sees layout, blind to any decode change
+Every parser asserts parsed == printed, and `--selftest` refuses a run whose judgement cannot go red.
+"""
+import argparse
+import ast
+import json
+import math
+import os
+import re
+import struct
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(os.path.dirname(HERE))
+DRIVER = os.path.join(HERE, "lm_head")
+PROBE = os.path.join(HERE, "host_probe")
+ORACLE = os.path.join(HERE, "oracle_arm.py")
+KERNELS_H = os.path.join(HERE, "lm_head_kernels.h")
+PLAN_H = os.path.join(HERE, "lm_head_plan.h")
+PY = "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python"
+CONFIG = os.path.join(REPO, "checkpoints", "Qwen3.6-35B-A3B.config.json")
+INDEX = os.path.join(REPO, "checkpoints", "Qwen3.6-35B-A3B.safetensors.index.json")
+SHARD_DIR = os.path.join(REPO, "models", "qwen36-src")
+GGUF = os.path.join(REPO, "models", "unsloth-q4km", "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf")
+DUMP_FILE = "layer39.combined_out.bin"          # [32, 2048] bf16, the pinned dump
+DUMP_DIR = os.path.join(REPO, "data", "dumps", "2026-10-26")
+LMH_TENSOR = "lm_head.weight"
+EMBD_TENSOR = "model.language_model.embed_tokens.weight"
+
+sys.path.insert(0, os.path.join(REPO, "tools"))
+import gguf_reader as GR                                       # audited decoder, used for the recount
+
+
+class Fail(Exception):
+    pass
+
+
+def run(cmd, log=None):
+    p = subprocess.run([str(x) for x in cmd], capture_output=True, text=True)
+    if log:
+        with open(log, "w") as fh:
+            fh.write(p.stdout + (("\n" + p.stderr) if p.stderr.strip() else ""))
+    return p.returncode, p.stdout
+
+
+def kv(line):
+    out = {}
+    for tok in line.split():
+        if "=" in tok:
+            k, _, v = tok.partition("=")
+            out[k] = v
+    return out
+
+
+def parse_tag(text, tag, keys, want=None):
+    """key=value records for a line tag. The value is any non-space token, so a word-valued field can
+    never be silently dropped (pitfalls/40 §"a key=value parser whose value pattern is numeric")."""
+    recs = []
+    for line in text.splitlines():
+        if line.startswith(tag + " ") or line == tag:
+            d = kv(line)
+            if not all(k in d for k in keys):
+                raise Fail("line tagged %s is missing %s: %r" % (tag, keys, line))
+            recs.append(d)
+    if want is not None and len(recs) != want:
+        raise Fail("parsed %d %s records, expected %d (a parser that matches nothing prints PASS)"
+                   % (len(recs), tag, want))
+    if not recs:
+        raise Fail("no %s records at all: this run adjudicated nothing" % tag)
+    return recs
+
+
+# ---------------------------------------------------------------------------------------------
+# the contract, scraped from the C++ the drivers compile. Nothing here is typed: a renumbered mode or
+# an added report column has to move in one commit with the gate or this file says so.
+# ---------------------------------------------------------------------------------------------
+def contract():
+    src = open(KERNELS_H).read()
+    plan = open(PLAN_H).read()
+    fc = {}
+    for tag in ("LMH_F_P", "LMH_F_T", "LMH_F_C", "LMH_F_R", "LMH_BLOCK", "LMH_SPLIT",
+                "LMH_MAX_BATCH", "LMH_Q8_0_ELTS", "LMH_Q8_0_BYTES", "LMH_BF16_BYTES",
+                "LMH_NAN_BITS", "LMH_PAD_BYTE"):
+        m = re.search(r"#define\s+%s\s+(0x[0-9A-Fa-f]+|\d+)" % tag, plan + "\n" + src)
+        if not m:
+            raise Fail("no #define %s with a numeric value in the lane headers" % tag)
+        fc[tag] = int(m.group(1), 0)
+    en = {}
+    for body in re.findall(r"enum\s*[A-Za-z_]*\s*\{([^}]*)\}", src, re.S):
+        for name, val in re.findall(r"\b(LMH_[A-Z0-9_]+)\s*=\s*(\d+)", body):
+            en[name] = int(val)
+    for want in ("LMH_ENC_BF16", "LMH_ENC_Q8_0", "LMH_ROLE_LMHEAD", "LMH_ROLE_EMBD",
+                 "LMH_ROLE_LMHEAD_Q8", "LMH_ROLE_TIED_LMHEAD", "LMH_ROLE_TIED_EMBD",
+                 "LMH_ROLE_SYNTH_DUP", "LMH_PATH_DENSE", "LMH_PATH_GATHER", "LMH_BATCH_BATCHED",
+                 "LMH_BATCH_PERROW", "LMH_ASSOC_SEQ", "LMH_ASSOC_REV", "LMH_ASSOC_SPLIT8",
+                 "LMH_MODE_CORRECT", "LMH_MODE_GATHER_ROW_OFF_1", "LMH_MODE_BATCH_SLOT_STRIDE",
+                 "LMH_MODE_TIED_ALIAS", "LMH_MODE_ROW_STRIDE_HEAD_DIM", "LMH_MODE_HALF_ACCUM",
+                 "LMH_MODE_DROP_LAST_K", "LMH_MODE_Q8_DROP_SCALE", "LMH_MODE_CROSS_TABLE_READ",
+                 "LMH_MODE_BATCH_RELOOPS", "LMH_MODE_COUNT", "LMH_EXP_EXACT", "LMH_EXP_BAND",
+                 "LMH_EXP_FIRES", "LMH_EXP_IMMUNE", "LMH_EXP_BYTES"):
+        if want not in en:
+            raise Fail("enum name %s not found in %s" % (want, KERNELS_H))
+    m = re.search(r"lmh_r_fields\[\]\s*=\s*\{([^}]*)\}", plan, re.S)
+    if not m:
+        raise Fail("no lmh_r_fields[] array in lm_head_plan.h: the report layout has no single source")
+    fields = re.findall(r"\"([^\"]+)\"", m.group(1))
+    if len(fields) != fc["LMH_F_R"] - 1:
+        raise Fail("lmh_r_fields has %d names, LMH_F_R says %d data fields"
+                   % (len(fields), fc["LMH_F_R"] - 1))
+    modes = sorted(n for n in en if n.startswith("LMH_MODE_") and n != "LMH_MODE_COUNT"
+                   and n != "LMH_MODE_CORRECT")
+    return fc, en, fields, modes
+
+
+def mode_token(mode_name):
+    """LMH_MODE_HALF_ACCUM -> 'half-accum': the fragment a driver self-test line must contain for that
+    mode. Derived from the header enum, so a mode nobody wrote a witness for is a red check rather than
+    a hole in a hand-typed list."""
+    return mode_name[len("LMH_MODE_"):].lower().replace("_", "-")
+
+
+def read_config():
+    cfg = json.load(open(CONFIG))
+    tc = cfg["text_config"]
+    if tc.get("tie_word_embeddings") or cfg.get("tie_word_embeddings"):
+        raise Fail("the config says the tables are TIED; this lane exists to test the untied case "
+                   "(README.md prediction 5) and refuses to gate a tied model by accident")
+    return dict(h=tc["hidden_size"], head_dim=tc["head_dim"], vocab=tc["vocab_size"],
+                n_layers=tc["num_hidden_layers"])
+
+
+# ---------------------------------------------------------------------------------------------
+# the population. One builder, one spelling of the geometry; both drivers, the oracle and every
+# judgement read what this writes rather than each re-deciding it.
+# ---------------------------------------------------------------------------------------------
+class Pop(object):
+    def __init__(self, cfg, fc, en):
+        self.cfg, self.fc, self.en = cfg, fc, en
+        self.tables = []
+        self.cases = []
+        self.sources = []
+        self.ids = []
+        self._idmap = {}
+        self.out_cursor = 0
+        self.n_hidden = 0
+        self.hidden_spec = []
+        self.slab_bytes = 0
+
+    def add_table(self, enc, role, real, v_rows, peer, kind, file=None, tensor=None, rows=None,
+                  nbytes=None, extra=None):
+        idx = len(self.tables)
+        h = self.cfg["h"]
+        if enc == self.en["LMH_ENC_Q8_0"]:
+            row_b = (h // self.fc["LMH_Q8_0_ELTS"]) * self.fc["LMH_Q8_0_BYTES"]
+        else:
+            row_b = h * self.fc["LMH_BF16_BYTES"]
+        t = dict(idx=idx, enc=enc, role=role, base=-1,
+                 nbytes=nbytes if nbytes is not None else v_rows * row_b, v_rows=v_rows, h=h,
+                 peer=peer, real=real, row_b=row_b, kind=kind, file=file, tensor=tensor,
+                 rows=list(rows or []), extra=dict(extra or {}))
+        self.tables.append(t)
+        src = dict(idx=idx, kind=kind, enc=("Q8_0" if enc == self.en["LMH_ENC_Q8_0"] else "BF16"),
+                   real=real)
+        if file:
+            src.update(file=file, tensor=tensor, rows=",".join(str(r) for r in t["rows"]))
+        for k, v in t["extra"].items():
+            src[k] = v
+        self.sources.append(src)
+        return idx
+
+    def place_tables(self):
+        """Assign slab bases: every table's range is disjoint from every other unless it is the tied
+        control, which is deliberately the SAME bytes (lmh_verify_plan refuses a partial overlap)."""
+        at = 0
+        for t in self.tables:
+            if t["kind"] == "tied_copy":
+                continue
+            t["base"] = at
+            at += t["nbytes"]
+            if at % 64:                                   # keep rows on a cache-line boundary
+                at += 64 - (at % 64)
+        for t in self.tables:
+            if t["kind"] != "tied_copy":
+                continue
+            src = self.tables[t["extra"]["from_idx"]]
+            t["base"], t["nbytes"] = src["base"], src["nbytes"]
+            t["extra"]["from_base"], t["extra"]["nbytes"] = src["base"], src["nbytes"]
+            self.sources[t["idx"]]["from_base"] = src["base"]
+            self.sources[t["idx"]]["nbytes"] = src["nbytes"]
+        return at
+
+    def slot(self, c):
+        return self.cfg["h"] if c["mode"] == self.en["LMH_MODE_BATCH_SLOT_STRIDE"] else c["n_out"]
+
+    def span(self, c):
+        return (c["bcount"] - 1) * self.slot(c) + c["n_out"]
+
+    def add_case(self, name, table, path, batching, b0, bcount, assoc, mode, expect,
+                 row_lo=0, nrows=0, ids=None, cmp_off=-1, grp=-1, on_device=1, trace=1):
+        c = dict(idx=len(self.cases), name=name, table=table, path=path, batching=batching,
+                 b0=b0, bcount=bcount,
+                 row_lo=row_lo, nrows=nrows, ids_off=-1, n_ids=0, assoc=assoc, mode=mode,
+                 out_off=self.out_cursor, cmp_off=cmp_off, grp=grp, expect_name=expect,
+                 on_device=on_device, trace=trace)
+        if path == self.en["LMH_PATH_GATHER"]:
+            key = tuple(ids)
+            if key in self._idmap:
+                off = self._idmap[key]
+            else:
+                off = len(self.ids)
+                self._idmap[key] = off
+                self.ids.extend(ids)
+            c["ids_off"], c["n_ids"], c["n_out"] = off, len(ids), len(ids)
+        else:
+            c["n_out"] = nrows
+        self.cases.append(c)
+        self.out_cursor += self.span(c)
+        return c
+
+    def geo_key(self, c):
+        return (c["table"], c["path"], c["batching"], c["b0"], c["bcount"], c["row_lo"], c["nrows"],
+                c["ids_off"], c["n_ids"], c["assoc"])
+
+    def honest_twin(self, c):
+        """The case that is this one in every respect except the injection. Keyed on the geometry, so
+        an injection can never be judged against a different piece of work."""
+        key = self.geo_key(c)
+        for o in self.cases:
+            if o["mode"] == self.en["LMH_MODE_CORRECT"] and self.geo_key(o) == key:
+                return o
+        return None
+
+    @property
+    def out_floats(self):
+        return self.out_cursor
+
+
+def _wbits(v):
+    return struct.unpack("<I", struct.pack("<f", float(v)))[0]
+
+
+def synth_bf16_bits(h, rows):
+    """The synthetic bf16 rows, as hex. Every value is required to be a bf16 value, so the
+    HALF_ACCUM derivation below has something exact to be immune about."""
+    out = bytearray(len(rows) * h * 2)
+    for ri, row in enumerate(rows):
+        for k, v in row:
+            bits = _wbits(v)
+            if bits & 0xFFFF:
+                raise Fail("synthetic weight %r at row %d k=%d is not a bf16 value" % (v, ri, k))
+            at = ri * h * 2 + k * 2
+            out[at] = bits & 0xFF
+            out[at + 1] = (bits >> 8) & 0xFF
+    return bytes(out).hex()
+
+
+def synth_q8_bits(fc, h, rows):
+    """The synthetic Q8_0 rows, packed through the same documented packing oracle_arm.py uses and
+    independently required (there) to dequantize to what tools/gguf_reader's audited packer produces."""
+    payload = bytearray()
+    for row in rows:
+        vals = [0.0] * h
+        for k, v in row:
+            vals[k] = float(v)
+        for i in range(h // fc["LMH_Q8_0_ELTS"]):
+            blk = vals[i * fc["LMH_Q8_0_ELTS"]:(i + 1) * fc["LMH_Q8_0_ELTS"]]
+            amax = max(abs(v) for v in blk)
+            d = struct.unpack("<e", struct.pack("<e", amax / 127.0))[0]
+            payload += struct.pack("<e", d)
+            qs = []
+            for v in blk:
+                if d == 0.0:
+                    qs.append(0)
+                    continue
+                x = v / d
+                q = math.floor(x + 0.5) if x >= 0 else -math.floor(-x + 0.5)
+                qs.append(max(-127, min(127, q)))
+            payload += struct.pack("<32b", *qs)
+    return bytes(payload).hex()
+
+
+# ---------------------------------------------------------------------------------------------
+# the population itself
+# ---------------------------------------------------------------------------------------------
+def build(cfg, fc, en, max_rows, deep_rows):
+    """One list of cases, built from the config and the files. `max_rows` cuts the SAMPLED row count
+    and nothing else: no class, no mode and no assertion is removed by the cut (the cut is printed)."""
+    p = Pop(cfg, fc, en)
+    H, hd = cfg["h"], cfg["head_dim"]
+    path = os.path.join(DUMP_DIR, DUMP_FILE)
+    sz = os.path.getsize(path)
+    if sz % (H * 2):
+        raise Fail("%s is %d B, not a whole number of %d-element bf16 rows" % (path, sz, H))
+    n_real = sz // (H * 2)
+
+    idx = json.load(open(INDEX))
+    lmh_shard = os.path.join(SHARD_DIR, idx["weight_map"][LMH_TENSOR])
+    emb_shard = os.path.join(SHARD_DIR, idx["weight_map"][EMBD_TENSOR])
+    if not os.path.exists(lmh_shard) or not os.path.exists(emb_shard):
+        raise Fail("a source shard is missing: %s | %s" % (lmh_shard, emb_shard))
+    if os.path.basename(lmh_shard) == os.path.basename(emb_shard):
+        raise Fail("the untiedness this lane tests has gone: %s and %s live in ONE shard"
+                   % (LMH_TENSOR, EMBD_TENSOR))
+    rows = list(range(deep_rows))
+    t_lmh = p.add_table(en["LMH_ENC_BF16"], en["LMH_ROLE_LMHEAD"], 1, deep_rows, -1, "real",
+                        file=lmh_shard, tensor=LMH_TENSOR, rows=rows)
+    t_emb = p.add_table(en["LMH_ENC_BF16"], en["LMH_ROLE_EMBD"], 1, deep_rows, -1, "real",
+                        file=emb_shard, tensor=EMBD_TENSOR, rows=rows)
+    t_lmh_q8 = p.add_table(en["LMH_ENC_Q8_0"], en["LMH_ROLE_LMHEAD_Q8"], 1, deep_rows, -1, "real",
+                           file=lmh_shard, tensor=LMH_TENSOR, rows=rows)
+    t_emb_q8 = p.add_table(en["LMH_ENC_Q8_0"], en["LMH_ROLE_EMBD"], 1, deep_rows, -1, "real",
+                           file=emb_shard, tensor=EMBD_TENSOR, rows=rows)
+    p.tables[t_lmh]["peer"], p.tables[t_emb]["peer"] = t_emb, t_lmh
+    p.tables[t_lmh_q8]["peer"], p.tables[t_emb_q8]["peer"] = t_emb_q8, t_lmh_q8
+    # the tied control: two roles over ONE buffer, which is the assumption the batching precedent
+    # was validated on and the thing an untied model must not be allowed to keep
+    t_tied_a = p.add_table(en["LMH_ENC_BF16"], en["LMH_ROLE_TIED_LMHEAD"], 1, deep_rows, -1, "real",
+                           file=lmh_shard, tensor=LMH_TENSOR, rows=rows)
+    t_tied_b = p.add_table(en["LMH_ENC_BF16"], en["LMH_ROLE_TIED_EMBD"], 1, deep_rows, -1,
+                           "tied_copy", extra=dict(from_idx=t_tied_a))
+    p.tables[t_tied_a]["peer"], p.tables[t_tied_b]["peer"] = t_tied_b, t_tied_a
+
+    W = [1.0, 2.0, -0.5, 3.0, 0.25, 1.5, -1.0, 4.0]
+
+    def shaped(scale, shift):
+        return [(k, W[(k + shift) % len(W)] * scale) for k in range(H)]
+
+    srows = [shaped(1.0, 0), shaped(1.0, 0), shaped(2.0, 3), shaped(0.5, 5)]
+    t_synth = p.add_table(en["LMH_ENC_BF16"], en["LMH_ROLE_SYNTH_DUP"], 0, 4, -1, "synth",
+                          nbytes=4 * H * fc["LMH_BF16_BYTES"],
+                          extra=dict(bytes=synth_bf16_bits(H, srows), dup="0,1"))
+    t_synth_q8 = p.add_table(en["LMH_ENC_Q8_0"], en["LMH_ROLE_SYNTH_DUP"], 0, 4, -1, "synth",
+                             nbytes=4 * (H // fc["LMH_Q8_0_ELTS"]) * fc["LMH_Q8_0_BYTES"],
+                             extra=dict(bytes=synth_q8_bits(fc, H, srows), dup="0,1"))
+    p.tables[t_synth]["peer"], p.tables[t_synth_q8]["peer"] = t_synth_q8, t_synth
+    p.slab_bytes = p.place_tables()
+
+    hidden_spec = [dict(i=i, src="dump", file=DUMP_FILE, row=i, n_rows=n_real)
+                   for i in range(n_real)]
+    kinds = [("ones", {}), ("onehot", dict(k=0)), ("onehot", dict(k=H - 1)),
+             ("onehot", dict(k=hd - 1)), ("onehot", dict(k=hd)),
+             ("onehot_inexact", dict(k=H // 2)), ("tail_zero", {}), ("head_zero", {}),
+             ("head_only", {})]
+    h_index, n_h = {}, n_real
+    for kind, extra in kinds:
+        d = dict(i=n_h, src="synth", kind=kind)
+        d.update(extra)
+        hidden_spec.append(d)
+        if kind not in h_index:
+            h_index[kind] = n_h
+        n_h += 1
+    p.hidden_spec, p.n_hidden, p.h_index = hidden_spec, n_h, h_index
+
+    SEQ, REV, S8 = en["LMH_ASSOC_SEQ"], en["LMH_ASSOC_REV"], en["LMH_ASSOC_SPLIT8"]
+    DENSE, GATH = en["LMH_PATH_DENSE"], en["LMH_PATH_GATHER"]
+    BATCHED, PERROW = en["LMH_BATCH_BATCHED"], en["LMH_BATCH_PERROW"]
+    CORRECT, M = en["LMH_MODE_CORRECT"], en
+    B = 4
+    real0, real1 = 0, 1
+    anchors = {}
+    for t, nm, nr in [(t_lmh, "bf16-lmhead", max_rows), (t_emb, "bf16-embd", max_rows),
+                      (t_lmh_q8, "q8-lmhead", max_rows), (t_emb_q8, "q8-embd", max_rows),
+                      (t_tied_a, "bf16-tied-a", max_rows), (t_tied_b, "bf16-tied-b", max_rows),
+                      (t_synth, "bf16-synth", 4), (t_synth_q8, "q8-synth", 4)]:
+        a = anchors[nm] = {}
+        a["batched"] = p.add_case("honest-%s-dense-batched" % nm, t, path=DENSE, batching=BATCHED,
+                                  b0=real0, bcount=B, row_lo=0, nrows=nr, assoc=SEQ, mode=CORRECT,
+                                  expect="BAND")
+        a["perrow"] = []
+        for b in range(B):
+            a["perrow"].append(p.add_case("honest-%s-perrow%d" % (nm, b), t, path=DENSE,
+                                          batching=PERROW, b0=real0 + b, bcount=1, row_lo=0,
+                                          nrows=nr, assoc=SEQ, mode=CORRECT, expect="EXACT",
+                                          cmp_off=a["batched"]["out_off"], grp=a["batched"]["idx"]))
+        gids = [0, 1, 2, 3] if "synth" in nm else list(range(nr))
+        same_as_dense = gids == list(range(nr))
+        a["gather"] = p.add_case("honest-%s-gather" % nm, t, path=GATH, batching=BATCHED, b0=real0,
+                                 bcount=B, ids=gids, assoc=SEQ, mode=CORRECT,
+                                 expect="EXACT" if same_as_dense else "BAND",
+                                 cmp_off=(a["batched"]["out_off"] if same_as_dense else -1))
+        p.add_case("honest-%s-gather-shuffled" % nm, t, path=GATH, batching=BATCHED, b0=real1,
+                   bcount=B, ids=list(reversed(gids)), assoc=SEQ, mode=CORRECT, expect="BAND")
+        if t in (t_lmh, t_lmh_q8):
+            p.add_case("honest-%s-dense-rev" % nm, t, path=DENSE, batching=BATCHED, b0=real0,
+                       bcount=B, row_lo=0, nrows=nr, assoc=REV, mode=CORRECT, expect="BAND")
+            p.add_case("honest-%s-dense-split8" % nm, t, path=DENSE, batching=BATCHED, b0=real0,
+                       bcount=B, row_lo=0, nrows=nr, assoc=S8, mode=CORRECT, expect="BAND")
+        if t == t_tied_b:
+            p.cases[-1]["expect"], p.cases[-1]["expect_name"] = declared("EXACT"), "EXACT"
+            p.cases[-1]["cmp_off"] = anchors["bf16-tied-a"]["batched"]["out_off"]
+            p.cases[-1]["name"] = "honest-bf16-tied-b-gather-vs-tied-a"
+
+    p.add_case("honest-bf16-lmhead-dense-batched-b2", t_lmh, path=DENSE, batching=BATCHED,
+               b0=real0, bcount=2, row_lo=0, nrows=max_rows, assoc=SEQ, mode=CORRECT,
+               expect="EXACT", cmp_off=anchors["bf16-lmhead"]["batched"]["out_off"])
+    deep = p.add_case("honest-bf16-lmhead-deep-batched", t_lmh, path=DENSE, batching=BATCHED,
+                      b0=real0, bcount=B, row_lo=0, nrows=deep_rows, assoc=SEQ, mode=CORRECT,
+                      expect="BAND", on_device=0)
+    for b in range(B):
+        p.add_case("honest-bf16-lmhead-deep-perrow%d" % b, t_lmh, path=DENSE, batching=PERROW,
+                   b0=real0 + b, bcount=1, row_lo=0, nrows=deep_rows, assoc=SEQ, mode=CORRECT,
+                   expect="EXACT", cmp_off=deep["out_off"], grp=deep["idx"], on_device=0)
+    deep8 = p.add_case("honest-bf16-lmhead-deep-batched-b8", t_lmh, path=DENSE, batching=BATCHED,
+                       b0=0, bcount=8, row_lo=0, nrows=deep_rows, assoc=SEQ, mode=CORRECT,
+                       expect="BAND", on_device=0)
+    for b in range(8):
+        p.add_case("honest-bf16-lmhead-deep-perrow-b8-%d" % b, t_lmh, path=DENSE, batching=PERROW,
+                   b0=b, bcount=1, row_lo=0, nrows=deep_rows, assoc=SEQ, mode=CORRECT,
+                   expect="EXACT", cmp_off=deep8["out_off"], grp=deep8["idx"], on_device=0)
+
+    def inj(nm, table, mode_name, **kw):
+        kw.setdefault("path", DENSE)
+        kw.setdefault("batching", BATCHED)
+        kw.setdefault("assoc", SEQ)
+        kw.setdefault("row_lo", 0)
+        kw.setdefault("nrows", max_rows)
+        tok = mode_token(mode_name)
+        return p.add_case("inj-%s-%s" % (nm, tok), table, mode=M[mode_name], expect="AUTO", **kw)
+
+    for t, nm in [(t_lmh, "bf16-lmhead"), (t_lmh_q8, "q8-lmhead"), (t_emb, "bf16-embd"),
+                  (t_emb_q8, "q8-embd")]:
+        inj(nm, t, "LMH_MODE_HALF_ACCUM", b0=h_index["onehot"], bcount=B)
+        inj(nm, t, "LMH_MODE_HALF_ACCUM", b0=real0, bcount=B)
+        inj(nm, t, "LMH_MODE_DROP_LAST_K", b0=h_index["tail_zero"], bcount=B)
+        inj(nm, t, "LMH_MODE_DROP_LAST_K", b0=real0, bcount=B)
+        inj(nm, t, "LMH_MODE_DROP_LAST_K", b0=h_index["head_zero"], bcount=B, assoc=REV)
+        inj(nm, t, "LMH_MODE_DROP_LAST_K", b0=real0, bcount=B, assoc=REV)
+        inj(nm, t, "LMH_MODE_ROW_STRIDE_HEAD_DIM", b0=h_index["head_only"], bcount=B, row_lo=0)
+        inj(nm, t, "LMH_MODE_ROW_STRIDE_HEAD_DIM", b0=real0, bcount=B, row_lo=1)
+        inj(nm, t, "LMH_MODE_BATCH_SLOT_STRIDE", b0=real0, bcount=1)
+        inj(nm, t, "LMH_MODE_BATCH_SLOT_STRIDE", b0=real0, bcount=B)
+        inj(nm, t, "LMH_MODE_BATCH_RELOOPS", b0=real0, bcount=1)
+        inj(nm, t, "LMH_MODE_BATCH_RELOOPS", b0=real0, bcount=B)
+        inj(nm, t, "LMH_MODE_TIED_ALIAS", b0=real0, bcount=B)
+        inj(nm, t, "LMH_MODE_CROSS_TABLE_READ", b0=real0, bcount=B)
+        inj(nm, t, "LMH_MODE_GATHER_ROW_OFF_1", b0=real0, bcount=B, path=GATH, ids=[0, 1, 2, 3],
+            nrows=0)
+        if p.tables[t]["enc"] == en["LMH_ENC_Q8_0"]:
+            inj(nm, t, "LMH_MODE_Q8_DROP_SCALE", b0=real0, bcount=B)
+    inj("bf16-tied-a", t_tied_a, "LMH_MODE_TIED_ALIAS", b0=real0, bcount=B)
+    inj("bf16-tied-a", t_tied_a, "LMH_MODE_CROSS_TABLE_READ", b0=real0, bcount=B)
+    inj("bf16-lmhead", t_lmh, "LMH_MODE_GATHER_ROW_OFF_1", b0=real0, bcount=B, path=GATH,
+        ids=[deep_rows - 1], nrows=0)
+    inj("q8-lmhead", t_lmh_q8, "LMH_MODE_GATHER_ROW_OFF_1", b0=real0, bcount=B, path=GATH,
+        ids=[deep_rows - 1], nrows=0)
+    inj("bf16-synth", t_synth, "LMH_MODE_GATHER_ROW_OFF_1", b0=real0, bcount=B, path=GATH,
+        ids=[0], nrows=0)
+    inj("q8-synth", t_synth_q8, "LMH_MODE_GATHER_ROW_OFF_1", b0=real0, bcount=B, path=GATH,
+        ids=[0], nrows=0)
+    inj("bf16-synth", t_synth, "LMH_MODE_GATHER_ROW_OFF_1", b0=real0, bcount=B, path=GATH,
+        ids=[1], nrows=0)
+    for t, nm in [(t_synth, "bf16-synth"), (t_synth_q8, "q8-synth")]:
+        inj(nm, t, "LMH_MODE_HALF_ACCUM", b0=h_index["onehot"], bcount=B, nrows=4)
+        inj(nm, t, "LMH_MODE_DROP_LAST_K", b0=h_index["tail_zero"], bcount=B, nrows=4)
+    p.t_of = dict(lmh=t_lmh, emb=t_emb, lmh_q8=t_lmh_q8, emb_q8=t_emb_q8, tied_a=t_tied_a,
+                  tied_b=t_tied_b, synth=t_synth, synth_q8=t_synth_q8)
+    p.real_hidden, p.synth_hidden = n_real, n_h - n_real
+    return p
+
+
+def declared(name):
+    """The plan's `expect` field as an int. `AUTO` means gate.py will derive it from the bytes and
+    require the drivers to have carried whatever the derivation said."""
+    return name
+
+
+# ---------------------------------------------------------------------------------------------
+# the materialised bytes, and what they FORCE each case to be
+# ---------------------------------------------------------------------------------------------
+class Data(object):
+    """The files the oracle materialised, read back. Every judgement below reads THESE bytes rather
+    than trusting the intent that produced them: a population builder that asked for a duplicated row
+    and did not get one is exactly what this catches."""
+
+    def __init__(self, work, p, fc, en):
+        self.p, self.fc, self.en = p, fc, en
+        with open(os.path.join(work, "slab.bin"), "rb") as fh:
+            self.slab = fh.read()
+        if len(self.slab) != p.slab_bytes:
+            raise Fail("slab.bin is %d B, the plan says %d" % (len(self.slab), p.slab_bytes))
+        with open(os.path.join(work, "hidden.f32"), "rb") as fh:
+            hb = fh.read()
+        want = 4 * p.n_hidden * p.cfg["h"]
+        if len(hb) != want:
+            raise Fail("hidden.f32 is %d B, n_hidden=%d x h=%d x 4 says %d" % (len(hb), p.n_hidden,
+                                                                              p.cfg["h"], want))
+        self.hidden = [list(struct.unpack_from("<%df" % p.cfg["h"], hb, i * 4 * p.cfg["h"]))
+                       for i in range(p.n_hidden)]
+        self.ids = list(p.ids)
+        self._cache = {}
+
+    def row_bytes(self, t, row, h_used=None):
+        """(start, length) of one row under the stride the case believes. Written here, independently
+        of lmh_row_ptr, so a disagreement between the two is a finding and not an agreement."""
+        fc, en = self.fc, self.en
+        h_used = t["h"] if h_used is None else h_used
+        if t["enc"] == en["LMH_ENC_Q8_0"]:
+            at = t["base"] + (row * (h_used // fc["LMH_Q8_0_ELTS"])) * fc["LMH_Q8_0_BYTES"]
+            return at, (h_used // fc["LMH_Q8_0_ELTS"]) * fc["LMH_Q8_0_BYTES"]
+        return (t["base"] + row * h_used * fc["LMH_BF16_BYTES"],
+                h_used * fc["LMH_BF16_BYTES"])
+
+    def row_values(self, t, row, h_used):
+        """One row decoded through the AUDITED reader over exactly the range the addressing says."""
+        key = (t["idx"], row, h_used, t["enc"])
+        at, n = self.row_bytes(t, row, h_used)
+        ck = self._cache.get(key)
+        if ck is not None:
+            return ck
+        buf = self.slab[at:at + n]
+        vals = (GR.dequant(buf, "Q8_0", h_used) if t["enc"] == self.en["LMH_ENC_Q8_0"]
+                else GR.bf16_to_floats(buf))
+        if len(vals) != h_used:
+            raise Fail("decoded %d values for table %d row %d, expected %d"
+                       % (len(vals), t["idx"], row, h_used))
+        self._cache[key] = vals
+        return vals
+
+    def rows_of(self, c):
+        if c["path"] == self.en["LMH_PATH_DENSE"]:
+            return [c["row_lo"] + j for j in range(c["nrows"])]
+        return [self.ids[c["ids_off"] + j] for j in range(c["n_ids"])]
+
+    def h_used(self, c):
+        t = self.p.tables[c["table"]]
+        return (self.p.cfg["head_dim"] if c["mode"] == self.en["LMH_MODE_ROW_STRIDE_HEAD_DIM"]
+                else t["h"])
+
+    def nlanes(self, c):
+        return self.fc["LMH_SPLIT"] if c["assoc"] == self.en["LMH_ASSOC_SPLIT8"] else 1
+
+
+def derive_class(c, d):
+    """Which class a case IS, derived from the materialised bytes — never typed.
+
+    (class, predicate_that_was_tested). `AUTO` in the population means this function decided it, and
+    `adjudicate` then prints the predicate beside the verdict, so an immunity is always accompanied by
+    the fact in the bytes that earned it."""
+    p, fc, en = d.p, d.fc, d.en
+    mode, t = c["mode"], p.tables[c["table"]]
+    if mode == en["LMH_MODE_CORRECT"]:
+        return c["expect_name"], "not an injection"
+    h_used = d.h_used(c)
+    rows = d.rows_of(c)
+    peer = p.tables[t["peer"]] if t["peer"] >= 0 else None
+    nlanes = d.nlanes(c)
+    if mode == en["LMH_MODE_GATHER_ROW_OFF_1"]:
+        same = True
+        for r in rows:
+            a, an = d.row_bytes(t, r, h_used)
+            b, bn = d.row_bytes(t, r + 1, h_used)
+            if not (t["base"] <= b and b + bn <= t["base"] + t["nbytes"]):
+                return "BYTES", ("successor row %d of table %d leaves the table: the cross counter "
+                                 "must move" % (r + 1, t["idx"]))
+            if d.slab[a:a + an] != d.slab[b:b + bn]:
+                same = False
+        return ("IMMUNE" if same else "FIRES"), \
+            "successor rows byte-identical for all %d gathered rows: %d" % (len(rows), same)
+    if mode == en["LMH_MODE_BATCH_SLOT_STRIDE"]:
+        immune = c["bcount"] == 1 or p.cfg["h"] == c["n_out"]
+        return ("IMMUNE" if immune else "FIRES"), \
+            "bcount=%d, injected slot=h=%d, honest slot=n_out=%d" % (c["bcount"], p.cfg["h"],
+                                                                     c["n_out"])
+    if mode == en["LMH_MODE_BATCH_RELOOPS"]:
+        immune = (c["batching"] != en["LMH_BATCH_BATCHED"]) or c["bcount"] == 1
+        return ("IMMUNE" if immune else "BYTES"), \
+            "batched with bcount=%d: the row set is walked %d time(s)" % (c["bcount"], c["bcount"])
+    if mode == en["LMH_MODE_TIED_ALIAS"]:
+        same = peer is not None and peer["base"] == t["base"] and peer["nbytes"] == t["nbytes"]
+        return ("IMMUNE" if same else "FIRES"), \
+            "peer table %d is %s" % (t["peer"], "THE SAME BYTES (tied control)" if same
+                                     else "a disjoint range (untied)")
+    if mode == en["LMH_MODE_CROSS_TABLE_READ"]:
+        same = peer is not None and peer["base"] == t["base"] and peer["nbytes"] == t["nbytes"]
+        return "BYTES", ("peer IS the own range: cross can never move" if same
+                         else "peer is a disjoint range: cross and peer_hits must move")
+    if mode == en["LMH_MODE_ROW_STRIDE_HEAD_DIM"]:
+        hd = p.cfg["head_dim"]
+        tail_zero = all(d.hidden[c["b0"] + b][k] == 0.0
+                        for b in range(c["bcount"]) for k in range(hd, t["h"]))
+        first = all(r == 0 for r in rows)
+        return ("IMMUNE" if (tail_zero and first) else "FIRES"), \
+            "all rows are row 0 (%d) and h[k]==0 for k in [%d,%d) (%d)" % (first, hd, t["h"], tail_zero)
+    if mode == en["LMH_MODE_HALF_ACCUM"]:
+        exact = True
+        for r in rows:
+            vals = d.row_values(t, r, h_used)
+            for b in range(c["bcount"]):
+                hv = d.hidden[c["b0"] + b]
+                for k in range(h_used):
+                    if hv[k] == 0.0:
+                        continue
+                    if _wbits(hv[k] * vals[k]) & 0xFFFF:
+                        exact = False
+                        break
+                if not exact:
+                    break
+            if not exact:
+                break
+        return ("IMMUNE" if exact else "FIRES"), \
+            "every non-zero product is already a bf16 value: %d" % exact
+    if mode == en["LMH_MODE_DROP_LAST_K"]:
+        per = h_used // nlanes
+        dropped = []
+        for lane in range(nlanes):
+            k0 = lane * per
+            k1 = h_used if lane == nlanes - 1 else k0 + per
+            dropped.append(k0 if c["assoc"] == en["LMH_ASSOC_REV"] else k1 - 1)
+        zero = all(d.hidden[c["b0"] + b][k] == 0.0 for b in range(c["bcount"]) for k in dropped)
+        return ("IMMUNE" if zero else "FIRES"), \
+            "the dropped k %s has h[k]==0 for every batch row: %d" % (sorted(set(dropped)), zero)
+    if mode == en["LMH_MODE_Q8_DROP_SCALE"]:
+        ones = True
+        for r in rows:
+            at, n = d.row_bytes(t, r, h_used)
+            for i in range(n // fc["LMH_Q8_0_BYTES"]):
+                if GR.f16(d.slab, at + i * fc["LMH_Q8_0_BYTES"]) != 1.0:
+                    ones = False
+                    break
+            if not ones:
+                break
+        return ("IMMUNE" if ones else "FIRES"), "every block delta equals 1.0: %d" % ones
+    raise Fail("derive_class: mode %d has no derivation, so it cannot be judged" % mode)
+
+
+# ---------------------------------------------------------------------------------------------
+# the independent read-set recount
+# ---------------------------------------------------------------------------------------------
+def recount(c, d, words, skip=False):
+    """Every field the R line prints for this case, recomputed HERE.
+
+    The address derivation is this file's own (mirroring, in a second language and a second author,
+    what lmh_row_ptr/lmh_lane_ptr must do); the VALUES come from the audited decoder, so the digest
+    columns are not the kernel's own arithmetic quoted back at it. oxor/osum come from the arm's
+    output FILE, not from the driver's memory.
+
+    `skip` is the device arm leaving a host-only case alone: every counter must then read zero, which
+    is a claim, not an exemption — a device that ran a case it was told to skip shows up here."""
+    p, fc, en = d.p, d.fc, d.en
+    t = p.tables[c["table"]]
+    peer = p.tables[t["peer"]] if t["peer"] >= 0 else None
+    h_used = d.h_used(c)
+    nlanes = d.nlanes(c)
+    per = h_used // nlanes
+    rows = d.rows_of(c)
+    src = t
+    if c["mode"] == en["LMH_MODE_TIED_ALIAS"] and peer is not None:
+        src = peer
+    own_lo, own_hi = t["base"], t["base"] + t["nbytes"]
+    p_lo = peer["base"] if peer else 0
+    p_hi = peer["base"] + peer["nbytes"] if peer else 0
+    r = dict(bytes=0, loads=0, xorb=0, vsum=0, bsum=0, min_off=0xFFFFFFFF, max_off=0, cross=0,
+             peer_hits=0, lanes=0, bover=0)
+    reloop = (not skip and c["mode"] == en["LMH_MODE_BATCH_RELOOPS"]
+              and c["batching"] == en["LMH_BATCH_BATCHED"] and c["bcount"] > 1)
+    reps = c["bcount"] if reloop else 1
+    mode = c["mode"]
+
+    def touch(at, n):
+        r["bytes"] += n
+        r["loads"] += 1
+        if at < own_lo or at + n > own_hi:
+            r["cross"] += 1
+        else:
+            r["min_off"] = min(r["min_off"], at - own_lo)
+            r["max_off"] = max(r["max_off"], at + n - own_lo)
+        if peer is not None and p_lo <= at and at + n <= p_hi:
+            r["peer_hits"] += 1
+        r["bsum"] += sum(d.slab[at:at + n])
+
+    def slice_at(base, k0, kn):
+        if t["enc"] == en["LMH_ENC_Q8_0"]:
+            return base + (k0 // fc["LMH_Q8_0_ELTS"]) * fc["LMH_Q8_0_BYTES"], \
+                (kn // fc["LMH_Q8_0_ELTS"]) * fc["LMH_Q8_0_BYTES"]
+        return base + k0 * fc["LMH_BF16_BYTES"], kn * fc["LMH_BF16_BYTES"]
+
+    for jj in range(0 if skip else c["n_out"]):
+        row = rows[jj]
+        wr, _wn = d.row_bytes(src, row, h_used)
+        for lane in range(nlanes):
+            k0 = lane * per
+            k1 = h_used if lane == nlanes - 1 else k0 + per
+            kn = k1 - k0
+            at, n = slice_at(wr, k0, kn)
+            for _ in range(reps):
+                touch(at, n)
+            if mode == en["LMH_MODE_CROSS_TABLE_READ"] and peer is not None:
+                pr, _pn = d.row_bytes(peer, row, h_used)
+                pat, pn = slice_at(pr, k0, kn)
+                touch(pat, pn)
+            r["lanes"] += 1
+            vals = d.row_values(t, row, h_used)
+            if mode == en["LMH_MODE_Q8_DROP_SCALE"]:
+                qbytes = d.slab
+                for k in range(k0, k1):
+                    blk = wr + (k // fc["LMH_Q8_0_ELTS"]) * fc["LMH_Q8_0_BYTES"]
+                    q = struct.unpack_from("<b", qbytes, blk + 2 + (k % fc["LMH_Q8_0_ELTS"]))[0]
+                    bits = _wbits(float(q))
+                    r["xorb"] ^= bits
+                    r["vsum"] = (r["vsum"] + bits) & 0xFFFFFFFFFFFFFFFF
+            else:
+                for k in range(k0, k1):
+                    bits = _wbits(vals[k])
+                    r["xorb"] ^= bits
+                    r["vsum"] = (r["vsum"] + bits) & 0xFFFFFFFFFFFFFFFF
+    slot = p.slot(c)
+    ox, osum, bover = 0, 0.0, 0
+    for b in range(0 if skip else c["bcount"]):
+        for j in range(c["n_out"]):
+            at = c["out_off"] + b * slot + j
+            if at < 0 or at >= p.out_floats:
+                bover += 1
+                continue
+            w = words[at]
+            ox ^= w
+            osum += f32(w)
+    r["bover"], r["oxor"], r["osum"] = bover, ox, osum
+    return r
+
+
+# ---------------------------------------------------------------------------------------------
+# the verdict machinery
+# ---------------------------------------------------------------------------------------------
+class V(object):
+    """The check ledger. `check()` refuses a constant predicate outright: the router lane certified 40
+    checks that included one literal True, and it took two investigations to find it
+    (`pitfalls/40` §"A check whose predicate is True is a comment wearing a counter")."""
+
+    def __init__(self):
+        self.n = 0
+        self.bad = []
+
+    def check(self, name, ok, n, note=""):
+        if not isinstance(ok, bool):
+            raise Fail("verdict-bearing check %r has a non-boolean predicate (%r); a check over a "
+                       "string or a list silently counts the empty case as a finding" % (name, ok))
+        self.n += 1
+        if not ok:
+            self.bad.append(name)
+        print("CHECK name=%s ok=%d n=%s %s" % (name, 1 if ok else 0, n, note))
+        return bool(ok)
+
+    def note(self, name, note):
+        print("NOTE name=%s %s" % (name, note))
+
+    def verdict(self, label):
+        print("CHECKS ran=%d failed=%d %s" % (self.n, len(self.bad),
+                                              ",".join(self.bad[:8]) if self.bad else ""))
+        print("RESULT %s %s checks=%d findings=%d" % ("PASS" if not self.bad else "FAIL", label,
+                                                      self.n, len(self.bad)))
+        return 0 if not self.bad else 1
+
+
+def words_of(path, n):
+    with open(path, "rb") as fh:
+        buf = fh.read()
+    if len(buf) != 4 * n:
+        raise Fail("%s holds %d bytes, the plan says %d floats" % (path, len(buf), n))
+    return list(struct.unpack("<%dI" % n, buf))
+
+
+def doubles_of(path, n):
+    with open(path, "rb") as fh:
+        buf = fh.read()
+    if len(buf) != 8 * n:
+        raise Fail("%s holds %d bytes, the plan says %d doubles" % (path, len(buf), n))
+    return list(struct.unpack("<%dd" % n, buf))
+
+
+def word_eq(a, b):
+    if a == b:
+        return True
+    ma, mb = a & 0x7FFFFFFF, b & 0x7FFFFFFF
+    return ma > 0x7F800000 and mb > 0x7F800000          # NaN of any payload, as lmh_word_eq does
+
+
+def f32(w):
+    return struct.unpack("<f", struct.pack("<I", w))[0]
+
+
+def read_report(path, p, fields, fc):
+    """Parse the R lines, require the name line to be the writer's own array, and require one row per
+    case. A report that parsed to zero rows cannot fail, so it is refused here rather than judged."""
+    with open(path) as fh:
+        lines = [l.rstrip("\n") for l in fh if l.strip()]
+    header = [l for l in lines if l.startswith("#R")]
+    body = [l for l in lines if not l.startswith("#")]
+    if len(header) != 1:
+        raise Fail("%s has %d '#R' name lines, expected exactly 1" % (path, len(header)))
+    hf = header[0].split("\t")
+    if len(hf) != fc["LMH_F_R"]:
+        raise Fail("%s: the name line has %d tokens, LMH_F_R says %d" % (path, len(hf), fc["LMH_F_R"]))
+    if hf[1:] != fields:
+        raise Fail("%s: the name line %s is not the writer's lmh_r_fields[] %s"
+                   % (path, hf[1:][:5], fields[:5]))
+    rows = {}
+    for l in body:
+        f = l.split("\t")
+        if len(f) != fc["LMH_F_R"]:
+            raise Fail("%s: an R row has %d fields, the contract says %d" % (path, len(f), fc["LMH_F_R"]))
+        rows[int(f[1])] = dict(list(zip(fields, f[1:])))
+    if len(body) != len(p.cases):
+        raise Fail("%s printed %d R rows, the plan has %d cases (a missing row would leave that case "
+                   "entirely unjudged)" % (path, len(body), len(p.cases)))
+    if sorted(rows) != list(range(len(p.cases))):
+        raise Fail("%s: the idx column is not 0..%d exactly once" % (path, len(p.cases) - 1))
+    print("REPORT file=%s parsed=%d printed=%d fields=%d" % (path, len(rows), len(body), len(fields)))
+    return rows
+
+
+COUNTER_FIELDS = ("bytes", "loads", "xorb", "vsum", "bsum", "lo", "hi", "cross", "peer_hits",
+                  "lanes", "bover")
+
+
+def legal_class(c, cls):
+    """A declared class is only worth printing if the derivation could have contradicted it. Honest
+    cases declare BAND or EXACT (this file's population builder, and the derivation echoes it because
+    there is nothing to derive); injections declare AUTO and must land in one of the three derived
+    classes. Anything else means the population asked for a class the derivation has no rule for."""
+    if c["expect_name"] == "AUTO":
+        return cls in ("FIRES", "IMMUNE", "BYTES")
+    return cls == c["expect_name"] and cls in ("BAND", "EXACT")
+
+
+def adjudicate(v, p, d, report, words, expw, bandw, tag, fc, en):
+    rep = report
+    counts = {}
+    fired, immunes, results = [], [], {}
+    skip_all = (tag != "host")
+    want_inj = sum(1 for c in p.cases if c["mode"] != en["LMH_MODE_CORRECT"]
+                   and (not skip_all or c["on_device"]))
+    for c in p.cases:
+        cls, pred = derive_class(c, d)
+        c["derived"], c["predicate"] = cls, pred
+        counts[cls] = counts.get(cls, 0) + 1
+    for c in p.cases:
+        cls, pred = c["derived"], c["predicate"]
+        skip = skip_all and not c["on_device"]
+        r = rep[c["idx"]]
+        slot = p.slot(c)
+        nlanes = d.nlanes(c)
+        # 1. the R line must echo the plan it was given
+        want_echo = dict(table=c["table"], role=p.tables[c["table"]]["role"],
+                         enc=p.tables[c["table"]]["enc"], path=c["path"], batching=c["batching"],
+                         b0=c["b0"], bcount=c["bcount"], row_lo=c["row_lo"], nrows=c["nrows"],
+                         n_ids=c["n_ids"], assoc=c["assoc"], mode=c["mode"],
+                         on_device=c["on_device"], trace=c["trace"], n_out=c["n_out"],
+                         n_items=c["n_out"] * nlanes, nlanes=nlanes)
+        bad_echo = [(k, int(r[k]), want) for k, want in want_echo.items() if int(r[k]) != want]
+        v.check("%s case=%d %s R line echoes the plan" % (tag, c["idx"], c["name"]),
+                not bad_echo, len(want_echo), "mismatches=%s" % (bad_echo[:4],))
+        # 2. the roll-ups of the words it wrote, recomputed from the output FILE
+        rc = recount(c, d, words, skip)
+        v.check("%s case=%d %s oxor==recount" % (tag, c["idx"], c["name"]),
+                int(r["oxor"], 16) == rc["oxor"], c["bcount"] * c["n_out"],
+                "driver=0x%08X recount=0x%08X" % (int(r["oxor"], 16), rc["oxor"]))
+        osum_ok = abs(float(r["osum"]) - rc["osum"]) <= 1e-6 * max(1.0, abs(rc["osum"]))
+        v.check("%s case=%d %s osum==recount" % (tag, c["idx"], c["name"]), osum_ok,
+                c["bcount"] * c["n_out"], "driver=%s recount=%.9g" % (r["osum"], rc["osum"]))
+        # 3. the read-set, field by field, against this file's own derivation
+        bad_ctr = []
+        for fld in COUNTER_FIELDS:
+            got = int(r["xorb"], 16) if fld == "xorb" else int(r[fld])
+            want = rc[{"lo": "min_off", "hi": "max_off"}.get(fld, fld)]
+            if got != want:
+                bad_ctr.append((fld, got, want))
+        v.check("%s case=%d %s read-set == recount" % (tag, c["idx"], c["name"]),
+                not bad_ctr, len(COUNTER_FIELDS),
+                "mismatch=%s trace=%d" % (bad_ctr[:4], c["trace"]))
+        v.check("%s case=%d %s no write left `out`" % (tag, c["idx"], c["name"]),
+                rc["bover"] == 0, 1, "bover=%d" % rc["bover"])
+        if skip:
+            # the device was told this case is host-only. That is a claim about the bytes it left
+            # alone, not an exemption from being looked at.
+            nz = sum(1 for b in range(c["bcount"]) for j in range(c["n_out"])
+                     if words[c["out_off"] + b * slot + j] != 0)
+            v.check("%s case=%d %s host-only case was not written by this arm"
+                    % (tag, c["idx"], c["name"]), nz == 0, c["bcount"] * c["n_out"],
+                    "non-zero words=%d (the arm ran a case it was told to skip)" % nz)
+            v.check("%s case=%d %s declared class is legal and matches the derivation"
+                    % (tag, c["idx"], c["name"]), legal_class(c, cls), 1,
+                    "plan=%s derived=%s (host-only case)" % (c["expect_name"], cls))
+            continue
+        # 4. the verdict
+        twin = p.honest_twin(c)
+        res = dict(cls=cls, name=c["name"], mode=c["mode"], ok=True, detail="")
+        if cls == "BAND":
+            outside, worst = [], 0.0
+            for b in range(c["bcount"]):
+                for j in range(c["n_out"]):
+                    at = c["out_off"] + b * slot + j
+                    got, want = f32(words[at]), f32(expw[at])
+                    bb = bandw[at]
+                    if not bb > 0.0:
+                        raise Fail("case %d word %d has band %r: a non-positive band bounds nothing"
+                                   % (c["idx"], at, bb))
+                    rel = abs(got - want) / max(bb, 1e-300)
+                    worst = max(worst, rel)
+                    if abs(got - want) > bb:
+                        outside.append((at, got, want, bb))
+            res["ok"] = v.check("%s case=%d %s BAND inside the derived band" % (tag, c["idx"], c["name"]),
+                                not outside, c["bcount"] * c["n_out"],
+                                "worst=%.3f x band outside=%d %s"
+                                % (worst, len(outside), ("first=%r" % (outside[0],)) if outside else ""))
+        elif cls == "EXACT":
+            nd = sum(1 for b in range(c["bcount"]) for j in range(c["n_out"])
+                     if not word_eq(words[c["out_off"] + b * slot + j],
+                                    words[c["cmp_off"] + b * slot + j]))
+            res["ok"] = v.check("%s case=%d %s EXACT vs cmp_off=%d" % (tag, c["idx"], c["name"],
+                                                                       c["cmp_off"]),
+                                nd == 0, c["bcount"] * c["n_out"], "differing=%d" % nd)
+            owner = next((o for o in p.cases if o["out_off"] == c["cmp_off"] and o["idx"] != c["idx"]),
+                         None)
+            res["ok"] = v.check("%s case=%d %s cmp_off is a same-association honest case"
+                                % (tag, c["idx"], c["name"]),
+                                owner is not None and owner["mode"] == en["LMH_MODE_CORRECT"]
+                                and owner["assoc"] == c["assoc"] and owner["table"] == c["table"]
+                                and owner["n_out"] == c["n_out"], 1,
+                                "owner=%s" % (owner["name"] if owner else None)) and res["ok"]
+        elif cls in ("FIRES", "IMMUNE", "BYTES"):
+            if not v.check("%s case=%d %s has an honest twin" % (tag, c["idx"], c["name"]),
+                           twin is not None, 1,
+                           "no mode==CORRECT case with this geometry exists"):
+                continue
+            ts = p.slot(twin)
+            nd = sum(1 for b in range(c["bcount"]) for j in range(c["n_out"])
+                     if not word_eq(words[c["out_off"] + b * slot + j],
+                                    words[twin["out_off"] + b * ts + j]))
+            beyond = 0
+            worst = 0.0
+            for b in range(c["bcount"]):
+                for j in range(c["n_out"]):
+                    at = c["out_off"] + b * slot + j
+                    bt = twin["out_off"] + b * ts + j
+                    dd = abs(f32(words[at]) - f32(words[bt]))
+                    if dd > bandw[bt]:
+                        beyond += 1
+                    worst = max(worst, dd / max(bandw[bt], 1e-300))
+            if cls == "FIRES":
+                ok = v.check("%s case=%d %s FIRED beyond the band" % (tag, c["idx"], c["name"]),
+                             beyond > 0, c["bcount"] * c["n_out"],
+                             "differing=%d beyond-band=%d worst=%.3g x band | %s"
+                             % (nd, beyond, worst, pred))
+                fired.append((c["mode"], c["name"], ok))
+            elif cls == "IMMUNE":
+                ok = v.check("%s case=%d %s IMMUNE (bit-identical to its twin)"
+                             % (tag, c["idx"], c["name"]), nd == 0, c["bcount"] * c["n_out"],
+                             "differing=%d | %s" % (nd, pred))
+                immunes.append((c["mode"], c["name"], ok))
+            else:
+                ok = v.check("%s case=%d %s BYTES: output still equals its twin"
+                             % (tag, c["idx"], c["name"]), nd == 0, c["bcount"] * c["n_out"],
+                             "differing=%d | %s" % (nd, pred))
+                hh = rep[twin["idx"]]
+                if c["mode"] == en["LMH_MODE_BATCH_RELOOPS"]:
+                    f = c["bcount"] if c["bcount"] > 1 else 1
+                    ok = v.check("%s case=%d %s reloops bytes x%d loads x%d digest unchanged"
+                                 % (tag, c["idx"], c["name"], f, f),
+                                 int(r["bytes"]) == f * int(hh["bytes"])
+                                 and int(r["loads"]) == f * int(hh["loads"])
+                                 and r["lanes"] == hh["lanes"] and r["xorb"] == hh["xorb"]
+                                 and r["vsum"] == hh["vsum"], c["bcount"],
+                                 "bytes %s/%s loads %s/%s xorb %s/%s vsum %s/%s"
+                                 % (r["bytes"], hh["bytes"], r["loads"], hh["loads"], r["xorb"],
+                                    hh["xorb"], r["vsum"], hh["vsum"])) and ok
+                    fired.append((c["mode"], c["name"], f > 1 and int(r["bytes"]) == f * int(hh["bytes"])))
+                elif c["mode"] == en["LMH_MODE_CROSS_TABLE_READ"]:
+                    t = p.tables[c["table"]]
+                    peer = p.tables[t["peer"]]
+                    tied = peer["base"] == t["base"] and peer["nbytes"] == t["nbytes"]
+                    n_add = c["n_out"] * nlanes
+                    want_cross = int(hh["cross"]) if tied else int(hh["cross"]) + n_add
+                    want_peer = int(hh["peer_hits"]) + n_add
+                    ok = v.check("%s case=%d %s cross/peer_hits as the extents say (%s)"
+                                 % (tag, c["idx"], c["name"],
+                                    "tied control: cross cannot move" if tied
+                                    else "untied: every peer range is a cross"),
+                                 int(r["cross"]) == want_cross and int(r["peer_hits"]) == want_peer, 1,
+                                 "cross=%s/%s peer_hits=%s/%s" % (r["cross"], want_cross,
+                                                                 r["peer_hits"], want_peer)) and ok
+                    fired.append((c["mode"], c["name"], (not tied) and int(r["cross"]) > int(hh["cross"])))
+                elif c["mode"] == en["LMH_MODE_GATHER_ROW_OFF_1"]:
+                    want_cross = c["n_out"] * nlanes
+                    ok = v.check("%s case=%d %s successor past the last row is a cross read"
+                                 % (tag, c["idx"], c["name"]), int(r["cross"]) == want_cross,
+                                 want_cross, "cross=%s expected=%s" % (r["cross"], want_cross)) and ok
+                    fired.append((c["mode"], c["name"], int(r["cross"]) > 0))
+                else:
+                    raise Fail("case %d is BYTES-classed but mode %d has no counter rule"
+                               % (c["idx"], c["mode"]))
+        else:
+            raise Fail("case %d derived class %r is not judgable" % (c["idx"], cls))
+        ok_cls = v.check("%s case=%d %s declared class is legal and matches the derivation"
+                         % (tag, c["idx"], c["name"]), legal_class(c, cls), 1,
+                         "plan=%s derived=%s" % (c["expect_name"], cls))
+        res["ok"] = res["ok"] and ok_cls
+        results[c["idx"]] = res
+    print("POPULATION %s %s inj=%d" % (tag, " ".join("%s=%d" % (k, counts.get(k, 0))
+                                                     for k in ("BAND", "EXACT", "FIRES", "IMMUNE",
+                                                               "BYTES")), want_inj))
+    print("INJECTIONS %s judged=%d fired=%d immune=%d immune-held=%d"
+          % (tag, len(fired) + len(immunes), sum(1 for _, _, o in fired if o), len(immunes),
+             sum(1 for _, _, o in immunes if o)))
+    for mode, nm, ok in fired:
+        print("INJECTION arm=%s fired=%d" % (nm, 1 if ok else 0))
+    for mode, nm, ok in immunes:
+        print("IMMUNITY arm=%s held=%d" % (nm, 1 if ok else 0))
+    v.check("%s injection denominator matches the plan" % tag,
+            want_inj > 0 and len(fired) + len(immunes) == want_inj, want_inj,
+            "plan=%d judged=%d" % (want_inj, len(fired) + len(immunes)))
+    v.check("%s every injection that must fire fired" % tag,
+            len(fired) > 0 and all(o for _, _, o in fired), len(fired),
+            "did not fire: %s" % (",".join(nm for _, nm, o in fired if not o) or "none"))
+    v.check("%s every derived-immune case really is immune" % tag,
+            len(immunes) > 0 and all(o for _, _, o in immunes), len(immunes),
+            "moved anyway: %s" % (",".join(nm for _, nm, o in immunes if not o) or "none"))
+    # an immunity that is true by construction is not evidence: each mode with an immune arm has to be
+    # demonstrably fireable somewhere in this same plan, and each mode has to be exercised at all.
+    reach = {}
+    for c in p.cases:
+        if c["mode"] == en["LMH_MODE_CORRECT"] or (skip_all and not c["on_device"]):
+            continue
+        e = reach.setdefault(c["mode"], dict(immune=0, fires=0, fired=0))
+        if c["derived"] == "IMMUNE":
+            e["immune"] += 1
+        if c["derived"] in ("FIRES", "BYTES"):
+            e["fires"] += 1
+    for mode, nm, ok in fired:
+        if mode in reach and ok:
+            reach[mode]["fired"] += 1
+    untested = sorted(mode_token(m) for m, e in reach.items()
+                      if e["immune"] and not e["fired"])
+    print("ALTREACH modes_with_injections=%d immune-somewhere=%d fireable-somewhere=%d "
+          "immune-only=%s"
+          % (len(reach), sum(1 for e in reach.values() if e["immune"]),
+             sum(1 for e in reach.values() if e["fired"]), ",".join(untested) or "none"))
+    v.check("%s every mode that is immune somewhere is fireable somewhere" % tag,
+            not untested, len(reach), "immune-only modes: %s" % (",".join(untested) or "none"))
+    return results
+
+
+# ---------------------------------------------------------------------------------------------
+# writing the run: plan.tsv, sources.tsv, hidden.tsv, ids.tsv
+# ---------------------------------------------------------------------------------------------
+def write_plan(path, p, expect_map):
+    """The P/T/C contract, in the field order lmh_read_plan parses. Field counts come from the header."""
+    cfg, en, fc = p.cfg, p.en, p.fc
+    lines = []
+    lines.append("\t".join(["P", str(cfg["head_dim"]), str(cfg["h"]), str(cfg["vocab"]),
+                            str(p.n_hidden), str(len(p.ids)), str(p.out_floats), str(p.slab_bytes),
+                            str(len(p.tables)), str(len(p.cases))]))
+    if len(lines[-1].split("\t")) != fc["LMH_F_P"]:
+        raise Fail("the P record I built has %d fields, LMH_F_P says %d"
+                   % (len(lines[-1].split("\t")), fc["LMH_F_P"]))
+    for t in p.tables:
+        lines.append("\t".join(["T", str(t["idx"]), str(t["enc"]), str(t["role"]), str(t["base"]),
+                                str(t["nbytes"]), str(t["v_rows"]), str(t["h"]), str(t["peer"]),
+                                str(t["real"])]))
+        if len(lines[-1].split("\t")) != fc["LMH_F_T"]:
+            raise Fail("a T record has %d fields, LMH_F_T says %d"
+                       % (len(lines[-1].split("\t")), fc["LMH_F_T"]))
+    exp_id = {"EXACT": en["LMH_EXP_EXACT"], "BAND": en["LMH_EXP_BAND"],
+              "FIRES": en["LMH_EXP_FIRES"], "IMMUNE": en["LMH_EXP_IMMUNE"],
+              "BYTES": en["LMH_EXP_BYTES"]}
+    for c in p.cases:
+        cls = expect_map[c["idx"]]
+        if cls not in exp_id:
+            raise Fail("case %d has class %r, which is not one of the header's LMH_EXP_* names"
+                       % (c["idx"], cls))
+        lines.append("\t".join(["C", str(c["idx"]), str(c["table"]), str(c["path"]),
+                                str(c["batching"]), str(c["b0"]), str(c["bcount"]), str(c["row_lo"]),
+                                str(c["nrows"]), str(c["ids_off"]), str(c["n_ids"]), str(c["assoc"]),
+                                str(c["mode"]), str(c["out_off"]), str(c["n_out"]), str(c["cmp_off"]),
+                                str(c["grp"]), str(exp_id[cls]), str(c["on_device"]),
+                                str(c["trace"])]))
+        if len(lines[-1].split("\t")) != fc["LMH_F_C"]:
+            raise Fail("case %d has %d fields, LMH_F_C says %d"
+                       % (c["idx"], len(lines[-1].split("\t")), fc["LMH_F_C"]))
+    with open(path, "w") as fh:
+        fh.write("# P head_dim h vocab n_hidden ids_count out_floats slab_bytes n_tables n_cases\n")
+        fh.write("# T idx enc role base nbytes v_rows h peer real\n")
+        fh.write("# C idx table path batching b0 bcount row_lo nrows ids_off n_ids assoc mode "
+                 "out_off n_out cmp_off grp expect on_device trace\n")
+        for l in lines:
+            fh.write(l + "\n")
+    return lines
+
+
+def write_sidecars(work, p):
+    with open(os.path.join(work, "sources.tsv"), "w") as fh:
+        fh.write("# T idx kind enc real [file tensor rows] [bytes] [from_idx from_base nbytes]\n")
+        for s in p.sources:
+            fh.write("\t".join(["T"] + ["%s=%s" % (k, v) for k, v in sorted(s.items())]) + "\n")
+    with open(os.path.join(work, "hidden.tsv"), "w") as fh:
+        fh.write("# H i src=dump file row n_rows | src=synth kind [k]\n")
+        for s in p.hidden_spec:
+            fh.write("\t".join(["H"] + ["%s=%s" % (k, v) for k, v in sorted(s.items())]) + "\n")
+    with open(os.path.join(work, "ids.tsv"), "w") as fh:
+        fh.write("# I off value\n")
+        for off, v in enumerate(p.ids):
+            fh.write("I\toff=%d\tvalue=%d\n" % (off, v))
+    with open(os.path.join(work, "ids.i32"), "wb") as fh:
+        fh.write(struct.pack("<%di" % len(p.ids), *p.ids) if p.ids else b"")
+
+
+def driver_args(work, p, cfg, plan, slab, out, report, extra=()):
+    """One driver invocation. The `--expect-*` values come from the CONFIG and the plan this file
+    built: a plan that quietly lost or gained a table, a case, or a width is refused, not judged."""
+    return ["--plan", plan, "--slab", slab, "--hidden", os.path.join(work, "hidden.f32"),
+            "--ids", os.path.join(work, "ids.i32"),
+            "--expect-tables", len(p.tables), "--expect-cases", len(p.cases),
+            "--expect-head-dim", cfg["head_dim"], "--expect-h", cfg["h"],
+            "--expect-vocab", cfg["vocab"],
+            "--out", out, "--report", report] + list(extra)
+
+
+def run_arm(bin_path, work, p, cfg, out_name, report_name, log_name, extra=()):
+    cmd = [bin_path] + driver_args(
+        work, p, cfg, os.path.join(work, "plan.tsv"), os.path.join(work, "slab.bin"),
+        os.path.join(work, out_name), os.path.join(work, report_name), extra)
+    rc, out = run(cmd, os.path.join(work, log_name))
+    return rc, out
+
+
+# ---------------------------------------------------------------------------------------------
+# the three-arm agreement, the amortisation proof and the disjointness proof
+# ---------------------------------------------------------------------------------------------
+def three_way(v, p, d, host_rep, dev_rep, hostw, devw, expw, bandw, fc, en):
+    """host twin vs device vs torch, per case.
+
+    lm_head_kernels.h states the contract this implements: bit-exact where the two arms run the SAME
+    written association (every SEQ case, and both arms of every case for the fields that are pure
+    addressing), and band-judged where the association is a legal re-association (REV, SPLIT8). Both
+    are printed either way, so 'the arms were in fact bit-identical even on REV' is a reported result
+    rather than a relaxed assertion."""
+    n_exact = n_banded = 0
+    nd_bad, band_bad = [], []
+    identical_rev = 0
+    for c in p.cases:
+        if not c["on_device"]:
+            continue                                  # the device never ran it; see adjudicate
+        slot = p.slot(c)
+        words = [(c["out_off"] + b * slot + j) for b in range(c["bcount"]) for j in range(c["n_out"])]
+        nd = sum(1 for at in words if not word_eq(hostw[at], devw[at]))
+        if c["assoc"] == en["LMH_ASSOC_SEQ"]:
+            n_exact += 1
+            if nd:
+                nd_bad.append("case %d %s: %d of %d words differ" % (c["idx"], c["name"], nd, len(words)))
+        else:
+            n_banded += 1
+            worst = 0.0
+            for at in words:
+                dd = abs(f32(hostw[at]) - f32(devw[at]))
+                if not bandw[at] > 0.0:
+                    raise Fail("case %d word %d has no band: a re-association cannot be bounded"
+                               % (c["idx"], at))
+                worst = max(worst, dd / bandw[at])
+            if worst > 1.0:
+                band_bad.append("case %d %s: arms apart by %.3g x band" % (c["idx"], c["name"], worst))
+            if nd == 0:
+                identical_rev += 1
+    print("THREEWAY seq_cases=%d reassociated_cases=%d reassociated_bit_identical=%d "
+          "seq_diverging_cases=%d reassociated_outside_band=%d"
+          % (n_exact, n_banded, identical_rev, len(nd_bad), len(band_bad)))
+    v.check("three-arm: the host twin and the device agree bit-for-bit on every SEQ case",
+            n_exact > 0 and not nd_bad, n_exact, "; ".join(nd_bad[:4]) or "0 diverging cases")
+    v.check("three-arm: the arms stay inside the derived band on every re-association",
+            not band_bad, n_banded, "; ".join(band_bad[:4]) or "all inside")
+    v.note("re-associations-were-also-bit-identical",
+           "%d of %d REV/SPLIT8 cases had ZERO words apart between the arms (band judgement was "
+           "available but not needed)" % (identical_rev, n_banded))
+    # both arms against the oracle, per class: the third side of the triangle
+    per_arm = {}
+    for c in p.cases:
+        if c["derived"] != "BAND":
+            continue
+        slot = p.slot(c)
+        for nm, words in (("host", hostw), ("device", devw)):
+            out = 0
+            for b in range(c["bcount"]):
+                for j in range(c["n_out"]):
+                    at = c["out_off"] + b * slot + j
+                    if abs(f32(words[at]) - f32(expw[at])) > bandw[at]:
+                        out += 1
+            e = per_arm.setdefault(nm, [0, 0])
+            e[0] += c["bcount"] * c["n_out"]
+            e[1] += out
+    print("THREEWAY oracle words=%s outside_band=%s"
+          % ({k: val[0] for k, val in per_arm.items()}, {k: val[1] for k, val in per_arm.items()}))
+    v.check("three-arm: neither arm leaves the derived band against the torch oracle",
+            per_arm and all(val[1] == 0 for val in per_arm.values()) and sum(
+                val[0] for val in per_arm.values()) > 0,
+            sum(val[0] for val in per_arm.values()),
+            "outside=%s" % ({k: val[1] for k, val in per_arm.items()},))
+
+
+def amortisation_and_disjointness(v, p, d, rep, tag, fc, en):
+    """The two claims this lane can make WITHOUT a timer, both read off the traced read-set."""
+    # ---- amortisation: batching must buy weight reads, and only weight reads ------------------
+    groups = {}
+    for c in p.cases:
+        if c["batching"] == en["LMH_BATCH_BATCHED"] and c["mode"] == en["LMH_MODE_CORRECT"]:
+            groups.setdefault(c["idx"], {"batched": c, "perrow": []})
+        elif c["batching"] == en["LMH_BATCH_PERROW"] and c["grp"] >= 0:
+            groups.setdefault(c["grp"], {"batched": None, "perrow": []})["perrow"].append(c)
+    n_groups = 0
+    bad = []
+    for gi, g in sorted(groups.items()):
+        b, per = g["batched"], g["perrow"]
+        if b is None or len(per) != b["bcount"]:
+            bad.append("group %d: %d per-row controls for bcount=%d" % (gi, len(per), b["bcount"] if b else -1))
+            continue
+        n_groups += 1
+        bb = int(rep[b["idx"]]["bytes"])
+        pb = sum(int(rep[c["idx"]]["bytes"]) for c in per)
+        t = p.tables[b["table"]]
+        want_rows = b["nrows"] if b["path"] == en["LMH_PATH_DENSE"] else b["n_ids"]
+        geometry_bytes = want_rows * t["row_b"]
+        if pb != b["bcount"] * bb:
+            bad.append("group %d: per-row bytes %d != %d x batched %d" % (gi, pb, b["bcount"], bb))
+        if bb != geometry_bytes:
+            bad.append("group %d: batched bytes %d != geometry %d" % (gi, bb, geometry_bytes))
+        print("AMORTISE tag=%s group=%d rows=%d bcount=%d batched_bytes=%d perrow_bytes_sum=%d "
+              "ratio=%.2f geometry=%d"
+              % (tag, gi, want_rows, b["bcount"], bb, pb,
+                 (pb / bb) if bb else 0.0, geometry_bytes))
+    v.check("%s batching amortises the weight read by exactly bcount" % tag,
+            n_groups > 0 and not bad, n_groups, "; ".join(bad[:4]) or "all groups exact")
+    # bytes must not depend on how many hidden vectors share the walk
+    curve = [c for c in p.cases if c["mode"] == en["LMH_MODE_CORRECT"]
+             and c["batching"] == en["LMH_BATCH_BATCHED"] and c["path"] == en["LMH_PATH_DENSE"]
+             and c["n_out"] > 0]
+    by_shape = {}
+    for c in curve:
+        by_shape.setdefault((c["table"], c["row_lo"], c["nrows"], c["assoc"]), []).append(c)
+    flat_bad = []
+    for key, cs in sorted(by_shape.items()):
+        if len(cs) < 2:
+            continue
+        bs = set(int(rep[c["idx"]]["bytes"]) for c in cs)
+        bc = set(c["bcount"] for c in cs)
+        if len(bs) != 1 or len(bc) < 2:
+            flat_bad.append("shape %s: bytes %s over bcounts %s" % (key, sorted(bs), sorted(bc)))
+        else:
+            print("AMORTISE tag=%s shape=table%d/rows%d+n%d bytes=%d constant across bcounts %s"
+                  % (tag, key[0], key[1], key[2], bs.pop(), sorted(bc)))
+    v.check("%s addressed bytes are independent of bcount for the same row set" % tag,
+            bool(by_shape) and not flat_bad, len(flat_bad), "; ".join(flat_bad[:4]) or "flat")
+    # ---- disjointness: nobody read outside the table they were given ---------------------------
+    stray = []
+    for c in p.cases:
+        r = rep[c["idx"]]
+        cross, peer = int(r["cross"]), int(r["peer_hits"])
+        reads_peer = c["mode"] in (en["LMH_MODE_TIED_ALIAS"], en["LMH_MODE_CROSS_TABLE_READ"])
+        if cross and not reads_peer:
+            stray.append("case %d %s cross=%d without a peer-reading mode" % (c["idx"], c["name"], cross))
+    v.check("%s no case reads outside its own table unless it is the peer-reading injection" % tag,
+            not stray, len(p.cases), "; ".join(stray[:4]) or "no stray reads")
+    # the two real tables: disjoint in the slab AND from different files, which is the untiedness
+    real = [t for t in p.tables if t["real"] == 1 and t["kind"] == "real"]
+    pairs = []
+    for i in range(len(real)):
+        for j in range(i + 1, len(real)):
+            a, b = real[i], real[j]
+            if a["base"] + a["nbytes"] <= b["base"] or b["base"] + b["nbytes"] <= a["base"]:
+                continue
+            if not (a["base"] == b["base"] and a["nbytes"] == b["nbytes"]):
+                pairs.append("tables %d/%d overlap" % (a["idx"], b["idx"]))
+    lmh_files = set(t["file"] for t in real if t["tensor"] == LMH_TENSOR)
+    emb_files = set(t["file"] for t in real if t["tensor"] == EMBD_TENSOR)
+    print("DISJOINT tag=%s real_tables=%d overlaps=%d lmhead_files=%s embd_files=%s same_file=%d"
+          % (tag, len(real), len(pairs), sorted(os.path.basename(f) for f in lmh_files),
+             sorted(os.path.basename(f) for f in emb_files),
+             1 if lmh_files & emb_files else 0))
+    v.check("%s the real tables occupy disjoint slab ranges" % tag, not pairs, len(real),
+            "; ".join(pairs) or "disjoint")
+    v.check("%s lm_head and the embeddings come from DIFFERENT shard files (the untiedness)" % tag,
+            len(lmh_files) == 1 and len(emb_files) == 1 and not (lmh_files & emb_files), 2,
+            "lm_head=%s embeddings=%s" % (sorted(lmh_files), sorted(emb_files)))
+
+
+# ---------------------------------------------------------------------------------------------
+# the pipeline, and the controls that prove it can go red
+# ---------------------------------------------------------------------------------------------
+def artifact_widths(gguf_path):
+    if not os.path.exists(gguf_path):
+        return {}
+    import gguf_width_table as GWT
+    try:
+        table = GWT.parse_gguf(gguf_path)
+    except Exception as e:                            # an unreadable artifact is a finding, not a skip
+        raise Fail("cannot read the published artifact %s: %r" % (gguf_path, e))
+    return dict((t["name"], t["type"]) for t in table)
+
+
+def tamper_q8_scale(slab_bytes, tables, en, fc, table_idx):
+    """Double every Q8_0 block delta in one table: a UNIFORM POWER-OF-TWO rescale of the decoded
+    values, which is exactly the perturbation an XOR of bit patterns can cancel. Byte geometry is
+    unchanged, so nothing but the numbers move."""
+    buf = bytearray(slab_bytes)
+    t = tables[table_idx]
+    if t["enc"] != en["LMH_ENC_Q8_0"]:
+        raise Fail("tamper_q8_scale wants a Q8_0 table, got enc=%d" % t["enc"])
+    nblk = t["nbytes"] // fc["LMH_Q8_0_BYTES"]
+    for i in range(nblk):
+        at = t["base"] + i * fc["LMH_Q8_0_BYTES"]
+        d = struct.unpack_from("<e", buf, at)[0]
+        struct.pack_into("<e", buf, at, d * 2.0)
+    return bytes(buf), nblk
+
+
+def do_run(a, v, device, fc, en, fields, modes):
+    cfg = read_config()
+    work = a.work
+    p = build(cfg, fc, en, a.max_rows, a.deep_rows)
+    print("POPULATION tables=%d cases=%d injections=%d hidden=%d (real=%d synth=%d) ids=%d "
+          "out_floats=%d slab_bytes=%d"
+          % (len(p.tables), len(p.cases),
+             sum(1 for c in p.cases if c["mode"] != en["LMH_MODE_CORRECT"]), p.n_hidden,
+             p.real_hidden, p.synth_hidden, len(p.ids), p.out_floats, p.slab_bytes))
+    expect1 = dict((c["idx"], c["expect_name"] if c["expect_name"] != "AUTO" else "FIRES")
+                   for c in p.cases)
+    plan_path = os.path.join(work, "plan.tsv")
+    lines1 = write_plan(plan_path, p, expect1)
+    write_sidecars(work, p)
+
+    # ---- the artifact's own widths, printed and cited, with Q6_K refused as a Q8_0 source -------
+    widths = artifact_widths(GGUF)
+    for nm in ("output.weight", "token_embd.weight"):
+        print("ARTIFACTWIDTH tensor=%s stored=%s policy_a=Q8_0 citation=DECISIONS.md#D-10"
+              % (nm, widths.get(nm, "absent")))
+    q6 = sorted(n for n, t in widths.items() if t == "Q6_K")
+    print("ARTIFACTWIDTH q6_k_tensors=%d first=%s note=Q6_K kernel support deferred "
+          "(tools/gguf_reader.py's audited _deq_q6_k is the reuse point)"
+          % (len(q6), q6[:1]))
+    v.check("the stored width of the two tables this lane gates is read from the artifact, not assumed",
+            all(nm in widths for nm in ("output.weight", "token_embd.weight")) and len(widths) > 10,
+            len(widths), "output.weight=%s token_embd.weight=%s"
+            % (widths.get("output.weight"), widths.get("token_embd.weight")))
+    q8_sources = set(s.get("file", "") for s in p.sources
+                     if s["enc"] == "Q8_0" and s["kind"] == "real")
+    v.check("no Q8_0 table is sourced from the published GGUF (Q6_K would be read as Q8_0)",
+            all(f.endswith(".safetensors") for f in q8_sources) and len(q8_sources) > 0,
+            len(q8_sources), "Q8_0 sources=%s" % sorted(os.path.basename(f) for f in q8_sources))
+
+    # ---- the oracle arm ------------------------------------------------------------------------
+    if a.control == "q6k-source":
+        rc, out = run([PY, ORACLE, "--work", work, "--control", "q6k-source"],
+                      os.path.join(work, "control-q6k-source.log"))
+        for line in out.splitlines():
+            print(line)
+        refused = [l for l in out.splitlines() if l.startswith("REFUSE") and "Q6_K" in l]
+        v.check("a Q6_K source tensor is refused rather than read as Q8_0",
+                rc != 0 and len(refused) >= 1, 1, "rc=%d refusal=%s" % (rc, refused[:1]))
+        return v
+    cmd = [PY, ORACLE, "--work", work]
+    if a.full_table:
+        cmd.append("--full-table")
+    rc, out = run(cmd, os.path.join(work, "oracle.log"))
+    for line in out.splitlines():
+        print(line)
+    if rc != 0:
+        raise Fail("oracle_arm.py failed rc=%d (see work/oracle.log)" % rc)
+    fill = parse_tag(out, "ORACLEFILL", ["regions_filled", "words", "band_nonzero",
+                                         "band_nonpositive"], want=1)[0]
+    want_words = sum(c["bcount"] * c["n_out"] for c in p.cases
+                     if c["mode"] == en["LMH_MODE_CORRECT"])
+    v.check("the oracle filled exactly the honest cases' words", int(fill["words"]) == want_words
+            and int(fill["band_nonpositive"]) == 0, want_words,
+            "oracle=%s expected=%d band_nonpositive=%s" % (fill["words"], want_words,
+                                                           fill["band_nonpositive"]))
+    slab_bands = parse_tag(out, "ARTIFACTWIDTH", ["tensor", "stored"], want=2)
+    v.check("the oracle and the gate agree on the artifact widths (parsed == printed)",
+            all(d["stored"] == widths.get(d["tensor"]) for d in slab_bands), len(slab_bands),
+            "oracle=%s gate=%s" % ([d["stored"] for d in slab_bands],
+                                   [widths.get(d["tensor"]) for d in slab_bands]))
+
+    d = Data(work, p, fc, en)
+
+    if a.control == "no-fire":
+        victim = next(c for c in reversed(p.cases) if c["name"].startswith("inj-"))
+        print("CONTROL no-fire neutralising case=%d %s (mode %d -> CORRECT): the run MUST go red"
+              % (victim["idx"], victim["name"], victim["mode"]))
+        victim["mode"] = en["LMH_MODE_CORRECT"]
+
+    # ---- derive the classes from the bytes, then rewrite the plan with what they said -----------
+    expect2 = {}
+    for c in p.cases:
+        cls, pred = derive_class(c, d)
+        expect2[c["idx"]] = cls
+    lines2 = write_plan(plan_path + ".derived", p, expect2)
+    diff = [i for i in range(len(lines1)) if lines1[i] != lines2[i]]
+    only_expect = True
+    for i in diff:
+        if not lines1[i].startswith("C\t"):
+            only_expect = False
+        else:
+            f1, f2 = lines1[i].split("\t"), lines2[i].split("\t")
+            if [x for k, x in enumerate(f1) if f2[k] != x] != [f1[17]]:
+                only_expect = False
+    v.check("deriving the classes changed the expect column and nothing else", only_expect,
+            len(diff), "%d records differ" % len(diff))
+    write_plan(plan_path, p, expect2)
+
+    # ---- the host arm ---------------------------------------------------------------------------
+    expw = words_of(os.path.join(work, "expect.f32"), p.out_floats)
+    bandw = doubles_of(os.path.join(work, "band.f64"), p.out_floats)
+    if a.control == "q6k-geometry":
+        return control_q6k_geometry(v, p, cfg, fc, en, work)
+    rc, out = run_arm(PROBE, work, p, cfg, "host_out.f32", "host_report.tsv", "host-probe.log")
+    for line in out.splitlines():
+        print(line)
+    if rc != 0:
+        raise Fail("host_probe rc=%d" % rc)
+    prec = parse_tag(out, "PLAN", ["p_records", "tables_parsed", "cases_parsed"], want=1)[0]
+    v.check("host arm parsed the plan exactly", int(prec["p_records"]) == 1
+            and int(prec["tables_parsed"]) == len(p.tables)
+            and int(prec["cases_parsed"]) == len(p.cases), len(p.cases),
+            "p=%s tables=%s cases=%s" % (prec["p_records"], prec["tables_parsed"],
+                                         prec["cases_parsed"]))
+    runrec = parse_tag(out, "RUN", ["arm", "cases", "skipped", "items"], want=1)[0]
+    v.check("host arm ran every case (nothing skipped)",
+            runrec["arm"] == "host" and int(runrec["skipped"]) == 0
+            and int(runrec["cases"]) == len(p.cases), len(p.cases),
+            "cases=%s skipped=%s items=%s" % (runrec["cases"], runrec["skipped"], runrec["items"]))
+    if a.control == "tampered-out":
+        op = os.path.join(work, "host_out.f32")
+        words = words_of(op, p.out_floats)
+        tgt = next(c for c in p.cases if c["derived"] == "BAND")
+        at = tgt["out_off"]
+        words[at] ^= 0x00000001
+        with open(op, "wb") as fh:
+            fh.write(struct.pack("<%dI" % p.out_floats, *words))
+        print("CONTROL tampered-out flipped the low bit of word %d (case %d %s): the run MUST go red"
+              % (at, tgt["idx"], tgt["name"]))
+    if a.control == "no-report":
+        rp = os.path.join(work, "host_report.tsv")
+        keep = open(rp).read().splitlines(True)
+        with open(rp, "w") as fh:
+            fh.writelines(keep[:-1])
+        print("CONTROL no-report dropped the last report row: parsed != printed MUST go red")
+    hostw = words_of(os.path.join(work, "host_out.f32"), p.out_floats)
+    host_rep = read_report(os.path.join(work, "host_report.tsv"), p, fields, fc)
+    adjudicate(v, p, d, host_rep, hostw, expw, bandw, "host", fc, en)
+    amortisation_and_disjointness(v, p, d, host_rep, "host", fc, en)
+
+    if a.control == "scale-q8":
+        return control_scale_q8(v, p, d, cfg, fc, en, work, host_rep, expw, bandw, fields)
+
+    if a.check_only or not device:
+        return v
+
+    # ---- the device arm -------------------------------------------------------------------------
+    rc, out = run_arm(DRIVER, work, p, cfg, "out.f32", "report.tsv", "driver.log",
+                      extra=["--device-only"])
+    for line in out.splitlines():
+        print(line)
+    if rc != 0:
+        raise Fail("device driver rc=%d" % rc)
+    drec = parse_tag(out, "RUN", ["arm", "cases", "skipped", "items", "planned"], want=1)[0]
+    n_off = sum(1 for c in p.cases if not c["on_device"])
+    v.check("device arm ran exactly the on_device cases",
+            drec["arm"] == "device" and int(drec["planned"]) == len(p.cases) - n_off
+            and int(drec["skipped"]) == n_off and int(drec["cases"]) == len(p.cases) - n_off,
+            len(p.cases) - n_off, "planned=%s skipped=%s cases=%s (host-only cases=%d)"
+            % (drec["planned"], drec["skipped"], drec["cases"], n_off))
+    devw = words_of(os.path.join(work, "out.f32"), p.out_floats)
+    dev_rep = read_report(os.path.join(work, "report.tsv"), p, fields, fc)
+    adjudicate(v, p, d, dev_rep, devw, expw, bandw, "device", fc, en)
+    amortisation_and_disjointness(v, p, d, dev_rep, "device", fc, en)
+    launch_bad = []
+    for c in p.cases:
+        got = int(dev_rep[c["idx"]]["launches"])
+        if c["on_device"] and got < 1:
+            launch_bad.append("case %d launched %d blocks" % (c["idx"], got))
+        if not c["on_device"] and got != 0:
+            launch_bad.append("host-only case %d reports %d launches" % (c["idx"], got))
+        hg = int(host_rep[c["idx"]]["launches"])
+        if hg != 1:
+            launch_bad.append("host case %d reports %s launches" % (c["idx"], hg))
+    v.check("launch counts: one host call per case, at least one grid per device case",
+            not launch_bad, len(p.cases), "; ".join(launch_bad[:4]) or "consistent")
+    three_way(v, p, d, host_rep, dev_rep, hostw, devw, expw, bandw, fc, en)
+    return v
+
+
+def control_q6k_geometry(v, p, cfg, fc, en, work):
+    """A Q6_K tensor silently accepted as Q8_0 must be refused by BOTH sides.
+
+    The byte geometry is derived from the artifact's own block table (210 B per 256 weights, via
+    tools/gguf_width_table.py's BLK), never typed here. If the plan's Q8_0 table is given that
+    geometry, the C++ verifier refuses (`FAIL verify ... the encoding says`) and the oracle refuses;
+    a plan that walked through either would mean the width was never actually checked."""
+    import gguf_width_table as GWT
+    elts, blk = GWT.BLK["Q6_K"]
+    h = p.cfg["h"]
+    q6_row = (h // elts) * blk
+    t = next(t for t in p.tables if t["enc"] == en["LMH_ENC_Q8_0"] and t["kind"] == "real")
+    want = t["nbytes"]
+    print("CONTROL q6k-geometry table=%d enc=Q8_0 honest_bytes=%d q6k_geometry=%d (%d B / %d elts "
+          "from tools/gguf_width_table.py BLK)" % (t["idx"], want, q6_row * t["v_rows"], blk, elts))
+    if q6_row * t["v_rows"] == want:
+        raise Fail("the Q6_K and Q8_0 geometries coincide at h=%d: this control cannot fire and the "
+                   "refusal is unproven" % h)
+    plan_path = os.path.join(work, "plan.tsv")
+    lines = open(plan_path).read().splitlines()
+    outl = []
+    for l in lines:
+        f = l.split("\t")
+        if f[0] == "T" and int(f[1]) == t["idx"]:
+            f[5] = str(q6_row * t["v_rows"])
+        outl.append("\t".join(f))
+    with open(os.path.join(work, "plan_q6k.tsv"), "w") as fh:
+        fh.write("\n".join(outl) + "\n")
+    bad = []
+    for nm, binp in (("host_probe", PROBE), ("device", DRIVER)):
+        cmd = [binp] + driver_args(work, p, cfg, os.path.join(work, "plan_q6k.tsv"),
+                                   os.path.join(work, "slab.bin"),
+                                   os.path.join(work, "out_q6k.f32"),
+                                   os.path.join(work, "rep_q6k.tsv"))
+        rc, out = run(cmd, os.path.join(work, "q6k-%s.log" % nm))
+        refused = rc != 0 and any(l.startswith("FAIL verify") or l.startswith("FAIL plan")
+                                  for l in out.splitlines())
+        print("CONTROLARM %s rc=%d refused=%d first=%s" % (nm, rc, 1 if refused else 0,
+                                                           [l for l in out.splitlines()
+                                                            if l.startswith("FAIL")][:1]))
+        if not refused:
+            bad.append(nm)
+    v.check("a Q6_K-shaped table declared Q8_0 is refused by both drivers", not bad, 2,
+            "accepted it silently: %s" % (",".join(bad) or "none"))
+    return v
+
+
+def control_scale_q8(v, p, d, cfg, fc, en, work, host_rep, expw, bandw, fields):
+    """A uniform power-of-two rescale of the Q8_0 deltas: the class of value bug an XOR of bit
+    patterns provably cancels (the driver self-test's `xor-digest-blind-to-uniform-rescale` is the
+    witness). The gate must go red on it, and `vsum` must be the field that moves — `bsum` cannot see
+    a decode change at all and `xorb` is the one that has been measured to coincide."""
+    t = next(tab for tab in p.tables if tab["enc"] == en["LMH_ENC_Q8_0"] and tab["kind"] == "real")
+    clean = d.slab
+    scaled, nblk = tamper_q8_scale(clean, p.tables, en, fc, t["idx"])
+    with open(os.path.join(work, "slab_scaled.bin"), "wb") as fh:
+        fh.write(scaled)
+    cmd = [PROBE] + driver_args(work, p, cfg, os.path.join(work, "plan.tsv"),
+                                os.path.join(work, "slab_scaled.bin"),
+                                os.path.join(work, "out_scaled.f32"),
+                                os.path.join(work, "report_scaled.tsv"))
+    rc, out = run(cmd, os.path.join(work, "host-probe-scaled.log"))
+    for line in out.splitlines():
+        print(line)
+    if rc != 0:
+        raise Fail("the scaled slab broke a structural check instead of a value check (rc=%d); "
+                   "the control expects to be caught by the judge" % rc)
+    rep2 = read_report(os.path.join(work, "report_scaled.tsv"), p, fields, fc)
+    words2 = words_of(os.path.join(work, "out_scaled.f32"), p.out_floats)
+    moved_v = moved_x = same_x = n_traced = 0
+    for c in p.cases:
+        if c["table"] != t["idx"] or not c["trace"]:
+            continue
+        n_traced += 1
+        aa, bb = host_rep[c["idx"]], rep2[c["idx"]]
+        moved_v += 1 if aa["vsum"] != bb["vsum"] else 0
+        moved_x += 1 if aa["xorb"] != bb["xorb"] else 0
+        same_x += 1 if aa["xorb"] == bb["xorb"] else 0
+    print("SCALEDIFF table=%d blocks=%d traced_cases=%d vsum_moved=%d xorb_moved=%d "
+          "xorb_unchanged=%d" % (t["idx"], nblk, n_traced, moved_v, moved_x, same_x))
+    inner = V()
+    adjudicate(inner, p, d, rep2, words2, expw, bandw, "scaled", fc, en)
+    print("CONTROL scale-q8 red_checks=%d of %d checks" % (len(inner.bad), inner.n))
+    v.check("a uniform x2 rescale of the Q8_0 deltas makes the judge red",
+            len(inner.bad) > 0, inner.n, "red checks=%d (%s)"
+            % (len(inner.bad), ",".join(inner.bad[:3])))
+    v.check("vsum moves on the rescaled table's traced cases", moved_v > 0 and moved_v <= n_traced,
+            n_traced, "vsum_moved=%d/%d xorb_moved=%d xorb_unchanged=%d"
+            % (moved_v, n_traced, moved_x, same_x))
+    return v
+
+
+# ---------------------------------------------------------------------------------------------
+# --selftest: the driver rosters, the source scan, and the controls that must go red
+# ---------------------------------------------------------------------------------------------
+def selftest(v, a, fc, en, modes):
+    here = HERE
+    rosters = {}
+    for nm, binp in (("host_probe", PROBE), ("device", DRIVER)):
+        if not os.path.exists(binp):
+            raise Fail("%s is missing; run build.sh" % binp)
+        rc, out = run([binp, "--selftest", "--work", a.work],
+                      os.path.join(a.work, "selftest-%s.log" % nm))
+        lines = [l for l in out.splitlines() if l.startswith("SELFTEST name=")]
+        recs = [kv(l) for l in lines]
+        fin = parse_tag(out, "DRIVER", ["checks", "failures"], want=1)[0]
+        for r in recs:
+            if r["ok"] != "1":
+                v.check("driver %s selftest %s" % (nm, r["name"]),
+                        r["ok"] == "1" and r.get("note", "") == "",
+                        1, "ok=%s note=%s" % (r["ok"], r.get("note", "")))
+        v.check("%s --selftest exits 0" % nm, rc == 0, len(recs), "rc=%d" % rc)
+        v.check("%s selftest has zero failures" % nm,
+                int(fin["failures"]) == 0 and int(fin["checks"]) > 0, int(fin["checks"]),
+                "checks=%s failures=%s" % (fin["checks"], fin["failures"]))
+        v.check("%s selftest parsed == printed" % nm, len(recs) == int(fin["checks"]),
+                int(fin["checks"]), "printed=%d parsed=%d" % (len(recs), int(fin["checks"])))
+        names = [r["name"] for r in recs]
+        rosters[nm] = names
+        # every injection mode the header declares must have a FIRING witness in the roster: an
+        # injection nobody ever demonstrated firing is the hole that lets a green mean nothing.
+        missing = [mode_token(m) for m in modes
+                   if not any(mode_token(m) in x for x in names)]
+        v.check("%s roster shows a firing witness for every declared mode" % nm,
+                len(modes) > 1 and not missing, len(modes),
+                "no witness for: %s" % (",".join(missing) or "none"))
+        witness = [r for r in recs if "xor-digest-blind" in r["name"]]
+        v.check("%s carries the measured XOR-blindness witness for the digest" % nm,
+                len(witness) == 1 and witness[0]["ok"] == "1", 1,
+                "found=%d ok=%s" % (len(witness), [w["ok"] for w in witness]))
+        report_w = [r for r in recs if "report-field-count" in r["name"]]
+        v.check("%s verifies its own report field count against LMH_F_R" % nm,
+                len(report_w) == 1 and report_w[0]["ok"] == "1", 1,
+                "found=%d ok=%s" % (len(report_w), [r["ok"] for r in report_w]))
+    v.check("both drivers run the identical self-test roster",
+            rosters["host_probe"] == rosters["device"] and len(rosters["device"]) > 20,
+            len(rosters["device"]), "host=%d device=%d" % (len(rosters["host_probe"]),
+                                                           len(rosters["device"])))
+    # no verdict-bearing check in this file or the oracle may carry a constant predicate. AST, not
+    # grep: a check whose predicate sits on a continuation line is exactly what a line scan misses.
+    hits = []
+    for f in ("gate.py", "oracle_arm.py"):
+        src = open(os.path.join(here, f)).read()
+        for nd in ast.walk(ast.parse(src)):
+            if isinstance(nd, ast.Call) and isinstance(nd.func, ast.Attribute) \
+                    and nd.func.attr == "check" and len(nd.args) >= 2:
+                aa = nd.args[1]
+                if isinstance(aa, ast.Constant) and aa.value in (True, False):
+                    hits.append("%s:%d -> %r" % (f, nd.lineno, aa.value))
+    v.check("no verdict-bearing check carries a constant predicate", not hits, 0,
+            "offenders=%s" % (hits[:6],))
+    # the controls: each must make the gate red, and say why
+    for name, marker in (("no-fire", "CONTROL no-fire"),
+                         ("tampered-out", "CONTROL tampered-out"),
+                         ("no-report", "CONTROL no-report"),
+                         ("q6k-geometry", "CONTROLARM host_probe"),
+                         ("q6k-source", "REFUSE"),
+                         ("scale-q8", "SCALEDIFF")):
+        rc, out = run([PY, os.path.join(here, "gate.py"), "--control", name,
+                       "--work", a.work, "--max-rows", str(a.max_rows),
+                       "--deep-rows", str(a.deep_rows)],
+                      os.path.join(a.work, "control-%s.log" % name))
+        text = out
+        saw = [l for l in text.splitlines() if l.startswith(marker)]
+        print("CONTROL %s rc=%d marker=%r lines=%d first=%s" % (name, rc, marker, len(saw),
+                                                                saw[:1] and saw[0][:150]))
+        v.check("control %s is refused or goes red" % name, rc != 0 and len(saw) >= 1, 1,
+                "rc=%d marker_lines=%d" % (rc, len(saw)))
+    for name in ("no-fire", "tampered-out", "no-report", "scale-q8"):
+        log = os.path.join(a.work, "control-%s.log" % name)
+        text = open(log).read() if os.path.exists(log) else ""
+        bad = [l for l in text.splitlines() if l.startswith("CHECK ") and " ok=0 " in l]
+        refused = [l for l in text.splitlines() if l.startswith("FAIL ")]
+        print("CONTROLRED %s red_checks=%d refusals=%d first=%s"
+              % (name, len(bad), len(refused), (bad + refused)[:1] and (bad + refused)[0][:140]))
+        v.check("control %s was caught by a named check or an explicit refusal" % name,
+                len(bad) + len(refused) >= 1, len(bad) + len(refused),
+                "red checks: %d, refusals: %d" % (len(bad), len(refused)))
+    # a malformed plan must be refused by the parser rather than judged
+    rc, out = run([PROBE, "--plan", os.path.join(a.work, "plan.tsv"), "--slab",
+                   os.path.join(a.work, "slab.bin"), "--hidden", os.path.join(a.work, "hidden.f32"),
+                   "--ids", os.path.join(a.work, "ids.i32"), "--out", os.path.join(a.work, "x.f32"),
+                   "--report", os.path.join(a.work, "x.tsv"), "--expect-cases", "99999"],
+                  os.path.join(a.work, "control-wrong-count.log"))
+    v.check("a plan whose case count disagrees with --expect-cases is refused", rc != 0, 1,
+            "rc=%d" % rc)
+    return v
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--work", default=os.path.join(HERE, "work"))
+    ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--check-only", action="store_true",
+                    help="oracle + host twin only; no iGPU (the CI mode)")
+    ap.add_argument("--device", action="store_true", help="add the device arm (wrapper only)")
+    ap.add_argument("--control", default="")
+    ap.add_argument("--max-rows", type=int, default=4,
+                    help="rows per table that device-judged cases may touch")
+    ap.add_argument("--deep-rows", type=int, default=32,
+                    help="rows materialised for the host-only scaling cases")
+    ap.add_argument("--full-table", action="store_true",
+                    help="ask the oracle for the full-table CPU amortisation witness")
+    a = ap.parse_args()
+    if not os.path.isdir(a.work):
+        os.makedirs(a.work)
+    fc, en, fields, modes = contract()
+    v = V()
+    if a.selftest:
+        return selftest(v, a, fc, en, modes).verdict("lm_head host selftest")
+    try:
+        do_run(a, v, a.device, fc, en, fields, modes)
+    except Fail as e:
+        print("FAIL %s" % e)
+        return v.verdict("lm_head (refused)")
+    return v.verdict("lm_head %s" % ("host+device" if a.device else "host-only"))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

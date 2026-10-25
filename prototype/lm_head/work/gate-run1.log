@@ -1,0 +1,17 @@
+POPULATION tables=8 cases=148 injections=73 hidden=41 (real=32 synth=9) ids=15 out_floats=25680 slab_bytes=158208
+Traceback (most recent call last):
+  File "/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/gate.py", line 1744, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/gate.py", line 1736, in main
+    do_run(a, v, a.device, fc, en, fields, modes)
+  File "/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/gate.py", line 1366, in do_run
+    widths = artifact_widths(GGUF)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/gate.py", line 1331, in artifact_widths
+    return dict((t["name"], t["type"]) for t in table)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/gate.py", line 1331, in <genexpr>
+    return dict((t["name"], t["type"]) for t in table)
+                 ~^^^^^^^^
+TypeError: 'int' object is not subscriptable

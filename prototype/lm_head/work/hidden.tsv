@@ -1,0 +1,42 @@
+# H i src=dump file row n_rows | src=synth kind [k]
+H	file=layer39.combined_out.bin	i=0	n_rows=32	row=0	src=dump
+H	file=layer39.combined_out.bin	i=1	n_rows=32	row=1	src=dump
+H	file=layer39.combined_out.bin	i=2	n_rows=32	row=2	src=dump
+H	file=layer39.combined_out.bin	i=3	n_rows=32	row=3	src=dump
+H	file=layer39.combined_out.bin	i=4	n_rows=32	row=4	src=dump
+H	file=layer39.combined_out.bin	i=5	n_rows=32	row=5	src=dump
+H	file=layer39.combined_out.bin	i=6	n_rows=32	row=6	src=dump
+H	file=layer39.combined_out.bin	i=7	n_rows=32	row=7	src=dump
+H	file=layer39.combined_out.bin	i=8	n_rows=32	row=8	src=dump
+H	file=layer39.combined_out.bin	i=9	n_rows=32	row=9	src=dump
+H	file=layer39.combined_out.bin	i=10	n_rows=32	row=10	src=dump
+H	file=layer39.combined_out.bin	i=11	n_rows=32	row=11	src=dump
+H	file=layer39.combined_out.bin	i=12	n_rows=32	row=12	src=dump
+H	file=layer39.combined_out.bin	i=13	n_rows=32	row=13	src=dump
+H	file=layer39.combined_out.bin	i=14	n_rows=32	row=14	src=dump
+H	file=layer39.combined_out.bin	i=15	n_rows=32	row=15	src=dump
+H	file=layer39.combined_out.bin	i=16	n_rows=32	row=16	src=dump
+H	file=layer39.combined_out.bin	i=17	n_rows=32	row=17	src=dump
+H	file=layer39.combined_out.bin	i=18	n_rows=32	row=18	src=dump
+H	file=layer39.combined_out.bin	i=19	n_rows=32	row=19	src=dump
+H	file=layer39.combined_out.bin	i=20	n_rows=32	row=20	src=dump
+H	file=layer39.combined_out.bin	i=21	n_rows=32	row=21	src=dump
+H	file=layer39.combined_out.bin	i=22	n_rows=32	row=22	src=dump
+H	file=layer39.combined_out.bin	i=23	n_rows=32	row=23	src=dump
+H	file=layer39.combined_out.bin	i=24	n_rows=32	row=24	src=dump
+H	file=layer39.combined_out.bin	i=25	n_rows=32	row=25	src=dump
+H	file=layer39.combined_out.bin	i=26	n_rows=32	row=26	src=dump
+H	file=layer39.combined_out.bin	i=27	n_rows=32	row=27	src=dump
+H	file=layer39.combined_out.bin	i=28	n_rows=32	row=28	src=dump
+H	file=layer39.combined_out.bin	i=29	n_rows=32	row=29	src=dump
+H	file=layer39.combined_out.bin	i=30	n_rows=32	row=30	src=dump
+H	file=layer39.combined_out.bin	i=31	n_rows=32	row=31	src=dump
+H	i=32	kind=ones	src=synth
+H	i=33	k=0	kind=onehot	src=synth
+H	i=34	k=2047	kind=onehot	src=synth
+H	i=35	k=255	kind=onehot	src=synth
+H	i=36	k=256	kind=onehot	src=synth
+H	i=37	k=1024	kind=onehot_inexact	src=synth
+H	i=38	kind=tail_zero	src=synth
+H	i=39	kind=head_zero	src=synth
+H	i=40	kind=head_only	src=synth
