@@ -14,6 +14,12 @@
   measurement contend with itself. With the turn blocked and nothing else running, bandwidth-bound
   numbers repeat within **~2 %** of each other; that is the only condition under which a timing here is
   worth anything.
+  **[2026-10-26 correction — read this before trusting the sentence above.** It was written when this
+  session was served locally. Blocking the turn only silences a GPU-adjacent engine **if that engine is
+  on this box**: the main session now runs on `tensorfold` (remote `192.168.10.27:8888`), so a
+  foreground call silences nothing local, and the thing that must be silenced is halogen —
+  §"A halogen stream is a device activity". The rest of the bullet stands: a backgrounded run still
+  contends with itself.]**
 - **`rocm-smi` / `gpu_lock.sh util` is not a gate.** Identical clean runs have read 24–91 % while the
   measured numbers repeated. Record `util` at acquire time for the log, then discount it.
 - **Warm the pages first.** The first GPU pass over fresh pages runs at **~35 GB/s**, ~7× slower than
@@ -22,6 +28,60 @@
   printed 369.7 / 589.0 / 1208.9 ms at one width, whose median "discovered" an 18 % regression that did
   not exist (clean window: 368.0 [365.4, 371.1]). Print the spread beside the median and re-take any
   window whose spread is far outside ~2 % when the workload is bandwidth-bound.
+
+## A halogen stream is a device activity, not a token stream (2026-10-26)
+
+The test for "may this agent run while I measure?" is **where its `baseUrl` points**, and it is one
+command away (`~/.pi/agent/models.json`, or `tools/halogen_gate.sh status`):
+
+- **remote** (`tensorfold` → `http://192.168.10.27:8888/v1`) — its token generation costs this iGPU
+  nothing, so it may think concurrently with other workers;
+- **local** (`halogen` → `http://127.0.0.1:8731/v1`) — a container on this box. While it is up,
+  `rocm-smi --showpids` charges `flash_serve` **22.62 GiB** (24 289 746 944 B) against the
+  device-visible pool, and its polling loop keeps utilisation high whether or not anyone is streaming.
+
+So the hazard has two parts, and they are not the same hazard:
+
+| | cost | consequences |
+|---|---|---|
+| halogen **up and idle** | 22.62 GiB of the pool | a measurement runs in the ≈32 GiB pool, not the ≈55 GiB one — which changes what fits, and may change what a sweep can even allocate |
+| halogen **up and streaming** | pool + a second client on the memory controller | the 0.8B project's clean-vs-contended spread: 2.61–3.59 ms against a documented 2.650 ± 0.02, **with the config ranking changing too** |
+
+**The rule.** A timing window is: zero active workers, `tools/gpu_lock.sh` held, and **halogen down** —
+`GPU_LOCK_TAG="$tag" tools/halogen_gate.sh down` … measure … `tools/halogen_gate.sh up`. Only the main
+agent does this, blocking, and it batches a session's timings into one window rather than stopping per
+gate (restart reloads a 66.69 GB checkpoint; cost unmeasured —
+`devices/evidence/halogen-restart.log`). Never run it from a session whose `PI_PROVIDER` is `halogen`,
+and never by hand with `~/halogen-models/stop.sh`, which skips the guards. Numbers and the admission
+caveats: `devices/measured-facts.md` §"Two model endpoints, and where each one's GPU is".
+
+**Correctness is not the same case.** `gpu_lock.sh` already records that correctness results survive
+contention while timings do not, so a worker's short PASS/FAIL gate alongside a resident halogen is
+allowed; a *number* is not. Do not let "correctness is fine" smuggle a timing into that window.
+
+### The probe that has to happen before `docker pause` becomes policy
+
+`tools/halogen_gate.sh pause` freezes the engine's processes — killing the polling loop — while
+**keeping the 22.62 GiB mapped**. If contamination is compute, `pause` is a much cheaper second tier
+than a full stop/start; if it is residency, `pause` buys nothing at all. Two hypotheses, one A/B, and
+the repo does not get to guess. Main agent only, blocking, all arms inside **one** lock hold,
+interleaved `A B C A B C …` (never `AAA BBB CCC` — a ruler re-taken in a new window is a different
+ruler), 5 reps per arm, spread printed beside every median, on a **bandwidth-bound** harness (a
+dispatch-bound one is bimodal at 158–269 % and will not adjudicate anything), plus a behavioural
+canary so a silently-skipped arm cannot print a clean result:
+
+| arm | state | what it separates |
+|---|---|---|
+| A | halogen down | the ruler |
+| B | halogen up, idle (`admit` passes) | residency alone |
+| C | halogen up, a stream running | residency + compute |
+| D | halogen up, `pause` held | whether `pause` ≡ A |
+
+Read the pattern, not the averages: **B ≈ A** ⇒ residency is innocent for bandwidth (still check the
+pool separately with `tools/mem_mode_probe_hip.cpp`, because 22.62 GiB is charged either way); **B ≫ A**
+⇒ residency binds and `pause` is useless; **C ≫ B** ⇒ compute is the story and `pause` is worth D.
+A `pause` with a request in flight hangs that request to the API server's 3600 s queue timeout —
+`pause` refuses on `requests_processing > 0`, and never end a session with the container paused.
 
 ## `hipEventElapsedTime` returns exactly 0.000 ms for a 2.1 ms kernel
 

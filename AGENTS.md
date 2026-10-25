@@ -45,9 +45,12 @@ yourself is the expensive kind of helpful.
 
 ## GPU execution is serialized and belongs to the main agent (inherited verbatim in force)
 
-Every agent on this box — this repo's and `../qwen3.5-0.8b`'s alike — is served by one
-endpoint running on this same iGPU. Any device run concurrent with another agent's work, or
-with our own serving, is contaminated, and a contaminated number is worse than no number.
+The invariant this section enforces is **nothing that touches the iGPU runs while a number is being
+taken** — not "one agent at a time". Which agents touch the iGPU depends on **where their tokens come
+from**, so read the rules below as device rules and not as headcount rules (§"Two endpoints, three
+classes of work"). What has not changed since the 0.8B project wrote them: any device run concurrent
+with another agent's work, or with our own serving, is contaminated, and a contaminated number is
+worse than no number.
 
 - **Subagents may run short correctness-only device gates**: under ~60 s wall, PASS/FAIL only,
   never a timing, no `ms` figure in a report, one at a time, and the report must carry the
@@ -62,7 +65,7 @@ with our own serving, is contaminated, and a contaminated number is worse than n
   and is called by a caller already holding it **deadlocks silently** (no CPU, no GPU, no message,
   no exit — and `gpu_lock.sh status` afterwards reads `STALE (holder pid dead)`). At least a dozen
   such drivers exist in the sibling repo; check rather than remember.
-- **One subagent at a time**, 2 h deadline passed explicitly on every launch
+- **Every launch carries a 2 h deadline, passed explicitly**
   (`options: {timeoutMs: 7200000, checkpointBeforeDeadlineMs: 600000}`). The deadline, not
   `toolTimeoutMs`, is the knob that matters here: a long CPU-side analysis or one long device run
   can occupy a worker for tens of minutes. Census over the 0.8B project's 73 recorded subagent
@@ -73,6 +76,52 @@ with our own serving, is contaminated, and a contaminated number is worse than n
   `SELFTEST PASS`). Pass `checkpointBeforeDeadlineMs` so a long worker hands back changed files
   and remaining work instead of being cut mid-tool. A worker is stopped before the main agent
   measures.
+
+## Two endpoints, three classes of work (user decision, 2026-10-26)
+
+The facts behind every line of this section are in `devices/measured-facts.md` §"Two model endpoints,
+and where each one's GPU is". The short version: `tensorfold/Qwen3.8-Flash-Next` is served by a
+**remote LAN box**, so its tokens cost this iGPU nothing, while `halogen/halogen-qwen3.8-flash-next`
+is a **container on this box** that charges 22.62 GiB to the device-visible pool for as long as it is
+up. The endpoint — not the word "subagent" — decides what a worker is allowed to do next to a
+measurement.
+
+| class | endpoint | concurrent | device gate? |
+|---|---|---|---|
+| main session | `tensorfold` | 1 | yes — and it owns **every** timing |
+| herd worker | `tensorfold` | **≤3** | short correctness-only, under `gpu_lock`, ≤60 s, PASS/FAIL |
+| heavy worker | `halogen` | **≤1 ever** | short correctness-only, same discipline; never inside a timing window |
+| measurement | — | — | main agent only: zero workers active, `gpu_lock` held, **halogen down** |
+
+- **The cap is 4 workers total: ≤3 on `tensorfold`, ≤1 on `halogen`.** The LAN server reports 5
+  streams and the main session holds one of them, so 3 + 1 = 4 is the **deliberate stability margin**,
+  not an oversight: never open the fifth slot to get more parallelism. Derive the number from that
+  reasoning, never from `max_batch_size: 5`.
+- **`halogen` gets the expensive job, not the first job.** ~58 t/s against ~35, a 260k window, one
+  stream: hand it the long CPU-side work — a census, a whole reference implementation, a big refactor,
+  a long numerical analysis — and not the quick lookup. Two `halogen` workers is never correct, even
+  when the box looks idle.
+- **Parallelism is for thinking; the device stays single-tenant.** Workers may reason concurrently on
+  `tensorfold` because their generation is off-box, but a measurement still requires **zero active
+  workers** — a worker that is merely quiet can fire a compiler or a gate at any moment. Stop them;
+  do not wait for silence.
+- **A `halogen` worker is a device activity, not a token stream.** Its server is a co-resident client
+  of the same pool and memory controller, so while one runs the box is not measurement-clean. Claim it
+  in `/tmp/pi_halogen.lock` for the worker's whole life (`tag` format as `tools/gpu_lock.sh`: machine-
+  wide by design, so the 0.8B repo sees it too), and release it when that worker is stopped, so
+  `tools/halogen_gate.sh admit` is able to refuse.
+- **Only the main agent stops or starts halogen**, and only through `tools/halogen_gate.sh` — never a
+  bare `~/halogen-models/stop.sh`, which skips every guard. `down` requires the GPU lock already held
+  and declared (`GPU_LOCK_TAG`), refuses if `PI_PROVIDER=halogen` (that is self-decapitation), and
+  refuses while a worker holds the stream lock. It never acquires `gpu_lock` itself: a driver that
+  self-acquires and is called by a caller already holding it deadlocks silently
+  (`pitfalls/50-harness-and-shell.md`).
+- **Batch, do not oscillate.** Until `devices/evidence/halogen-restart.log` has entries proving
+  restarts are cheap, take **one** halogen-down window per session and put every timing of that
+  session in it. Reloading a 66.69 GB checkpoint between two gates is how a schedule dies.
+- Launch shape, for both classes:
+  `subagent({agent, task, model: "tensorfold/Qwen3.8-Flash-Next" | "halogen/halogen-qwen3.8-flash-next", options: {timeoutMs: 7200000, checkpointBeforeDeadlineMs: 600000}})`
+  — an unknown agent or model id returns the valid choices; check rather than guess.
 
 ## Self-containment: look elsewhere, but write it here
 

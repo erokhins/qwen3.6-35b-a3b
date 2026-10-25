@@ -103,7 +103,10 @@ Note the arithmetic is razor-thin at the top (55.5 granted, 57.5 refused), so th
 55.5–57.5 GiB, and 56 GiB = **exactly half the 112 GiB GTT** is an obvious suspect but is *not*
 established — `amdgpu.enforce_isolation` sharing among active clients would fit the same points, and
 the test that separates them needs halogen stopped, which is not available from this session (it
-serves this session). Neither `RLIMIT_MEMLOCK` (15.45 GiB here, `unlimited` for halogen, and a 32 GiB
+serves this session). **[2026-10-26: that blocker is gone.** This session is now served by
+`tensorfold`, a remote LAN box, so halogen *can* be stopped from here — §"Two model endpoints, and
+where each one's GPU is" and `tools/halogen_gate.sh`. The test itself still has to be run, once the
+other session using halogen is done with it.] Neither `RLIMIT_MEMLOCK` (15.45 GiB here, `unlimited` for halogen, and a 32 GiB
 pin was granted anyway) nor system RAM nor GTT occupancy explains it.
 
 Consequences, now stated against the corrected model:
@@ -121,6 +124,60 @@ Consequences, now stated against the corrected model:
    cost, a pool raise (`gttsize`/`rmem`/BIOS, untested), or different hardware. Recorded so nobody
    re-derives it from hope.
 
+
+## Two model endpoints, and where each one's GPU is (measured 2026-10-26)
+
+Pi on this box has two model endpoints, and they differ in the one way that decides measurement
+discipline: **one is served by another machine, the other by this one.** Which endpoint an agent is
+served by therefore says whether that agent's token generation touches the iGPU — which is the whole
+basis of the concurrency policy in `AGENTS.md` §"Two endpoints, three classes of work".
+
+| | `tensorfold/Qwen3.8-Flash-Next` | `halogen/halogen-qwen3.8-flash-next` |
+|---|---|---|
+| `baseUrl` | `http://192.168.10.27:8888/v1` — **a separate LAN serving host** | `http://127.0.0.1:8731/v1` — **this box** |
+| what serves it | vLLM-style server on `.27` | Docker container `halogen-flash-server`, image `ghcr.io/peonist-ai/halogen-flash-server:0.18.9`; API `serve_api.py` :8731 → engine `flash_serve` :8730 |
+| streams | `/health` → `max_batch_size: 5` | engine `--slots 4`; **treat as one stream at a time** (user's rule, 2026-10-26) |
+| decode rate | `/health` live `decode_tokens_per_second` **81.0** at `connections: 0, waiting: 0`; the operator's working figure for a loaded stream is **~35 t/s** | `/metrics` `llamacpp:predicted_tokens_seconds` **58.5** under a live stream (reads **0** when idle) |
+| cost to this iGPU | **none for token generation** — the bytes come over the network | `rocm-smi --showpids`: `flash_serve` holds **24 289 746 944 B = 22.62 GiB**, plus a polling loop that keeps utilisation high whether or not it is emitting |
+| start / stop | n/a | `~/halogen-models/start.sh` (`docker run --rm`, `--device /dev/kfd --device /dev/dri`, `-v ~/halogen-models:/models:ro`, `-v ~/halogen-kvcache:/cache`) / `~/halogen-models/stop.sh` (`docker stop -t 60` then `rm`; the 60 s is the KV-tier flush). Wrapped, with guards, by `tools/halogen_gate.sh` |
+| checkpoint | — | `qwen38-flash-next-v2.hgn` **66.69 GB**, 4.16 bpw, weights RAM-resident (`~/halogen-models/SETTINGS.md`) |
+
+**Reading these counters correctly.** `llamacpp:requests_processing` and `/health`
+`in_flight` / `queued` / `busy_for_s` are *right now* numbers: an idle server reads `0 / 0 / 0`, and
+so does a server whose only client is thinking. `predicted_tokens_seconds` is an instantaneous rate
+and reads `0` at idle, so a zero there is not evidence of anything. Use them to prove nothing is in
+flight; do not use them to prove nobody is connected.
+
+**The footprint has two readings, quote both.** The residency above the pool is 22.62 GiB as
+`rocm-smi --showpids` charges it, and 23.53–23.66 GiB as `gtt_used` charged it in the D-02 runs above
+(same box state, different counter). They bracket the same ~23 GiB; averaging them would be precision
+neither instrument supports.
+
+**What is NOT measured yet, and is load-bearing:**
+
+1. **Restart cost.** `stop.sh` removes the container (`--rm`), so `up` reloads a 66.69 GB checkpoint
+   from NVMe into pinned RAM; the KV/prompt tier in `~/halogen-kvcache` survives, so warm should beat
+   cold. `tools/halogen_gate.sh up` times it and appends to
+   `devices/evidence/halogen-restart.log`, which is empty as of writing. Until that log has entries,
+   assume a restart is expensive and batch every timing of a session into **one** down-window rather
+   than stopping per gate.
+2. **What the contamination actually is** — compute (polling loop, GTT traffic) or mere residency. If
+   compute, `docker pause` is a cheap second tier; if residency, it is not, because pause keeps the
+   22.62 GiB mapped. Protocol in `pitfalls/00-measurement.md`; do not build policy on `pause` before
+   that A/B exists.
+3. **Admission is weaker than it looks.** `tools/halogen_gate.sh admit` proves *nothing is in flight*;
+   a foreign session that is merely idle between turns is indistinguishable from a free server. The
+   stream lock `/tmp/pi_halogen.lock` covers workers launched under this protocol, not another human's
+   session — so the operator's word that halogen is free remains load-bearing.
+
+### What this unlocks — D-11
+
+The sentence above ("needs halogen stopped, which is not available from this session") was true when
+it was written and is not true now: this session runs on `tensorfold` (`PI_PROVIDER=tensorfold`, which
+`tools/halogen_gate.sh down` checks as a self-kill guard before it will touch anything). Stopping
+halogen once, with the GPU lock held, is the only way to observe the pool with the engine owning the
+box — the measurement `DECISIONS.md` D-11 is waiting on, and the one that decides whether
+Q8-throughout (34.97 GiB) fits and 4-bit experts is a speed choice rather than a fit requirement.
 
 ## Roofline for the target model
 

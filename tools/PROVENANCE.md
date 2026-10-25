@@ -1,7 +1,7 @@
 # tools/ — provenance of the copied probes
 
-Every file here except `doc_ref_check.py`, `hostmap_probe.cpp`, `pin_hold.cpp`, `pin_pair.cpp`,
-`quant_scenarios.py` and `gguf_header_types.py` (all six are this
+Every file here except `doc_ref_check.py`, `hostmap_probe.cpp`, `pin_hold.cpp`, `pin_pair.sh`,
+`quant_scenarios.py`, `gguf_header_types.py` and `halogen_gate.sh` (all seven are this
 repo's own) is a **verbatim
 copy** made on 2026-10-26 from the 0.8B engine repo, so that this project can re-measure and re-gate without
 depending on that repo at read time (rule: `pitfalls/60-docs-and-citations.md`).
@@ -11,6 +11,7 @@ references** — record the caveats here instead.
 | file | what it measures | caveat when using it **here** |
 |---|---|---|
 | `gpu_lock.sh` | machine-wide GPU lock (`/tmp/pi_gpu.lock`), acquire/release by TAG, `status` shows a stale holder | unchanged, and intentionally shared with the sibling project so the two repos exclude each other on the one GPU. Check `grep -c gpu_lock <script>` before a caller acquires it (see `pitfalls/50-harness-and-shell.md`) |
+| `halogen_gate.sh` | **written here (2026-10-26)**: takes the local `halogen-flash-server` container down for a measurement window and brings it back — admission (`llamacpp:requests_processing`, `/health` `queued`/`in_flight`, the `/tmp/pi_halogen.lock` stream claim), a `PI_PROVIDER=halogen` self-kill guard, a required caller-declared `GPU_LOCK_TAG`, post-stop verification that the 22.62 GiB really went away, and a timed `up` that logs to `devices/evidence/halogen-restart.log` | it **never acquires `gpu_lock`** — the caller must already hold it, or `down` refuses (self-locking driver deadlock, `pitfalls/50-harness-and-shell.md`). Main agent only. The refusal paths are tested; the real stop/start path is **untested** until halogen is free of other sessions. `pause`/`unpause` are EXPERIMENTAL and not policy (`pitfalls/00-measurement.md`) |
 | `bw_probe_hip.cpp` | iGPU grid-stride read + copy sweep over blocks × threads, H2D/D2H, size–bandwidth curve | the numbers are model-independent; build `hipcc -O2 -Wl,-rpath,/opt/rocm/lib -o /tmp/bw_probe_hip bw_probe_hip.cpp` |
 | `mem_mode_probe_hip.cpp` | allocation modes (`hipMalloc` / `Managed` / host-pinned) + the total device-visible pool ceiling | use it for `DECISIONS.md` D-02 (can a >34 GiB host mapping be read at full speed?) — that is exactly what it is close to |
 | `gemm_peak.cpp`, `gemm_common.h` | dense matrix rate at chosen shapes/classes | its docstring quotes the 0.8B's shapes; pass the shapes this engine will actually emit (see `pitfalls/20-rates-and-occupancy.md`, "price the width the engine emits") |

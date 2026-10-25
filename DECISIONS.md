@@ -17,8 +17,9 @@ number or failure that forced it.
 | D-08 | which 4-bit format | **DECIDED**: Q4_K |
 | D-09 | is the MTP expert block quantized the same way | **DECIDED**: uniform with the stack it drafts for |
 | D-10 | `lm_head`/embed width | **DECIDED**: Q8_0 |
-| D-11 | does the engine own the pool, or share it with halogen | **OPEN** (operational) |
+| D-11 | does the engine own the pool, or share it with halogen | **OPEN** (operational) — **2026-10-26: the test is finally reachable**, D-13 |
 | D-12 | llama.cpp as an oracle (cross-check vs accuracy oracle) | **ADOPTED** as cross-check; accuracy oracle stays bf16 |
+| D-13 | how agents and tests share the two model endpoints | **DECIDED** (2026-10-26, user): ≤4 workers = ≤3 `tensorfold` + ≤1 `halogen`, main on `tensorfold`, 4 of 5 slots; halogen down for every measurement |
 
 ---
 
@@ -295,6 +296,13 @@ ceiling and decided by a `prototype/moe_gemv` dequant timing), and the residency
 
 ## D-11 — Does the engine own the device-visible pool, or share it with halogen? — **OPEN (operational), and it changes what we may give up later**
 
+> **2026-10-26, the blocker moved.** This section's obstacle was "halogen serves this session, so it
+> cannot be stopped from here". The main session now runs on `tensorfold` (remote), so stopping halogen
+> is reachable via `tools/halogen_gate.sh down` with the GPU lock held — which makes the ≈55 GiB row of
+> the table below measurable at last. It is still the user's call which budget to design against; what
+> changed is only that the number is obtainable. Queue it as a main-agent run when halogen is free, and
+> record it here rather than in a commit message.
+
 Raised by D-02's correction. The pool is ≈55.5–56.5 GiB **box-wide** and `flash_serve` (halogen, the
 engine serving this very session) holds ~23.5 GiB of it, which is why a single process stopped at ~32
 GiB:
@@ -373,3 +381,42 @@ f16 source to quantize from — D-03 again, plus the missing-draft-block fact re
   llama.cpp and not knowing its distance from the model, and every future format question becomes
   unadjudicable without a one-off bf16 rental. Needs the user's words to accept it:
   **"both, delete after"** or **"llama.cpp only"**.
+
+## D-13 — How do agents and tests share the box's two model endpoints? — **DECIDED 2026-10-26 (user)**
+
+User's words: *"4 concurrent children, one of which (most expensive) — halogen + main on tensorfold.
+We won't use all 5 concurrent slots on tensorfold — only 4, for stability"*, and `halogen_gate.sh down`
+*"may run unattended"*.
+
+**What made it a decision and not a cleanup.** The inherited rule was "never more than 1 subagent at a
+time", justified by *"exactly one model endpoint on this box, and every agent shares it"*. That premise
+is now false in a way that cuts both ways: the main session moved to `tensorfold`
+(`192.168.10.27:8888`, a **remote** box, `/health` → `max_batch_size: 5`), so a worker served by it
+costs this iGPU **nothing** and the cap was blocking parallelism for no reason; while `halogen`
+(`127.0.0.1:8731`) is a **local** container charging **22.62 GiB** to the device-visible pool
+(`rocm-smi --showpids`, 2026-10-26) and decoding at **58.5 t/s** against `tensorfold`'s ~35 — so it is
+both the fast endpoint *and* a device hazard, and it needs *more* discipline than it had, not less.
+
+**The decided shape** (full text: `AGENTS.md` §"Two endpoints, three classes of work"):
+
+| class | endpoint | cap | gate rights |
+|---|---|---|---|
+| main session | `tensorfold` | 1 | owns every timing |
+| herd worker | `tensorfold` | ≤3 | correctness-only, ≤60 s, under `gpu_lock` |
+| heavy worker | `halogen` | ≤1 ever | correctness-only; never in a timing window |
+| measurement | — | — | main agent, zero workers, lock held, **halogen down** |
+
+Three things are load-bearing and are *not* derivable from the table alone:
+
+1. **4 of 5 slots is the margin, not an oversight.** `max_batch_size: 5` is not the cap; main + 3
+   workers is. Nobody re-derives it from the health endpoint.
+2. **Parallelism is for thinking, the device stays single-tenant.** A measurement still needs zero
+   active workers, because a quiet worker can fire a compiler or a gate at any moment.
+3. **A `halogen` worker is a device activity.** It holds `/tmp/pi_halogen.lock` for its whole life so
+   the down-window can refuse; two of them is never correct, idle box or not.
+
+**Still unmeasured, and deliberately not decided by inference** (both are main-agent runs once halogen
+is free; protocol in `pitfalls/00-measurement.md` §"The probe that has to happen before `docker pause`
+becomes policy"): the restart cost (`devices/evidence/halogen-restart.log` is empty, so batch one
+down-window per session until it says otherwise), and whether `docker pause` isolates a measurement at
+all. The pool figure D-11 wants comes out of the same window.

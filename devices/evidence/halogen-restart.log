@@ -1,0 +1,13 @@
+# devices/evidence/halogen-restart.log — wall-clock cost of bringing the local engine back.
+#
+# Appended by `tools/halogen_gate.sh up` as:  <UTC timestamp>\tstart_to_ready=<seconds>s
+#
+# Empty of measurements on purpose until the first real restart. Until it has at least one warm
+# and one cold entry, the policy in AGENTS.md §"Two endpoints, three classes of work" stands:
+# take ONE halogen-down window per session and batch every timing into it. Restart reloads a
+# 66.69 GB checkpoint (`~/halogen-models/qwen38-flash-next-v2.hgn`) into pinned RAM, so assume
+# expensive; the KV/prompt tier in ~/halogen-kvcache survives `stop.sh`'s 60 s flush, so warm
+# should beat cold — that is the hypothesis this file exists to settle, not to assert.
+#
+# This is a wall-clock record of an ops action, not a device timing: it needs no clean window and
+# does not contaminate anything. It may be read and written with halogen up.
