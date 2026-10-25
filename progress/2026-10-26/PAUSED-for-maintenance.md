@@ -11,12 +11,17 @@ pause time, not remembered.
 | `tools/gpu_lock.sh status` | **free** | no device measurement in progress; none is owed right now (the window was taken and recorded in `devices/evidence/device-window-2026-10-26.md`) |
 | `/tmp/pi_halogen.lock` | **not held** | no worker is claiming the local stream |
 | halogen serve (`127.0.0.1:8731/health`) | **UP** | the container is resident and holds **22.62 GiB** of the device-visible pool. Left up deliberately — stopping it is a user-visible action and the operator did not ask for it. **If maintenance touches the GPU, this must come down first, and only via `tools/halogen_gate.sh down` with the GPU lock declared** — never a bare `stop.sh` |
-| subagent W18 `992083de` | **ALIVE** (`evts=661`, `age=74 s`, `pending-message+tf-stream`) | `tensorfold` worker building `prototype/moe_gather/`. Untouched: no pending supervisor request, and steering a live stream spends the fifth-slot margin. **It may write files and may fire a correctness-only device gate under `gpu_lock`.** |
+| subagent W18 `992083de` | **stopped cleanly at a safe checkpoint** (steered, `subagent.steer.delivered`, ended its turn) | landed as draft commit `13040de` — `prototype/moe_gather/` with `HANDOFF.md`. Device half never compiled, `gate.py`/`gate`/`oracle_arm.py`/`results.md` do not exist, so the lane is **not** a deliverable. No device work was run during the pause. |
 | main session | `tensorfold` | idle, nothing in flight |
 
-**If maintenance needs a quiet GPU:** stopping W18 is the only device-adjacent mover left besides
-halogen, and it is the operator's call, not an inference of mine. W18's work is on disk, so stopping
-it is recoverable by resume rather than a loss.
+**Nothing of mine is running now.** The only device-adjacent mover left is halogen itself (up, 22.62 GiB
+resident), and stopping it is the operator's call — `tools/halogen_gate.sh down` with the GPU lock
+declared, never a bare `stop.sh`.
+
+If steering had not delivered, the recorded fallback was: kill worker PID `347676`, the queued steer flips
+to delivered, then resume with "continue". It delivered, so the fallback stayed unused — but the pattern is
+the same one that recovered W14, and it is worth knowing the two discriminator signals: whether the
+worker is blocked inside one long tool call, and whether `events.jsonl` shows `subagent.steer.delivered`.
 
 ## Committed before pausing
 
@@ -52,9 +57,19 @@ may not apply to this template).
 
 ## Open when the pause ends
 
+0. **Verify the safetensors header-offset claim, before anything that trusts prediction 3.**
+   `prototype/moe_gather/HANDOFF.md` §9 asserts `prototype/moe_router/work/probe15.py` memmapped at
+   `header_json_len + data_offsets[0]` instead of `8 + header_json_len + data_offsets[0]` — four bf16
+   elements off — which would mean the router lane's recorded `P3 UNRESOLVED` was an artefact of its own
+   probe, not a property of the dump, and that pinned `layer0.expert_raw` in fact reproduces bit-exactly
+   under the corrected offset. **This is unverified by me on purpose**: it overturns a committed
+   conclusion and deserves a proper witness run, not one squeezed in before a maintenance window. CPU-only,
+   so runnable any time. If confirmed, `prototype/moe_router/results.md` gets a dated corrigendum
+   (corrections are appended, never silently patched) and P3 becomes resolvable.
 1. Verify W17's four ports independently (witness commands + the negative controls it claims), then
    commit with PROVENANCE rows.
-2. Receive/verify W18's `prototype/moe_gather/` when it reports.
+2. Resume `prototype/moe_gather/` from `HANDOFF.md` §7 first (the harness defects — a `RESULT PASS` that
+   does not require the saboteur arms is not a gate) and then §8 order.
 3. **`quantization/evidence/audit-ordering-2026-10-26.log` carries an unexplained 11-line addition**
    (+11, no deletions). Evidence files are historical records; a bare append is neither a correction
    nor a dated corrigendum. Attribute it before committing anything, and decide whether to keep it.
