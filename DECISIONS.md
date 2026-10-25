@@ -17,7 +17,7 @@ number or failure that forced it.
 | D-08 | which 4-bit format | **DECIDED**: Q4_K — **note**: the shipped published file carries expert `down_proj` at Q5_K/Q6_K, see D-03 |
 | D-09 | is the MTP expert block quantized the same way | **DECIDED**: uniform with the stack it drafts for |
 | D-10 | `lm_head`/embed width | **DECIDED**: Q8_0 — **note**: the shipped published file carries `lm_head` at Q6_K, see D-03 |
-| D-11 | does the engine own the pool, or share it with halogen | **OPEN** (operational) — **2026-10-26: the test is finally reachable**, D-13 |
+| D-11 | does the engine own the pool, or share it with halogen | **PART-DECIDED by the user 2026-10-26**: the engine runs with **halogen stopped** (deployment budget ≈55 GiB); development stays co-resident (≈32 GiB); Q4 is **strategic**, not a consequence of local fit. The ≈55 GiB row still needs its measurement |
 | D-12 | llama.cpp as an oracle (cross-check vs accuracy oracle) | **ADOPTED** as cross-check; accuracy oracle stays bf16 |
 | D-13 | how agents and tests share the two model endpoints | **DECIDED** (2026-10-26, user): ≤4 workers = ≤3 `tensorfold` + ≤1 `halogen`, main on `tensorfold`, 4 of 5 slots; halogen down for every measurement |
 | D-14 | is a recomputed transcendental a bit-exactness obligation? (`ssm_a` = `-exp(A_log)`) | **RATIFIED by the user 2026-10-26** (proposed by the main agent): copied families keep zero tolerance; the one transcendental route keeps its route-derived 1-ulp predicate with must-catch grown. **Scoped to the 2 `ssm_a` cases — it is not a general 1-ulp allowance** |
@@ -387,6 +387,47 @@ instead of 26.
 from inside a session it serves), and ideally one allocation measurement from a root/service context.
 Until then **the ~32 GiB co-resident budget is the design budget** and 55 GiB is headroom we have not
 been granted.
+
+### Decisions 2026-10-26 — the user's words
+
+Asked whether the design budget stays co-resident, whether the engine may run with halogen stopped, and
+about the Q4 focus:
+
+> "I want Q4 for export, because in the future we will be doing the qwen3.8-flash-next and it won't fit in
+> any other way, so that's why we are focusing on the Q4 quantization. And I propose to stop halogen when we
+> will be running our engine"
+
+**Decided.**
+
+1. **Q4 is strategic, not a consequence of local capacity.** The binding reason is the *next* model —
+   `Qwen/Qwen3.8-Flash-Next` will not fit this box at any other width. So the 4-bit expert path is the
+   deliverable regardless of what the ≈55 GiB row eventually says, and "Q8-throughout becomes affordable at
+   55 GiB" is **not** a fork in the plan. Anyone reading the freed budget as licence to re-open D-01 has
+   misread this paragraph: the width decision is anchored to a model we cannot yet run, which is exactly why
+   it was never ours to trade away for local comfort.
+2. **The engine runs with halogen stopped.** Deployment therefore gets the box: ≈55 GiB, not ≈32.
+
+**Two budgets, and every residency claim must now name which one it means.** This is the part the original
+section could not see: D-15 puts a lone worker on halogen, and a halogen worker keeps the container resident,
+so *development* on this box is co-resident almost by definition — kernels, gates and correctness checks all
+run against ≈32 GiB while the engine itself is designed to load against ≈55. A residency figure quoted
+without saying which budget it belongs to is now ambiguous, not merely imprecise.
+
+**What this does to the quality menu.** Halogen-down at deployment makes the 55 GiB options real rather than
+hypothetical — policy F (Q8-throughout, 35.16 GiB) and 6-bit expert variants are no longer blocked by fit,
+only by numerics: each still needs its floor probe and its geometry-derived must-catch set before adoption
+(`pitfalls/30-numerics.md`). They sit behind the Q4 work, not beside it.
+
+**Still open, and it is a measurement rather than a decision.** The ≈55 GiB row is still an inference from
+D-02's allocation probes, not an observation: nobody has loaded the 21 GiB artifact with halogen down and
+read peak RSS and `process_vmem`. That is queued for the main agent's device window (with the tokens/s ruler,
+the restart cost and W7's `UNMEASURED` list), and until it comes back this section's table stays *expected*,
+not measured — including the 35.16 GiB figure a deployment decision now leans on.
+
+**The numbers above the block are stale** (19.59 / 34.97 / 65.72 GiB, 2.331 GiB/token) and predate the census
+adjudication; correct values are policy A **19.78 GiB**, policy F **35.16 GiB**, text bf16 **64.5604 GiB**
+without the draft block and **66.1337 GiB** with it, policy A at **2.5252 GiB/token**. Re-print from
+`tools/quant_scenarios.py` rather than transcribing either set by hand (`quantization/evidence/bf16-census-adjudication-2026-10-26.md`).
 
 ## D-12 — Can llama.cpp be the oracle? — **ADOPTED as the cross-check oracle; the accuracy oracle stays bf16** (user, 2026-10-26)
 

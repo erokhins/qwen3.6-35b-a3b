@@ -501,3 +501,24 @@ two-thirds true**: `ffn_gate_exps`/`ffn_up_exps` are Q4_K across all 40 layers, 
 the D-01a width table was still carrying the pre-correction figures (19.59 / 2.331 / 84), the last holdouts
 of the −0.4138 GiB error; the table is now re-printed verbatim from `tools/quant_scenarios.py` (policy A
 **19.78 GiB, 2.5252 GiB/token, 87 / 77 / 70 tok/s**) instead of being hand-derived again.
+
+## D-11 partially decided: Q4 is strategic, and the engine gets the box
+
+The user answered the two things that were theirs: **"I want Q4 for export, because in the future we will be
+doing the qwen3.8-flash-next and it won't fit in any other way"**, and **"I propose to stop halogen when we
+will be running our engine"**.
+
+The first reframes something I had written as a capacity consequence. Q4 was never chosen because bf16
+doesn't fit *here* — it's anchored to a model we cannot yet run, which is precisely why it isn't ours to trade
+away if the local budget turns out roomier. So "policy F becomes affordable at 55 GiB" is not a fork in the
+plan, and the 4-bit expert path stays the deliverable whatever the measurement says.
+
+The second grants the deployment box: ≈55 GiB, not ≈32. What neither of us had priced is what that does
+against D-15 in the same week: a lone worker now runs on halogen, and a halogen worker keeps the container
+resident — so **development is co-resident almost by definition while deployment is not**. Two budgets now,
+and a residency figure that doesn't name which one it means is ambiguous rather than merely imprecise. That
+is recorded in the decision, not left to be noticed later.
+
+What stays open is a measurement, not a decision: nobody has loaded the 21 GiB artifact with halogen down and
+read peak RSS and `process_vmem`. The ≈55 GiB row is still an inference from D-02's allocation probes, and it
+now carries a deployment decision on its back — which is a reason to measure it, not to keep quoting it.
