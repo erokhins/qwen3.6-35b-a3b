@@ -65,12 +65,14 @@ recorded in this repo with a date and an instrument (`devices/measured-facts.md`
 | `02-tokenization-and-embedding.md` | the embedding lookup, the untied `lm_head`, positions, and what the stop rule is (and is not) |
 | `03-block-glue-and-normalization.md` | the two RMSNorm forms, the decoder-layer skeleton, residual order, the logits head |
 | `04-gdn-linear-attention.md` | Gated DeltaNet + short conv: 30 layers, recurrent and chunked forms, control path |
+| `04b-gdn-chunked-form.md` | the prefill GDN scan: chunk width 64 and its padding rule, the UT solve and its two legal branches, the sequential scan over chunks, and the gate that shows it equal to §04's recurrent form |
 | `05-gated-full-attention.md` | gated GQA attention: 10 layers, the output gate's exact position, partial interleaved mrope |
 | `06-prefill-pass.md` | whole-request pass as an ordered op list, including state initialisation |
 | `07-decode-step.md` | single-token step as an ordered op list, with the router named as the serial point |
 | `08-state-management.md` | KV + recurrent + conv inventory, per-request budget arithmetic, lifecycle |
 | `09-mtp-draft-layer.md` | the draft block: its 19 tensors, its input composition, its own MoE and KV |
 | `10-reference-dumps-and-gates.md` | what `speccheck/` must pin for a Q4_K-expert / Q8_0-attention engine, and how the bands and must-catch sets are derived |
+| `11-moe-block.md` | the MoE block: router R1–R5 with the cast order, top-k selection semantics, the SwiGLU expert and its `chunk(2)` split, the K=8 sum in ascending expert-id order, the shared expert, the router as the per-token serial point |
 | `ASSUMPTIONS.md` | every `[REF]`/`[ASSUMPTION]` with source, risk, falsifying test — including the contradictions found against committed docs |
 | `derive.py` | the arithmetic witness for every number above; stdlib-only, CPU-only |
 
@@ -111,6 +113,10 @@ python3 specification/derive.py --state        # the state rows §00.6/§08 prin
 python3 specification/derive.py --mtp          # the 19 draft-block tensors
 python3 specification/derive.py --values <tensor-name>   # real stored values, for the [WITNESS] rows
 python3 specification/derive.py --gguf-vs-ckpt models/unsloth-q4km/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
+python3 tools/gguf_width_table.py models/unsloth-q4km/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf --check-header
+                                       # the byte table in §01.4: every width re-derived from
+                                       # engines/llama.cpp/ggml/src/ggml-common.h and the printed bytes
+                                       # pinned by sum(row_bytes) + data_start == file size
 ```
 
 Three committed docs disagree with this spec in four places (text bf16 total, KV per token, the MTP
