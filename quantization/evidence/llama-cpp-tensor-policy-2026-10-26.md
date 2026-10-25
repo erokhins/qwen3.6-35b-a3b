@@ -25,7 +25,11 @@ Cost of copying the rule: nothing. Confidence gained: no scale or control lives 
 ## What it forces upward
 
 - Categories `FFN_LATENT` and `ATTENTION_GATE`: if the chosen type is below Q8_0, **it is raised to
-  Q8_0**.
+  Q8_0** — **but only for `LLM_ARCH_MUSE_SPARK`** (`src/llama-quant.cpp`, `if (arch ==
+  LLM_ARCH_MUSE_SPARK && (category == FFN_LATENT || category == ATTENTION_GATE))`). It is not a
+  general rule, and it does **not** apply to `QWEN35MOE`. See *Corrigendum 2026-10-26* at the foot of
+  this file; the bullet used to read as though the bump were unconditional, and a `DECISIONS.md` cite
+  inherited that.
 - `OUTPUT` (the `lm_head`/output table, and token embeddings when tied): default **Q6_K**
   (Q5_K under the very aggressive IQ1/IQ2 types; **Q8_0 for the `MXFP4_MOE` type and for Falcon or
   when `nx % qk_k != 0`**).
@@ -56,3 +60,37 @@ the 4 bits in the routed experts, keep attention/latent/control tensors wide, an
 attention at Q4_K for a model with 256 experts (the Q8_0 bump is gated on `n_expert == 8`), which is
 policy **E**, the +40 % option — the one `quantization/README.md` recommends funding as an experiment
 instead of shipping first.
+
+## Corrigendum 2026-10-26 — the FFN_LATENT / ATTENTION_GATE bump is arch-gated
+
+Found while preparing the user brief for `DECISIONS.md` D-01a. "What it forces upward" bullet 1 was
+written without its guard, and `DECISIONS.md` §D-01a cited it as support for the user's Q8_0 attention
+choice. The code at the pinned checkout (`engines/llama.cpp` @ `d327bf1`, `src/llama-quant.cpp`) is:
+
+```c
+// bumping to q8_0 is preferred since these tensors are not really big
+// TODO: nemotron 3 super shares ffn_latent and afmoe, bailingmoe3, dots3note, hy-v4, kimi-k3 and
+//       laguna share attn_gate. Widening the guard is likely a win there too, but it changes their
+//       files, so it wants a perplexity comparison per architecture first.
+if (arch == LLM_ARCH_MUSE_SPARK &&
+    (category == tensor_category::FFN_LATENT || category == tensor_category::ATTENTION_GATE)) {
+```
+
+Three things follow, and they are the reason this is a corrigendum rather than a footnote.
+
+1. **The bump is one architecture's**, and the upstream comment explicitly refuses to widen it to others
+   without a per-architecture perplexity study. Reading it as llama.cpp's general policy on latent/gate
+   tensors was wrong.
+2. **The failure mode is the bullet, not the code.** Everything above the guard was transcribed correctly;
+   dropping one `if` from a summary converted another model's policy into evidence about ours. A summary of
+   a policy must carry the condition the policy is wrapped in, or it is a different policy.
+3. **The decision did not depend on it.** D-01a rests on the published per-tensor sensitivity sweep
+   (`unsloth-qwen3.5-35b-a3b-2026-10.md`) and on the artifact itself, which already stores every attention,
+   GDN and shared-expert tensor at Q8_0 (`tools/gguf_suffix_census.py`). The record now says so where the
+   void citation used to be, rather than leaving a reader to discover the gap.
+
+The bullet above is annotated in place so the wrong reading cannot be re-inherited, and left otherwise
+intact: this file is a historical record of what was read at the time, and corrections are appended, not
+substituted. Note for contrast that the *other* llama.cpp width rule in this file — the `attn_k`/`attn_v`
+Q8_0 bump — was correctly recorded as gated on `n_expert == 8`, which our model (256 routed experts) does
+not satisfy. The transcription that kept its guard survived; the one that lost it did not.

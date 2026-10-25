@@ -52,20 +52,63 @@ shape as **policy A**: routed experts Q4_K, attention + GDN + shared expert Q8_0
 exact. `lm_head`/embeddings are the one width knob left and are raised as **D-10** (default: Q8_0, as
 this decision implies; Q6_K is a 4 %-of-ceiling alternative).
 
-| choice | resident | GiB/token | ceiling @210 GB/s |
+| choice | resident | GiB/token | ceiling 237 / 210 / 190 GB/s |
 |---|---|---|---|
-| attention/GDN bf16 | 21.52 GiB | 3.813 | 51 tok/s |
-| **attention/GDN Q8_0 — DECIDED** | **19.59 GiB** | **2.331** | **84 tok/s** (95 @ 237) |
-| attention/GDN Q4_K (policy E) | 18.81 GiB | 1.663 | 118 tok/s (133 @ 237) |
+| attention/GDN bf16 (policy B) | 21.93 GiB | 4.2269 | 52 / 46 / 42 tok/s |
+| **attention/GDN Q8_0 — DECIDED (policy A)** | **19.78 GiB** | **2.5252** | **87 / 77 / 70 tok/s** |
+| attention/GDN Q4_K (policy E) | 18.88 GiB | 1.7397 | 127 / 112 / 102 tok/s |
+
+*Re-printed verbatim from `tools/quant_scenarios.py` on 2026-10-26 (rows A / B / E), which derives every
+width from `engines/llama.cpp/ggml/src/ggml-common.h` struct sizes at run time. The figures these replaced
+— 21.52 / 3.813 / 51, 19.59 / 2.331 / 84, 18.81 / 1.663 / 118 — predate the bf16 census correction and were
+stale rather than merely different; they were that −0.4138 GiB error's last holdouts in this file
+(`quantization/evidence/bf16-census-adjudication-2026-10-26.md`).*
 
 Why Q8_0 was the recommendation and why it is the right call at this stage: the published per-tensor
 evidence for this exact architecture family says `attn_*` is the most sensitive class on a hybrid model
 and GDN `out_proj` the worst single tensor
-(`quantization/evidence/unsloth-qwen3.5-35b-a3b-2026-10.md`), and llama.cpp's own policy forces the
-latent/gate categories to ≥ Q8_0 (`quantization/evidence/llama-cpp-tensor-policy-2026-10-26.md`). The
+(`quantization/evidence/unsloth-qwen3.5-35b-a3b-2026-10.md`). The
 40 % of ceiling that policy E leaves on the table is a funded experiment with a KLD study in front of
 it, not a default — and per `pitfalls/30-numerics.md`, a wider numeric band must still catch every
 injection in a geometry-derived must-catch set before it can be adopted.
+
+> **[support withdrawn 2026-10-26]** An earlier version of this paragraph also cited llama.cpp as forcing
+> the latent/gate categories to ≥ Q8_0 (`quantization/evidence/llama-cpp-tensor-policy-2026-10-26.md`).
+> **That support is void.** At the pinned checkout (`engines/llama.cpp` @ `d327bf1`) the bump sits inside
+> `if (arch == LLM_ARCH_MUSE_SPARK && (category == FFN_LATENT || category == ATTENTION_GATE))`
+> (`src/llama-quant.cpp`), and the comment above it says widening the guard to other architectures "wants a
+> perplexity comparison per architecture first". It says nothing about `QWEN35MOE`. The error entered
+> because our evidence file stated the rule without its arch guard; that file now carries a dated
+> corrigendum. This decision survives on the sensitivity sweep and on the artifact's own choice below — not
+> on this.
+
+**The strongest support, and it was missing from the original reasoning: the shipping artifact already does
+this.** Reading the pinned GGUF's tensor records (`tools/gguf_suffix_census.py`, 2026-10-26), every
+attention, GDN and shared-expert tensor in the file is **Q8_0** — `attn_qkv` / `attn_gate` / `ssm_out` (30
+GDN layers each), `attn_q` / `attn_k` / `attn_v` / `attn_output` (10 full-attention layers each), and
+`ffn_gate_shexp` / `ffn_up_shexp` / `ffn_down_shexp` (40 each) — while routers, every norm and the 1-D GDN
+controls (`ssm_alpha`, `ssm_beta`, `ssm_conv1d`) are **F32**. So D-01a is not a requantization decision
+about the artifact we run today; there is nothing to change. It governs what our own quantizer must emit,
+and what we would choose if we ever built our own file — which makes it cheap to keep and consequential only
+in the future tense.
+
+**One correction to how the experts have been described here.** "Experts Q4_K" is true of the gate and up
+projections only: `ffn_gate_exps` and `ffn_up_exps` are Q4_K across all 40 layers, but **`ffn_down_exps` is
+Q5_K ×37 and Q6_K ×3** in the shipping file. Anyone writing or gating a dequant path must take the width
+**per family, not per group** — "the experts are Q4_K" is two-thirds true and would silently price the wrong
+kernel.
+
+### Ratification 2026-10-26 — the user's words
+
+> "im fine wiht Q8_0 + fine with the fact that unslosh already did a decigion for me by picking the optimal
+> quantization for attention"
+
+**D-01a stands at Q8_0**, re-confirmed with the void support withdrawn and the artifact's own choice placed
+in front of the decision. The user's framing is worth preserving: the width was chosen by the party who
+actually measured per-tensor sensitivity, so this repo inherits a measurement instead of making an
+uninformed pick. The caveat stays inside the decision rather than outside it — "optimal" means optimal for
+*their* release, and any future policy-E move still needs its own KLD study and its own must-catch set, not
+a re-reading of this paragraph.
 
 **What this decision makes mandatory:** the GDN and attention tensors (40 layers' worth, 1.975 GiB
 bf16) need an 8-bit dequant path in the engine, not just the experts — so `specification/` must carry

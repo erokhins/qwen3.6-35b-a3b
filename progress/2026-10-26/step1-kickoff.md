@@ -468,3 +468,36 @@ heads — about 1e10 interpreted iterations. The summation is a witness for the 
 `N ≤ 1024` on a few heads, not at the top of the nesting. Steered to keep the maths, the assertion and the
 three arms, and delete only the redundant work. Reading the script before acting was the whole
 difference: elapsed time alone would have pointed at "stuck", and it was never stuck.
+
+## D-14's pin landed and verified; D-01a re-confirmed after one of its supports turned out to be void
+
+**W15 shipped the population pin** and I verified it by running it rather than reading about it: five arms,
+**4/4 fired, 0 SILENT, clean arm admitted, `SELFTEST PASS`, rc=0**. The arm that matters most is `c2` — a
+copied family (`blk.0.attn_norm.weight`) replacing an expected case while *declaring itself* `neg_exp` with
+its element count faked to match, so all the counts stay right and only the name/transform checks can catch
+it. That is what proves arm (c) is not a count check in disguise, and it was the worker's own addition
+rather than mine. Committed as `9a9f12a`. The re-run moved nothing but timestamps: the pin file and every
+evidence JSON differ by `utc` alone, with verdicts and `zero_tolerance_fails` still naming `blk.1.ssm_a`.
+
+**D-01a: RATIFIED at Q8_0.** Then the uncomfortable part, which the user asked for case by case. That
+decision had two supports, and one of them was false. `DECISIONS.md` cited llama.cpp as forcing latent/gate
+tensors to ≥ Q8_0; at our pinned checkout the bump sits inside `if (arch == LLM_ARCH_MUSE_SPARK && ...)` in
+`src/llama-quant.cpp`, with a comment above it refusing to widen the guard to other architectures without a
+per-architecture perplexity study. It says nothing about `QWEN35MOE`. The wrong reading entered through our
+own evidence file, which transcribed the rule *without its guard* — every other line of that section was
+accurate. Note the asymmetry that makes this worth recording: the neighbouring rule in the same file, the
+`attn_k`/`attn_v` Q8_0 bump, **did** keep its `n_expert == 8` condition, and so survived. The transcription
+that kept its guard survived; the one that lost it became evidence about a model it never described.
+
+The decision does not need the dead support, and the replacement is better than what it lost: **the artifact
+already stores every attention, GDN and shared-expert tensor at Q8_0**, with routers, norms and the 1-D GDN
+controls in F32 (`tools/gguf_suffix_census.py`). D-01a is therefore not a requantization decision about the
+file we run — there is nothing to change; it governs what our own quantizer must emit. The user's framing
+is kept verbatim in the decision: unsloth already made the choice by measuring it.
+
+Two factual corrections fell out of reading the census again while building that brief. **"Experts Q4_K" is
+two-thirds true**: `ffn_gate_exps`/`ffn_up_exps` are Q4_K across all 40 layers, but `ffn_down_exps` is
+**Q5_K ×37 + Q6_K ×3** — a dequant path written from the group name alone would price the wrong kernel. And
+the D-01a width table was still carrying the pre-correction figures (19.59 / 2.331 / 84), the last holdouts
+of the −0.4138 GiB error; the table is now re-printed verbatim from `tools/quant_scenarios.py` (policy A
+**19.78 GiB, 2.5252 GiB/token, 87 / 77 / 70 tok/s**) instead of being hand-derived again.
