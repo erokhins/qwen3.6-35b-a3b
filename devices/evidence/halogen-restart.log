@@ -11,3 +11,4 @@
 #
 # This is a wall-clock record of an ops action, not a device timing: it needs no clean window and
 # does not contaminate anything. It may be read and written with halogen up.
+2026-10-25T11:39:12Z	start_to_ready=17s
