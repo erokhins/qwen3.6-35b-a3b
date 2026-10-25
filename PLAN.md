@@ -28,7 +28,7 @@ against the authority (the HF bf16 tensors) where the authority is reachable.
 | what | source | ≈ size | kept afterwards |
 |---|---|---|---|
 | `Qwen3.6-35B-A3B-UD-Q4_K_M.gguf` | `huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF` | 20.7 GiB (weights) | yes — it *is* the shipping artifact |
-| `model-00025-of-00026`, `model-00026-of-00026` | `huggingface.co/Qwen/Qwen3.6-35B-A3B` | ~5.2 GiB | extract `mtp.*` (19 tensors, 41,943,040 elts = 79.9 MiB bf16), then shards may go |
+| `model-00025-of-00026`, `model-00026-of-00026` | `huggingface.co/Qwen/Qwen3.6-35B-A3B` | 6.07 GiB actual (3,832,888,256 + 2,231,416,848 B) | extract `mtp.*` — **19 tensors, 844,640,768 elts = 1,611.02 MiB bf16** — then shards may go. The 79.9 MiB this line claimed when the plan was approved was **wrong by 20.14×**, corrected 2026-10-26 from the raw shard headers; `README.md`'s own census (61.50 GiB = 41 layers × 1.50 GiB) already contradicted it, because the draft block carries its **own 256-expert MoE stack**: `mtp.layers.0.mlp.experts.gate_up_proj` `[256,1024,2048]` = 536,870,912 elts and `…experts.down_proj` `[256,2048,512]` = 268,435,456 elts, together 95.34 % of the block |
 | `model-00001-of-00026`, `model-00002-of-00026` | same | ~5.2 GiB | audit input for layers 0, 1; then may go |
 
 Layers **0, 1, 39** are the sample, not arbitrary: a `use_more_bits`/dynamic recipe upgrades the first
@@ -57,6 +57,32 @@ table when a section has zero cases** (an empty parse that reports PASS is the r
 must-catch **and** must-not-catch sets are **derived from geometry**, not hand-listed; and the reader
 under test is never its own reference — the F32 families judge the loader, the bf16 originals judge the
 dequant, and llama.cpp judges nothing in this step.
+
+### Amendment to 1.4 — decided 2026-10-26 by the main agent (`DECISIONS.md` D-14; user-ratifiable)
+
+1.4 as approved demanded bit-exactness of every F32-stored family **including `ssm_a`**. That predicate
+was mis-specified for that one tensor: **HF does not store `ssm_a`** — the reference module computes
+`A = -exp(A_log.float())` at init, so the file's `ssm_a` is a *recomputation*, not a copy, and there is
+no stored authority for it to be bit-exact against. The audit found exactly one element outside zero
+tolerance (`blk.1.ssm_a` element 21, 1 f32 ulp from `-exp(A_log)` with two independently computed
+correctly-rounded routes agreeing with each other), which is the signature of the producer's libm, not
+of a converter bug — and the engine reads `ssm_a` from the file and never recomputes `exp`, so
+reproducing that last bit is not an engine fidelity property either. Zero tolerance therefore splits:
+
+- **1.4a — copied families**: routers, all norms, `A_log`, `dt_bias`, `alpha`, `beta`, `conv1d`, the V
+  reorder, the gate/up split. **Zero tolerance, unchanged, no new code path.**
+- **1.4b — the single documented transcendental route `-exp(A_log)`, and nothing else**: the two
+  reference routes must agree bit-for-bit **with each other** (a reference disagreement is a FAIL, never
+  "within tolerance"), and the file must lie within **exactly 1 ulp**, the ulp taken from `nextafter` on
+  the value's own exponent — no epsilon constant, no general tolerance knob anywhere. Every element
+  judged by 1.4b is printed by index beside all three bit patterns and is never called "bit-exact"; the
+  verdict reads "26 bit-exact + 1 within-route".
+
+Must-catch **grew**: ±2 ulp, sign flip, element permutation and a wrong-`A_log` read on that same tensor
+must all still fire. That is what separates this from the forbidden move ("loosen a gate to make it
+pass", `AGENTS.md`): the bound is derived from the *route*, applies to no other family, is witnessed
+non-vacuous in the direction adjacent to the slack, and the original zero-tolerance FAIL line stays in
+`quantization/evidence/audit-exactness-2026-10-26.json` next to the new verdict.
 
 **Step 1 buys:** the shipping artifact, the MTP weights (D-05 stays alive), the first witness for our
 own Q4_K/Q8_0 reader against the authority, and a pinned hash to build on.

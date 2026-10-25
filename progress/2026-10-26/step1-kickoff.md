@@ -111,7 +111,83 @@ held and halogen taken down through `tools/halogen_gate.sh` only —
 run blocking, in the foreground, by the main agent. Everything W1–W4 produced stays CPU-only, so no
 number in their reports needs any of this. If W3's build fails, this window does not happen.
 
-## Worker board (D-13: ≤3 tensorfold + ≤1 halogen, this session holds 1 of 5 LAN streams)
+## Server restart, three workers killed, all four lanes re-armed (same day)
+
+The LAN inference server was restarted by the operator mid-phase. `tensorfold` came back healthy
+(`/health` → `status: ok`, `max_batch_size: 5`), but W2, W3 and W4 died on it with `Connection error`.
+W1 was on `halogen` (the local container, never served this session) and survived, finished its audit,
+and asked twice for a gate decision while I was busy — both escalations timed out unanswered, which is
+on me: a worker held at a decision it is not allowed to make is a worker doing nothing.
+
+**What survived is not nothing.** The workers wrote to disk continuously, so the restart cost reasoning,
+not files: W1 delivered the whole audit; W2 had `specification/derive.py` (810 lines) + README; W3 had a
+**complete HIP build** (`build-hip/bin/{llama-cli,llama-quantize}` + 26 artifacts, `arch=gfx1151` in the
+build log at 02:09:09 and 02:24:41) and `tools/build_llama.sh`; W4 had `speccheck/moe_ref.py` (657),
+`cross_check_hf.py` (417) and the HF capability probe. Each resume therefore began with *inventory what
+you already wrote, do not restart from zero* — the failure mode of a resumed worker is a second
+half-finished copy of its own output.
+
+### W1's audit result, and the two things I checked before ruling
+
+Verdicts: **1.1 PASS, 1.2 PASS, 1.3 PASS, 1.4 FAIL (one 1-ulp near miss), 1.5a RUN, 1.5b PASS,
+1.5c PASS, 1.6 PASS**; sha256 `ac0e2c11…31a61` twice and equal to the HF LFS etag; 150/150 injection
+cases correct with 0 leaks; ordering evidence shows `--selftest` PASS at `01:31:24Z` **before** the first
+tensor-data read at `01:42:30Z`, and `--exact` was *refused* at 01:42:26Z because the tool files had
+changed since the PASS — the marker stores both tools' sha256, so the design-before-bytes rule bites
+rather than being promised. The sequencing deviation I recorded at kickoff is thus closed on its own
+terms: the gate was written from the spec, and the bytes were unread until it passed.
+
+I verified two of its claims with my own ruler instead of taking the report (`tmp/verify_gguf_bytes.py`,
+which reuses the proven GGUF tokenizer but swaps in block sizes transcribed from the pinned
+`ggml-common.h`, then asserts `sum(row_bytes) + data_start == file size`):
+
+| W1's claim | my independent reading | verdict |
+|---|---|---|
+| PLAN's MTP figure (41,943,040 elts / 79.9 MiB) is wrong | raw shard headers: **19 tensors, 844,640,768 elts, 1,611.02 MiB bf16**; `gate_up_proj [256,1024,2048]` = 536,870,912 and `down_proj [256,2048,512]` = 268,435,456 = 95.34 % of it | **CONFIRMED** — the draft block carries its own 256-expert MoE stack, which `README.md`'s 61.50 GiB census already implied and `PLAN.md` had contradicted |
+| the published GGUF carries no draft block | 0 tensors matching `mtp`/`nextn` across all 733 records | **CONFIRMED** (also matches the header read taken at kickoff) |
+| `Q5_K` is 5.5 bpw, our tools say 5.5625 | `static_assert` in `ggml-common.h` fixes `block_q5_K` at `2·half + K_SCALE_SIZE(12) + QK_K/2(128) + QK_K/8(32)` = **176 B / 256 = 5.5 bpw**; file-size identity holds at 176 B with Q4_K 144 B, Q6_K 210 B, Q8_0 34 B/32, F32 4 B | **CONFIRMED, and Q5_K is the only wrong row** — my re-derivation agrees with the tools on Q4_K 4.5, Q6_K 6.5625 and Q8_0 8.5 |
+| drift ≈232 MiB over the 37 Q5_K tensors | my identity gives a Q5_K family of **6.3594 GiB** and a drift of **74.0 MiB** | **NOT RECONCILED** — same identity, so one of us slipped; sent back to W1 to show the working, with instructions not to adopt my number unchallenged |
+
+Total stored weights **22,123,538,944 B = 20.6042 GiB** (the tools' width map printed 20.676 GiB, the
+expected direction for a too-high Q5_K bpw). `general.file_type = 15`, `quantization_version = 2`,
+`arch = qwen35moe`, `expert_count 256`, `expert_used_count 8`, both `expert_feed_forward_length` and
+`expert_shared_feed_forward_length` = 512, `head_count 16` / `head_count_kv 2`.
+
+**Policy A does not move.** No policy row in `tools/quant_scenarios.py` uses Q5_K (they use
+Q4_K/Q8_0/bf16/IQ4_XS/MXFP4, with Q6_K only for `lm_head` in E and G), so 19.59 GiB resident and
+2.331 GiB/token stand; only the published-file width-map GiB column is affected. That sentence exists
+because a correct-looking bpw fix applied to the shipping arithmetic is how a green table becomes a
+wrong one.
+
+### The gate decision, and why it is not the forbidden kind
+
+W1 asked whether a single 1-ulp deviation on `ssm_a` blocks step 1. Ruled: **accept, as a route-derived
+predicate rather than a tolerance** — `DECISIONS.md` **D-14**, `PLAN.md` §"Amendment to 1.4". The
+load-bearing fact is that **HF never stores `ssm_a`**: the reference computes `A = -exp(A_log.float())`
+at init, so there is no stored authority to be bit-exact against, and our engine reads `ssm_a` from the
+file and never recomputes `exp`. Copied families keep zero tolerance; only the documented transcendental
+route gets 1 ulp, with the two reference routes required to agree with *each other* (a reference
+disagreement FAILS, it never becomes "within tolerance") and must-catch **grown** to ±2 ulp, sign flip,
+element permutation and a wrong-`A_log` read. Escalated to the user for ratification rather than assumed,
+and reversible with one flag, because `AGENTS.md` makes "what counts as a band" the user's question.
+
+### Board after re-arming
+
+| lane | endpoint | state | on resume |
+|---|---|---|---|
+| W1 `6b2b7fb4` | `halogen` | revived with the D-14 ruling | re-run 1.4 as 1.4a/1.4b, patch the Q5_K bpw *derived+asserted*, reconcile the 74 MiB vs 232 MiB drift, refresh summary and pin |
+| W2 `3cf4d0ea` | `tensorfold` | revived | inventory `specification/`, then finish it carrying the corrected MTP numbers |
+| W3 `26240c65` | `tensorfold` | revived | **do not rebuild** — prove the HIP backend is really wired in (`ldd bin/llama-cli` showed no `libggml-hip` in the chain, which is the silent-CPU-fallback shape and would make every later cross-check meaningless), then the four D-12 verdicts |
+| W4 `3d702c27` | `tensorfold` | revived | inventory `speccheck/`, then `tools/dump_reference.py` (planned), the manifest, `selftest_moe.py`, `results.md` |
+
+Still 3 × `tensorfold` + 1 × `halogen` = the D-13 ceiling, main holding 1 of 5 LAN streams, the 5th
+slot closed. `/tmp/pi_halogen.lock` has been held continuously across W1's completion and revival, since
+the rule is the worker's whole life and a gap is exactly when a down-window would admit.
+`tools/gpu_lock.sh status` has stayed `free` throughout: **no device run in this entire phase**,
+including W3's compile. Every resume brief repeated *no inference, no model load, no timing of any kind*.
+
+
+## Worker board as first dispatched (D-13: ≤3 tensorfold + ≤1 halogen, session holds 1 of 5 LAN streams)
 
 | id | endpoint | task | device rights |
 |---|---|---|---|
