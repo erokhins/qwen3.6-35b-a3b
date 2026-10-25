@@ -398,3 +398,36 @@ corrected with provenance; **`DECISIONS.md` is not touched** — D-11 quotes 65.
 the conclusion is unaffected (all three candidate figures exceed the pool), that file is the user's.
 The journal's own earlier entries still assert 19.59/2.331 and are deliberately left as written: a
 journal records what was believed when, and gets corrected by a later entry, never by editing.
+
+## llama.cpp drives the pinned artifact: the runtime half of the GPU question closes
+
+With the board clear I took the part of the device window that does not need the inference server down.
+`llama-cli` @ `d327bf1` loaded `Qwen3.6-35B-A3B-UD-Q4_K_M.gguf`, and the two lines that matter are
+`system_info: … | ROCm : NO_VMM = 1 | …` and `load_tensors: offloaded 1/41 layers to GPU` — 24 tokens
+generated greedy at seed 42, answering `France`. W3's build audit had proved device code was *present*
+(141/141 `gfx1151` code objects, 56 MB fatbin); a census cannot prove the loader *reaches* it, and this
+run does. Written up with its witnesses in
+`quantization/evidence/llama-cpp-smoke-gguf-2026-10-26.md`.
+
+Two findings, neither about speed. **`tokenizer.ggml.eos_token_id u32 = 248046`** — witnessed from the
+artifact as llama.cpp reads it, corroborating one side of the A-04 disagreement with `text_config`'s
+248044; A-04 stays open because `generation_config.json` is still not on disk, so our decode loop takes
+`STOP_IDS` as a named input instead of defaulting to either. And **llama.cpp guesses a reasoning format
+for this arch** (`chat_format: peg-native`, `reasoning_format: deepseek`, generation prompt ending in the
+think-boundary token, `preserved_tokens [248058, 248059, 248068, 248069]`) — its guess about a checkpoint
+whose own config is ambiguous, which our engine must decide deliberately rather than inherit, and which
+touches A-20 in the MTP path.
+
+**Every rate from this run is discarded on purpose.** llama.cpp prints its own timings; halogen was
+resident and 40 of 41 layers ran on CPU, so the figure is contaminated *and* unrepresentative. The raw
+capture sits in gitignored `tmp/evidence/` so it cannot leak into a commit, and the evidence file says so
+in its own text rather than just omitting the number — a reader who finds the log later needs to know why
+it is not quoted.
+
+Two harness traps worth keeping, both of which produced a **false green** before I caught them. `llama-cli
+-p …` alone enters interactive mode: it read empty stdin, printed an empty completion, and **exited 0** —
+so a smoke test gated on exit code passes on a run that generated nothing, and the completion text is the
+actual evidence. And `--no-cnv` does not exist in this build (`invalid argument`, exit 1); the flag here is
+`-st/--single-turn`. Separately, without `-v` the load prints no backend or offload lines at all, so a
+silent smoke test cannot see the one line that distinguishes a GPU build from a CPU fallback — the exact
+failure the whole build audit was chasing.
