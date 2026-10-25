@@ -1,0 +1,8 @@
+# speccheck/evidence/gdn-dump-pinned-refusal-2026-10-26.txt — pinned mode refuses to run with no manifest.
+# steps: mv checkpoints/dump-manifest-gdn-2026-10-26.json tmp/w20_manifest_renamed.json   (ls confirms it is gone)
+#        /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python tools/dump_reference_gdn.py --verify --out data/dumps/2026-10-26-gdn --manifest checkpoints/dump-manifest-gdn-2026-10-26.json   -> rc=2
+#        mv back (163904 B, confirmed by ls afterwards)
+
+PINNED MODE REFUSED: /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/checkpoints/dump-manifest-gdn-2026-10-26.json does not exist. This verifier will not run against an unmanifested dump directory: without the manifest there is no dtype, shape or digest to check the bytes against, and 'no files bad' would be vacuous. Restore the manifest or produce a fresh dump with the write path.
+rc=2
+

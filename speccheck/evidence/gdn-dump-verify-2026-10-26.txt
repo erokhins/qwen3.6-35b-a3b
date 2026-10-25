@@ -1,0 +1,6 @@
+# speccheck/evidence/gdn-dump-verify-2026-10-26.txt — pinned verify of the dump directory as it stands on disk.
+# command: /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python tools/dump_reference_gdn.py --verify --out data/dumps/2026-10-26-gdn --manifest checkpoints/dump-manifest-gdn-2026-10-26.json
+
+# pinned verify: 178 manifest records, 178 verified, 0 bad, expected count 178
+# byte reconciliation: sum(records.bytes)=162,519,680  manifest.declared=162519680  directory_total=162,519,680  files_on_disk=178 listed=178
+VERIFY PASS

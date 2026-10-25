@@ -1,0 +1,26 @@
+# speccheck/evidence/gdn-dump-verifier-controls-2026-10-26.txt — the verifier must be able to FAIL. Two controls:
+#  1. one byte of data/dumps/2026-10-26-gdn/layer0.prefill.y.bin flipped at offset 7 (dd conv=notrunc), restored from a cp backup;
+#  2. a zero-byte stray file added to the dump directory, then removed. Both are witnessed below, plus the restored re-verify.
+# command per case: /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python tools/dump_reference_gdn.py --verify
+
+## case 1: one byte flipped
+orig sha 86aa2c885e9161073fc21804...  tampered sha 8aec7cd7f7a9aa0578088792...  restored sha 86aa2c885e9161073fc21804...
+
+# pinned verify: 178 manifest records, 177 verified, 1 bad, expected count 178
+# byte reconciliation: sum(records.bytes)=162,519,680  manifest.declared=162519680  directory_total=162,519,680  files_on_disk=178 listed=178
+  HASH data/dumps/2026-10-26-gdn/layer0.prefill.y.bin
+VERIFY FAIL
+
+## case 2: a stray unlisted file
+
+# pinned verify: 178 manifest records, 178 verified, 1 bad, expected count 178
+# byte reconciliation: sum(records.bytes)=162,519,680  manifest.declared=162519680  directory_total=162,519,680  files_on_disk=179 listed=178
+  UNLISTED stray_unlisted.bin — a file in the dump directory that the manifest does not name is a named-and-skipped file, never a silently ignored one
+  FILE COUNT: 179 files on disk vs 178 records
+VERIFY FAIL
+
+## case 3: both controls undone
+
+# pinned verify: 178 manifest records, 178 verified, 0 bad, expected count 178
+# byte reconciliation: sum(records.bytes)=162,519,680  manifest.declared=162519680  directory_total=162,519,680  files_on_disk=178 listed=178
+VERIFY PASS

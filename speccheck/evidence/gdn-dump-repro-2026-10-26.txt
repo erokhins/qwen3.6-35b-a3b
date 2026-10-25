@@ -1,0 +1,90 @@
+# speccheck/evidence/gdn-dump-repro-2026-10-26.txt — a FRESH write reproduces the pinned dump bit for bit.
+# command: /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python tools/dump_reference_gdn.py --out tmp/w20_dump_candidate --manifest tmp/w20_candidate_manifest.json
+# then:    /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python tmp/w20_repro.py  (compares every record's sha256/bytes/shape/dtype and the byte totals)
+# the driver, in full, so this evidence does not depend on a gitignored tmp/ file:
+
+#!/usr/bin/env python3
+"""tmp/w20_repro.py — scratch: does a FRESH write of the GDN dump reproduce the pinned one
+bit for bit? Compares every manifest record (sha256, bytes, shape, dtype) and the byte totals.
+CPU only; no clock read, no ms figure. W20 lane."""
+import json
+import sys
+from pathlib import Path
+
+REPO = Path("/home/erokhins/erokhins_projects/qwen3.6-35b-a3b")
+PINNED = REPO / "checkpoints/dump-manifest-gdn-2026-10-26.json"
+CAND = REPO / "tmp/w20_candidate_manifest.json"
+
+a = json.loads(PINNED.read_text())
+b = json.loads(CAND.read_text())
+
+
+def index(m):
+    out = {}
+    for r in m["dumps"]:
+        out[r["name"]] = r
+    return out
+
+
+ra, rb = index(a), index(b)
+only_a = sorted(set(ra) - set(rb))
+only_b = sorted(set(rb) - set(ra))
+bad = []
+for name in sorted(set(ra) & set(rb)):
+    x, y = ra[name], rb[name]
+    for key in ("sha256", "bytes", "shape", "dtype", "elements"):
+        if x[key] != y[key]:
+            bad.append(f"{name}.{key}: pinned={x[key]!r} fresh={y[key]!r}")
+
+print(f"records: pinned={len(ra)} fresh={len(rb)} common={len(set(ra) & set(rb))}")
+print(f"only-in-pinned={len(only_a)} only-in-fresh={len(only_b)}")
+for n in only_a[:10]:
+    print(f"  PINNED-ONLY {n}")
+for n in only_b[:10]:
+    print(f"  FRESH-ONLY {n}")
+print(f"field mismatches: {len(bad)}")
+for line in bad[:20]:
+    print("  " + line)
+print(f"bytes: pinned declared={a['bytes']['declared_records']:,} "
+      f"fresh declared={b['bytes']['declared_records']:,} "
+      f"equal={a['bytes']['declared_records'] == b['bytes']['declared_records']}")
+print(f"counts: pinned={a['counts']} fresh={b['counts']} "
+      f"equal={a['counts'] == b['counts']}")
+agree_a = a["agreement_at_write_time"]
+agree_b = b["agreement_at_write_time"]
+print(f"reference agreement records equal={agree_a == agree_b}")
+same = (not bad and not only_a and not only_b
+        and a["bytes"]["declared_records"] == b["bytes"]["declared_records"]
+        and a["counts"] == b["counts"])
+print("REPRODUCIBLE: a fresh write reproduces the pinned dump bit for bit" if same
+      else "NOT REPRODUCIBLE")
+print("DONE — no timing taken")
+sys.exit(0 if same else 1)
+
+## fresh write path output
+
+[transformers] CUDA-fused xIELU not available (No module named 'xielu') – falling back to a Python version.
+For CUDA xIELU (experimental), `pip install git+https://github.com/nickjbrowning/XIELU`
+[transformers] `causal_conv1d_fn` is falling back to its reference PyTorch implementation because `causal_conv1d` is not installed. This is correct but much slower; install `causal_conv1d` for the optimized kernel.
+[transformers] `chunk_gated_delta_rule` is falling back to its reference PyTorch implementation because `flash-linear-attention` is not installed. This is correct but much slower; install `flash-linear-attention` for the optimized kernel.
+[transformers] `causal_conv1d_update` is falling back to its reference PyTorch implementation because `causal_conv1d` is not installed. This is correct but much slower; install `causal_conv1d` for the optimized kernel.
+[transformers] `fused_recurrent_gated_delta_rule` is falling back to its reference PyTorch implementation because `flash-linear-attention` is not installed. This is correct but much slower; install `flash-linear-attention` for the optimized kernel.
+# layer0: 89 tensors pinned (9 weights + 1 prefill input + 19 prefill stages + 3 x (1 input + 19 decode stages) = 81,259,840 B), reference agreed on 76/76 stage checks
+# layer1: 89 tensors pinned (9 weights + 1 prefill input + 19 prefill stages + 3 x (1 input + 19 decode stages) = 81,259,840 B), reference agreed on 76/76 stage checks
+# manifest: /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tmp/w20_candidate_manifest.json (149,050 B), 178 records, 162,519,680 B declared
+# same input as the MoE dump: sha256 f82d402d574a785b… equal=True (A-01 caveat recorded in the manifest)
+# pinned verify: 178 manifest records, 178 verified, 0 bad, expected count 178
+# byte reconciliation: sum(records.bytes)=162,519,680  manifest.declared=162519680  directory_total=162,519,680  files_on_disk=178 listed=178
+VERIFY PASS
+no timing taken
+
+## comparison output
+
+records: pinned=178 fresh=178 common=178
+only-in-pinned=0 only-in-fresh=0
+field mismatches: 0
+bytes: pinned declared=162,519,680 fresh declared=162,519,680 equal=True
+counts: pinned={'dumps': 178, 'expected': 178, 'blocks': 2, 'stages_per_pass': 19, 'passes_per_block': 4, 'weights_per_block': 9} fresh={'dumps': 178, 'expected': 178, 'blocks': 2, 'stages_per_pass': 19, 'passes_per_block': 4, 'weights_per_block': 9} equal=True
+reference agreement records equal=True
+REPRODUCIBLE: a fresh write reproduces the pinned dump bit for bit
+DONE — no timing taken

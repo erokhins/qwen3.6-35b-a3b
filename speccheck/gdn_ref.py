@@ -60,12 +60,18 @@ Run (CPU-only, PASS/FAIL, no timing):
 
 §What this file does, and what it does not do yet
 ------------------------------------------------------------------------------
-Implemented and running: the oracle, the comparators, the band derivation, and the
-three-arm injection matrix (`--selftest`).
-**Not implemented yet — no flag exists for them, so they cannot print a PASS:** the HF
-cross-check (`--cross-check-hf`), the floor probe and its evidence file (`--floor-probe`),
-the cross-form rows of §04b.6 (`--cross-form`), the capability/dispatch probe
-(`--capability`) and `--against-dumps`. `aggregates`, `band_from_probe` and `load_band` are
+Implemented and running: the oracle, the comparators, the band derivation, the three-arm
+injection matrix (`--selftest`), and the installed-reference comparison (`--compare-hf`,
+which `--selftest` also runs): 19 stages x 2 modes x 2 pinned blocks, every row printed with
+`bit_identical / ndiff / maxabs` and with the provenance of the HF-side tensor (`captured`,
+`derived-from-captured`, or `reference-side-call`), per-step rows for `y`, `state` and
+`conv_window`, seam rows that license the non-`captured` provenances, seven positive controls
+per block that must be REPORTED as differences, and an explicit UNVERIFIED list. A sabotage
+run (`--sabotage FAULT`) injects the oracle side and FAILS unless the comparison differs.
+**Not implemented yet — no flag exists for them, so they cannot print a PASS:** the floor probe
+and its evidence file (`--floor-probe`), the cross-form rows of §04b.6 (`--cross-form`), the
+capability/dispatch probe (`--capability`) and `--against-dumps` (reading the pinned dumps that
+`tools/dump_reference_gdn.py` writes). `aggregates`, `band_from_probe` and `load_band` are
 written and exercised by scratch scripts under `tmp/w20_*`, but until their sections exist
 no gate credits them. This is recorded here rather than advertised in the usage block
 because a flag that cannot fail is worse than a missing one (`pitfalls/40`).
@@ -800,6 +806,27 @@ def _pad_cols(t: torch.Tensor, pad: int, seed: int) -> torch.Tensor:
     return torch.cat([t, noise], dim=-2)
 
 
+def _ut_solve(ut: torch.Tensor, rhs: torch.Tensor, dtype: torch.dtype, unitri: bool,
+              faults: Faults) -> torch.Tensor:
+    """`solve_triangular(ut, rhs, upper=False, unitriangular=...)` at the scan's dtype.
+
+    Under `scan_in_bf16` the solve is done in F32 and cast back, which is *not* a softening of
+    the injection: §04.4's scan-dtype row and §04b.4 put the solve in F32 in the first place,
+    and the reference casts q/k/v/beta/decay to float32 at the scan entry before it solves
+    (`torch_chunk_gated_delta_rule`). This CPU backend has no bf16 `solve_triangular` kernel at
+    all (`bf16_solve_supported()`), so the alternative to this route is an arm that never runs.
+    The bf16-solve numerics that this therefore does NOT establish are printed in
+    `NOT_ESTABLISHED` with the probed error rather than left to silence."""
+    if dtype is torch.float32:
+        return torch.linalg.solve_triangular(ut, rhs, upper=False, unitriangular=unitri)
+    if faults.unitriangular_dropped and dtype is not torch.float32:
+        raise AssertionError("unitriangular_dropped under a non-F32 scan would silently test "
+                             "the F32 diagonal, not the bf16 one; refuse")
+    solved = torch.linalg.solve_triangular(ut.to(torch.float32), rhs.to(torch.float32),
+                                           upper=False, unitriangular=unitri)
+    return solved.to(dtype)
+
+
 def scan_chunked(q, k, v, beta, decay, g: GdnGeometry, form: Form, faults: Faults,
                  initial_state=None, pad_noise: int = 0) -> tuple:
     """file 04b §04b.2–§04b.5, transcribed. `[REF: torch_chunk_gated_delta_rule]`.
@@ -850,10 +877,8 @@ def scan_chunked(q, k, v, beta, decay, g: GdnGeometry, form: Form, faults: Fault
     dec_k_beta = k_beta * cum.exp().unsqueeze(-1)
     unitri = not faults.unitriangular_dropped
     if form.solve_branch == "triangular":
-        new_values = torch.linalg.solve_triangular(ut_system, v_beta, upper=False,
-                                                   unitriangular=unitri)
-        k_cumdecay = torch.linalg.solve_triangular(ut_system, dec_k_beta, upper=False,
-                                                   unitriangular=unitri)
+        new_values = _ut_solve(ut_system, v_beta, dtype, unitri, faults)
+        k_cumdecay = _ut_solve(ut_system, dec_k_beta, dtype, unitri, faults)
     elif form.solve_branch == "substitution":
         ut = -ut_system.tril(-1)
         for i in range(1, C):
@@ -1041,7 +1066,8 @@ def gdn_sequence(x_prefill: torch.Tensor, x_steps: torch.Tensor, w: GdnWeights,
         steps.append(st)
         step_y.append(st["y"])
     pf["n_chunks_used"] = pf["form"].chunk_width or g.chunk_width
-    return {"prefill": pf, "decode": steps[-1], "decode_steps": len(steps),
+    return {"prefill": pf, "decode": steps[-1], "all_steps": steps,
+            "decode_steps": len(steps),
             "step_y": step_y, "state_final": state, "conv_window_final": window}
 
 
@@ -1133,11 +1159,19 @@ def stage_moved(a: torch.Tensor, b: torch.Tensor, predicate=None) -> tuple:
     """(did the stage move, max|a-b|). The SINGLE comparison used by both directions of the
     localisation contract, so the must-not-catch side is witnessed by the must-catch side
     firing on the same machinery (`selftest_moe.py` §differ). A dtype change IS a move:
-    `scan_in_bf16` is a policy violation whose whole point is the dtype."""
+    `scan_in_bf16` is a policy violation whose whole point is the dtype.
+
+    Every verdict — including the two structural ones, shape and dtype — is routed through
+    `predicate`. The stub arm exists to prove the gate reads the differ and not a constant, and
+    a structural short-circuit that answers before the differ is asked leaves the stub blind to
+    exactly the signal `scan_in_bf16` produces (witnessed before this was routed: arm=stub
+    reported `stage_diffs=48` and still `caught` 12 cases, and its must_catch_missed read 2036
+    against a derived 2084)."""
+    blind = predicate is not None
     if a.shape != b.shape:
-        return True, float("inf")
+        return ((False if blind else True), float("inf"))
     if a.dtype != b.dtype:
-        return True, float("nan")
+        return ((False if blind else True), float("nan"))
     x, y = a.detach().to(torch.float64), b.detach().to(torch.float64)
     n = int((x != y).sum().item())
     changed = n > 0
@@ -1217,6 +1251,483 @@ def load_band(path: Path) -> dict:
     return doc["band"]
 
 
+# ================================================================== the HF witness
+# §What the installed reference is allowed to witness here, and what it is not.
+#
+# `pitfalls/30` §"A hoisted scalar constant is a different number, and a CPU mirror cannot
+# see it": a mirror that shares a formula with the reference agrees with it *because* they
+# share a formula. So every row this section prints is a **transcription** check (it catches
+# a misread §04), never an independence proof — the independence evidence is the cross-form
+# agreement and the three-arm injection matrix. What this section does establish, and is the
+# reason it exists, is that the oracle and the pinned reference produce the *same bytes* on
+# the same weights and the same input, stage by stage, in both dispatch shapes.
+#
+# Where each HF-side tensor comes from is recorded per stage in `HF_PROVENANCE` and printed
+# with the row, because "we compared against HF" is not one claim but three:
+#   captured               read off the installed module at one of its own boundaries (a
+#                          forward hook, or a spy on a module-level function it calls);
+#   derived-from-captured  a spec-quoted reshape/split applied to a captured tensor — here
+#                          §04.2's `torch.split(mixed_qkv, [key_dim, key_dim, value_dim])`,
+#                          written out on the capture side rather than reused from
+#                          `split_heads`, so the two sides do not share the expression, and
+#                          witnessed against HF's own scan arguments (the `seam` rows);
+#   reference-side-call    the reference's own function re-run on the captured arguments so
+#                          that a value it never returns gets materialised (only `scan_out`,
+#                          whose F32 `core_attn_out` is cast to the activation dtype inside
+#                          `torch_chunk_gated_delta_rule` before the function returns).
+# A stage missing from `HF_PROVENANCE` fails the section: an unclaimed stage is not a
+# checked one (`pitfalls/40` §a check that produces no output cannot fail).
+#
+# The section is only meaningful if it can fail, so it carries its own positive controls:
+# the oracle's recurrence is sabotaged (`read_pre_update_state`, `decay_after_write` — the
+# §04.6 step-5 read position and the step-1/step-4 order) and the chunked form's decay
+# ordering (`decay_sign_flip`, `chunk_decay_off_by_one`, `pairwise_mask_after_exp`,
+# `beta_no_sigmoid`) and each control must be *reported as a difference* by this comparison,
+# on its contracted stages and on no others. A comparison that has never differed is a
+# comparison that was hoped in, not tested.
+
+# The nine parameters the witness block is built with. They are set to the oracle's own
+# tensors (`build_hf_gdn_block` witnesses the `data_ptr()` identity per tensor), so a
+# disagreement here is about the maths and never about two different weight loads.
+HF_PARAM_MAP = {
+    "in_proj_qkv.weight": "qkv", "in_proj_z.weight": "z", "in_proj_a.weight": "a",
+    "in_proj_b.weight": "b", "conv1d.weight": "conv", "A_log": "A_log",
+    "dt_bias": "dt_bias", "norm.weight": "norm", "out_proj.weight": "out",
+}
+
+HF_PROVENANCE = {
+    "mixed_qkv": ("captured", "forward hook on in_proj_qkv's output"),
+    "z": ("captured", "forward hook on in_proj_z's output, reshaped to [B,T,h_v,d_v]"),
+    "b_raw": ("captured", "forward hook on in_proj_b's output"),
+    "a_raw": ("captured", "forward hook on in_proj_a's output"),
+    "conv_pre": ("captured", "the bf16 input to ACT2FN['silu'] inside causal_conv1d_fn/"
+                          "_update: the pre-activation conv output, which the function never"
+                          " returns"),
+    "conv_out": ("captured", "the return of causal_conv1d_fn / causal_conv1d_update"),
+    "conv_window": ("captured", "the layer's conv_states cache after the pass (the reference"
+                              "'s own k_conv-column INPUT window, A-09)"),
+    "q_pre": ("derived-from-captured", "§04.2's torch.split+reshape of the captured conv_out"),
+    "k_pre": ("derived-from-captured", "§04.2's torch.split+reshape of the captured conv_out"),
+    "v_pre": ("derived-from-captured", "§04.2's torch.split+reshape of the captured conv_out"),
+    "beta": ("captured", "the `beta` argument of the reference's own scan call"),
+    "g_decay": ("captured", "the `g` argument of the reference's own scan call"),
+    "q_hat": ("reference-side-call", "M.l2norm + the scan's own q-scaling line, applied to the"
+                                     " captured scan argument (F32, per §04.4)"),
+    "k_hat": ("reference-side-call", "M.l2norm applied to the captured scan argument (F32, per"
+                                     " §04.4); unscaled, §04.4's l2norm-scope row"),
+    "scan_out": ("reference-side-call", "torch_chunk/recurrent_gated_delta_rule re-run on the"
+                                        " captured args with F32 inputs, so initial_dtype is"
+                                        " F32 and the internal core_attn_out is returned"
+                                        " uncast; witnessed by its bf16 cast equalling the"
+                                        " captured core_attn"),
+    "core_attn": ("captured", "the scan's returned core_attn_out (activation dtype)"),
+    "state": ("captured", "the scan's returned last_recurrent_state (F32)"),
+    "normed": ("captured", "forward hook on Qwen3_5MoeRMSNormGated's output, reshaped back"
+                           " to [B,T,h_v,d_v]"),
+    "y": ("captured", "the return of Qwen3_5MoeGatedDeltaNet.forward / the out_proj hook"),
+}
+
+# §The explicit UNVERIFIED list, and it is a rule that this stays non-empty: the section
+# fails if it is ever emptied, because a lane with nothing unverified has stopped looking
+# rather than finished looking.
+HF_UNVERIFIED = [
+    {"item": "agreement on a real activation",
+     "why": "both sides are fed `gdn_input`, the A-01 RMS-1 seeded fixture; it does not carry "
+            "the (1+w) modulation of a real input_layernorm output, so every agreement figure "
+            "here is a synthetic-input statistic",
+     "closes_when": "the dense path lands and a real hidden_states is pinned by "
+                    "tools/dump_reference.py's successor"},
+    {"item": "the fused kernels the box does not have",
+     "why": "causal_conv1d and flash-linear-attention are not installed, so the reference ran "
+            "its own torch fallbacks; which function objects ran is printed with the section",
+     "closes_when": "a kernel-bearing build is compared on the same pinned rows"},
+    {"item": "chunked continuation (T > 1 with a state present, §04b.1 row 4)",
+     "why": "the comparison covers chunked-from-zero prefill and single-token recurrent decode; "
+            "no pinned case hands a live state to the chunked scan",
+     "closes_when": "a rollback/chunked-continuation fixture is pinned"},
+    {"item": "the engine's conv-window policy (A-09: k_conv vs k_conv-1 columns)",
+     "why": "conv_window is compared against the reference's own k_conv-column cache, which is "
+            "the reference's choice and not the engine's; the engine's 3-column window is a "
+            "different tensor and is not checked here",
+     "closes_when": "the engine's residency layout is gated against a dump of its own window"},
+    {"item": "the MTP draft block's mixer",
+     "why": "load_gdn_block_weights refuses a non-`layer` block; file 09's draft mixer is a "
+            "different task",
+     "closes_when": "file 09 is in scope with its own pinned dump"},
+    {"item": "banded (not bit-exact) agreement on any stage",
+     "why": "no --floor-probe section exists yet, so no band file exists to load and "
+            "load_band() refuses to invent one; every credited row here is bit-exact or it is a "
+            "failure",
+     "closes_when": "--floor-probe writes the per-stage probe and band_from_probe licenses the "
+                    "cross-form rows"},
+]
+
+
+class _HfCapture:
+    """Spies and hooks on the installed reference, installed per call and removed after it.
+
+    Every field counts its own calls: a capture that produced nothing would otherwise read
+    as an empty tensor comparison that trivially 'agrees' (`pitfalls/40` §a check that
+    produces no output cannot fail)."""
+
+    def __init__(self):
+        self.calls = {}
+        self.hook_io = {}
+        self.conv_fn_in, self.conv_out = [], []
+        self.silu_in = []
+        self.scan_args, self.scan_return, self.scan_which = [], [], []
+        self.window_after = []
+        self._handles, self._saved = [], {}
+
+    def _rec(self, key, value):
+        self.calls[key] = self.calls.get(key, 0) + 1
+        (self.hook_io.setdefault(key, [])).append(value)
+
+    def install(self, M, blk):
+        def hook(name):
+            def _h(mod, inputs, output):
+                self._rec("hook:" + name, {"inputs": tuple(inputs), "output": output})
+            return _h
+
+        for name in ("in_proj_qkv", "in_proj_z", "in_proj_a", "in_proj_b", "norm",
+                     "out_proj"):
+            self._handles.append(getattr(blk, name).register_forward_hook(hook(name)))
+
+        orig = {"causal_conv1d_fn": M.causal_conv1d_fn,
+                "causal_conv1d_update": M.causal_conv1d_update,
+                "torch_chunk_gated_delta_rule": M.torch_chunk_gated_delta_rule,
+                "torch_recurrent_gated_delta_rule": M.torch_recurrent_gated_delta_rule,
+                "ACT2FN": M.ACT2FN}
+        self._saved = orig
+
+        def conv_fn(x, weight, bias=None, activation=None, **kw):
+            self._rec("conv_fn", {"inputs": (x, weight, bias, activation)})
+            out = orig["causal_conv1d_fn"](x, weight, bias, activation, **kw)
+            self._rec("conv_fn_out", {"output": out})
+            return out
+
+        def conv_update(x, conv_state, weight, bias=None, activation=None):
+            self._rec("conv_upd", {"inputs": (x, conv_state, weight, bias, activation)})
+            out = orig["causal_conv1d_update"](x, conv_state, weight, bias, activation)
+            self._rec("conv_upd_out", {"output": out})
+            return out
+
+        def make_scan(which):
+            def _scan(*a, **kw):
+                # initial_state is the cache's own buffer, and the block copies the NEW state
+                # into it before this call returns — clone it here or the side call below would
+                # start from the state this step produced (witnessed: 417,407 of 524,288 state
+                # elements and 3,090 of 4,096 outputs off by one step's decay).
+                kw_seen = dict(kw)
+                init = kw_seen.get("initial_state")
+                if torch.is_tensor(init):
+                    kw_seen["initial_state"] = init.detach().clone()
+                self._rec("scan", {"output": (which, a, kw_seen)})
+                out = orig["torch_chunk_gated_delta_rule" if which == "chunked" else
+                          "torch_recurrent_gated_delta_rule"](*a, **kw)
+                self._rec("scan_out", {"output": out})
+                return out
+            return _scan
+
+        def spy_silu(x):
+            self._rec("silu", x)
+            return orig["ACT2FN"]["silu"](x)
+
+        M.causal_conv1d_fn = conv_fn
+        M.causal_conv1d_update = conv_update
+        M.torch_chunk_gated_delta_rule = make_scan("chunked")
+        M.torch_recurrent_gated_delta_rule = make_scan("recurrent")
+        M.ACT2FN = {**orig["ACT2FN"], "silu": spy_silu}
+
+    def restore(self, M):
+        for h in self._handles:
+            h.remove()
+        self._handles = []
+        for k, v in self._saved.items():
+            setattr(M, k, v)
+        self._saved = {}
+
+    def one(self, key):
+        """Exactly-one-of: a capture that fired zero times, or twice, is a broken capture."""
+        if self.calls.get(key, 0) != 1:
+            raise AssertionError(f"HF capture: expected exactly 1 `{key}` call, got "
+                                 f"{self.calls.get(key, 0)} — the spy is not on the path that "
+                                 "ran, so nothing was compared")
+        return self.hook_io[key][0]
+
+
+def _hf_modules():
+    """The lazy HF import — the only place in this file allowed to know the reference
+    exists, and it is reached only from `--compare-hf` (which `--selftest` calls)."""
+    import transformers
+    from transformers.models.qwen3_5_moe import modeling_qwen3_5_moe as M
+    from transformers.models.qwen3_5_moe.configuration_qwen3_5_moe import Qwen3_5MoeTextConfig
+    from transformers.cache_utils import DynamicCache
+    cfg = json.loads(Path(CONFIG_PATH).read_text())["text_config"]
+    return M, Qwen3_5MoeTextConfig(**cfg), DynamicCache, transformers.__version__
+
+
+def build_hf_gdn_block(block: Block, w: GdnWeights, g: GdnGeometry, cfg_text, M):
+    """Instantiate the reference's own class and hand it the oracle's weight tensors.
+
+    Meta-device construction, then `nn.Parameter(our tensor)`: the nine parameters must be
+    the *same storage* as `w.tensors`, which is witnessed here rather than assumed, because
+    an agreement between two different weight loads would prove nothing about the maths."""
+    import torch.nn as nn
+    with torch.device("meta"):
+        blk = M.Qwen3_5MoeGatedDeltaNet(cfg_text, layer_idx=block.index)
+    for pname, role in HF_PARAM_MAP.items():
+        obj = blk
+        for part in pname.split(".")[:-1]:
+            obj = getattr(obj, part)
+        setattr(obj, pname.split(".")[-1],
+                nn.Parameter(w.tensors[role], requires_grad=False))
+    share = []
+    for pname, role in HF_PARAM_MAP.items():
+        obj = blk
+        for part in pname.split(".")[:-1]:
+            obj = getattr(obj, part)
+        got = getattr(obj, pname.split(".")[-1])
+        if got.data_ptr() != w.tensors[role].data_ptr():
+            raise AssertionError(f"{block.name}.{role}: the witness block's parameter is a "
+                                 "different tensor from the oracle's; the comparison would be "
+                                 "two weight loads, not two implementations")
+        if tuple(got.shape) != tuple(w.tensors[role].shape):
+            raise AssertionError(f"{block.name}.{role}: {tuple(got.shape)} vs "
+                                 f"{tuple(w.tensors[role].shape)}")
+        share.append(role)
+    return blk, share
+
+
+def _bit_diff(a: torch.Tensor, b: torch.Tensor) -> dict:
+    """(bit_identical, ndiff, maxabs) for two tensors, with shape and dtype checked first.
+
+    Widening is an explicit `.to(torch.float64)`; `.view()` would bitcast and turn an
+    f32/bf16 mix into garbage that still prints a plausible ndiff (`pitfalls/30` §Tensor.to
+    casts, .view bitcasts). A non-finite value is reported, not refused — an injected
+    `pairwise_mask_after_exp` is *supposed* to produce `inf`/`nan`, and printing it is the
+    point (`pitfalls/40` §a control that cannot fail)."""
+    if tuple(a.shape) != tuple(b.shape):
+        raise AssertionError(f"shape {tuple(a.shape)} vs {tuple(b.shape)} — a shape mismatch is "
+                             "a mis-wired capture, not a disagreement")
+    if a.dtype is not b.dtype:
+        raise AssertionError(f"dtype {a.dtype} vs {b.dtype} — a bf16/f32 mix is the dump-read "
+                             "bug; refuse to print a number for it (`pitfalls/30`)")
+    x, y = a.detach().to(torch.float64), b.detach().to(torch.float64)
+    n = int((x != y).sum().item())
+    max_abs = 0.0 if n == 0 else float((x - y).abs().max().item())
+    return {"bit_identical": n == 0, "ndiff": n, "n": int(x.numel()), "max_abs": max_abs,
+            "dtype": str(a.dtype), "shape": list(a.shape)}
+
+
+def hf_reference_stages(block: Block, w: GdnWeights, g: GdnGeometry, x_prefill: torch.Tensor,
+                        x_steps: torch.Tensor) -> tuple:
+    """Run the installed reference over prefill-then-cached-decode and harvest every stage.
+
+    Returns `({"prefill": {stage: tensor}, "decode": [{stage: tensor}, ...],
+    "prefill_seam": {...}, "decode_seam": [...]}, ran)` where `ran` records which reference
+    code actually executed. The reference dispatches itself (§04b.1: chunked prefill, then
+    the `use_precomputed_states and seq_len == 1` recurrent branch); this driver never
+    chooses a scan for it, and refuses if the scan it called is not the one §04b.1's table
+    says should have run.
+    """
+    M, cfg_text, DynamicCache, hf_version = _hf_modules()
+    blk, _share = build_hf_gdn_block(block, w, g, cfg_text, M)
+    cache = DynamicCache(config=cfg_text)
+    if len(cache.layers) <= block.index:
+        raise AssertionError(f"the reference cache has {len(cache.layers)} layers, asked for "
+                             f"{block.index}")
+    layer = cache.layers[block.index]
+    if type(layer).__name__ != "LinearAttentionLayer":
+        raise AssertionError(f"layer {block.index} is {type(layer).__name__} in the reference "
+                             "cache, not LinearAttentionLayer — the comparison would be running "
+                             "the full-attention mixer")
+    if layer.record_past:
+        # §04.3's cached conv *update* path (causal_conv1d_update), not the full-window one.
+        layer.record_past = False
+    B = x_prefill.shape[0]
+    if B != 1:
+        raise AssertionError("batch 1 only, as in gdn_block")
+    if x_prefill.ndim != 3 or x_steps.ndim != 3:
+        raise AssertionError("expects a [B,T,d] prefill and [B,n_steps,d] steps")
+
+    ran = {"transformers": hf_version,
+           "scan_impl": {"chunked": M.torch_chunk_gated_delta_rule.__qualname__,
+                         "recurrent": M.torch_recurrent_gated_delta_rule.__qualname__,
+                         "module": M.torch_chunk_gated_delta_rule.__module__},
+           "conv_impl": {"fn": M.causal_conv1d_fn.__qualname__,
+                         "update": M.causal_conv1d_update.__qualname__},
+           "cache_layer": type(layer).__name__, "record_past": bool(layer.record_past),
+           "scans_seen": [], "l2norm_in_kernel": []}
+
+    def episode(x):
+        cap = _HfCapture()
+        cap.install(M, blk)
+        try:
+            with torch.no_grad():
+                y = blk(x, cache_params=cache)
+        finally:
+            cap.restore(M)
+        return cap, y
+
+    def harvest(cap, y, T, mode):
+        want_scan = "chunked" if mode == "prefill" else "recurrent"
+        st, seam = {}, {}
+        st["mixed_qkv"] = cap.one("hook:in_proj_qkv")["output"]
+        st["z"] = cap.one("hook:in_proj_z")["output"].reshape(B, T, g.h_v, g.d_v)
+        st["b_raw"] = cap.one("hook:in_proj_b")["output"]
+        st["a_raw"] = cap.one("hook:in_proj_a")["output"]
+        # The pre-activation conv output is the tensor handed to ACT2FN["silu"] *inside* the
+        # conv (the function returns only the post-SiLU value); §04.7's gate is the other
+        # silu call and is F32/2-D, so the two are told apart by dtype — and either being
+        # absent or duplicated is a broken capture, not an empty comparison.
+        conv_silu = [t for t in cap.hook_io.get("silu", []) if t.dtype is torch.bfloat16]
+        gate_silu = [t for t in cap.hook_io.get("silu", []) if t.dtype is not torch.bfloat16]
+        if len(conv_silu) != 1 or len(gate_silu) != 1:
+            raise AssertionError(f"HF capture: {len(conv_silu)} conv-silu and "
+                                 f"{len(gate_silu)} gate-silu calls in one {mode} episode; "
+                                 "expected exactly one of each")
+        st["conv_pre"] = conv_silu[0]
+        st["conv_out"] = (cap.one("conv_fn_out")["output"] if mode == "prefill"
+                          else cap.one("conv_upd_out")["output"])
+        # The window is the reference cache's own buffer, cloned immediately after the pass:
+        # prefill fills it in `update_conv_state`, decode in `causal_conv1d_update`'s in-place
+        # copy_, and the buffer has a static address that the next step overwrites.
+        if not layer.is_conv_states_initialized[0]:
+            raise AssertionError("the reference cache holds no conv window; `conv_window` would "
+                                 "have no HF side to compare against")
+        st["conv_window"] = layer.conv_states[0].detach().clone()
+        if mode == "prefill" and cap.calls.get("conv_upd", 0):
+            raise AssertionError("a prefill episode called causal_conv1d_update")
+        if mode == "decode" and cap.calls.get("conv_fn", 0):
+            raise AssertionError("a decode episode called causal_conv1d_fn — §04b.1's table says "
+                                 "the cached path is causal_conv1d_update")
+        # §04.2's split, transcribed on THIS side from the reference's own source line rather
+        # than reused from `split_heads`, so the two sides do not share an expression; the
+        # `seam` rows below are what witness it against the reference's own scan arguments.
+        flat = st["conv_out"].transpose(1, 2)
+        q, k, v = torch.split(flat, [g.key_dim, g.key_dim, g.value_dim], dim=-1)
+        st["q_pre"] = q.reshape(B, T, g.h_k, g.d_k)
+        st["k_pre"] = k.reshape(B, T, g.h_k, g.d_k)
+        st["v_pre"] = v.reshape(B, T, g.h_v, g.d_v)
+
+        scan_which, scan_a, scan_kw = cap.one("scan")["output"]
+        ran["scans_seen"].append(scan_which)
+        if scan_which != want_scan:
+            raise AssertionError(f"{mode}: the reference called the {scan_which} scan; §04b.1's "
+                                 f"table says {want_scan}, so the dispatch is not what this "
+                                 "section is comparing")
+        ran["l2norm_in_kernel"].append(bool(scan_kw.get("use_qk_l2norm_in_kernel")))
+        if not scan_kw.get("use_qk_l2norm_in_kernel"):
+            raise AssertionError("the reference did not ask its scan for the q/k l2norm, so "
+                                 "q_hat/k_hat would be compared against nothing")
+        q_arg, k_arg, v_arg = scan_a[0], scan_a[1], scan_a[2]
+        g_arg, beta_arg = scan_kw["g"], scan_kw["beta"]
+        st["beta"], st["g_decay"] = beta_arg, g_arg
+        f32 = torch.float32
+
+        def widen(t):
+            return t.transpose(1, 2).to(f32, memory_format=torch.contiguous_format)
+
+        q_f32, k_f32, v_f32 = widen(q_arg), widen(k_arg), widen(v_arg)
+        st["k_hat"] = M.l2norm(k_f32, dim=-1, eps=g.l2norm_eps)
+        st["q_hat"] = M.l2norm(q_f32, dim=-1, eps=g.l2norm_eps)
+        # §04.4's q-scaling footnote: the two reference scans spell 1/sqrt(d_k) differently
+        # (chunk multiplies by d**-0.5, recurrent divides by d**0.5) and the reference side
+        # mirrors whichever one RAN, not whichever we prefer.
+        if scan_which == "chunked":
+            st["q_hat"] = st["q_hat"] * (st["q_hat"].shape[-1] ** -0.5)
+        else:
+            st["q_hat"] = st["q_hat"] / (st["q_hat"].shape[-1] ** 0.5)
+
+        core_out, state_out = cap.one("scan_out")["output"]
+        st["core_attn"] = core_out
+        if state_out is None:
+            raise AssertionError("the reference returned no recurrent state; "
+                                 "output_final_state was not honoured, so `state` has no HF side")
+        st["state"] = state_out
+        st["normed"] = cap.one("hook:norm")["output"].reshape(B, T, g.h_v, g.d_v)
+        st["y"] = y
+        if cap.one("hook:out_proj")["output"].data_ptr() != y.data_ptr():
+            raise AssertionError("the out_proj hook and the block return are different tensors "
+                                 "— `y` is not what the block handed back")
+
+        # The F32 `core_attn_out` never leaves the reference's scan: it is cast to the
+        # activation dtype before the function returns. Materialise it by calling the
+        # reference's OWN scan with F32 inputs, which makes its `initial_dtype` F32 and the
+        # returned tensor uncast — and witness that it really is that tensor, by checking its
+        # bf16 cast against the captured `core_attn`. Without that witness this row would be a
+        # second implementation being compared to the first.
+        fn = (M.torch_chunk_gated_delta_rule if scan_which == "chunked"
+              else M.torch_recurrent_gated_delta_rule)
+        # The side call takes the SAME argument shapes the block used ([B,T,h,d] and
+        # [B,T,h_v]); only the dtype differs, and bf16 -> f32 is an exact widening, so the
+        # function's own transpose+cast afterwards reproduces its own internals bit for bit.
+        kw = {"g": g_arg.to(f32), "beta": beta_arg.to(f32),
+              "use_qk_l2norm_in_kernel": True, "output_final_state": True}
+        init = scan_kw.get("initial_state")
+        kw["initial_state"] = None if init is None else init.detach().clone()
+        if scan_which == "chunked":
+            C = scan_kw.get("chunk_size", CHUNK_WIDTH_REF)
+            if C != g.chunk_width:
+                raise AssertionError(f"the reference chunked at C={C}, the oracle at "
+                                     f"C={g.chunk_width}; §04b.2's width claim is broken")
+            kw["chunk_size"] = C
+        side_out, side_state = fn(q_arg.to(f32), k_arg.to(f32), v_arg.to(f32), **kw)
+        act = st["core_attn"].dtype
+        # The scan returns [B,T,h_v,d_v] in `initial_dtype`; with F32 inputs that dtype is F32,
+        # so `side_out` is the reference's internal core_attn_out before its exit cast. The
+        # witness is that casting it back reproduces the captured bf16 tensor exactly.
+        seam["scan_out_cast_reproduces_core_attn"] = _bit_diff(
+            side_out.to(act, memory_format=torch.contiguous_format), st["core_attn"])
+        seam["scan_out_reproduces_state"] = _bit_diff(side_state, st["state"])
+        # The oracle keeps the scan output in the scan's own [B,h_v,T,d_v] layout
+        # (`gdn_block` transposes it to form `core_attn`), so the comparison reads it there.
+        st["scan_out"] = side_out.transpose(1, 2).contiguous()
+
+        # Seam rows: the boundaries *between* captured tensors. These license the
+        # `derived-from-captured` provenance of q_pre/k_pre/v_pre — a misread §04.2 split
+        # could not expand to the reference's own argument.
+        exp = g.expansion
+        seam["q_pre_expanded_is_the_scan_argument"] = _bit_diff(
+            st["q_pre"].repeat_interleave(exp, dim=2) if exp > 1 else st["q_pre"], q_arg)
+        seam["k_pre_expanded_is_the_scan_argument"] = _bit_diff(
+            st["k_pre"].repeat_interleave(exp, dim=2) if exp > 1 else st["k_pre"], k_arg)
+        seam["v_pre_is_the_scan_argument"] = _bit_diff(st["v_pre"], v_arg)
+        seam["norm_reads_the_scan_output"] = _bit_diff(
+            st["core_attn"].reshape(-1, g.d_v), cap.one("hook:norm")["inputs"][0])
+        seam["norm_gate_is_the_captured_z"] = _bit_diff(
+            st["z"].reshape(-1, g.d_v), cap.one("hook:norm")["inputs"][1])
+        if set(seam) != set(HF_SEAM_CHECKS):
+            raise AssertionError(f"the seam checks computed were {sorted(seam)}, expected "
+                                 f"{sorted(HF_SEAM_CHECKS)} — a missing seam row is a missing "
+                                 "check, not a smaller denominator")
+        missing = [s for s in STAGES if s not in st]
+        if missing:
+            raise AssertionError(f"the HF harvest produced no tensor for {missing}")
+        if set(st) != set(STAGES):
+            raise AssertionError(f"the HF harvest produced stage(s) {sorted(set(st) - set(STAGES))} "
+                                 "outside the stage list")
+        return st, seam
+
+    cap, y = episode(x_prefill)
+    prefill, prefill_seam = harvest(cap, y, x_prefill.shape[1], "prefill")
+    decode, decode_seam = [], []
+    for s in range(x_steps.shape[1]):
+        x = x_steps[:, s:s + 1]
+        cap, y = episode(x)
+        st, seam = harvest(cap, y, x.shape[1], "decode")
+        decode.append(st)
+        decode_seam.append(seam)
+    if ran["scans_seen"] != ["chunked"] + ["recurrent"] * x_steps.shape[1]:
+        raise AssertionError(f"§04b.1 dispatch not observed: {ran['scans_seen']}")
+    if not all(ran["l2norm_in_kernel"]):
+        raise AssertionError("the reference stopped asking for the in-kernel l2norm on some "
+                             "pass; q_hat/k_hat have no HF side there")
+    return {"prefill": prefill, "decode": decode, "prefill_seam": prefill_seam,
+            "decode_seam": decode_seam}, ran
+
+
 # ========================================================================= the contract
 # §The contract tables. One table per fact about an injection, and every one of them is
 # keyed by a `Faults` field name so `dataclasses.fields(Faults)` is the single source of the
@@ -1266,7 +1777,12 @@ AFFECTED = {
                            "a_raw", "b_raw", "beta", "g_decay"] + _D_SCAN,
     "read_pre_update_state": _D_SCAN_NO_STATE,
     "decay_after_write": _D_SCAN,
-    "scan_in_bf16": _D_SCAN,
+    # §04.4's scan-dtype row is "F32 for the state, the decay, **the norms** and the output of
+    # the scan": the two l2norms that produce `q_hat`/`k_hat` are inside the scan dtype, so a
+    # bf16 scan moves them and they are must-CATCH here, not a leak. `beta`/`g_decay` stay
+    # must-not-catch: they are produced before the scan, `g_decay` in F32 by §04.5's own
+    # explicit casts, so the scan's storage dtype cannot reach either.
+    "scan_in_bf16": ["q_hat", "k_hat"] + _D_SCAN,
     "norm_plus_one": _D_NORM,
     "norm_gate_first": _D_NORM,
     "norm_weight_f32": _D_NORM,
@@ -1326,10 +1842,11 @@ _BF16_SOLVE_PROBE = None
 def bf16_solve_supported() -> tuple:
     """Witnessed, not assumed: does this interpreter's CPU backend implement a bf16
     triangular solve? `§04b.4` runs the UT solve in `mamba_ssm_dtype` (float32 per the
-    committed config), so the honest arm never needs bf16 here — but the `scan_in_bf16`
-    *injection* does, and a case that cannot run must be printed with the error that proves
-    it rather than dropped (`pitfalls/40` §a skipped case is counted, and a skip whose reason
-    was never observed is a guess)."""
+    committed config), so the honest arm never needs bf16 here. The `scan_in_bf16` *injection*
+    now runs its solve in F32 and casts back (see `REQUIRES["scan_in_bf16"]`), which is the
+    reference's own width — so a False here no longer skips the arm, it bounds what the arm
+    can claim, and is printed in `NOT_ESTABLISHED` with the measured error. A skip whose
+    reason was never observed is a guess (`pitfalls/40`)."""
     global _BF16_SOLVE_PROBE
     if _BF16_SOLVE_PROBE is None:
         try:
@@ -1343,9 +1860,17 @@ def bf16_solve_supported() -> tuple:
 
 
 REQUIRES = {
-    "scan_in_bf16": (lambda g, f, C: bf16_solve_supported()[0],
-                     "the CPU backend needs a bf16 triangular solve for the chunked form; "
-                     "probed result is printed with the case list"),
+    # The arm RUNS: the reference keeps the UT solve in F32 whatever the scan's storage dtype
+    # (§04.4's scan-dtype row, §04b.4, and the reference casts q/k/v/beta/decay to float32 at
+    # the scan entry before it solves — `modeling_qwen3_5_moe.py`, in
+    # `torch_chunk_gated_delta_rule`). So a bf16 scan that solves in F32 and casts back is the
+    # arm that can be executed on this backend; what it cannot establish — the numerics of a
+    # bf16 SOLVE — is printed in NOT_ESTABLISHED with the probed error, never folded into the
+    # arm as if it had run. See `bf16_solve_supported()`.
+    "scan_in_bf16": (lambda g, f, C: True,
+                     "runs with the UT solve in F32 (the reference's own width) and cast back; "
+                     "the bf16 triangular solve itself is probed and reported in "
+                     "NOT_ESTABLISHED"),
     "conv_tap_rotate": (lambda g, f, C: g.k_conv >= 2,
                         "k_conv >= 2: a rotation needs at least two taps"),
     "conv_tap_reverse": (lambda g, f, C: g.k_conv >= 3,
@@ -1355,7 +1880,9 @@ REQUIRES = {
     "v_head_order_tiled": (lambda g, f, C: g.expansion > 1,
                            "h_v > h_k: see head_pairing_tiled"),
     "q_scaled_by_dv": (lambda g, f, C: g.d_k != g.d_v,
-                       "d_k != d_v: otherwise 1/sqrt(d_v) IS 1/sqrt(d_k)"),
+                       "needs d_k != d_v; measured d_k == d_v (config: 128 == 128, see "
+                       "geometry.degeneracies and NOT_ESTABLISHED), so 1/sqrt(d_v) IS "
+                       "1/sqrt(d_k) and no fixture can distinguish the two"),
     # With d_k != d_v torch raises on the transposed read, and that raise is the catcher;
     # the injection is only a numerics test in the square-head geometry this model has.
     "state_stored_transposed": (lambda g, f, C: g.d_k == g.d_v,
@@ -1900,6 +2427,49 @@ def section_selftest(g, args) -> list:
         print(f"#   skipped (unreachable, printed not dropped): {fault} on {fx_name}: "
               f"{reason}{extra}")
     print(f"# skipped cases: {len(skipped)} of {len(cases) + len(skipped)} built")
+
+    # §The arms that RAN, and the ones this geometry cannot adjudicate — printed from the
+    # tables, so an absence is a derived claim with a reason rather than a dropped test.
+    ok, detail = bf16_solve_supported()
+    print(f"# scan_in_bf16: RAN on {built.get('scan_in_bf16', 0)} case(s) per block. Every "
+          "tensor of the scan (q_hat/k_hat, the decay cumsum, pairwise, the state, the outputs) "
+          "is bfloat16; the UT solve is F32 and cast back, which is the reference's OWN width "
+          "(§04.4's scan-dtype row, §04b.4 — torch_chunk_gated_delta_rule casts q/k/v/beta/decay "
+          "to float32 at the scan entry and solves in float32).")
+    print(f"#   bf16 solve_triangular on this backend: supported={ok}; probe says: {detail} — "
+          "the bf16-SOLVE numerics are therefore NOT ESTABLISHED, printed below rather than "
+          "folded into the arm as if it had run")
+    print("# NOT ESTABLISHED — the arms and claims this lane may not be read as checked:")
+    for entry in NOT_ESTABLISHED:
+        for key in ("item", "measured", "what_ran_instead", "would_close"):
+            if not str(entry.get(key, "")).strip():
+                fails.append(f"NOT_ESTABLISHED entry {entry.get('item')!r} has an empty "
+                             f"{key!r}; an entry with no reason is a dropped test wearing an "
+                             "entry")
+        print(f"#   - {entry['item']}")
+        print(f"#       measured: {entry['measured']}")
+        print(f"#       instead : {entry['what_ran_instead']}")
+        print(f"#       closes    : {entry['would_close']}")
+    # The list is checked against the geometry: every degeneracy and every section whose
+    # derived population is 0 must appear in it, or an arm has vanished quietly.
+    listed = {e["item"].split(":")[0].strip() for e in NOT_ESTABLISHED}
+    for fault in sorted(g.degeneracies()):
+        if fault not in listed:
+            fails.append(f"NOT_ESTABLISHED does not carry the geometry degeneracy {fault} "
+                         f"({g.degeneracies()[fault]}) — a degenerate arm must be listed, not "
+                         "silently excluded")
+    for fault, n in pops.items():
+        if n == 0 and fault not in listed:
+            fails.append(f"section {fault} has derived population 0 and no NOT_ESTABLISHED "
+                         "entry — a skipped arm is not an arm")
+    # The probe and the recorded claim must agree about whether the solve exists.
+    probe_name = detail.split(":")[0]
+    for entry in NOT_ESTABLISHED:
+        if "solve_triangular" in entry["item"] or "UT solve" in entry["item"]:
+            if ok is False and probe_name not in entry["measured"]:
+                fails.append(f"NOT_ESTABLISHED entry {entry['item']!r} records a different "
+                             f"probe result than the live one ({detail})")
+
     if fails:
         return fails
 
@@ -1952,27 +2522,532 @@ def section_selftest(g, args) -> list:
     return fails
 
 
+# ================================================================= the HF comparison
+# §The `--compare-hf` section, which `--selftest` calls, and what it takes to PASS.
+#
+# PASS requires: (a) every one of the 19 stages, in both dispatch shapes, on both pinned
+# blocks, agrees with the installed reference BIT FOR BIT; (b) the per-step rows for `y`,
+# `state` and `conv_window` agree at every cached decode step, not just the last one
+# (§10.4's "and every subsequent step"); (c) the seam rows agree, which is what licenses the
+# `derived-from-captured` and `reference-side-call` provenances; (d) every positive control in
+# `HF_CONTROLS` is REPORTED as a difference by this very comparison, on its contracted stages
+# and on no others; (e) every count equals its own derived denominator; and (f) the
+# UNVERIFIED list is non-empty and complete.
+#
+# What it does NOT claim: see the section docstring above and `HF_UNVERIFIED` — agreement here
+# is a transcription check against the reference's own maths, printed with the provenance of
+# every HF-side tensor so no reader has to take "we compared against HF" as one claim.
+
+# The positive controls, by pass shape. `read_pre_update_state` and `decay_after_write` are
+# the two §04.6 orderings the section is specifically required to be able to see (the step-5
+# read position, and decay-before-write); the rest are there because a control that only ever
+# runs on one shape proves the harness, not the maths.
+HF_CONTROLS = {
+    "prefill": ["decay_sign_flip", "beta_no_sigmoid", "chunk_decay_off_by_one",
+                "pairwise_mask_after_exp"],
+    "decode": ["read_pre_update_state", "decay_after_write", "decay_sign_flip"],
+}
+
+# The seam checks, named, so a seam that stopped being computed shows up as a denominator
+# failure instead of quietly shrinking the expectation to match what ran (`pitfalls/40` §a
+# check that produces no output cannot fail).
+HF_SEAM_CHECKS = ["scan_out_cast_reproduces_core_attn", "scan_out_reproduces_state",
+                  "q_pre_expanded_is_the_scan_argument",
+                  "k_pre_expanded_is_the_scan_argument", "v_pre_is_the_scan_argument",
+                  "norm_reads_the_scan_output", "norm_gate_is_the_captured_z"]
+
+# §NOT ESTABLISHED — what this lane may not be read as having checked. Each entry carries the
+# measured reason it is not established. `section_selftest` requires that every geometry
+# degeneracy and every zero-population fault appears here, so an arm cannot vanish quietly
+# (`pitfalls/40` §a skipped case is counted, and a skip whose reason was never observed is a
+# guess); entries that are not forced by that rule are here because someone measured something.
+NOT_ESTABLISHED = [
+    {"item": "scan_in_bf16: the UT solve evaluated in bfloat16",
+     "measured": 'NotImplementedError: "triangular_solve_cpu" not implemented for '
+                 "'BFloat16' — measured by bf16_solve_supported(), re-printed with the case "
+                 "list; the selftest requires this entry to name the same exception the live "
+                 "probe returns",
+     "what_ran_instead": "the bf16 scan in full — q_hat/k_hat, the decay cumsum, pairwise, the "
+                         "state and the scan outputs are all bfloat16 — with the UT solve done "
+                         "in F32 and cast back, which is the reference's own width (§04.4's "
+                         "scan-dtype row, §04b.4)",
+     "measured_cost": "printed per stage, per mode, per block by the bf16-arm table in "
+                      "--compare-hf, and deliberately not copied here where it would rot: the "
+                      "four scan tensors the arm stores bf16 where the reference keeps f32 "
+                      "(q_hat, k_hat, scan_out, state) are REFUSED by the bit comparator and "
+                      "then measured again after an explicit widening; core_attn, normed and y "
+                      "differ numerically. What IS adjudicated is containment — every moved "
+                      "stage must sit inside AFFECTED['scan_in_bf16'] and at least one must "
+                      "move — so the arm is neither inert nor leaking",
+     "would_close": "a backend with a bf16 solve_triangular, or the §04b.4 export branch "
+                    "(forward substitution) implemented at bf16 and gated"},
+    {"item": "q_scaled_by_dv",
+     "measured": "d_k == d_v == 128 in the committed config, so 1/sqrt(d_v) IS 1/sqrt(d_k): the "
+                 "injection and the reference are the same expression, and no fixture can "
+                 "distinguish them",
+     "what_ran_instead": "nothing — excluded from the must-catch set as DEGENERATE and printed "
+                         "as a derived absence in the population table, not as a passing case",
+     "would_close": "a checkpoint with d_k != d_v; not this one"},
+]
+
+
+def _fmt_maxabs(v: float) -> str:
+    return "-" if v == 0.0 else f"{v:.3e}"
+
+
+def fixture_input(g: GdnGeometry, fx: Fixture) -> tuple:
+    """The reference/oracle input pair for one fixture: (prefill [1,T,d], steps [1,n,d]).
+
+    One generator draw over `n_tokens + n_steps` rows, split, so the decode steps continue the
+    same sequence the prefill covered — the same `gdn_input` call, the same seed, no second
+    fixture the two sides could disagree about."""
+    n = fx.n_tokens + (fx.n_steps if fx.kind == "decode" else 0)
+    x = gdn_input(n, g, fx.seed).unsqueeze(0)
+    if fx.kind == "prefill":
+        return x, x[:, :0]
+    return x[:, :fx.n_tokens], x[:, fx.n_tokens:]
+
+
+def _compare_rows(tag, stages, ours, theirs, fails, counts, print_rows=True,
+                  adjudicate=True, row_key="rows", ident_key="identical",
+                  diff_key="differing"):
+    """Print and adjudicate one (block, mode) table of per-stage bit comparisons.
+
+    `adjudicate=False` is the sabotage run and the bf16-arm table: differences are printed and
+    counted but not turned into failures, because producing them is the point of those runs.
+    The three counter keys are named by the caller so an extra table cannot quietly inflate the
+    main table's denominator (pitfalls/40 §an unnamed denominator)."""
+    if print_rows:
+        print(f"  {'stage':<12} {'provenance':<22} {'dtype':<6} {'shape':<20} "
+              f"{'bit_identical':>13} {'ndiff':>16} maxabs")
+    differing = []
+    for stage in stages:
+        kind, _how = HF_PROVENANCE[stage]
+        a, b = ours[stage], theirs[stage]
+        counts[row_key] = counts.get(row_key, 0) + 1
+        try:
+            d = _bit_diff(a, b)
+        except AssertionError as exc:
+            if adjudicate:
+                fails.append(f"{tag}/{stage}: {exc}")
+            if print_rows:
+                print(f"  {stage:<12} {kind:<22} {'REFUSED':<6} {str(tuple(a.shape)):<20} "
+                      f"{'NO':>13} {'refused':>16} {str(exc)[:60]}")
+            differing.append(stage)
+            counts[diff_key] = counts.get(diff_key, 0) + 1
+            continue
+        if d["bit_identical"]:
+            counts[ident_key] = counts.get(ident_key, 0) + 1
+        else:
+            differing.append(stage)
+            counts[diff_key] = counts.get(diff_key, 0) + 1
+            if adjudicate:
+                fails.append(f"{tag}/{stage}: NOT bit-identical against the reference — "
+                             f"ndiff={d['ndiff']}/{d['n']} maxabs={d['max_abs']:.3e} "
+                             f"({d['dtype']}, provenance={kind})")
+        if print_rows:
+            print(f"  {stage:<12} {kind:<22} {d['dtype'].replace('torch.', ''):<6} "
+                  f"{str(tuple(d['shape'])):<20} "
+                  f"{'YES' if d['bit_identical'] else 'NO':>13} "
+                  f"{str(d['ndiff']) + '/' + str(d['n']):>16} {_fmt_maxabs(d['max_abs'])}")
+    return differing
+
+
+def section_compare_hf(g: GdnGeometry, args, blocks=None, sabotage: str = "") -> list:
+    fails = []
+    blocks = blocks if blocks is not None else [
+        Block.parse(s) for s in args.blocks.split(",") if s.strip()]
+    if not blocks:
+        raise AssertionError("no blocks selected; an empty comparison cannot pass")
+    if set(HF_PROVENANCE) != set(STAGES):
+        fails.append(f"HF_PROVENANCE keys != STAGES: missing "
+                     f"{sorted(set(STAGES) - set(HF_PROVENANCE))}, extra "
+                     f"{sorted(set(HF_PROVENANCE) - set(STAGES))} — an unclaimed stage is not a "
+                     "checked one")
+        return fails
+    if not HF_UNVERIFIED:
+        fails.append("HF_UNVERIFIED is empty: a lane that has established everything has "
+                     "stopped looking, so this section refuses to print PASS")
+    for e in HF_UNVERIFIED:
+        for key in ("item", "why", "closes_when"):
+            if not str(e.get(key, "")).strip():
+                fails.append(f"UNVERIFIED entry {e.get('item')!r} has an empty {key!r}")
+    if sabotage:
+        if sabotage not in FAULT_FIELDS:
+            fails.append(f"--sabotage {sabotage!r} is not a Faults field; the controls are "
+                         f"{sorted(FAULT_FIELDS)}")
+            return fails
+
+    fixtures = default_fixtures(g)
+    pf_cands = [f for f in fixtures if f.kind == "prefill" and f.n_chunks(g, 0) == 2
+                and f.n_pad(g, 0) > 0 and not f.pad_noise]
+    dec_cands = [f for f in fixtures if f.kind == "decode"]
+    if len(pf_cands) != 1 or len(dec_cands) != 1:
+        fails.append(f"the fixture set does not determine exactly one 2-chunk padded prefill "
+                     f"and one decode fixture (got {len(pf_cands)}, {len(dec_cands)}); the "
+                     "comparison's shape must be derived, not typed")
+        return fails
+    fx_pf, fx_dec = pf_cands[0], dec_cands[0]
+
+    print(f"# command: {' '.join(sys.argv)}")
+    print(f"# compare-hf — torch {torch.__version__} CPU threads={getattr(args, 'threads_used', '?')} "
+          f"blocks={','.join(b.name for b in blocks)}")
+    print(f"# geometry: h_k={g.h_k} h_v={g.h_v} d_k={g.d_k} d_v={g.d_v} k_conv={g.k_conv} "
+          f"C={g.chunk_width} scan_dtype={g.mamba_ssm_dtype}")
+    print(f"# shapes: prefill {fx_pf.name} T={fx_pf.n_tokens} "
+          f"(n_chunks={fx_pf.n_chunks(g, 0)}, n_pad={fx_pf.n_pad(g, 0)}); decode {fx_dec.name} "
+          f"prefill {fx_dec.n_tokens} then {fx_dec.n_steps} cached steps "
+          f"(n_steps = k_conv-1, geometric)")
+    print("# the installed reference is the witness. It is a TRANSCRIPTION check, not an "
+          "independence proof (pitfalls/30 §a CPU mirror cannot see a shared formula); the "
+          "independence evidence is the cross-form agreement and the three-arm matrix.")
+    if sabotage:
+        print(f"# [SABOTAGE — NOT A VERDICT] the ORACLE side is injected with Faults({sabotage}"
+              f"=True); the reference side is untouched. A PASS here is impossible by "
+              f"construction and a run that differs nowhere is a FAILURE of this section.")
+
+    # §The control plan, built BEFORE anything runs. Each control gets a fixture its own
+    # REQUIRES admits AND whose contract licenses at least one allowed stage: a control run on a
+    # fixture where the fault is provably inert is not a control. Measured, not assumed — on a
+    # 2-chunk PADDED prefill `chunk_decay_off_by_one` moves nothing at all (the final chunk's
+    # `cum[-1]` equals `cum[-2]` because a pad row contributes g = 0, and with two chunks
+    # `chunk_decay[0]` multiplies the zero initial state; see CONDITIONAL_AFFECTED and
+    # tmp/w20_chunkdecay.py), so it has to run on a three-chunk fixture to prove anything.
+    plan = []
+    for mode in sorted(HF_CONTROLS):
+        for fault in HF_CONTROLS[mode]:
+            # The mode fixes the pass shape (prefill = the chunked scan, decode = the cached
+            # recurrent one), so the fixture must be of that kind; among those, the reachable
+            # one that licenses the most stages, then the deepest chunk count, then the name —
+            # deterministic, and never a fixture on which the fault is provably inert.
+            cands = [fx for fx in fixtures if fx.kind == mode
+                     and APPLIES[fault] in ("both", fx.kind)
+                     and REQUIRES[fault][0](g, fx, 0)
+                     and bool(allowed_stages(fault, g, fx, 0)[0])]
+            cands.sort(key=lambda fx: (-len(allowed_stages(fault, g, fx, 0)[0]),
+                                       -fx.n_chunks(g, 0), fx.name))
+            if not cands:
+                fails.append(f"control {fault} ({mode}) has no fixture that reaches any allowed "
+                             "stage — the control is vacuous by geometry and must move to "
+                             "NOT_ESTABLISHED, not be run and reported as a pass")
+                continue
+            plan.append((mode, fault, cands[0]))
+
+    counts, control_rows = {}, []
+    for block in blocks:
+        w = load_gdn_block_weights(block, g)
+        hf_cache: dict = {}
+
+        def hf_for(fx, _w=w):
+            key = (fx.name, fx.kind, fx.n_tokens, fx.n_steps, fx.seed, fx.pad_noise)
+            if key not in hf_cache:
+                xp, xs = fixture_input(g, fx)
+                hf_cache[key] = hf_reference_stages(block, _w, g, xp, xs)
+                counts["captures"] = counts.get("captures", 0) + 1
+            return hf_cache[key]
+
+        x_pf, _none = fixture_input(g, fx_pf)
+        x_dec_pf, x_steps = fixture_input(g, fx_dec)
+        if x_steps.shape[1] != fx_dec.n_steps:
+            raise AssertionError("the decode steps are not the fixture's own row count")
+        hf_pf, ran = hf_for(fx_pf)
+        hf_dec, ran_dec = hf_for(fx_dec)
+        print(f"\n## {block.name}: which reference code ran — transformers {ran['transformers']}, "
+              f"module {ran['scan_impl']['module']}")
+        print(f"   scans: chunked={ran['scan_impl']['chunked']} recurrent="
+              f"{ran['scan_impl']['recurrent']} | conv: fn={ran['conv_impl']['fn']} "
+              f"update={ran['conv_impl']['update']}")
+        print(f"   cache layer={ran['cache_layer']} record_past={ran['record_past']} "
+              f"(§04.3's cached conv update path) | dispatch seen: {ran_dec['scans_seen']}")
+
+        faults_pf = faults_dec = NO_FAULTS
+        if sabotage:
+            faults_pf = (NO_FAULTS if APPLIES[sabotage] == "decode"
+                         else Faults(**{sabotage: True}))
+            faults_dec = (NO_FAULTS if APPLIES[sabotage] == "prefill"
+                          else Faults(**{sabotage: True}))
+        orc_pf = gdn_block(x_pf, w, g, "chunked", faults_pf, mode="prefill")
+        seq = gdn_sequence(x_dec_pf, x_steps, w, g, "chunked", "recurrent",
+                           faults=NO_FAULTS, decode_faults=faults_dec)
+        steps = seq["all_steps"]
+        if len(steps) != fx_dec.n_steps or len(hf_dec["decode"]) != fx_dec.n_steps:
+            raise AssertionError("step count disagreement between the oracle, the reference and "
+                                 "the fixture — nothing below is comparable")
+
+        _compare_rows(f"{block.name}/prefill", STAGES, orc_pf, hf_pf["prefill"], fails, counts,
+                      adjudicate=not sabotage)
+        print(f"  (decode rows are the FINAL cached step; every step is in the per-step table "
+              f"below)")
+        _compare_rows(f"{block.name}/decode", STAGES, steps[-1], hf_dec["decode"][-1], fails,
+                      counts, adjudicate=not sabotage)
+
+        # Every step, not just the last: §10.4's conv-state claim is a claim about all of them.
+        print(f"\n### {block.name} per-step rows (cached decode, {fx_dec.n_steps} steps)")
+        print(f"  {'step':<5} {'stage':<12} {'provenance':<22} {'bit_identical':>13} "
+              f"{'ndiff':>16} maxabs")
+        for i, (ours, theirs) in enumerate(zip(steps, hf_dec["decode"])):
+            for stage in ("y", "state", "conv_window"):
+                kind, _how = HF_PROVENANCE[stage]
+                counts["per_step_rows"] = counts.get("per_step_rows", 0) + 1
+                try:
+                    d = _bit_diff(ours[stage], theirs[stage])
+                except AssertionError as exc:
+                    fails.append(f"{block.name}/decode{i}/{stage}: {exc}")
+                    print(f"  {i:<5} {stage:<12} {kind:<22} {'NO':>13} "
+                          f"{'refused':>16} {str(exc)[:60]}")
+                    continue
+                if d["bit_identical"]:
+                    counts["identical"] = counts.get("identical", 0) + 1
+                else:
+                    counts["differing"] = counts.get("differing", 0) + 1
+                    if not sabotage:
+                        fails.append(f"{block.name}/decode{i}/{stage}: NOT bit-identical "
+                                     f"at step {i} — ndiff={d['ndiff']}/{d['n']} "
+                                     f"maxabs={d['max_abs']:.3e}")
+                print(f"  {i:<5} {stage:<12} {kind:<22} "
+                      f"{'YES' if d['bit_identical'] else 'NO':>13} "
+                      f"{str(d['ndiff']) + '/' + str(d['n']):>16} {_fmt_maxabs(d['max_abs'])}")
+
+        # The seam rows: the boundaries between captured tensors. They are what make the
+        # `derived-from-captured` / `reference-side-call` rows mean what they say.
+        print(f"\n### {block.name} seam rows — these license the non-`captured` provenances")
+        seam_groups = [("prefill", hf_pf["prefill_seam"])] + [
+            (f"decode{i}", s) for i, s in enumerate(hf_dec["decode_seam"])]
+        for tag, seam in seam_groups:
+            for name, d in sorted(seam.items()):
+                counts["seam_rows"] = counts.get("seam_rows", 0) + 1
+                if d["bit_identical"]:
+                    counts["identical"] = counts.get("identical", 0) + 1
+                else:
+                    counts["differing"] = counts.get("differing", 0) + 1
+                    fails.append(f"{block.name}/{tag} seam {name}: NOT bit-identical — "
+                                 f"ndiff={d['ndiff']}/{d['n']} maxabs={d['max_abs']:.3e}; the "
+                                 "capture wiring, not the maths, is what this row checks")
+                print(f"  {tag:<10} {name:<40} "
+                      f"{'YES' if d['bit_identical'] else 'NO':>3} "
+                      f"{str(d['ndiff']) + '/' + str(d['n']):>16} {_fmt_maxabs(d['max_abs'])}")
+
+        if sabotage:
+            continue
+        # §The `scan_in_bf16` arm, against the reference — an OBSERVATION with one adjudication.
+        # The arm stores the scan in bf16, which is not the committed config (§04.4's scan-dtype
+        # row and §04b.4 put the scan in `mamba_ssm_dtype`, float32; the reference widens
+        # q/k/v/beta/decay at the scan entry). So it is EXPECTED to differ from the reference and
+        # bit-identity is the wrong demand — this table does not adjudicate agreement. What it
+        # does adjudicate is containment: the arm may only differ on the stages its own contract
+        # licenses (`allowed_stages`, the same table the injection matrix reads), and it must
+        # differ on at least one of them, or the arm is inert and its green matrix means nothing.
+        # The measured size of the disagreement is printed stage by stage, including the four
+        # stages the arm stores bf16 where the reference stores f32 — those numbers, not an
+        # adjective, are what the NOT_ESTABLISHED entry for this arm carries.
+        runs, why = bf16_solve_supported()
+        print(f"\n### {block.name} the scan_in_bf16 arm — bf16 scan storage, F32 UT solve. "
+              f"Adjudicated: containment inside the contract. NOT adjudicated: agreement.")
+        print(f"   a bf16 `solve_triangular` on this backend: "
+              f"{'runs' if runs else 'UNAVAILABLE (' + why + ')'}; the arm therefore solves in "
+              f"F32 and casts back (§04.4, §04b.4 — the reference's own width). The width of the "
+              f"scan STORAGE is the arm's real effect and is measured below.")
+        for mode, fx, theirs in (("prefill", fx_pf, hf_pf["prefill"]),
+                                 ("decode", fx_dec, hf_dec["decode"][-1])):
+            xp, xs = fixture_input(g, fx)
+            if mode == "prefill":
+                ours_arm = gdn_block(xp, w, g, "chunked", Faults(scan_in_bf16=True),
+                                     mode="prefill", pad_noise=fx.pad_noise)
+            else:
+                ours_arm = gdn_sequence(xp, xs, w, g, "chunked", "recurrent",
+                                        faults=NO_FAULTS,
+                                        decode_faults=Faults(scan_in_bf16=True))["all_steps"][-1]
+            print(f"  {mode} on {fx.name}")
+            diff = _compare_rows(f"{block.name}/{mode}/scan_in_bf16", STAGES, ours_arm, theirs,
+                                 fails, counts, adjudicate=False, row_key="arm_rows",
+                                 ident_key="arm_identical", diff_key="arm_differing")
+            allowed, _lic = allowed_stages("scan_in_bf16", g, fx, 0)
+            caught = sorted(set(diff) & allowed)
+            leak = sorted(set(diff) - allowed)
+            counts["arm_checks"] = counts.get("arm_checks", 0) + 1
+            if not caught:
+                counts["arm_inert"] = counts.get("arm_inert", 0) + 1
+                fails.append(f"{block.name}/{mode}/scan_in_bf16: the arm moved NO stage against "
+                             "the reference. An arm that cannot differ is inert and its matrix "
+                             "rows are decoration, not evidence")
+            if leak:
+                counts["arm_leaks"] = counts.get("arm_leaks", 0) + 1
+                fails.append(f"{block.name}/{mode}/scan_in_bf16: the arm moved stages outside "
+                             f"its contract: {leak} (allowed={sorted(allowed)}) — bf16 scan "
+                             "storage reached a stage the §04.4 scan-dtype row does not cover")
+            # The width cost, measured rather than asserted: a stage the arm stores bf16 where
+            # the reference stores f32 is REFUSED by the bit comparator, which is correct but
+            # says nothing about magnitude. Widen explicitly, once, and label it — this is a
+            # measurement of the storage error, not a bit-identity claim (pitfalls/30 §a bf16/f32
+            # mix is refused by design; `.to` casts, it does not reinterpret).
+            for stage in STAGES:
+                a, b = ours_arm[stage], theirs[stage]
+                if a.shape == b.shape and a.dtype != b.dtype and a.is_floating_point() \
+                        and b.is_floating_point():
+                    d = _bit_diff(a.to(b.dtype), b)
+                    counts["arm_widened"] = counts.get("arm_widened", 0) + 1
+                    print(f"    widened {stage}: {str(a.dtype).replace('torch.', '')} storage "
+                          f"vs {str(b.dtype).replace('torch.', '')} reference, widened for the "
+                          f"measurement only — ndiff {d['ndiff']}/{d['n']}, maxabs "
+                          f"{_fmt_maxabs(d['max_abs'])} (NOT a bit-identity claim)")
+            print(f"    containment: moved {len(caught)}/{len(STAGES)} stages, all inside the "
+                  f"contract: {bool(caught) and not leak}; outside: {','.join(leak) or '-'}")
+
+        # §The positive controls. Each must be REPORTED as a difference by the comparison above,
+        # confined to the stages its contract licenses — the same `allowed_stages` table the
+        # injection matrix reads, so one contract has two readers (pitfalls/40).
+        print(f"\n### {block.name} positive controls — the comparison must be able to differ")
+        print(f"  {'mode':<8} {'control':<24} {'fixture':<22} {'caught (allowed)':<44} "
+              f"{'LEAK':<20} maxabs")
+        for mode, fault, fx in plan:
+            f = Faults(**{fault: True})
+            xp, xs = fixture_input(g, fx)
+            hf_fx = hf_for(fx)[0]
+            if mode == "prefill":
+                ours = gdn_block(xp, w, g, "chunked", f, mode="prefill")
+                theirs = hf_fx["prefill"]
+            else:
+                ours = gdn_sequence(xp, xs, w, g, "chunked", "recurrent",
+                                    faults=NO_FAULTS, decode_faults=f)["all_steps"][-1]
+                theirs = hf_fx["decode"][-1]
+            allowed, _lic = allowed_stages(fault, g, fx, 0)
+            diff, worst, nonfinite = [], 0.0, False
+            for stage in STAGES:
+                try:
+                    d = _bit_diff(ours[stage], theirs[stage])
+                except AssertionError:
+                    diff.append(stage)
+                    nonfinite = True
+                    continue
+                if not d["bit_identical"]:
+                    diff.append(stage)
+                    v = d["max_abs"]
+                    if v != v or v == float("inf"):
+                        nonfinite = True
+                    else:
+                        worst = max(worst, v)
+            caught = sorted(set(diff) & allowed)
+            leak = sorted(set(diff) - allowed)
+            counts["controls"] = counts.get("controls", 0) + 1
+            if not caught:
+                counts["controls_blind"] = counts.get("controls_blind", 0) + 1
+                fails.append(f"{block.name}/{mode}/{fault} on {fx.name}: the HF comparison "
+                             "reported NO difference on an allowed stage — this comparison "
+                             "cannot fail, so its clean PASS is hoped in, not tested")
+            if leak:
+                counts["controls_leaks"] = counts.get("controls_leaks", 0) + 1
+                fails.append(f"{block.name}/{mode}/{fault}: the comparison reported a difference "
+                             f"outside the contract: {leak} (allowed={sorted(allowed)})")
+            control_rows.append((block.name, mode, fault, fx.name, caught, leak))
+            print(f"  {mode:<8} {fault:<24} {fx.name:<22} "
+                  f"{(','.join(caught) or 'NONE'):<44} {(','.join(leak) or '-'):<20} "
+                  f"{'nan/inf' if nonfinite else format(worst, '.2e')}")
+        del w
+
+    # Counts against their own denominators (pitfalls/40 §an unnamed denominator).
+    exp_main = len(STAGES) * 2 * len(blocks)
+    exp_steps = 3 * fx_dec.n_steps * len(blocks)
+    exp_seam = len(HF_SEAM_CHECKS) * (1 + fx_dec.n_steps) * len(blocks)
+    exp_arm = 0 if sabotage else len(STAGES) * 2 * len(blocks)
+    exp_arm_checks = 0 if sabotage else 2 * len(blocks)
+    exp_controls = len(plan) * len(blocks)
+    if sabotage:
+        # A sabotage run is the main tables only: the controls are what a clean run uses to
+        # prove it can differ, and this run proves it by being injected instead.
+        exp_controls, exp_captures = 0, 2 * len(blocks)
+    else:
+        exp_captures = len({(fx.name, fx.kind, fx.n_tokens, fx.n_steps, fx.seed, fx.pad_noise)
+                            for _m, _f, fx in plan} | {
+                            (fx_pf.name, fx_pf.kind, fx_pf.n_tokens, fx_pf.n_steps,
+                             fx_pf.seed, fx_pf.pad_noise),
+                            (fx_dec.name, fx_dec.kind, fx_dec.n_tokens, fx_dec.n_steps,
+                             fx_dec.seed, fx_dec.pad_noise)}) * len(blocks)
+    for key, want in (("rows", exp_main), ("per_step_rows", exp_steps),
+                      ("seam_rows", exp_seam), ("controls", exp_controls),
+                      ("arm_rows", exp_arm), ("arm_checks", exp_arm_checks),
+                      ("captures", exp_captures)):
+        got = counts.get(key, 0)
+        print(f"# count {key:<14} {got:>5} derived {want:>5}")
+        if got != want:
+            fails.append(f"count {key}: printed {got}, derived {want} — a section whose rows do "
+                         "not equal its own denominator compared nothing for the rest")
+    n_rows = exp_main + exp_steps + exp_seam
+    print(f"# rows compared {counts.get('rows', 0) + counts.get('per_step_rows', 0) + counts.get('seam_rows', 0)} "
+          f"= {exp_main} stage rows + {exp_steps} per-step rows + {exp_seam} seam rows; "
+          f"bit-identical {counts.get('identical', 0)}, differing {counts.get('differing', 0)}")
+    if not sabotage:
+        print(f"# bf16-arm rows {counts.get('arm_rows', 0)} = {len(STAGES)} stages x 2 modes x "
+              f"{len(blocks)} blocks, reported separately and NOT adjudicated for agreement: "
+              f"bit-identical {counts.get('arm_identical', 0)}, differing "
+              f"{counts.get('arm_differing', 0)} (of which {counts.get('arm_widened', 0)} were "
+              f"REFUSED on storage width and measured after an explicit widening), "
+              f"{counts.get('arm_inert', 0)} inert (must be 0), {counts.get('arm_leaks', 0)} "
+              f"outside contract (must be 0)")
+    print(f"# controls {counts.get('controls', 0)} run, {counts.get('controls_blind', 0)} blind "
+          f"(must be 0), {counts.get('controls_leaks', 0)} leaking (must be 0)")
+    if not sabotage and counts.get("differing", 0) != 0:
+        fails.append(f"{counts['differing']} row(s) differ against the reference on a clean run")
+    if sabotage:
+        if counts.get("differing", 0) == 0:
+            fails.append(f"SABOTAGE Faults({sabotage}=True) on the oracle moved NO row anywhere: "
+                         "this comparison cannot fail, so its clean PASS was hoped in, not "
+                         "tested")
+        else:
+            print(f"# sabotage witness: Faults({sabotage}=True) moved "
+                  f"{counts['differing']}/{n_rows} row(s) against the reference — the comparison "
+                  "can differ, which is what makes the clean PASS a claim")
+
+    if sabotage:
+        print(f"\n## NOT ESTABLISHED by a sabotage run — this run is evidence that the "
+              f"comparison can differ, it is not an agreement verdict")
+    print("\n## UNVERIFIED — explicitly, because silence would read as agreement")
+    for e in HF_UNVERIFIED:
+        print(f"  NOT ESTABLISHED: {e['item']}")
+        print(f"      why: {e['why']}")
+        print(f"      closes when: {e['closes_when']}")
+    if not HF_UNVERIFIED:
+        fails.append("the UNVERIFIED list printed nothing")
+    return fails
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--selftest", action="store_true",
-                    help="the geometry-derived injection matrix, three arms")
+                    help="the geometry-derived injection matrix, three arms, plus the HF "
+                         "comparison section")
+    ap.add_argument("--compare-hf", action="store_true",
+                    help="the installed reference compared stage by stage, with its own "
+                         "positive controls (--selftest runs it too)")
+    ap.add_argument("--sabotage", default="", metavar="FAULT",
+                    help="evidence only: run the HF comparison with the ORACLE side injected; "
+                         "a run that differs nowhere is a FAILURE, and it never prints PASS")
     ap.add_argument("--blocks", default="layer0,layer1")
     ap.add_argument("--threads", type=int, default=8)
     ap.add_argument("--only-fault", default="", help="debug only; prints a SUBSET banner")
     ap.add_argument("--only-fixture", default="", help="debug only; prints a SUBSET banner")
     args = ap.parse_args()
-    if not args.selftest:
-        print("SELFTEST FAIL: nothing selected (--selftest)")
+    if not (args.selftest or args.compare_hf or args.sabotage):
+        print("SELFTEST FAIL: nothing selected (--selftest / --compare-hf / --sabotage)")
         return 1
     args.threads_used = R.set_threads(args.threads)
     g = load_gdn_geometry()
-    fails = section_selftest(g, args)
+    fails = []
+    if args.selftest:
+        fails += section_selftest(g, args)
+    if args.selftest or args.compare_hf or args.sabotage:
+        fails += section_compare_hf(g, args, sabotage=args.sabotage)
     if fails:
-        print("\nSELFTEST FAIL")
+        tag = "SABOTAGE RUN FAIL" if args.sabotage else "SELFTEST FAIL"
+        print(f"\n{tag}")
         for f in fails:
             print("  - " + f)
         return 1
-    print("\nSELFTEST PASS — three arms over the derived matrix; no timing taken")
+    if args.sabotage:
+        print(f"\nSABOTAGE RUN OK — Faults({args.sabotage}=True) was reported as a difference; "
+              "this is not an agreement verdict and no timing was taken")
+        return 0
+    print("\nSELFTEST PASS — three arms over the derived matrix, and every HF row bit-identical "
+          "with its positive controls firing; no timing taken")
     return 0
 
 

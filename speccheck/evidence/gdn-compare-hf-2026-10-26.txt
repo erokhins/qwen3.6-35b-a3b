@@ -1,0 +1,347 @@
+[transformers] CUDA-fused xIELU not available (No module named 'xielu') – falling back to a Python version.
+For CUDA xIELU (experimental), `pip install git+https://github.com/nickjbrowning/XIELU`
+[transformers] `causal_conv1d_fn` is falling back to its reference PyTorch implementation because `causal_conv1d` is not installed. This is correct but much slower; install `causal_conv1d` for the optimized kernel.
+[transformers] `chunk_gated_delta_rule` is falling back to its reference PyTorch implementation because `flash-linear-attention` is not installed. This is correct but much slower; install `flash-linear-attention` for the optimized kernel.
+[transformers] `causal_conv1d_update` is falling back to its reference PyTorch implementation because `causal_conv1d` is not installed. This is correct but much slower; install `causal_conv1d` for the optimized kernel.
+[transformers] `fused_recurrent_gated_delta_rule` is falling back to its reference PyTorch implementation because `flash-linear-attention` is not installed. This is correct but much slower; install `flash-linear-attention` for the optimized kernel.
+# command: speccheck/gdn_ref.py --compare-hf
+# compare-hf — torch 2.14.1+cpu CPU threads=8 blocks=layer0,layer1
+# geometry: h_k=16 h_v=32 d_k=128 d_v=128 k_conv=4 C=64 scan_dtype=float32
+# shapes: prefill prefill_2chunk_padded T=96 (n_chunks=2, n_pad=32); decode decode_3step prefill 96 then 3 cached steps (n_steps = k_conv-1, geometric)
+# the installed reference is the witness. It is a TRANSCRIPTION check, not an independence proof (pitfalls/30 §a CPU mirror cannot see a shared formula); the independence evidence is the cross-form agreement and the three-arm matrix.
+
+## layer0: which reference code ran — transformers 5.19.0, module transformers.models.qwen3_5_moe.modeling_qwen3_5_moe
+   scans: chunked=torch_chunk_gated_delta_rule recurrent=torch_recurrent_gated_delta_rule | conv: fn=causal_conv1d_fn update=causal_conv1d_update
+   cache layer=LinearAttentionLayer record_past=False (§04.3's cached conv update path) | dispatch seen: ['chunked', 'recurrent', 'recurrent', 'recurrent']
+  stage        provenance             dtype  shape                bit_identical            ndiff maxabs
+  mixed_qkv    captured               bfloat16 (1, 96, 8192)                  YES         0/786432 -
+  z            captured               bfloat16 (1, 96, 32, 128)               YES         0/393216 -
+  b_raw        captured               bfloat16 (1, 96, 32)                    YES           0/3072 -
+  a_raw        captured               bfloat16 (1, 96, 32)                    YES           0/3072 -
+  conv_pre     captured               bfloat16 (1, 8192, 96)                  YES         0/786432 -
+  conv_out     captured               bfloat16 (1, 8192, 96)                  YES         0/786432 -
+  conv_window  captured               bfloat16 (1, 8192, 4)                   YES          0/32768 -
+  q_pre        derived-from-captured  bfloat16 (1, 96, 16, 128)               YES         0/196608 -
+  k_pre        derived-from-captured  bfloat16 (1, 96, 16, 128)               YES         0/196608 -
+  v_pre        derived-from-captured  bfloat16 (1, 96, 32, 128)               YES         0/393216 -
+  beta         captured               bfloat16 (1, 96, 32)                    YES           0/3072 -
+  g_decay      captured               float32 (1, 96, 32)                    YES           0/3072 -
+  q_hat        reference-side-call    float32 (1, 32, 96, 128)               YES         0/393216 -
+  k_hat        reference-side-call    float32 (1, 32, 96, 128)               YES         0/393216 -
+  scan_out     reference-side-call    float32 (1, 32, 96, 128)               YES         0/393216 -
+  core_attn    captured               bfloat16 (1, 96, 32, 128)               YES         0/393216 -
+  state        captured               float32 (1, 32, 128, 128)              YES         0/524288 -
+  normed       captured               bfloat16 (1, 96, 32, 128)               YES         0/393216 -
+  y            captured               bfloat16 (1, 96, 2048)                  YES         0/196608 -
+  (decode rows are the FINAL cached step; every step is in the per-step table below)
+  stage        provenance             dtype  shape                bit_identical            ndiff maxabs
+  mixed_qkv    captured               bfloat16 (1, 1, 8192)                   YES           0/8192 -
+  z            captured               bfloat16 (1, 1, 32, 128)                YES           0/4096 -
+  b_raw        captured               bfloat16 (1, 1, 32)                     YES             0/32 -
+  a_raw        captured               bfloat16 (1, 1, 32)                     YES             0/32 -
+  conv_pre     captured               bfloat16 (1, 8192, 1)                   YES           0/8192 -
+  conv_out     captured               bfloat16 (1, 8192, 1)                   YES           0/8192 -
+  conv_window  captured               bfloat16 (1, 8192, 4)                   YES          0/32768 -
+  q_pre        derived-from-captured  bfloat16 (1, 1, 16, 128)                YES           0/2048 -
+  k_pre        derived-from-captured  bfloat16 (1, 1, 16, 128)                YES           0/2048 -
+  v_pre        derived-from-captured  bfloat16 (1, 1, 32, 128)                YES           0/4096 -
+  beta         captured               bfloat16 (1, 1, 32)                     YES             0/32 -
+  g_decay      captured               float32 (1, 1, 32)                     YES             0/32 -
+  q_hat        reference-side-call    float32 (1, 32, 1, 128)                YES           0/4096 -
+  k_hat        reference-side-call    float32 (1, 32, 1, 128)                YES           0/4096 -
+  scan_out     reference-side-call    float32 (1, 32, 1, 128)                YES           0/4096 -
+  core_attn    captured               bfloat16 (1, 1, 32, 128)                YES           0/4096 -
+  state        captured               float32 (1, 32, 128, 128)              YES         0/524288 -
+  normed       captured               bfloat16 (1, 1, 32, 128)                YES           0/4096 -
+  y            captured               bfloat16 (1, 1, 2048)                   YES           0/2048 -
+
+### layer0 per-step rows (cached decode, 3 steps)
+  step  stage        provenance             bit_identical            ndiff maxabs
+  0     y            captured                         YES           0/2048 -
+  0     state        captured                         YES         0/524288 -
+  0     conv_window  captured                         YES          0/32768 -
+  1     y            captured                         YES           0/2048 -
+  1     state        captured                         YES         0/524288 -
+  1     conv_window  captured                         YES          0/32768 -
+  2     y            captured                         YES           0/2048 -
+  2     state        captured                         YES         0/524288 -
+  2     conv_window  captured                         YES          0/32768 -
+
+### layer0 seam rows — these license the non-`captured` provenances
+  prefill    k_pre_expanded_is_the_scan_argument      YES         0/393216 -
+  prefill    norm_gate_is_the_captured_z              YES         0/393216 -
+  prefill    norm_reads_the_scan_output               YES         0/393216 -
+  prefill    q_pre_expanded_is_the_scan_argument      YES         0/393216 -
+  prefill    scan_out_cast_reproduces_core_attn       YES         0/393216 -
+  prefill    scan_out_reproduces_state                YES         0/524288 -
+  prefill    v_pre_is_the_scan_argument               YES         0/393216 -
+  decode0    k_pre_expanded_is_the_scan_argument      YES           0/4096 -
+  decode0    norm_gate_is_the_captured_z              YES           0/4096 -
+  decode0    norm_reads_the_scan_output               YES           0/4096 -
+  decode0    q_pre_expanded_is_the_scan_argument      YES           0/4096 -
+  decode0    scan_out_cast_reproduces_core_attn       YES           0/4096 -
+  decode0    scan_out_reproduces_state                YES         0/524288 -
+  decode0    v_pre_is_the_scan_argument               YES           0/4096 -
+  decode1    k_pre_expanded_is_the_scan_argument      YES           0/4096 -
+  decode1    norm_gate_is_the_captured_z              YES           0/4096 -
+  decode1    norm_reads_the_scan_output               YES           0/4096 -
+  decode1    q_pre_expanded_is_the_scan_argument      YES           0/4096 -
+  decode1    scan_out_cast_reproduces_core_attn       YES           0/4096 -
+  decode1    scan_out_reproduces_state                YES         0/524288 -
+  decode1    v_pre_is_the_scan_argument               YES           0/4096 -
+  decode2    k_pre_expanded_is_the_scan_argument      YES           0/4096 -
+  decode2    norm_gate_is_the_captured_z              YES           0/4096 -
+  decode2    norm_reads_the_scan_output               YES           0/4096 -
+  decode2    q_pre_expanded_is_the_scan_argument      YES           0/4096 -
+  decode2    scan_out_cast_reproduces_core_attn       YES           0/4096 -
+  decode2    scan_out_reproduces_state                YES         0/524288 -
+  decode2    v_pre_is_the_scan_argument               YES           0/4096 -
+
+### layer0 the scan_in_bf16 arm — bf16 scan storage, F32 UT solve. Adjudicated: containment inside the contract. NOT adjudicated: agreement.
+   a bf16 `solve_triangular` on this backend: UNAVAILABLE (NotImplementedError: "triangular_solve_cpu" not implemented for 'BFloat16'); the arm therefore solves in F32 and casts back (§04.4, §04b.4 — the reference's own width). The width of the scan STORAGE is the arm's real effect and is measured below.
+  prefill on prefill_2chunk_padded
+  stage        provenance             dtype  shape                bit_identical            ndiff maxabs
+  mixed_qkv    captured               bfloat16 (1, 96, 8192)                  YES         0/786432 -
+  z            captured               bfloat16 (1, 96, 32, 128)               YES         0/393216 -
+  b_raw        captured               bfloat16 (1, 96, 32)                    YES           0/3072 -
+  a_raw        captured               bfloat16 (1, 96, 32)                    YES           0/3072 -
+  conv_pre     captured               bfloat16 (1, 8192, 96)                  YES         0/786432 -
+  conv_out     captured               bfloat16 (1, 8192, 96)                  YES         0/786432 -
+  conv_window  captured               bfloat16 (1, 8192, 4)                   YES          0/32768 -
+  q_pre        derived-from-captured  bfloat16 (1, 96, 16, 128)               YES         0/196608 -
+  k_pre        derived-from-captured  bfloat16 (1, 96, 16, 128)               YES         0/196608 -
+  v_pre        derived-from-captured  bfloat16 (1, 96, 32, 128)               YES         0/393216 -
+  beta         captured               bfloat16 (1, 96, 32)                    YES           0/3072 -
+  g_decay      captured               float32 (1, 96, 32)                    YES           0/3072 -
+  q_hat        reference-side-call    REFUSED (1, 32, 96, 128)                NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  k_hat        reference-side-call    REFUSED (1, 32, 96, 128)                NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  scan_out     reference-side-call    REFUSED (1, 32, 96, 128)                NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  core_attn    captured               bfloat16 (1, 96, 32, 128)                NO    280070/393216 2.441e-04
+  state        captured               REFUSED (1, 32, 128, 128)               NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  normed       captured               bfloat16 (1, 96, 32, 128)                NO    257776/393216 1.250e-01
+  y            captured               bfloat16 (1, 96, 2048)                   NO    147232/196608 1.562e-02
+    widened q_hat: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 382456/393216, maxabs 5.406e-04 (NOT a bit-identity claim)
+    widened k_hat: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 382452/393216, maxabs 4.661e-03 (NOT a bit-identity claim)
+    widened scan_out: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 393213/393216, maxabs 2.627e-04 (NOT a bit-identity claim)
+    widened state: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 509951/524288, maxabs 6.107e-03 (NOT a bit-identity claim)
+    containment: moved 7/19 stages, all inside the contract: True; outside: -
+  decode on decode_3step
+  stage        provenance             dtype  shape                bit_identical            ndiff maxabs
+  mixed_qkv    captured               bfloat16 (1, 1, 8192)                   YES           0/8192 -
+  z            captured               bfloat16 (1, 1, 32, 128)                YES           0/4096 -
+  b_raw        captured               bfloat16 (1, 1, 32)                     YES             0/32 -
+  a_raw        captured               bfloat16 (1, 1, 32)                     YES             0/32 -
+  conv_pre     captured               bfloat16 (1, 8192, 1)                   YES           0/8192 -
+  conv_out     captured               bfloat16 (1, 8192, 1)                   YES           0/8192 -
+  conv_window  captured               bfloat16 (1, 8192, 4)                   YES          0/32768 -
+  q_pre        derived-from-captured  bfloat16 (1, 1, 16, 128)                YES           0/2048 -
+  k_pre        derived-from-captured  bfloat16 (1, 1, 16, 128)                YES           0/2048 -
+  v_pre        derived-from-captured  bfloat16 (1, 1, 32, 128)                YES           0/4096 -
+  beta         captured               bfloat16 (1, 1, 32)                     YES             0/32 -
+  g_decay      captured               float32 (1, 1, 32)                     YES             0/32 -
+  q_hat        reference-side-call    REFUSED (1, 32, 1, 128)                 NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  k_hat        reference-side-call    REFUSED (1, 32, 1, 128)                 NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  scan_out     reference-side-call    REFUSED (1, 32, 1, 128)                 NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  core_attn    captured               bfloat16 (1, 1, 32, 128)                 NO        3038/4096 1.221e-04
+  state        captured               REFUSED (1, 32, 128, 128)               NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  normed       captured               bfloat16 (1, 1, 32, 128)                 NO        2813/4096 2.344e-02
+  y            captured               bfloat16 (1, 1, 2048)                    NO        1619/2048 1.465e-03
+    widened q_hat: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 3982/4096, maxabs 2.634e-04 (NOT a bit-identity claim)
+    widened k_hat: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 3980/4096, maxabs 1.794e-03 (NOT a bit-identity claim)
+    widened scan_out: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 4096/4096, maxabs 9.690e-05 (NOT a bit-identity claim)
+    widened state: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 509947/524288, maxabs 7.073e-03 (NOT a bit-identity claim)
+    containment: moved 7/19 stages, all inside the contract: True; outside: -
+
+### layer0 positive controls — the comparison must be able to differ
+  mode     control                  fixture                caught (allowed)                             LEAK                 maxabs
+  decode   read_pre_update_state    decode_3step           core_attn,normed,scan_out,y                  -                    5.90e-01
+  decode   decay_after_write        decode_3step           core_attn,normed,scan_out,state,y            -                    5.90e-01
+  decode   decay_sign_flip          decode_3step           core_attn,g_decay,normed,scan_out,state,y    -                    nan/inf
+  prefill  decay_sign_flip          prefill_3chunk_dirty_pad core_attn,g_decay,normed,scan_out,state,y    -                    nan/inf
+  prefill  beta_no_sigmoid          prefill_3chunk_dirty_pad beta,core_attn,normed,scan_out,state,y       -                    4.26e+01
+  prefill  chunk_decay_off_by_one   prefill_3chunk_dirty_pad core_attn,normed,scan_out,state,y            -                    6.25e-02
+  prefill  pairwise_mask_after_exp  prefill_3chunk_dirty_pad core_attn,normed,scan_out,y                  -                    nan/inf
+
+## layer1: which reference code ran — transformers 5.19.0, module transformers.models.qwen3_5_moe.modeling_qwen3_5_moe
+   scans: chunked=torch_chunk_gated_delta_rule recurrent=torch_recurrent_gated_delta_rule | conv: fn=causal_conv1d_fn update=causal_conv1d_update
+   cache layer=LinearAttentionLayer record_past=False (§04.3's cached conv update path) | dispatch seen: ['chunked', 'recurrent', 'recurrent', 'recurrent']
+  stage        provenance             dtype  shape                bit_identical            ndiff maxabs
+  mixed_qkv    captured               bfloat16 (1, 96, 8192)                  YES         0/786432 -
+  z            captured               bfloat16 (1, 96, 32, 128)               YES         0/393216 -
+  b_raw        captured               bfloat16 (1, 96, 32)                    YES           0/3072 -
+  a_raw        captured               bfloat16 (1, 96, 32)                    YES           0/3072 -
+  conv_pre     captured               bfloat16 (1, 8192, 96)                  YES         0/786432 -
+  conv_out     captured               bfloat16 (1, 8192, 96)                  YES         0/786432 -
+  conv_window  captured               bfloat16 (1, 8192, 4)                   YES          0/32768 -
+  q_pre        derived-from-captured  bfloat16 (1, 96, 16, 128)               YES         0/196608 -
+  k_pre        derived-from-captured  bfloat16 (1, 96, 16, 128)               YES         0/196608 -
+  v_pre        derived-from-captured  bfloat16 (1, 96, 32, 128)               YES         0/393216 -
+  beta         captured               bfloat16 (1, 96, 32)                    YES           0/3072 -
+  g_decay      captured               float32 (1, 96, 32)                    YES           0/3072 -
+  q_hat        reference-side-call    float32 (1, 32, 96, 128)               YES         0/393216 -
+  k_hat        reference-side-call    float32 (1, 32, 96, 128)               YES         0/393216 -
+  scan_out     reference-side-call    float32 (1, 32, 96, 128)               YES         0/393216 -
+  core_attn    captured               bfloat16 (1, 96, 32, 128)               YES         0/393216 -
+  state        captured               float32 (1, 32, 128, 128)              YES         0/524288 -
+  normed       captured               bfloat16 (1, 96, 32, 128)               YES         0/393216 -
+  y            captured               bfloat16 (1, 96, 2048)                  YES         0/196608 -
+  (decode rows are the FINAL cached step; every step is in the per-step table below)
+  stage        provenance             dtype  shape                bit_identical            ndiff maxabs
+  mixed_qkv    captured               bfloat16 (1, 1, 8192)                   YES           0/8192 -
+  z            captured               bfloat16 (1, 1, 32, 128)                YES           0/4096 -
+  b_raw        captured               bfloat16 (1, 1, 32)                     YES             0/32 -
+  a_raw        captured               bfloat16 (1, 1, 32)                     YES             0/32 -
+  conv_pre     captured               bfloat16 (1, 8192, 1)                   YES           0/8192 -
+  conv_out     captured               bfloat16 (1, 8192, 1)                   YES           0/8192 -
+  conv_window  captured               bfloat16 (1, 8192, 4)                   YES          0/32768 -
+  q_pre        derived-from-captured  bfloat16 (1, 1, 16, 128)                YES           0/2048 -
+  k_pre        derived-from-captured  bfloat16 (1, 1, 16, 128)                YES           0/2048 -
+  v_pre        derived-from-captured  bfloat16 (1, 1, 32, 128)                YES           0/4096 -
+  beta         captured               bfloat16 (1, 1, 32)                     YES             0/32 -
+  g_decay      captured               float32 (1, 1, 32)                     YES             0/32 -
+  q_hat        reference-side-call    float32 (1, 32, 1, 128)                YES           0/4096 -
+  k_hat        reference-side-call    float32 (1, 32, 1, 128)                YES           0/4096 -
+  scan_out     reference-side-call    float32 (1, 32, 1, 128)                YES           0/4096 -
+  core_attn    captured               bfloat16 (1, 1, 32, 128)                YES           0/4096 -
+  state        captured               float32 (1, 32, 128, 128)              YES         0/524288 -
+  normed       captured               bfloat16 (1, 1, 32, 128)                YES           0/4096 -
+  y            captured               bfloat16 (1, 1, 2048)                   YES           0/2048 -
+
+### layer1 per-step rows (cached decode, 3 steps)
+  step  stage        provenance             bit_identical            ndiff maxabs
+  0     y            captured                         YES           0/2048 -
+  0     state        captured                         YES         0/524288 -
+  0     conv_window  captured                         YES          0/32768 -
+  1     y            captured                         YES           0/2048 -
+  1     state        captured                         YES         0/524288 -
+  1     conv_window  captured                         YES          0/32768 -
+  2     y            captured                         YES           0/2048 -
+  2     state        captured                         YES         0/524288 -
+  2     conv_window  captured                         YES          0/32768 -
+
+### layer1 seam rows — these license the non-`captured` provenances
+  prefill    k_pre_expanded_is_the_scan_argument      YES         0/393216 -
+  prefill    norm_gate_is_the_captured_z              YES         0/393216 -
+  prefill    norm_reads_the_scan_output               YES         0/393216 -
+  prefill    q_pre_expanded_is_the_scan_argument      YES         0/393216 -
+  prefill    scan_out_cast_reproduces_core_attn       YES         0/393216 -
+  prefill    scan_out_reproduces_state                YES         0/524288 -
+  prefill    v_pre_is_the_scan_argument               YES         0/393216 -
+  decode0    k_pre_expanded_is_the_scan_argument      YES           0/4096 -
+  decode0    norm_gate_is_the_captured_z              YES           0/4096 -
+  decode0    norm_reads_the_scan_output               YES           0/4096 -
+  decode0    q_pre_expanded_is_the_scan_argument      YES           0/4096 -
+  decode0    scan_out_cast_reproduces_core_attn       YES           0/4096 -
+  decode0    scan_out_reproduces_state                YES         0/524288 -
+  decode0    v_pre_is_the_scan_argument               YES           0/4096 -
+  decode1    k_pre_expanded_is_the_scan_argument      YES           0/4096 -
+  decode1    norm_gate_is_the_captured_z              YES           0/4096 -
+  decode1    norm_reads_the_scan_output               YES           0/4096 -
+  decode1    q_pre_expanded_is_the_scan_argument      YES           0/4096 -
+  decode1    scan_out_cast_reproduces_core_attn       YES           0/4096 -
+  decode1    scan_out_reproduces_state                YES         0/524288 -
+  decode1    v_pre_is_the_scan_argument               YES           0/4096 -
+  decode2    k_pre_expanded_is_the_scan_argument      YES           0/4096 -
+  decode2    norm_gate_is_the_captured_z              YES           0/4096 -
+  decode2    norm_reads_the_scan_output               YES           0/4096 -
+  decode2    q_pre_expanded_is_the_scan_argument      YES           0/4096 -
+  decode2    scan_out_cast_reproduces_core_attn       YES           0/4096 -
+  decode2    scan_out_reproduces_state                YES         0/524288 -
+  decode2    v_pre_is_the_scan_argument               YES           0/4096 -
+
+### layer1 the scan_in_bf16 arm — bf16 scan storage, F32 UT solve. Adjudicated: containment inside the contract. NOT adjudicated: agreement.
+   a bf16 `solve_triangular` on this backend: UNAVAILABLE (NotImplementedError: "triangular_solve_cpu" not implemented for 'BFloat16'); the arm therefore solves in F32 and casts back (§04.4, §04b.4 — the reference's own width). The width of the scan STORAGE is the arm's real effect and is measured below.
+  prefill on prefill_2chunk_padded
+  stage        provenance             dtype  shape                bit_identical            ndiff maxabs
+  mixed_qkv    captured               bfloat16 (1, 96, 8192)                  YES         0/786432 -
+  z            captured               bfloat16 (1, 96, 32, 128)               YES         0/393216 -
+  b_raw        captured               bfloat16 (1, 96, 32)                    YES           0/3072 -
+  a_raw        captured               bfloat16 (1, 96, 32)                    YES           0/3072 -
+  conv_pre     captured               bfloat16 (1, 8192, 96)                  YES         0/786432 -
+  conv_out     captured               bfloat16 (1, 8192, 96)                  YES         0/786432 -
+  conv_window  captured               bfloat16 (1, 8192, 4)                   YES          0/32768 -
+  q_pre        derived-from-captured  bfloat16 (1, 96, 16, 128)               YES         0/196608 -
+  k_pre        derived-from-captured  bfloat16 (1, 96, 16, 128)               YES         0/196608 -
+  v_pre        derived-from-captured  bfloat16 (1, 96, 32, 128)               YES         0/393216 -
+  beta         captured               bfloat16 (1, 96, 32)                    YES           0/3072 -
+  g_decay      captured               float32 (1, 96, 32)                    YES           0/3072 -
+  q_hat        reference-side-call    REFUSED (1, 32, 96, 128)                NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  k_hat        reference-side-call    REFUSED (1, 32, 96, 128)                NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  scan_out     reference-side-call    REFUSED (1, 32, 96, 128)                NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  core_attn    captured               bfloat16 (1, 96, 32, 128)                NO    312058/393216 6.523e-04
+  state        captured               REFUSED (1, 32, 128, 128)               NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  normed       captured               bfloat16 (1, 96, 32, 128)                NO    294471/393216 1.328e-01
+  y            captured               bfloat16 (1, 96, 2048)                   NO    162519/196608 3.906e-02
+    widened q_hat: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 374208/393216, maxabs 6.899e-04 (NOT a bit-identity claim)
+    widened k_hat: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 374204/393216, maxabs 4.972e-03 (NOT a bit-identity claim)
+    widened scan_out: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 393216/393216, maxabs 6.534e-04 (NOT a bit-identity claim)
+    widened state: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 498942/524288, maxabs 3.706e-03 (NOT a bit-identity claim)
+    containment: moved 7/19 stages, all inside the contract: True; outside: -
+  decode on decode_3step
+  stage        provenance             dtype  shape                bit_identical            ndiff maxabs
+  mixed_qkv    captured               bfloat16 (1, 1, 8192)                   YES           0/8192 -
+  z            captured               bfloat16 (1, 1, 32, 128)                YES           0/4096 -
+  b_raw        captured               bfloat16 (1, 1, 32)                     YES             0/32 -
+  a_raw        captured               bfloat16 (1, 1, 32)                     YES             0/32 -
+  conv_pre     captured               bfloat16 (1, 8192, 1)                   YES           0/8192 -
+  conv_out     captured               bfloat16 (1, 8192, 1)                   YES           0/8192 -
+  conv_window  captured               bfloat16 (1, 8192, 4)                   YES          0/32768 -
+  q_pre        derived-from-captured  bfloat16 (1, 1, 16, 128)                YES           0/2048 -
+  k_pre        derived-from-captured  bfloat16 (1, 1, 16, 128)                YES           0/2048 -
+  v_pre        derived-from-captured  bfloat16 (1, 1, 32, 128)                YES           0/4096 -
+  beta         captured               bfloat16 (1, 1, 32)                     YES             0/32 -
+  g_decay      captured               float32 (1, 1, 32)                     YES             0/32 -
+  q_hat        reference-side-call    REFUSED (1, 32, 1, 128)                 NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  k_hat        reference-side-call    REFUSED (1, 32, 1, 128)                 NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  scan_out     reference-side-call    REFUSED (1, 32, 1, 128)                 NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  core_attn    captured               bfloat16 (1, 1, 32, 128)                 NO        2950/4096 6.104e-05
+  state        captured               REFUSED (1, 32, 128, 128)               NO          refused dtype torch.bfloat16 vs torch.float32 — a bf16/f32 mix is th
+  normed       captured               bfloat16 (1, 1, 32, 128)                 NO        2726/4096 7.812e-03
+  y            captured               bfloat16 (1, 1, 2048)                    NO        1526/2048 1.038e-03
+    widened q_hat: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 3898/4096, maxabs 4.519e-04 (NOT a bit-identity claim)
+    widened k_hat: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 3898/4096, maxabs 2.108e-03 (NOT a bit-identity claim)
+    widened scan_out: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 4096/4096, maxabs 7.142e-05 (NOT a bit-identity claim)
+    widened state: bfloat16 storage vs float32 reference, widened for the measurement only — ndiff 498941/524288, maxabs 3.681e-03 (NOT a bit-identity claim)
+    containment: moved 7/19 stages, all inside the contract: True; outside: -
+
+### layer1 positive controls — the comparison must be able to differ
+  mode     control                  fixture                caught (allowed)                             LEAK                 maxabs
+  decode   read_pre_update_state    decode_3step           core_attn,normed,scan_out,y                  -                    3.17e-01
+  decode   decay_after_write        decode_3step           core_attn,normed,scan_out,state,y            -                    1.67e-01
+  decode   decay_sign_flip          decode_3step           core_attn,g_decay,normed,scan_out,state,y    -                    2.89e+03
+  prefill  decay_sign_flip          prefill_3chunk_dirty_pad core_attn,g_decay,normed,scan_out,state,y    -                    nan/inf
+  prefill  beta_no_sigmoid          prefill_3chunk_dirty_pad beta,core_attn,normed,scan_out,state,y       -                    2.35e+01
+  prefill  chunk_decay_off_by_one   prefill_3chunk_dirty_pad core_attn,normed,scan_out,state,y            -                    1.05e-01
+  prefill  pairwise_mask_after_exp  prefill_3chunk_dirty_pad core_attn,normed,scan_out,y                  -                    nan/inf
+# count rows              76 derived    76
+# count per_step_rows     18 derived    18
+# count seam_rows         56 derived    56
+# count controls          14 derived    14
+# count arm_rows          76 derived    76
+# count arm_checks         4 derived     4
+# count captures           6 derived     6
+# rows compared 150 = 76 stage rows + 18 per-step rows + 56 seam rows; bit-identical 150, differing 0
+# bf16-arm rows 76 = 19 stages x 2 modes x 2 blocks, reported separately and NOT adjudicated for agreement: bit-identical 48, differing 28 (of which 16 were REFUSED on storage width and measured after an explicit widening), 0 inert (must be 0), 0 outside contract (must be 0)
+# controls 14 run, 0 blind (must be 0), 0 leaking (must be 0)
+
+## UNVERIFIED — explicitly, because silence would read as agreement
+  NOT ESTABLISHED: agreement on a real activation
+      why: both sides are fed `gdn_input`, the A-01 RMS-1 seeded fixture; it does not carry the (1+w) modulation of a real input_layernorm output, so every agreement figure here is a synthetic-input statistic
+      closes when: the dense path lands and a real hidden_states is pinned by tools/dump_reference.py's successor
+  NOT ESTABLISHED: the fused kernels the box does not have
+      why: causal_conv1d and flash-linear-attention are not installed, so the reference ran its own torch fallbacks; which function objects ran is printed with the section
+      closes when: a kernel-bearing build is compared on the same pinned rows
+  NOT ESTABLISHED: chunked continuation (T > 1 with a state present, §04b.1 row 4)
+      why: the comparison covers chunked-from-zero prefill and single-token recurrent decode; no pinned case hands a live state to the chunked scan
+      closes when: a rollback/chunked-continuation fixture is pinned
+  NOT ESTABLISHED: the engine's conv-window policy (A-09: k_conv vs k_conv-1 columns)
+      why: conv_window is compared against the reference's own k_conv-column cache, which is the reference's choice and not the engine's; the engine's 3-column window is a different tensor and is not checked here
+      closes when: the engine's residency layout is gated against a dump of its own window
+  NOT ESTABLISHED: the MTP draft block's mixer
+      why: load_gdn_block_weights refuses a non-`layer` block; file 09's draft mixer is a different task
+      closes when: file 09 is in scope with its own pinned dump
+  NOT ESTABLISHED: banded (not bit-exact) agreement on any stage
+      why: no --floor-probe section exists yet, so no band file exists to load and load_band() refuses to invent one; every credited row here is bit-exact or it is a failure
+      closes when: --floor-probe writes the per-stage probe and band_from_probe licenses the cross-form rows
+
+SELFTEST PASS — three arms over the derived matrix, and every HF row bit-identical with its positive controls firing; no timing taken
