@@ -328,3 +328,24 @@ lm_head, gdn and shared_expert were each well ahead of their 113-, 123- and 19-b
 that work survives an uncommitted tree. And a killed worker cannot release a lock it was holding, so the main
 agent must verify the holder pid is dead and clear the lock itself -- a stale /tmp/pi_halogen.lock had stayed,
 tools/halogen_gate.sh admit would have refused every measurement window for no reason at all.
+
+## Never stage a live lane's files: a commit you certify must contain only work you certified
+
+Found 2026-10-26, in the **main session**, against its own rule. A commit certifying a `speccheck` slice was staged
+with an explicit path list that *also* named another lane's directory — whose worker was alive and mid-write at that
+moment. The commit therefore certified files nobody had reviewed, and the review would have been impossible anyway:
+a half-written kernel is not a reviewable artefact.
+
+Two rules follow, and both are cheap:
+
+- **Stage by path only from directories no worker owns.** Before any commit, `git status --short` and ask who last
+  wrote each staged path. A worker's directory is off-limits while it is alive, even if its files look complete and
+  even if they are genuinely modified.
+- **A commit message may not fix a staging error by disclosing it.** Writing "these files are here only because they
+  were already staged and are not certified" is a confession, not a control: the bytes are in history either way, and
+  the next reader will find them attached to a verdict they do not belong to. Correct the commit instead —
+  `git reset --soft HEAD~1`, then `git restore --staged <path>` (which leaves the worker's bytes on disk untouched),
+  then re-commit. Verify with `git show --stat`, not with the message you intended.
+
+The reason this earns a trap entry rather than a scold is the **asymmetry**: the mistake is invisible in the commit
+message and visible only in the file list. So the only check that works is the one run against the file list.
