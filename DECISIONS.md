@@ -20,7 +20,8 @@ number or failure that forced it.
 | D-11 | does the engine own the pool, or share it with halogen | **OPEN** (operational) — **2026-10-26: the test is finally reachable**, D-13 |
 | D-12 | llama.cpp as an oracle (cross-check vs accuracy oracle) | **ADOPTED** as cross-check; accuracy oracle stays bf16 |
 | D-13 | how agents and tests share the two model endpoints | **DECIDED** (2026-10-26, user): ≤4 workers = ≤3 `tensorfold` + ≤1 `halogen`, main on `tensorfold`, 4 of 5 slots; halogen down for every measurement |
-| D-14 | is a recomputed transcendental a bit-exactness obligation? (`ssm_a` = `-exp(A_log)`) | **DECIDED** (2026-10-26, main agent; **ratifiable by the user**): copied families keep zero tolerance; the one transcendental route gets a route-derived 1-ulp predicate with must-catch grown |
+| D-14 | is a recomputed transcendental a bit-exactness obligation? (`ssm_a` = `-exp(A_log)`) | **RATIFIED by the user 2026-10-26** (proposed by the main agent): copied families keep zero tolerance; the one transcendental route keeps its route-derived 1-ulp predicate with must-catch grown. **Scoped to the 2 `ssm_a` cases — it is not a general 1-ulp allowance** |
+| D-15 | which endpoint gets a worker | **DECIDED by the user 2026-10-26**: when only one worker is being started, it runs on `halogen`; with ≥2 workers, `halogen` takes the single most expensive job and the rest go to `tensorfold` |
 
 ---
 
@@ -443,7 +444,7 @@ becomes policy"): the restart cost (`devices/evidence/halogen-restart.log` is em
 down-window per session until it says otherwise), and whether `docker pause` isolates a measurement at
 all. The pool figure D-11 wants comes out of the same window.
 
-## D-14 — Is a recomputed transcendental a bit-exactness obligation? — **DECIDED 2026-10-26 by the main agent, ratifiable by the user**
+## D-14 — Is a recomputed transcendental a bit-exactness obligation? — **RATIFIED 2026-10-26 by the user** (proposed and implemented by the main agent)
 
 **What triggered it.** `PLAN.md` step 1.4 demanded bit-exactness, zero tolerance, of the F32-stored
 families against the bf16 authority widened to F32. The audit (`tools/audit_published_quant.py`,
@@ -509,3 +510,66 @@ not. The selftest caught a live bug in its own predicate on the way — an inver
 "within one step" mean "within 3.8", a bound that could not fail — which is the reason the spacing is
 now witnessed against hand-worked binary neighbours rather than trusted. If the user prefers the flat
 predicate, the flag above restores it and 1.4 returns to FAIL.
+
+### Ratification 2026-10-26 — the user's words
+
+> "So, I'm fine with continue using unsloth, it contains very small difference, it is fine to allow such
+> small difference during the checks -- it is just one step difference"
+
+**Ratified: the published artifact stays, and 1.4b's route predicate stands.** The reading recorded here —
+which the user should correct if it is wrong — is that "such small difference" refers to *this* one-step
+deviation on the derived-transcendental route, i.e. the 2 `ssm_a` cases that 1.4b judges. It is **not**
+recorded as a general 1-ulp allowance for the checks at large: the 25 copied families keep zero tolerance,
+the two-route agreement stays a FAIL condition, and no band anywhere else in this repo inherits a 1-ulp
+slack from this sentence.
+
+That reading is not left to good intentions. The predicate's population — exactly
+`{blk.0.ssm_a, blk.1.ssm_a}`, 2 cases / 64 elements — is pinned inside
+`tools/audit_published_quant.py` itself, so a tensor joining the transcendental category must change
+that code and re-run the route injections, rather than be waved in by a doc that says "it is just one
+step". **Status of that machine check:** the pin is being added under this decision — expected set
+`{blk.0.ssm_a, blk.1.ssm_a}`, failing loudly if the set grows *or shrinks*, with four injections required
+to fire (extra case, missing case, a zero-tolerance norm migrating in, clean run). Until it lands, the
+narrow reading above is enforced by this paragraph alone and nothing else — which is exactly the gap the
+check exists to close.
+
+## D-15 — Which endpoint gets a worker? — **DECIDED 2026-10-26 by the user**
+
+**The user's words, in answer to "what are the two workers doing, and why is none of them using fast
+halogen?":**
+
+> "okay, let's add one more rule -- we can use it for jobs like W14 too -- essentially when you are
+> starting only one worker, use it"
+
+**The rule.** When the main agent is about to start **exactly one** worker, that worker runs on
+`halogen` (`halogen/halogen-qwen3.8-flash-next`) — including mid-size analysis jobs, which the previous
+policy text (`AGENTS.md` §"Two endpoints, three classes of work") turned away with "not the quick
+lookup". When **two or more** workers are running, `halogen` takes exactly one of them — the single most
+expensive job — and the rest go on `tensorfold`. The existing caps are untouched: ≤1 on `halogen`, ≤3 on
+`tensorfold`, 4 of the LAN server's 5 streams, the fifth never opened; two `halogen` workers is never
+correct.
+
+**What it supersedes.** The "expensive job, not the first job" heuristic. It was a throughput argument
+masquerading as a safety rule: it was never unsafe to put a small job on halogen, merely wasteful when a
+bigger one might need the slot. The user has now priced that trade differently, and correctly — a slot
+sitting idle while a worker runs 35 t/s across the LAN is not free.
+
+**What it does not change, and this is the part that stays load-bearing.**
+
+- **The device window still needs zero active workers and halogen down.** A `halogen` worker is not a
+  token stream, it is a co-resident client of the same memory pool, so while it lives the box is not
+  measurement-clean and halogen cannot be stopped. Under D-15 the window therefore **waits for** the lone
+  worker rather than running beside it. That consequence is accepted, not hidden; if measurements start
+  being starved for want of a window, the main agent raises it rather than quietly reverting the rule.
+- **The stream lock still covers the worker's whole life** (`/tmp/pi_halogen.lock`, tagged per
+  `tools/gpu_lock.sh`), so `tools/halogen_gate.sh admit` can refuse and `down` can see the holder.
+- **Subagent device discipline is unchanged**: correctness-only gates under ~60 s, PASS/FAIL, never a
+  timing, `gpu_lock` held, no `ms` figure in a report — and a `halogen` worker's device gate still may
+  not be run inside a timing window.
+- **Continuity still beats throughput on a live run.** D-15 governs where a worker is *started*. An
+  already-running `tensorfold` worker is not migrated, because a run's endpoint cannot be changed without
+  discarding its context — the arithmetic that made W6 and W13 resumses rather than replacements, and
+  which has held four times.
+
+**Applied retroactively? No.** W14 and W15 were both started under the old rule while two workers were
+live, which is the correct placement for a two-worker board anyway. D-15 binds from the next launch.

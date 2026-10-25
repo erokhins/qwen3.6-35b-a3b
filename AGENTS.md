@@ -103,10 +103,20 @@ measurement.
   streams and the main session holds one of them, so 3 + 1 = 4 is the **deliberate stability margin**,
   not an oversight: never open the fifth slot to get more parallelism. Derive the number from that
   reasoning, never from `max_batch_size: 5`.
-- **`halogen` gets the expensive job, not the first job.** ~58 t/s against ~35, a 260k window, one
-  stream: hand it the long CPU-side work — a census, a whole reference implementation, a big refactor,
-  a long numerical analysis — and not the quick lookup. Two `halogen` workers is never correct, even
-  when the box looks idle.
+- **`halogen` gets the only worker — D-15 (user, 2026-10-26).** ~58 t/s against ~35, a 260k window, one
+  stream. **When the main agent is about to start exactly one worker, that worker goes on `halogen`** —
+  including mid-size analysis jobs of the shape an earlier version of this bullet turned away as "not the
+  expensive job". When two or more workers are running, `halogen` still takes exactly one of them: the
+  single most expensive job, with the rest on `tensorfold`. Two `halogen` workers is never correct, even
+  when the box looks idle. Full decision and the user's words: `DECISIONS.md` D-15.
+- **The price of D-15 is the measurement window, and it is paid knowingly.** A `halogen` worker is a
+  co-resident client of the same pool and memory controller, so while it lives the box is not
+  measurement-clean and halogen cannot be brought down. The window therefore **waits for** that worker;
+  it does not run beside it. That is the decision's consequence, not a loophole in it: the window's
+  prerequisites (zero active workers, halogen down, `gpu_lock` held, main agent blocking in the
+  foreground) are unchanged, and the stream lock is still claimed for the worker's whole life. If a
+  measurement is being starved because no window can open, **say so and ask** — do not quietly prefer one
+  rule over the other.
 - **Parallelism is for thinking; the device stays single-tenant.** Workers may reason concurrently on
   `tensorfold` because their generation is off-box, but a measurement still requires **zero active
   workers** — a worker that is merely quiet can fire a compiler or a gate at any moment. Stop them;

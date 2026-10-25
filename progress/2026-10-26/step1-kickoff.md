@@ -431,3 +431,40 @@ actual evidence. And `--no-cnv` does not exist in this build (`invalid argument`
 `-st/--single-turn`. Separately, without `-v` the load prints no backend or offload lines at all, so a
 silent smoke test cannot see the one line that distinguishes a GPU build from a CPU fallback — the exact
 failure the whole build audit was chasing.
+
+## D-14 ratified by the user; D-15 adds a worker-placement rule
+
+The user asked for a self-contained brief on each open decision, case by case, starting with D-14. The
+brief turned into a live reproduction rather than prose: `tools/ssm_a_walkthrough.py` (copied in from
+`/tmp` for exactly this reason — a script outside the repo cannot support a decision) reads the four bytes
+at file position 2,015,573,216 (`0xbf68dcf7`), reads `A_log[11]` as bf16 `0xbdc2` from shard `00002`, and
+computes `-exp` two ways — C libm in double, and `Decimal` at 60 digits — which agree on `0xbf68dcf6`.
+Two numbers from that run are worth keeping. Same-index comparison matches only **2 of 32** elements, so
+the V-head reorder is demonstrably required rather than assumed; and the blind-search permutation agrees
+with the converter's documented `v_tiled_to_grouped` (my first hand-written version had it inverted and
+printed `False`, which is why the script re-derives it instead of trusting me). One step at this magnitude
+measured from its own neighbours: **5.960e-08 absolute, 6.553e-08 relative**.
+
+**D-14: RATIFIED.** The artifact stays and 1.4b's route predicate stands, recorded with the user's words.
+I recorded the **narrow** reading — the 2 `ssm_a` cases, not a general 1-ulp allowance — and said so out
+loud, because "it is fine to allow such small difference during the checks" is the kind of sentence that
+becomes a global tolerance if nobody nails its scope. The pin that makes that reading mechanical is with
+W15, and `DECISIONS.md` now says plainly that until it lands the narrow reading is enforced by a paragraph
+and nothing else.
+
+**D-15: new user rule.** *"essentially when you are starting only one worker, use it"* — a lone worker
+goes on `halogen`. It supersedes the "expensive job, not the first job" heuristic, which was a throughput
+argument dressed as a safety rule: putting a small job on halogen was never unsafe, only wasteful if a
+bigger one needed the slot. What it does **not** buy is the device window: a halogen worker is a co-resident
+device client, so the window waits for it rather than running beside it. That consequence is written into
+both `AGENTS.md` and `DECISIONS.md` next to the rule itself, with an instruction to raise it if
+measurements start getting starved — the failure mode of a throughput rule is that it quietly eats the
+measurements, and then every number in the repo is a number nobody took.
+
+**W14 cost steer, the first one I have issued on cost rather than correctness.** Its
+`tmp/scratch_bound2.py` had been burning CPU for 18 minutes: it computes a closed-form bound *and* an
+O(N) explicit summation to cross-check it, then calls that from inside a 1,281-point `dt` sweep × 32
+heads — about 1e10 interpreted iterations. The summation is a witness for the formula, so it belongs at
+`N ≤ 1024` on a few heads, not at the top of the nesting. Steered to keep the maths, the assertion and the
+three arms, and delete only the redundant work. Reading the script before acting was the whole
+difference: elapsed time alone would have pointed at "stuck", and it was never stuck.
