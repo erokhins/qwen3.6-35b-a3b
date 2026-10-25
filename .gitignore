@@ -96,3 +96,20 @@ prototype/moe_gather/work/*
 !prototype/moe_gather/work/probe_ulp_hist.py
 !prototype/moe_gather/work/probe_cross_arm.py
 !prototype/moe_gather/work/negctl_crossarm.py
+
+# --- Built binaries: exact path, never the directory (see the note at the top of this file). ---
+# A committed binary is a second source of truth: it can disagree with its own source and someone
+# will eventually run it and take evidence from the wrong build (the lm_head stale-binary trap).
+prototype/lm_head/lm_head
+prototype/lm_head/host_probe
+prototype/shared_expert/shared_expert
+prototype/shared_expert/host_probe
+
+# --- shared_expert build output and scratch, by exact path with cited exceptions. ---
+prototype/shared_expert/work/*
+!prototype/shared_expert/work/*.py
+!prototype/shared_expert/work/cases.tsv
+!prototype/shared_expert/work/plan_all.tsv
+prototype/shared_expert/*.s
+prototype/shared_expert/work/isa/*.s
+prototype/shared_expert/*.resolution.txt
