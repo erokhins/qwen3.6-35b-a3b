@@ -21,6 +21,9 @@ data/
 logs/
 tmp/
 
+# --- Local python envs (the CPU oracle venv; W4 may create ./.venv) ---
+.venv/
+
 # --- Agent scratch / IDE state ---
 .pi/
 .junie/
