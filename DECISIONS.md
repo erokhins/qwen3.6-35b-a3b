@@ -19,7 +19,7 @@ number or failure that forced it.
 | D-10 | `lm_head`/embed width | **DECIDED**: Q8_0 — **note**: the shipped published file carries `lm_head` at Q6_K, see D-03 |
 | D-11 | does the engine own the pool, or share it with halogen | **PART-DECIDED by the user 2026-10-26**: the engine runs with **halogen stopped** (deployment budget ≈55 GiB); development stays co-resident (≈32 GiB); Q4 is **strategic**, not a consequence of local fit. The ≈55 GiB row still needs its measurement |
 | D-12 | llama.cpp as an oracle (cross-check vs accuracy oracle) | **ADOPTED** as cross-check; accuracy oracle stays bf16 |
-| D-13 | how agents and tests share the two model endpoints | **DECIDED** (2026-10-26, user): ≤4 workers = ≤3 `tensorfold` + ≤1 `halogen`, main on `tensorfold`, 4 of 5 slots; halogen down for every measurement |
+| D-13 | how agents and tests share the two model endpoints | **DECIDED** (2026-10-26, user): ≤4 workers = ≤3 `tensorfold` + ≤1 `halogen`, main on `tensorfold`, 4 of 5 slots; halogen down for every measurement. **Cap revised same day (D-15): ≤2 `tensorfold` workers, 3 of 5 slots** |
 | D-14 | is a recomputed transcendental a bit-exactness obligation? (`ssm_a` = `-exp(A_log)`) | **RATIFIED by the user 2026-10-26** (proposed by the main agent): copied families keep zero tolerance; the one transcendental route keeps its route-derived 1-ulp predicate with must-catch grown. **Scoped to the 2 `ssm_a` cases — it is not a general 1-ulp allowance** |
 | D-15 | which endpoint gets a worker | **DECIDED by the user 2026-10-26**: when only one worker is being started, it runs on `halogen`; with ≥2 workers, `halogen` takes the single most expensive job and the rest go to `tensorfold` |
 
@@ -679,6 +679,30 @@ sitting idle while a worker runs 35 t/s across the LAN is not free.
 
 **Applied retroactively? No.** W14 and W15 were both started under the old rule while two workers were
 live, which is the correct placement for a two-worker board anyway. D-15 binds from the next launch.
+
+**Lone-worker refinement (user, 2026-10-26, later the same day).** *“If there is only one worker, use halogen
+for it.”* The “expensive job, not the first job” heuristic was written for a board with several workers, where
+halogen is a scarce slot that must not be spent on a quick lookup. With **one** worker that premise is gone: the
+cap is not binding, the queue is empty, and the only cost of using halogen is the 22.62 GiB it charges to the
+pool — which is already being paid whenever the container is up. So: **one worker → halogen**; **two or more →
+halogen takes exactly one, the single most expensive job**, rest on `tensorfold`. Two `halogen` workers remains
+never-correct. The measurement rule is unchanged: a halogen worker still blocks the device window, so a lone
+halogen worker means no timings that session — the same trade already recorded above, now with the choice of
+endpoint made by the user rather than by me.
+
+**Cap revision (user, 2026-10-26, same day, after two lanes died at their 2 h deadline).**
+*“it seems like three tensorfold workers is too much, let's limit it by two, so total will be: one hallogen, one
+main on tensorfold, and two workers on tensorfold.”* So the steady state is **1 main + 2 workers on
+`tensorfold` + ≤1 on `halogen` = 3 of the LAN server's 5 streams, with 2 slots held in reserve**.
+
+The reserve is not slack to be used when a lane finishes early; it is what keeps the server's own headroom
+intact while three streams are generating at once. Two consequences are recorded so nobody rediscovers them:
+**a new lane queues when both slots are busy** — the D-15 launch shape never included “start it anyway”; and
+**throughput is not what the cap is trading against**. Two lanes were killed today by their own run deadline
+after going idle mid-task, and the answer is a shorter deadline plus mandatory periodic checkpoints (both now
+in the standing brief), not a third slot. The number of streams is a stability budget; a stalled worker is a
+deadline-and-observability problem, and buying a third stream to survive stalls would spend the margin to
+paper over a harness assumption that had already failed.
 
 ## D-16 — Does a whole-buffer cross-arm check inherit the lane's declared field rule? — **DECIDED 2026-10-26 by the user: A**
 

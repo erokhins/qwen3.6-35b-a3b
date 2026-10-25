@@ -95,14 +95,16 @@ measurement.
 | class | endpoint | concurrent | device gate? |
 |---|---|---|---|
 | main session | `tensorfold` | 1 | yes — and it owns **every** timing |
-| herd worker | `tensorfold` | **≤3** | short correctness-only, under `gpu_lock`, ≤60 s, PASS/FAIL |
+| herd worker | `tensorfold` | **≤2** | short correctness-only, under `gpu_lock`, ≤60 s, PASS/FAIL |
 | heavy worker | `halogen` | **≤1 ever** | short correctness-only, same discipline; never inside a timing window |
 | measurement | — | — | main agent only: zero workers active, `gpu_lock` held, **halogen down** |
 
-- **The cap is 4 workers total: ≤3 on `tensorfold`, ≤1 on `halogen`.** The LAN server reports 5
-  streams and the main session holds one of them, so 3 + 1 = 4 is the **deliberate stability margin**,
-  not an oversight: never open the fifth slot to get more parallelism. Derive the number from that
-  reasoning, never from `max_batch_size: 5`.
+- **The cap is 3 workers total: ≤2 on `tensorfold`, ≤1 on `halogen`** — revised down from ≤3 on
+  `tensorfold` by the user the same day (`DECISIONS.md` D-15, cap revision). The LAN server reports 5
+  streams: the main session holds one and two workers hold two, so **two slots stay deliberately unused**.
+  That margin is the point, not an oversight — never open a third worker slot to get more parallelism, and
+  never derive the number from `max_batch_size: 5`. When both slots are busy, a new lane **queues**; waiting
+  for a slot is correct, exceeding the cap is not.
 - **`halogen` gets the only worker — D-15 (user, 2026-10-26).** ~58 t/s against ~35, a 260k window, one
   stream. **When the main agent is about to start exactly one worker, that worker goes on `halogen`** —
   including mid-size analysis jobs of the shape an earlier version of this bullet turned away as "not the
