@@ -8,11 +8,18 @@ taste, and the two binding measured facts are both in this repo:
   * a warm pure-read at 190-237 GB/s is what a decode step is priced against (pitfalls/00).
 
 The family census is derived from config.json shapes (element counts x bytes) and validated
-against model.safetensors.index.json's total_size: derived 66.485 GiB vs 66.965 GiB actual,
-0.72 % delta, which is what licenses using it. Re-run --census after any checkpoint change.
+against model.safetensors.index.json's total_size: `--census` currently prints derived 65.720 GiB
+against 66.965 GiB actual, a 1.246 GiB (1.86 %) delta that is the vision tower plus small tensors,
+and it is the printed delta — not any number quoted in this docstring — that licenses using the
+census. An earlier revision of this docstring claimed 66.485 GiB / 0.72 %, which the tool's own
+output had already outgrown; read the run, not the prose. Re-run --census after any checkpoint change.
 
-Sizes: 1 GiB = 2^30 B, and bits-per-weight includes block scales:
-  bf16 16 | Q8_0 8.5 | Q6_K 6.5625 | Q5_K 5.5625 | Q4_K 4.5 | Q4_0 4.5 | IQ4_XS 4.25 | MXFP4 4.25
+Sizes: 1 GiB = 2^30 B, and bits-per-weight includes block scales. Those numbers are no longer
+hand-typed here: every width a policy row can use is checked against the block struct sizes in the
+pinned ggml header (tools/ggml_block_geom.py), because this file and tools/gguf_header_types.py both
+used to carry Q5_K at 5.5625 bpw where the struct is 176 B/256 = 5.5. Policy rows use Q4_K/Q8_0/bf16/
+IQ4_XS/MXFP4, and Q6_K only for lm_head in E/G — no policy row uses Q5_K, so the corrected row moves
+no number in this table; policy A stays 19.59 GiB resident and 2.331 GiB/token.
 Ceilings are bytes-read-per-token divided into a GB/s figure and are CEILINGS: the 0.8B engine
 reached ~60 % of its own (README), so quote a range, not the ceiling.
 
@@ -21,9 +28,15 @@ Usage: python3 tools/quant_scenarios.py [--census] [--read 237] [--read 190]
 import argparse
 import json
 import os
+import sys
 
-BPW = {"bf16": 16.0, "Q8_0": 8.5, "Q6_K": 6.5625, "Q5_K": 5.5625,
-       "Q4_K": 4.5, "Q4_0": 4.5, "IQ4_XS": 4.25, "MXFP4": 4.25, "Q4_K_M": 4.5}
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ggml_block_geom as GBG
+
+# Width reference for printing, derived from the pinned header rather than typed. Nothing here computes
+# a policy number: the policy numbers take their widths from POLICIES below, which is itself asserted
+# against this table in assert_policy_widths_derived().
+BPW_NOTE = ("widths derived from %s struct sizes" % GBG.HEADER_REL)
 
 # ---- geometry, read from the checkpoint config, not from a blog post -----------------------
 # The config and the shard index are committed under checkpoints/ (a few hundred KB, not
@@ -85,6 +98,40 @@ POLICIES = {
     "F experts Q8_0, rest Q8_0":      dict(experts=8.5, shared=8.5, attn=8.5, lm_head=8.5, router=16.0),
     "G experts Q4_K, attn Q8, lm Q6": dict(experts=4.5, shared=8.5, attn=8.5, lm_head=6.5625, router=16.0),
 }
+# The names the literals above stand for, so a row can be checked against a struct rather than against
+# a reviewer's memory. Q5_K is absent on purpose: no policy row uses it.
+POLICY_WIDTH_NAMES = {"BF16": 16.0, "Q8_0": 8.5, "Q6_K": 6.5625, "Q4_K": 4.5, "IQ4_XS": 4.25,
+                      "MXFP4": 4.25}
+
+
+def assert_policy_widths_derived():
+    """Every width a policy row can spend must be a width the pinned ggml header produces.
+
+    Two separate checks, because they catch different slips: the literals in POLICIES must each be the
+    derived bpw of some real ggml type (so "4.5" cannot silently mean "roughly 4-bit"), and the
+    name->width claims in POLICY_WIDTH_NAMES must match the header row for that name. Aborts either
+    way — a policy table is the one place a plausible number does the most damage, since it is quoted
+    into DECISIONS.md.
+    """
+    g = GBG.geom()
+    real = {t: g[t]["bpw"] for t in g}
+    bad = []
+    for pol, row in POLICIES.items():
+        for cls, bits in row.items():
+            if not any(abs(bits - v) < 1e-9 for v in real.values()):
+                bad.append("%s/%s: %g bpw is no ggml type's derived width" % (pol, cls, bits))
+    for bad_row in GBG.assert_matches(POLICY_WIDTH_NAMES):
+        if bad_row["delta_bpw"] is not None:
+            bad.append("%s: claimed %g, header derives %g" % (bad_row["type"], bad_row["stated_bpw"],
+                                                             bad_row["derived_bpw"]))
+        else:
+            bad.append("%s: cannot be derived from %s, so the policy row that uses it is unverified"
+                       % (bad_row["type"], GBG.HEADER_REL))
+    if bad:
+        raise SystemExit("ABORT: policy widths not derivable from %s:\n  %s" % (GBG.HEADER_REL,
+                                                                               "\n  ".join(bad)))
+    return {t: g[t]["bpw"] for t in ("BF16", "Q8_0", "Q6_K", "Q5_K",
+                                     "Q4_K", "Q4_0", "IQ4_XS", "MXFP4") if t in g}
 
 
 def main():
@@ -99,6 +146,7 @@ def main():
     if not fam:
         print("no checkpoint config/index found; set Q36_CONFIG and Q36_INDEX")
         return 1
+    widths = assert_policy_widths_derived()      # aborts before any policy number is printed
     GiB = 2.0 ** 30
     if args.census:
         got = sum(fam.values())
@@ -139,7 +187,14 @@ def main():
             line += "  %6.0f" % (r / (per * GiB / 1e9))
         fits = "" if resident <= 30.0 else "   <- above the ~32 GiB budget"
         print(line + fits)
-    print("\nBPW used:", BPW)
+    print("\nBPW used (derived, %s):" % BPW_NOTE)
+    for t in sorted(widths, key=lambda x: -widths[x]):
+        print("  %-8s %s bpw%s" % (t, ("%.4f" % widths[t]).rstrip("0").rstrip("."),
+                                   "   <- not used by any policy row" if t == "Q5_K" else ""))
+    print("\nPolicy rows use Q4_K/Q8_0/bf16/IQ4_XS/MXFP4, and Q6_K only for lm_head in E and G. No row")
+    print("uses Q5_K, so the Q5_K width correction changes no figure in this table: policy A is still")
+    print("19.59 GiB resident and 2.331 GiB/token (DECISIONS.md D-01/D-11). Anyone tempted to \"fix\" a")
+    print("policy row with the corrected width has fixed a row that was never Q5_K.")
     return 0
 
 

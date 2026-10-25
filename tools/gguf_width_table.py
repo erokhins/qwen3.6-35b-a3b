@@ -57,9 +57,14 @@ BLK = {
     "IQ4_XS": (256, 136, "sizeof(ggml_half)*2 + QK_K/2 + 8"),
     "MXFP4":  (32,   17, "1 scale byte per 32 + 16 nibble bytes"),
 }
-# The two rows the 2026-10-26 audit disagrees with the older tools about, kept explicit so a
-# future "tidy" cannot silently restore them.
-KNOWN_TOOL_DISAGREEMENT = {"Q5_K": 5.5625}
+# RESOLVED 2026-10-26: tools/gguf_header_types.py and tools/quant_scenarios.py used to carry Q5_K at
+# 5.5625 bpw, which this file exists partly to catch. They now derive widths from the pinned
+# ggml-common.h structs via tools/ggml_block_geom.py, so there is no live disagreement left to
+# annotate — and an accusation that outlives the bug is its own kind of wrong number. The rows below
+# are kept EMPTY on purpose; the negative control in --selftest re-derives the failure from an
+# injected stale row, so the guard is still witnessed, and tools/ggml_block_geom.py keeps the retired
+# table as a named historical artefact rather than deleting the lesson.
+KNOWN_TOOL_DISAGREEMENT: dict = {}
 
 
 def parse_gguf(path):
@@ -185,8 +190,7 @@ def run(path, header=None):
         bpw = 8.0 * rb / qk
         note = ""
         if tn in KNOWN_TOOL_DISAGREEMENT:
-            note = "   <- tools/gguf_header_types.py+quant_scenarios.py say %.4f; file says %.4f" % (
-                KNOWN_TOOL_DISAGREEMENT[tn], bpw)
+            note = "   <- tools say %.4f; file says %.4f" % (KNOWN_TOOL_DISAGREEMENT[tn], bpw)
         print("%-8s %-6d %14d %10.4f %10.4f   %3d B / %d wt%s"
               % (tn, cnt, b, b / 2**30, bpw, rb, qk, note))
         shown += 1

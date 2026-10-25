@@ -19,26 +19,34 @@ Usage:
 Honesty notes:
   * type ids are printed by name, from the ggml_type enum read out of ggml.h (see tools/PROVENANCE.md);
     an id not in the table prints as `type_<id>` — never guessed.
+  * widths, and therefore every GiB figure below, are derived each run by tools/ggml_block_geom.py from
+    the pinned ggml-common.h struct sizes. They used to be a hand-typed BPW dict in this file and one
+    row of it was wrong — Q5_K at 5.5625 bpw where the struct is 176 B/256 = 5.5 — which overpriced
+    this table by 74.00 MiB on the audited file. See quantization/evidence/audit-block-geometry-2026-10-26.md.
   * if the fetch never covers the tensor-info array, this exits non-zero and says so; it does not
     print a partial census, because a partial census of a width policy reads like a complete one.
+  * the width table prints only after `sum(row_bytes) + data_start == file size` has been checked; a
+    mismatch aborts instead of printing a plausible column. A source that will not report its total
+    size still prints the table, under an explicit NOT-CHECKED banner.
 """
+import os
 import re
 import struct
 import sys
 import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ggml_block_geom as GBG
 
 TYPES = {  # ggml_type enum values, read out of ggml.h
     0: "F32", 1: "F16", 2: "Q4_0", 3: "Q4_1", 6: "Q5_0", 7: "Q5_1", 8: "Q8_0", 9: "Q8_1",
     10: "Q2_K", 11: "Q3_K", 12: "Q4_K", 13: "Q5_K", 14: "Q6_K", 17: "IQ2_XS", 18: "IQ3_XXS",
     19: "IQ1_S", 20: "IQ4_NL", 21: "IQ3_S", 22: "IQ2_S", 23: "IQ4_XS", 30: "BF16", 39: "MXFP4",
 }
-# bits per weight incl. scale/zero overhead, so bytes = n_elems * bpw / 8. Values are the standard
-# ggml block sizes (e.g. Q4_K = 144 B per 256 weights = 4.5 bpw), and anything unmapped prints
-# `type_<id>` and is counted as 0 with a warning line rather than being guessed.
-BPW = {"F32": 32.0, "F16": 16.0, "BF16": 16.0, "Q4_0": 4.5, "Q4_1": 4.5, "Q5_0": 5.5, "Q5_1": 5.5,
-       "Q8_0": 8.5, "Q8_1": 9.0, "Q2_K": 2.625, "Q3_K": 3.4375, "Q4_K": 4.5, "Q5_K": 5.5625,
-       "Q6_K": 6.5625, "IQ2_XS": 2.3125, "IQ3_XXS": 3.0625, "IQ1_S": 1.5625, "IQ4_NL": 4.5,
-       "IQ3_S": 3.4375, "IQ2_S": 2.5, "IQ4_XS": 4.25, "MXFP4": 4.25}
+# There is deliberately no BPW dict here any more. A hand-typed bits-per-weight table is what put
+# Q5_K at 5.5625 in this file and in tools/quant_scenarios.py at the same time, and a spot-check of
+# such a table finds every right row and misses the one wrong one. Widths come from the pinned
+# ggml-common.h structs instead — tools/ggml_block_geom.py §why.
 GIB = 2.0 ** 30
 SCALAR = {0: ("<B", 1), 1: ("<b", 1), 2: ("<H", 2), 3: ("<h", 2), 4: ("<I", 4), 5: ("<i", 4),
           6: ("<f", 4), 7: ("<B", 1), 10: ("<Q", 8), 11: ("<q", 8), 12: ("<d", 8)}
@@ -136,7 +144,23 @@ def fetch(src, nbytes):
         return fh.read(nbytes)
 
 
-def parse(data, raw_k=0, grep=None, keys=None):
+def remote_total_size(src):
+    """Total size of a remote GGUF, from the Content-Range of a 1-byte ranged GET (HF serves it).
+
+    Needed because the size identity is the only witness that the derived block geometry is this
+    file's real layout; a header on its own cannot show it.
+    """
+    try:
+        req = urllib.request.Request(src, headers={"Range": "bytes=0-0",
+                                                 "User-Agent": "gguf_header_types/1.0"})
+        with urllib.request.urlopen(req, timeout=120) as r:
+            cr = r.headers.get("Content-Range") or ""
+            return int(cr.rsplit("/", 1)[1]) if "/" in cr else None
+    except Exception:
+        return None
+
+
+def parse(data, raw_k=0, grep=None, keys=None, file_size=None):
     c = Cur(data)
     c.take(4)
     version = c.u32()
@@ -183,22 +207,57 @@ def parse(data, raw_k=0, grep=None, keys=None):
             print("  %-56s %-7s %s" % (name, TYPES.get(dt, "type_%d" % dt), list(dims)))
         print("  (%d of %d tensors matched)" % (len(shown), len(rows)))
 
-    agg, rank3, gbytes, unknown = {}, 0, {}, set()
+    agg, rank3, gbytes, nbytes, unknown = {}, 0, {}, {}, set()
+    # Widths come from the pinned header. A stored type this repo cannot price stops the run: counting
+    # it as 0 would understate the one column this tool exists to report honestly.
+    for name, dims, dt in rows:
+        tname = TYPES.get(dt, "type_%d" % dt)
+        try:
+            GBG.bpw_of(tname)
+        except KeyError:
+            unknown.add(tname)
+    if unknown:
+        print("ABORT: no derived block geometry for %s (from %s). Those tensors cannot be priced, "
+              "and pricing them as 0 would understate the table below." % (sorted(unknown),
+                                                                          GBG.HEADER_REL))
+        return None
+    # Size identity first. If the derived block geometry does not reproduce this file's byte count,
+    # every GiB figure below is plausible and wrong, so the table is not printed at all.
+    align = int(meta.get("general.alignment", 32))
+    data_start = -(-c.p // align) * align
+    if file_size:
+        tot = 0
+        for name, dims, dt in rows:
+            n = 1
+            for d in dims:
+                n *= d
+            tot += GBG.row_bytes(n, TYPES.get(dt, "type_%d" % dt))
+        ok = tot + data_start == file_size
+        print("\nsize identity: sum(row_bytes)=%d + data_start=%d (header_end %d, alignment %d) "
+              "vs file size %d -> %s" % (tot, data_start, c.p, align, file_size,
+                                         "RECONCILES" if ok else "MISMATCH by %+d B"
+                                         % (file_size - (tot + data_start))))
+        if not ok:
+            print("ABORT: the file does not reconcile against the derived geometry. No width table, "
+                  "because a plausible GiB column built on a geometry that does not fit the file is "
+                  "worse than no column.")
+            return None
+    else:
+        print("\n** size identity NOT CHECKED: this source would not report a total size, so the GiB "
+              "column below is arithmetic on the header alone. **")
     for name, dims, dt in rows:
         if len(dims) >= 3:
             rank3 += 1
         tname = TYPES.get(dt, "type_%d" % dt)
-        if tname not in BPW:
-            unknown.add(tname)
         n = 1
         for d in dims:
             n *= d
         fam = family(name)
         agg.setdefault(fam, {}).setdefault(tname, 0)
         agg[fam][tname] += 1
-        gbytes[fam] = gbytes.get(fam, 0.0) + n * BPW.get(tname, 0.0) / 8.0
-    if unknown:
-        print("WARNING: no bpw known for %s; those bytes are counted as 0." % sorted(unknown))
+        rb = GBG.row_bytes(n, tname)
+        gbytes[fam] = gbytes.get(fam, 0.0) + rb
+        nbytes[tname] = nbytes.get(tname, 0) + rb
     print("\n%-44s %-26s %s" % ("family", "type(s) actually stored (count)", "weight GiB"))
     print("-" * 96)
     total = 0.0
@@ -208,6 +267,13 @@ def parse(data, raw_k=0, grep=None, keys=None):
                                                      for t, n in sorted(agg[fam].items())), gbytes[fam] / GIB))
     print("%-44s %-26s %8.3f" % ("TOTAL weight bytes", "", total / GIB))
     print("(%d bytes = %.2f GB decimal)" % (total, total / 1e9))
+    print("\n%-8s %8s %16s %10s %10s" % ("type", "tensors", "bytes", "GiB", "bpw"))
+    for tname in sorted(nbytes, key=lambda t: -nbytes[t]):
+        cnt = sum(1 for _, _, dt in rows if TYPES.get(dt, "type_%d" % dt) == tname)
+        print("%-8s %8d %16d %10.4f %10s" % (tname, cnt, nbytes[tname], nbytes[tname] / GIB,
+                                             ("%.4f" % GBG.bpw_of(tname)).rstrip("0").rstrip(".")))
+    print("bpw source: %s — struct sizes, each cross-checked against that struct's own static_assert"
+          % GBG.HEADER_REL)
     layers = sorted({int(m.group(1)) for n, _, _ in rows
                      for m in [re.match(r"^(?:mtp\.)?blk\.(\d+)\.", n)] if m})
     print("layer indices present: %s%s" % ("%d..%d (n=%d)" % (layers[0], layers[-1], len(layers))
@@ -219,6 +285,7 @@ def parse(data, raw_k=0, grep=None, keys=None):
           "  -> this file carries no draft block by that name"))
     print("\nrank-3+ tensors (expert stacks / grouped proj): %d" % rank3)
     print("all %d tensor-info records parsed." % n_tensors)
+    return {"records": n_tensors, "weight_bytes": total, "size_identity_checked": bool(file_size)}
 
 
 def main():
@@ -233,14 +300,18 @@ def main():
     grep = a[a.index("--grep") + 1] if "--grep" in a else None
     keys = a[a.index("--keys") + 1] if "--keys" in a else None
     err = None
+    if src.startswith("http://") or src.startswith("https://"):
+        fsize = remote_total_size(src)
+    else:
+        fsize = os.path.getsize(src) if os.path.exists(src) else None
     for n in sizes:
         data = fetch(src, n)
         if data[:4] != b"GGUF":
             print("not a GGUF (magic=%r)" % data[:4])
             return 1
         try:
-            parse(data, raw_k, grep, keys)
-            return 0
+            out = parse(data, raw_k, grep, keys, file_size=fsize)
+            return 0 if out is not None else 1
         except (EOFError, struct.error) as e:
             err = e
             print("  %d MiB not enough: %s — growing the range" % (n >> 20, e), file=sys.stderr)

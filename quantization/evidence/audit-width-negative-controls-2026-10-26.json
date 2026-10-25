@@ -1,0 +1,30 @@
+{
+ "controls": [
+  {
+   "control": "stale hand row (Q5_K 5.5625) diffed against the header",
+   "detail": "drift rows: ['Q5_K']; the three correct rows stayed silent",
+   "did": "yes",
+   "expected": "abort/report"
+  },
+  {
+   "control": "Q5_K block 2 B too big cannot survive to a printed number",
+   "detail": "clean delta +0 B; cross-check against gguf_reader's row sizes rejected it: blk.0.ffn_down_exps.weight: derived row_bytes 186646528 != gguf_reader",
+   "did": "yes",
+   "expected": "abort/report"
+  },
+  {
+   "control": "width-map tool refuses to print over a failing identity",
+   "detail": "gguf_header_types.py exit code 1 with a lying file size (no width table printed)",
+   "did": "yes",
+   "expected": "abort/report"
+  },
+  {
+   "control": "policy row literal that is no derived width aborts",
+   "detail": "  A experts Q4_K, rest Q8_0/experts: 5.5625 bpw is no ggml type's derived width",
+   "did": "yes",
+   "expected": "abort/report"
+  }
+ ],
+ "utc": "2026-10-25T03:32:23Z",
+ "verdict": "PASS"
+}
