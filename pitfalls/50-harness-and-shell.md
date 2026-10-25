@@ -108,3 +108,34 @@ tail is silently dropped; inside a tool call the call is lost and the session re
 Refer to these tokens by id. Two agents were cut off this way in the sibling project, one of them a worker brief
 that lost its second half. Same rule as an engine requirement: a prompt fixture legitimately *contains* the
 end-of-turn id, so a stop-token check is generation-phase only and must never be applied while feeding a prompt.
+
+## A live worker is not a reachable worker
+
+`worker_lanes.sh` said **ALIVE**, `status.json` said **`running`**, and both were true while the worker could
+not hear a word I said. Observed 2026-10-26 (W14, a CPU-only numerical derivation): one script
+(`tmp/scratch_bound2.py`, a closed-form bound wrapped in an O(N) explicit summation, called from inside a
+1,281-point sweep — about 10¹⁰ interpreted iterations) held ~100 % CPU for **48 minutes**, produced **no**
+declarable file, and sat behind **two steers that were never read**. It was not wedged; it would eventually
+have finished. The failure was that I could not reach it, and my usual liveness checks could not see that.
+
+**The discriminator is not elapsed time.** A recurrence walked to `N = 262,144` is legitimately minutes of
+CPU, and "it's been a while" is not evidence. Three things are:
+
+- **the actual command**, from `ps -o pid,etime,time,args` — `ETIME` ≈ `TIME` means one CPU-bound call, not
+  a hang between calls;
+- **whether the declared deliverables exist on disk.** A worker that has been "thinking" for 45 minutes with
+  an empty output directory is not close to done, it is lost somewhere;
+- **the steering state string.** `"state": "queued"` means the message exists and the worker has not seen it;
+  a worker blocked in an in-flight tool call **cannot consume steering at all**. `queued` → `delivered` is
+  the only proof an instruction arrived.
+
+**Recovery when there is no command controller.** `command.status` / `command.cancel` answered *"No command
+controller is available for this child"* for an async worker, so the precise lever is the PID: `kill <pid>`
+of the runaway script makes the bash call return non-zero, the worker resumes, and the queued steer flips to
+`delivered` in the same minute. Verified in that order: `48:38` → killed → `state: running`, steering
+`delivered`.
+
+**Kill by PID, never by pattern.** The same `ps` listing contained halogen's `serve_api.py` (the inference
+server, 22.6 GiB resident) and an unrelated project's venv python. A `pkill -f python3` or a kill-by-name
+there is an outage, not a recovery — and it is exactly the kind of command that succeeds and then explains
+itself afterwards. Same rule as the self-matching `pgrep` above: name the process, don't describe it.
