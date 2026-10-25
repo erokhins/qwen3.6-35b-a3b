@@ -1,0 +1,16 @@
+# run	state	total_diff	raw_diff	out_diff	gate_got	own_violations	reads_sg_case0	poison_case10	result
+0	pre-fix	45	43	2	45	43	34816	2047	RESULT FAIL (device gate): 8 of 79 checks failed: every counted field stays in
+1	pre-fix	45	43	2	45	43	34816	2047	RESULT FAIL (device gate): 8 of 79 checks failed: every counted field stays in
+2	pre-fix	46	43	3	46	43	34816	2047	RESULT FAIL (device gate): 8 of 79 checks failed: every counted field stays in
+3	pre-fix	45	43	2	45	43	34816	2047	RESULT FAIL (device gate): 8 of 79 checks failed: every counted field stays in
+4	pre-fix	43	43	0	43	43	34816	2047	RESULT FAIL (device gate): 8 of 79 checks failed: every counted field stays in
+5	post-fix	0	0	0	0	0	2048	2048	RESULT FAIL (device gate): 2 of 79 checks failed: every counted field stays in
+6	post-fix	0	0	0	0	0	2048	2048	RESULT FAIL (device gate): 2 of 79 checks failed: every counted field stays in
+7	post-fix	0	0	0	0	0	2048	2048	RESULT FAIL (device gate): 2 of 79 checks failed: every counted field stays in
+8	post-fix	0	0	0	0	0	2048	2048	RESULT FAIL (device gate): 2 of 79 checks failed: every counted field stays in
+9	post-fix	0	0	0	0	0	2048	2048	RESULT FAIL (device gate): 2 of 79 checks failed: every counted field stays in
+10	defect-reintroduced	45	43	2	45	43	34816	2047	RESULT FAIL (device gate): 8 of 79 checks failed: every counted field stays in
+11	post-fix-final	0	0	0	0	0	2048	2048	RESULT FAIL (device gate): 2 of 79 checks failed: every counted field stays in
+12	post-fix-final	0	0	0	0	0	2048	2048	RESULT FAIL (device gate): 2 of 79 checks failed: every counted field stays in
+13	hyp4-prob-redundancy-only	0	0	0	0	0	34816	2048	RESULT FAIL (device gate): 3 of 79 checks failed: every counted field stays in
+14	post-fix-final	0	0	0	0	0	2048	2048	RESULT FAIL (device gate): 2 of 79 checks failed: every counted field stays in

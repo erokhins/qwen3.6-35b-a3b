@@ -1,6 +1,6 @@
 LOCKREF gate.py must reference the lock tool 0 times: 0
-LOCK acquired tag=q36 shared_expert device gate status=HELD: 2026-10-25T20:28:13Z	q36 shared_expert device gate	pid=560835
-UTIL_BEFORE gpu use: 91%
+LOCK acquired tag=q36 shared_expert device gate status=HELD: 2026-10-25T21:02:37Z	q36 shared_expert device gate	pid=586819
+UTIL_BEFORE gpu use: 9%
 CMD /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/shared_expert/gate.py --device 
 CENSUSEXP format=f32 field=sigmoid(f32) judged=34194 identical=33130 differing=1064 categories[equal=33130 finite_step=1064] ulp_histogram[1:605 2:459] max_ulp=2 subnormal_diverging=1 probe=c-vs-numpy-over-every-bf16-input
 CENSUSEXP format=f32 field=silu(f32) judged=34194 identical=33153 differing=1041 categories[equal=33153 finite_step=1041] ulp_histogram[1:624 2:417] max_ulp=2 subnormal_diverging=0 probe=c-vs-numpy-over-every-bf16-input
@@ -619,8 +619,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[30829:1] max_ulp=30829 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 30829): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -631,8 +631,8 @@ CENSUS format=f32 field=up[cast_after] judged=512 identical=512 differing=0 cate
 POLICY field=up[cast_after] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[cast_after] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[cast_after] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[cast_after] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[30829:1] max_ulp=30829 subnormal_diverging=0
-POLICY field=raw[cast_after] width=Q8_0 verdict=REJECT reasons[field 'raw[cast_after]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 30829): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[cast_after] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[cast_after] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[cast_after] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[cast_after] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=f32 field=prob judged=1 identical=0 differing=1 categories[finite_step=1] ulp_histogram[2:1] max_ulp=2 subnormal_diverging=0 case=1 label=cast_after width=f32 counted=1 band=2
@@ -643,8 +643,8 @@ CENSUS format=f32 field=up[f32_act] judged=512 identical=512 differing=0 categor
 POLICY field=up[f32_act] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=f32 field=act judged=512 identical=432 differing=80 categories[equal=432 finite_step=80] ulp_histogram[1:53 2:25 3:2] max_ulp=3 subnormal_diverging=0 case=2 label=f32_act width=f32 counted=1 band=2
 POLICYLINE case=2 field=act verdict=REFUSED attribution=expf route, numpy side of the oracle; floor probe measured 2 ULP over the whole bf16 grid, observed max=3 over 80/512
-CENSUS format=bf16 field=raw[f32_act] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[30828:1] max_ulp=30828 subnormal_diverging=0
-POLICY field=raw[f32_act] width=Q8_0 verdict=REJECT reasons[field 'raw[f32_act]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 30828): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[f32_act] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[f32_act] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[f32_act] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[f32_act] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[f32_act] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -655,8 +655,8 @@ CENSUS format=f32 field=up[perchan_gate] judged=512 identical=512 differing=0 ca
 POLICY field=up[perchan_gate] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[perchan_gate] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[perchan_gate] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[perchan_gate] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[30840:1] max_ulp=30840 subnormal_diverging=0
-POLICY field=raw[perchan_gate] width=Q8_0 verdict=REJECT reasons[field 'raw[perchan_gate]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 30840): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[perchan_gate] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[perchan_gate] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[perchan_gate] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[perchan_gate] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[perchan_gate] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -667,8 +667,8 @@ CENSUS format=f32 field=up[layout_up_first] judged=512 identical=512 differing=0
 POLICY field=up[layout_up_first] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[layout_up_first] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[layout_up_first] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[layout_up_first] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[30782:1] max_ulp=30782 subnormal_diverging=0
-POLICY field=raw[layout_up_first] width=Q8_0 verdict=REJECT reasons[field 'raw[layout_up_first]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 30782): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[layout_up_first] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[layout_up_first] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[layout_up_first] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[layout_up_first] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[layout_up_first] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -679,8 +679,8 @@ CENSUS format=f32 field=up[layout_row_inter] judged=512 identical=512 differing=
 POLICY field=up[layout_row_inter] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[layout_row_inter] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[layout_row_inter] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[layout_row_inter] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[31087:1] max_ulp=31087 subnormal_diverging=0
-POLICY field=raw[layout_row_inter] width=Q8_0 verdict=REJECT reasons[field 'raw[layout_row_inter]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 31087): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[layout_row_inter] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[layout_row_inter] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[layout_row_inter] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[layout_row_inter] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[layout_row_inter] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -691,8 +691,8 @@ CENSUS format=f32 field=up[layout_pair_swap] judged=512 identical=512 differing=
 POLICY field=up[layout_pair_swap] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[layout_pair_swap] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[layout_pair_swap] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[layout_pair_swap] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[30782:1] max_ulp=30782 subnormal_diverging=0
-POLICY field=raw[layout_pair_swap] width=Q8_0 verdict=REJECT reasons[field 'raw[layout_pair_swap]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 30782): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[layout_pair_swap] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[layout_pair_swap] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[layout_pair_swap] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[layout_pair_swap] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[layout_pair_swap] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -703,8 +703,8 @@ CENSUS format=f32 field=up[row_shift1] judged=512 identical=512 differing=0 cate
 POLICY field=up[row_shift1] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[row_shift1] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[row_shift1] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[row_shift1] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[72:1] max_ulp=72 subnormal_diverging=0
-POLICY field=raw[row_shift1] width=Q8_0 verdict=REJECT reasons[field 'raw[row_shift1]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 72): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[row_shift1] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[row_shift1] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[row_shift1] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[row_shift1] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[row_shift1] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -715,8 +715,8 @@ CENSUS format=f32 field=up[tail_drop] judged=512 identical=512 differing=0 categ
 POLICY field=up[tail_drop] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[tail_drop] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[tail_drop] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[tail_drop] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[30215:1] max_ulp=30215 subnormal_diverging=0
-POLICY field=raw[tail_drop] width=Q8_0 verdict=REJECT reasons[field 'raw[tail_drop]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 30215): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[tail_drop] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[tail_drop] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[tail_drop] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[tail_drop] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[tail_drop] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -727,10 +727,10 @@ CENSUS format=f32 field=up[cols_half] judged=512 identical=512 differing=0 categ
 POLICY field=up[cols_half] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[cols_half] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[cols_half] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[cols_half] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[404:1] max_ulp=404 subnormal_diverging=0
-POLICY field=raw[cols_half] width=Q8_0 verdict=REJECT reasons[field 'raw[cols_half]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 404): isolation requires zero] attribution=none
-CENSUS format=bf16 field=out[cols_half] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[403:1] max_ulp=403 subnormal_diverging=0
-POLICY field=out[cols_half] width=Q8_0 verdict=REJECT reasons[field 'out[cols_half]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 403): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[cols_half] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[cols_half] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[cols_half] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[cols_half] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[cols_half] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=prob[cols_half] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
 CENSUS format=f32 field=gate[down_half] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -739,8 +739,8 @@ CENSUS format=f32 field=up[down_half] judged=512 identical=512 differing=0 categ
 POLICY field=up[down_half] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[down_half] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[down_half] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[down_half] judged=2048 identical=2047 differing=1 categories[equal=2047 nan_vs_other=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
-POLICY field=raw[down_half] width=Q8_0 verdict=REJECT reasons[field 'raw[down_half]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;non-finite divergence refused: nan_payload=0 nan_vs_other=1 inf_vs_finite=0 inf_vs_inf=0 — NaN is never within 1 ULP of a finite value, and a one-step overflow of a single element is exactly the defect an acceptance must never bless] attribution=none
+CENSUS format=bf16 field=raw[down_half] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[down_half] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[down_half] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[down_half] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[down_half] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -751,8 +751,8 @@ CENSUS format=f32 field=up[wide_misread] judged=512 identical=512 differing=0 ca
 POLICY field=up[wide_misread] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[wide_misread] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[wide_misread] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[wide_misread] judged=2048 identical=2047 differing=1 categories[equal=2047 zero_sign_flip=1] ulp_histogram[1:1] max_ulp=1 subnormal_diverging=0
-POLICY field=raw[wide_misread] width=Q8_0 verdict=REJECT reasons[field 'raw[wide_misread]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;signed-zero flip refused: +0 and -0 are one ordered step apart, but the sign of a zero propagates (reciprocal, copysign, a silu denominator), so exactness is required there — 1 element(s)] attribution=none
+CENSUS format=bf16 field=raw[wide_misread] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[wide_misread] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[wide_misread] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[wide_misread] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[wide_misread] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -763,8 +763,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[221:1] max_ulp=221 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 221): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -775,8 +775,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[30880:1] max_ulp=30880 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 30880): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -787,8 +787,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[30534:1] max_ulp=30534 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 30534): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -799,8 +799,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[675:1] max_ulp=675 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 675): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -811,8 +811,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[177:1] max_ulp=177 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 177): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -823,8 +823,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[31062:1] max_ulp=31062 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 31062): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -835,20 +835,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[30901:1] max_ulp=30901 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 30901): isolation requires zero] attribution=none
-CENSUS format=bf16 field=out[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[30607:1] max_ulp=30607 subnormal_diverging=0
-POLICY field=out[honest] width=Q8_0 verdict=REJECT reasons[field 'out[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 30607): isolation requires zero] attribution=none
-CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
-POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
-CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
-POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
-POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
-POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[31307:1] max_ulp=31307 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 31307): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -859,8 +847,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[30968:1] max_ulp=30968 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 30968): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -871,8 +859,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[30912:1] max_ulp=30912 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 30912): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -883,8 +871,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[31077:1] max_ulp=31077 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 31077): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -895,20 +883,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[50:1] max_ulp=50 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 50): isolation requires zero] attribution=none
-CENSUS format=bf16 field=out[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[62:1] max_ulp=62 subnormal_diverging=0
-POLICY field=out[honest] width=Q8_0 verdict=REJECT reasons[field 'out[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 62): isolation requires zero] attribution=none
-CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
-POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
-CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
-POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
-POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
-POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[495:1] max_ulp=495 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 495): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -919,8 +895,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[137:1] max_ulp=137 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 137): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -931,8 +907,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[104:1] max_ulp=104 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 104): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -943,8 +919,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[30710:1] max_ulp=30710 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 30710): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -955,8 +931,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[30931:1] max_ulp=30931 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 30931): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -967,20 +943,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[31191:1] max_ulp=31191 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 31191): isolation requires zero] attribution=none
-CENSUS format=bf16 field=out[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[30918:1] max_ulp=30918 subnormal_diverging=0
-POLICY field=out[honest] width=Q8_0 verdict=REJECT reasons[field 'out[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 30918): isolation requires zero] attribution=none
-CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
-POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
-CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
-POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
-POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
-POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[31160:1] max_ulp=31160 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 31160): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -991,8 +955,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[478:1] max_ulp=478 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 478): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -1003,8 +967,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[352:1] max_ulp=352 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 352): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -1015,8 +979,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[31681:1] max_ulp=31681 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 31681): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -1027,8 +991,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[30354:1] max_ulp=30354 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 30354): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -1039,8 +1003,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[30598:1] max_ulp=30598 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 30598): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -1051,8 +1015,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[166:1] max_ulp=166 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 166): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -1063,20 +1027,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[393:1] max_ulp=393 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 393): isolation requires zero] attribution=none
-CENSUS format=bf16 field=out[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[393:1] max_ulp=393 subnormal_diverging=0
-POLICY field=out[honest] width=Q8_0 verdict=REJECT reasons[field 'out[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 393): isolation requires zero] attribution=none
-CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
-POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
-CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
-POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
-POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
-POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[280:1] max_ulp=280 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 280): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -1087,8 +1039,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[30956:1] max_ulp=30956 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 30956): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -1099,8 +1051,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[31122:1] max_ulp=31122 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 31122): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -1111,8 +1063,8 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[31392:1] max_ulp=31392 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 31392): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -1123,26 +1075,77 @@ CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categori
 POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=bf16 field=raw[honest] judged=2048 identical=2047 differing=1 categories[equal=2047 finite_step=1] ulp_histogram[30555:1] max_ulp=30555 subnormal_diverging=0
-POLICY field=raw[honest] width=Q8_0 verdict=REJECT reasons[field 'raw[honest]' is not in the lane's declared set (['act', 'gate', 'out', 'prob', 'raw', 'up']): exactness required and 1 elements moved;1 element(s) at >=2 ULP (max 30555): isolation requires zero] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
-CHECK every declared-exact field is bit-identical to the oracle        want=0          got=48         case 0 field raw (bf16): 1 of 2048 words differ from the oracle; case 1 field raw (bf16): 1 of 2048 words differ from the oracle; case 2 field raw (bf16): 1 of 2048 words differ from the oracle; case 3 field raw (bf16): 1 of 2048 words differ from the oracle
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CHECK every declared-exact field is bit-identical to the oracle        want=0          got=0          256 fields / 241706 words exact
 CHECK every counted field stays inside the band the floor probe measured want=0          got=1          case 2 field act: 3 ULP exceeds the probe's 2
 CHECK every counted divergence is isolated, not a systematic shift     want=0          got=0          none
 SUMMARY exact_fields=256 exact_words=241706 counted_fields=2 counted_words=513 counted_diverging=81
-CHECK weight-read counters equal the geometry-derived counts on every case want=43         got=0          case 0 honest: kernel=2097152/1048576/34816 geometry=2097152/1048576/2048; case 1 cast_after: kernel=2097152/1048576/34816 geometry=2097152/1048576/2048; case 2 f32_act: kernel=2097152/1048576/34816 geometry=2097152/1048576/2048
-CHECK poison holes are counted, not skipped, and match the expectation want=43         got=42         case 10 down_half: report=2047 file=2047 expect=2048
+CHECK weight-read counters equal the geometry-derived counts on every case want=43         got=43         all cases
+CHECK poison holes are counted, not skipped, and match the expectation want=43         got=43         all cases
 CHECK both digests re-derived by the driver equal the arm's            want=43         got=43         all cases
-CHECK each arm's own bad-counter equals the driver's counted-field divergence for that case want=43         got=0          case 0 honest: arm counted 1 differing words, the driver counted 0 in the fields this case declares counted; case 1 cast_after: arm counted 2 differing words, the driver counted 1 in the fields this case declares counted; case 2 f32_act: arm counted 81 differing words, the driver counted 80 in the fields this case declares counted; case 3 perchan_gate: arm counted 1 differing words, the driver counted 0 in the fields this case declares counted
+CHECK each arm's own bad-counter equals the driver's counted-field divergence for that case want=43         got=43         all 43 cases: every word the arm found is a word the header declares counted, and the exact fields contributed nothing
 CHECK every injection fires against the honest words                   want=11         got=11         families=11 cast_after,cols_half,down_half,f32_act,layout_pair_swap,layout_row_inter,layout_up_first,perchan_gate,row_shift1,tail_drop,wide_misread
 CHECK the declared blindness holds: pair_swap is invisible in gate/up and visible in act want=pair_swap invisible in the two dots got=ok         case 6 gate=0 up=0 act=507
 CHECK up_first is NOT blind in act (the sibling row swap changes which half gets silu) want=>=1 case   got=1          case 4 act=507
-CHECK host and device agree bit-for-bit in every declared-exact field  want=0          got=48         case 0 field raw: 1 of 2048 words differ between the arms; case 1 field raw: 1 of 2048 words differ between the arms; case 2 field raw: 1 of 2048 words differ between the arms; case 3 field raw: 1 of 2048 words differ between the arms
-CROSSARM whole_buffer differing_words=56 of 242219 (reported, not asserted: the assertion is per declared field)
+CHECK host and device agree bit-for-bit in every declared-exact field  want=0          got=0          2 counted fields exempt
+CROSSARM whole_buffer differing_words=8 of 242219 (reported, not asserted: the assertion is per declared field)
 CHECK the device's own launch counter equals the launches issued       want=4          got=4          
+CHECK the write-ownership probe printed every violation it counted     want=0          got=0          driver counted 0, printed 0 lines, this parser recounted 0
+CHECK the write-ownership probe compared every word stage 3 does not own want=154112     got=154112     43 cases x floats before `out` (gate|up|act|raw)
+CHECK no stage writes a word outside the field its stage owns          want=0          got=0          every stage stayed inside its declared spans
 OCCUPANCYDEV cu_hipreported=20 lds_per_cu=65536 warp_size=32
 OCCUPANCY kernel=se_canary_empty blocks_per_cu=16 threads=128 wavefronts_per_cu=64 canary=1
 OCCUPANCY kernel=se_canary_full_lds blocks_per_cu=1 threads=128 wavefronts_per_cu=4 canary=1
@@ -1162,18 +1165,13 @@ LAUNCHBILL merge_denied=gateup->down reason=every down row needs all 512 act val
 CHECK census slicer is witnessed (empty stub < 8-multiply stub < 16-multiply stub) want=ok         got=ok         empty=0 eight=17 sixteen=33
 CHECK the census prices the machine KFD reports, not the one HIP reports want=40         got=40         hipDeviceAttributeMultiprocessorCount says 20 here (pitfalls/20)
 CHECK every kernel's slot bill is printed beside its occupancy         want=>=6        got=9          blocks_per_cu and wavefronts_per_simd on the same line
-SUMMARY device gate checks=76 failed=7
+SUMMARY device gate checks=79 failed=2
 FAILED every counted field stays inside the band the floor probe measured
-FAILED every declared-exact field is bit-identical to the oracle
 FAILED every counted field stays inside the band the floor probe measured
-FAILED weight-read counters equal the geometry-derived counts on every case
-FAILED poison holes are counted, not skipped, and match the expectation
-FAILED each arm's own bad-counter equals the driver's counted-field divergence for that case
-FAILED host and device agree bit-for-bit in every declared-exact field
 no timing taken
-RESULT FAIL (device gate): 7 of 76 checks failed: every counted field stays inside the band the floor probe measured; every declared-exact field is bit-identical to the oracle; every counted field stays inside the band the floor probe measured; weight-read counters equal the geometry-derived counts on every case; poison holes are counted, not skipped, and match the expectation; each arm's own bad-counter equals the driver's counted-field divergence for that case
-UTIL_AFTER gpu use: 4%
-WALL started=2026-10-25T20:28:13Z finished=2026-10-25T20:28:22Z  (lock record only; no timing taken)
+RESULT FAIL (device gate): 2 of 79 checks failed: every counted field stays inside the band the floor probe measured; every counted field stays inside the band the floor probe measured
+UTIL_AFTER gpu use: 7%
+WALL started=2026-10-25T21:02:37Z finished=2026-10-25T21:02:46Z  (lock record only; no timing taken)
 no timing taken
 LOG /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/shared_expert/evidence/shared-expert-device-2026-10-26.log
 LOCK releasing

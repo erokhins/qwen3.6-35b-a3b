@@ -737,6 +737,27 @@ def main():
         dl = kv([l for l in dout.splitlines() if l.startswith("LAUNCHES")][0])
         v.check("the device's own launch counter equals the launches issued",
                 dl["device_counted"] == dl["issued"], dl["issued"], dl["device_counted"], "")
+        # Stage-write ownership, device arm only: the defect this catches is a device kernel ignoring
+        # the stage-3 `base = -1` sentinel item, which the host twin cannot exhibit (its stage loop
+        # filters the item explicitly). The driver snapshots the record after stages 1-2, runs stage
+        # 3, and reports every word before `out` that changed. `lines == violations` and a non-empty
+        # compared span are checked separately, because a probe that compared nothing would print 0.
+        own = parse_tag(dout, "OWNERSHIPSUMMARY",
+                        ["cases", "compared", "violations", "lines"], want=1)[0]
+        own_lines = [l for l in dout.splitlines() if l.startswith("OWNERSHIP ")]
+        v.check("the write-ownership probe printed every violation it counted",
+                own["lines"] == own["violations"] and len(own_lines) == int(own["lines"]),
+                own["violations"], str(len(own_lines)),
+                "driver counted %s, printed %s lines, this parser recounted %d"
+                % (own["violations"], own["lines"], len(own_lines)))
+        v.check("the write-ownership probe compared every word stage 3 does not own",
+                own["compared"] == str(len(cases) * FIELD_OFF["out"])
+                and own["cases"] == str(len(cases)),
+                str(len(cases) * FIELD_OFF["out"]), own["compared"],
+                "%s cases x floats before `out` (gate|up|act|raw)" % own["cases"])
+        v.check("no stage writes a word outside the field its stage owns",
+                own["violations"] == "0", "0", own["violations"],
+                "; ".join(own_lines[:3]) or "every stage stayed inside its declared spans")
         rc, occ = run([DEVICE, "--occupancy"], os.path.join(work, "occupancy.log"))
         print(occ.strip())
         with open(os.path.join(work, "occupancy.txt"), "w") as fh:

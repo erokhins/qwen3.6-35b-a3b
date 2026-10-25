@@ -59,18 +59,21 @@ host	launch counts are what the plan says	4 and 172	4 and 172	pass
 device	device arm parsed==printed for W	12	12	pass
 device	device arm parsed==printed for A	32	32	pass
 device	device arm parsed==printed for C	43	43	pass
-device	every declared-exact field is bit-identical to the oracle	0	48	FAIL
+device	every declared-exact field is bit-identical to the oracle	0	0	pass
 device	every counted field stays inside the band the floor probe measured	0	1	FAIL
 device	every counted divergence is isolated, not a systematic shift	0	0	pass
-device	weight-read counters equal the geometry-derived counts on every case	43	0	FAIL
-device	poison holes are counted, not skipped, and match the expectation	43	42	FAIL
+device	weight-read counters equal the geometry-derived counts on every case	43	43	pass
+device	poison holes are counted, not skipped, and match the expectation	43	43	pass
 device	both digests re-derived by the driver equal the arm's	43	43	pass
-device	each arm's own bad-counter equals the driver's counted-field divergence for that case	43	0	FAIL
+device	each arm's own bad-counter equals the driver's counted-field divergence for that case	43	43	pass
 device	every injection fires against the honest words	11	11	pass
 device	the declared blindness holds: pair_swap is invisible in gate/up and visible in act	pair_swap invisible in the two dots	ok	see-detail
 device	up_first is NOT blind in act (the sibling row swap changes which half gets silu)	>=1 case	1	see-detail
-device	host and device agree bit-for-bit in every declared-exact field	0	48	FAIL
+device	host and device agree bit-for-bit in every declared-exact field	0	0	pass
 device	the device's own launch counter equals the launches issued	4	4	pass
+device	the write-ownership probe printed every violation it counted	0	0	pass
+device	the write-ownership probe compared every word stage 3 does not own	154112	154112	pass
+device	no stage writes a word outside the field its stage owns	0	0	pass
 device	the occupancy probe can see LDS (64 KiB stub squeezes to 1 block/CU)	probe-sees-lds	seen	see-detail
 device	census slicer is witnessed (empty stub < 8-multiply stub < 16-multiply stub)	ok	ok	pass
 device	the census prices the machine KFD reports, not the one HIP reports	40	40	pass
