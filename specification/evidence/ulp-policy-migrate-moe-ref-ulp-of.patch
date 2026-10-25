@@ -1,0 +1,50 @@
+--- a/speccheck/moe_ref.py
++++ b/speccheck/moe_ref.py
+@@ -534,12 +534,45 @@
+ 
+ 
+ # ------------------------------------------------------------------------- comparators
++_BF16_RULER = None
++
++
++def _bf16_facts():
++    """bf16's format facts, derived once by tools/ulp_policy.py (mantissa width, bias, edges)."""
++    global _BF16_RULER
++    if _BF16_RULER is None:
++        import sys
++        sys.path.insert(0, str(REPO / "tools"))
++        import ulp_policy
++        _BF16_RULER = ulp_policy.format_facts("bf16")
++    return _BF16_RULER
++
++
+ def ulp_of(v: float) -> float:
+-    """One bf16 ULP at magnitude |v| — 8 explicit mantissa bits, so ULP(v) = 2^(exp-7)."""
++    """The width of one bf16 step ABOVE |v| — a LENGTH, not a count of steps.
++
++    The prose here said "8 explicit mantissa bits". bf16 has 7 explicit bits (1 sign + 8 exponent + 7
++    mantissa; 8 is the precision *including* the implicit bit), and the formula's `-7` was always the
++    right one — the number now comes from the derived facts instead of a literal.
++
++    What this function cannot do, and the ruler can: it is a length at |v|, so it cannot count the
++    representable steps between two values. It returns 0.0 at +/-0 and for non-finite inputs, and it
++    mis-states the step across the whole subnormal range (1,280 of 327,548 bf16 images in
++    `specification/evidence/ulp_policy_equiv.py`'s corpus, by up to 128x). A caller that is *scaling* a
++    tolerance is fine; a caller that is *counting* steps must use `tools/ulp_policy.py`.
++    """
+     v = abs(float(v))
+     if v == 0 or not math.isfinite(v):
+         return 0.0
+-    return math.ldexp(1.0, math.floor(math.log2(v)) - 7)
++    return math.ldexp(1.0, math.floor(math.log2(v)) - _bf16_facts().mant)
++
++
++def ulpdist_bf16(bits_a: int, bits_b: int):
++    """Steps between two bf16 images, as (category, steps) — the one ruler's answer (D-17)."""
++    import sys
++    sys.path.insert(0, str(REPO / "tools"))
++    import ulp_policy
++    return ulp_policy.Ruler("bf16").classify(bits_a, bits_b)
+ 
+ 
+ def metrics(a: torch.Tensor, b: torch.Tensor, *, name: str = "") -> dict:

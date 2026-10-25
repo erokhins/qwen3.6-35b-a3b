@@ -1,0 +1,13 @@
+--- a/prototype/moe_router/gate.py
++++ b/prototype/moe_router/gate.py
+@@ -42,6 +42,10 @@
+ 
+ HERE = os.path.dirname(os.path.abspath(__file__))
+ REPO = os.path.dirname(os.path.dirname(HERE))
++sys.path.insert(0, os.path.join(REPO, "tools"))
++import ulp_policy                                   # noqa: E402  the repo's one ULP ruler (D-17)
++
++_RULER32 = ulp_policy.Ruler("f32")                  # f32 facts derive from `struct`, stdlib only
+ BIN = os.path.join(HERE, "moe_router")
+ PROBE_BIN = os.path.join(HERE, "host_probe")
+ ORACLE_PY = "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python"

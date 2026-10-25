@@ -1,0 +1,30 @@
+--- a/prototype/moe_router/gate.py
++++ b/prototype/moe_router/gate.py
+@@ -103,9 +103,24 @@
+ 
+ 
+ def ulpdist_bits(a, b):
+-    ai = a if a < 0x80000000 else 0x80000000 - a
+-    bi = b if b < 0x80000000 else 0x80000000 - b
+-    return abs(ai - bi)
++    """Steps between two f32 images — delegated to the repo's one ruler (DECISIONS.md D-17).
++
++    The body this replaced (`a if a < 0x80000000 else 0x80000000 - a`) folds +0 and -0 onto one key, so
++    EVERY pair straddling zero was counted one step short of the true number of representable steps and
++    a signed-zero flip read as no difference at all: 13,771 of 69,089 pairs in the derived corpus of
++    `specification/evidence/ulp_policy_equiv.py`. A NaN pair now answers None; every call site here
++    compares the result against a band, and `None <= band` is a TypeError rather than a silent pass,
++    which is the point — NaN reaching a band is a finding, not a small value.
++
++    CONSEQUENCE THIS LANE OWNS: the bands measured with the short ruler
++    (`weights_vs_pinned_f32_ulp`, `softmax_denominator_reassoc_ulp`) were measured with the short ruler,
++    so a straddling pair now reads one step larger. Re-derive them before quoting the lane's verdicts
++    again. Staged, not pushed.
++    """
++    kind, steps = _RULER32.classify(a, b)
++    if kind in (ulp_policy.NAN_PAIR, ulp_policy.NAN_OTHER):
++        return None
++    return steps
+ 
+ 
+ def pack_f32(vals):

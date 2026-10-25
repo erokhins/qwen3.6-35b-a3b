@@ -1,0 +1,22 @@
+STAGE label=audit-ulp-dist target=tools/audit_published_quant.py patch=ulp-policy-migrate-audit-ulp-dist.patch bytes=1192 hunks=1 dry_run_applies=yes patched_file_parses=yes
+STAGENOTE label=audit-ulp-dist No behaviour change on finite pairs (proved by the harness); NaN pairs keep the old numeric answer deliberately. Safe to apply whenever this tool is next quiet.
+STAGE label=router-import target=prototype/moe_router/gate.py patch=ulp-policy-migrate-router-import.patch bytes=602 hunks=1 dry_run_applies=yes patched_file_parses=yes
+STAGENOTE label=router-import Import only; no measurement changes.
+STAGE label=router-ulpdist-bits target=prototype/moe_router/gate.py patch=ulp-policy-migrate-router-ulpdist-bits.patch bytes=1432 hunks=1 dry_run_applies=yes patched_file_parses=yes
+STAGENOTE label=router-ulpdist-bits CHANGES measurements: straddling pairs read +1 step, and a NaN now raises at the band comparison instead of passing. The router lane must re-derive its two bands first.
+STAGE label=moe-ref-ulp-of target=speccheck/moe_ref.py patch=ulp-policy-migrate-moe-ref-ulp-of.patch bytes=2131 hunks=1 dry_run_applies=yes patched_file_parses=yes
+STAGENOTE label=moe-ref-ulp-of `ulp_of`'s numeric answer is unchanged for normal inputs (mant derives to exactly the 7 it already typed). The prose defect is fixed, the limits are written where a caller can read them, and the lane gains a step-counting entry point. `selftest_moe.py:263` calls `ulp_of` only to scale a printed number, so it is unaffected.
+STAGE label=moe-stats-rel-width target=tools/moe_stats.py patch=ulp-policy-migrate-moe-stats-rel-width.patch bytes=942 hunks=1 dry_run_applies=yes patched_file_parses=yes
+STAGENOTE label=moe-stats-rel-width Dead constant: no live number changes either way. Reported because it is a second copy of the same typed width, not because it is wrong in a result.
+RESULT PASS staged=5 of 5  (every patch applies and every patched file parses)
+PATCHES staged=5
+APPLY patch=ulp-policy-migrate-audit-ulp-dist.patch ok=1 
+APPLY patch=ulp-policy-migrate-moe-ref-ulp-of.patch ok=1 
+APPLY patch=ulp-policy-migrate-moe-stats-rel-width.patch ok=1 
+APPLY patch=ulp-policy-migrate-router-import.patch ok=1 
+APPLY patch=ulp-policy-migrate-router-ulpdist-bits.patch ok=1 
+SMOKE target=audit_published_quant.ulp_dist pairs=3997 mismatches=0 nan_pairs_kept_numeric=22
+SMOKE target=moe_router.ulpdist_bits pairs=3997 mismatches=0 nan_answered_None=22 straddling_pairs_now_agree=1
+SMOKE target=moe_ref.ulp_of images=65536 identical_to_the_typed-7_body=65282 changed=0 (bf16 mant derives to 7, so it must be unchanged)
+SMOKE target=moe_stats.BF16_REL_WIDTH value=0.015625 derived_half_ulp=0.015625 ok=1 (was 0.0019531 = the typed-8 value)
+RESULT PASS staged patches compose and the patched code runs and agrees

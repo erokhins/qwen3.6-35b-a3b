@@ -1,0 +1,159 @@
+FORMAT name=bf16 bits=16 mant=7 exp=8 bias=127 subnormal_min=9.184e-41 normal_min=1.175e-38 max=3.3895e+38 derived_from=bitimage(torch) crosscheck=torch.finfo
+CHECK name=format-bf16 two independent sources agree ok=1 n=7 mant=7 exp=8 bias=127 derived_from=bitimage(torch) crosscheck=torch.finfo
+CHECK name=format-bf16 one-image-step-above-one-is-2^-mant ok=1 n=1 next image above 1.0 decodes to 1.0078125; 1+2^-7 is 1.0078125
+FORMAT name=f16 bits=16 mant=10 exp=5 bias=15 subnormal_min=5.960e-08 normal_min=6.104e-05 max=6.5504e+04 derived_from=bitimage(struct) crosscheck=numpy.finfo
+CHECK name=format-f16 two independent sources agree ok=1 n=10 mant=10 exp=5 bias=15 derived_from=bitimage(struct) crosscheck=numpy.finfo
+CHECK name=format-f16 one-image-step-above-one-is-2^-mant ok=1 n=1 next image above 1.0 decodes to 1.000976562; 1+2^-10 is 1.000976562
+FORMAT name=f32 bits=32 mant=23 exp=8 bias=127 subnormal_min=1.401e-45 normal_min=1.175e-38 max=3.4028e+38 derived_from=bitimage(struct) crosscheck=numpy.finfo
+CHECK name=format-f32 two independent sources agree ok=1 n=23 mant=23 exp=8 bias=127 derived_from=bitimage(struct) crosscheck=numpy.finfo
+CHECK name=format-f32 one-image-step-above-one-is-2^-mant ok=1 n=1 next image above 1.0 decodes to 1.000000119; 1+2^-23 is 1.000000119
+CHECK name=bf16 mantissa derives to 7, not the typed 8 of §ulp_of's prose ok=1 n=7 speccheck/moe_ref.py §ulp_of says 8 explicit bits in prose and uses 7 in the formula; the formula is the one that is right, and this check is what stops a typed 8 coming back
+CHECK name=f32 mantissa derives to 23 ok=1 n=23 
+CHECK name=a missing format source fails loudly instead of typing a width ok=1 n=1 message: no source for format 'bf16' (sabotage): refusing to run rather than fall back to a typed width
+CHECK name=an unknown format is refused ok=1 n=1 
+CHECK name=sabotage: a typed bf16 mantissa of 8 is caught ok=1 n=1 bf16: injected mantissa width 8 contradicts torch.finfo (mant=7) and the bit image (mant=7)
+CHECK name=ruler-bf16-identical ok=1 n=0 got equal/0 want equal/0
+CHECK name=ruler-bf16-one-step-above-one ok=1 n=1 got finite_step/1 want finite_step/1
+CHECK name=ruler-bf16-power-of-two-1-to-2 ok=1 n=128 got finite_step/128 want finite_step/128
+CHECK name=ruler-bf16-signed-zero ok=1 n=1 got zero_sign_flip/1 want zero_sign_flip/1
+CHECK name=ruler-bf16-zero-to-smallest-subnormal ok=1 n=1 got finite_step/1 want finite_step/1
+CHECK name=ruler-bf16-largest-subnormal-to-smallest-normal ok=1 n=1 got finite_step/1 want finite_step/1
+CHECK name=ruler-bf16-largest-finite-to-infinity ok=1 n=1 got inf_vs_finite/1 want inf_vs_finite/1
+CHECK name=ruler-bf16-plus-inf-to-minus-inf ok=1 n=65281 got inf_vs_inf/65281 want inf_vs_inf/any
+CHECK name=ruler-bf16-nan-vs-finite ok=1 n=1 got nan_vs_other/None want nan_vs_other/None
+CHECK name=ruler-bf16-nan-vs-adjacent-plus-inf ok=1 n=1 got nan_vs_other/None want nan_vs_other/None
+CHECK name=ruler-bf16-nan-payload-move ok=1 n=1 got nan_payload/None want nan_payload/None
+CHECK name=ruler-bf16-negative-one-step ok=1 n=1 got finite_step/1 want finite_step/1
+CHECK name=ruler-bf16-across-zero-minus-one-to-plus-one ok=1 n=32513 got finite_step/32513 want finite_step/32513
+CHECK name=ruler-bf16-nan-is-never-within-one ok=1 n=1 even the NaN pattern one ordered step above +inf is refused, in both directions
+CHECK name=ruler-bf16-subnormal-boundary-is-one-step ok=1 n=1 the float-quantum ruler cannot say this: it reads the gap as 2 different quanta
+CHECK name=ruler-bf16-one-ulp-at-a-power-of-two-is-the-binade-below ok=1 n=1 the step below 1.0 and the step above it are both one step, which is why a length cannot be the ruler
+CHECK name=ruler-f16-identical ok=1 n=0 got equal/0 want equal/0
+CHECK name=ruler-f16-one-step-above-one ok=1 n=1 got finite_step/1 want finite_step/1
+CHECK name=ruler-f16-power-of-two-1-to-2 ok=1 n=1024 got finite_step/1024 want finite_step/1024
+CHECK name=ruler-f16-signed-zero ok=1 n=1 got zero_sign_flip/1 want zero_sign_flip/1
+CHECK name=ruler-f16-zero-to-smallest-subnormal ok=1 n=1 got finite_step/1 want finite_step/1
+CHECK name=ruler-f16-largest-subnormal-to-smallest-normal ok=1 n=1 got finite_step/1 want finite_step/1
+CHECK name=ruler-f16-largest-finite-to-infinity ok=1 n=1 got inf_vs_finite/1 want inf_vs_finite/1
+CHECK name=ruler-f16-plus-inf-to-minus-inf ok=1 n=63489 got inf_vs_inf/63489 want inf_vs_inf/any
+CHECK name=ruler-f16-nan-vs-finite ok=1 n=1 got nan_vs_other/None want nan_vs_other/None
+CHECK name=ruler-f16-nan-vs-adjacent-plus-inf ok=1 n=1 got nan_vs_other/None want nan_vs_other/None
+CHECK name=ruler-f16-nan-payload-move ok=1 n=1 got nan_payload/None want nan_payload/None
+CHECK name=ruler-f16-negative-one-step ok=1 n=1 got finite_step/1 want finite_step/1
+CHECK name=ruler-f16-across-zero-minus-one-to-plus-one ok=1 n=30721 got finite_step/30721 want finite_step/30721
+CHECK name=ruler-f16-nan-is-never-within-one ok=1 n=1 even the NaN pattern one ordered step above +inf is refused, in both directions
+CHECK name=ruler-f16-subnormal-boundary-is-one-step ok=1 n=1 the float-quantum ruler cannot say this: it reads the gap as 2 different quanta
+CHECK name=ruler-f16-one-ulp-at-a-power-of-two-is-the-binade-below ok=1 n=1 the step below 1.0 and the step above it are both one step, which is why a length cannot be the ruler
+CHECK name=ruler-f32-identical ok=1 n=0 got equal/0 want equal/0
+CHECK name=ruler-f32-one-step-above-one ok=1 n=1 got finite_step/1 want finite_step/1
+CHECK name=ruler-f32-power-of-two-1-to-2 ok=1 n=8388608 got finite_step/8388608 want finite_step/8388608
+CHECK name=ruler-f32-signed-zero ok=1 n=1 got zero_sign_flip/1 want zero_sign_flip/1
+CHECK name=ruler-f32-zero-to-smallest-subnormal ok=1 n=1 got finite_step/1 want finite_step/1
+CHECK name=ruler-f32-largest-subnormal-to-smallest-normal ok=1 n=1 got finite_step/1 want finite_step/1
+CHECK name=ruler-f32-largest-finite-to-infinity ok=1 n=1 got inf_vs_finite/1 want inf_vs_finite/1
+CHECK name=ruler-f32-plus-inf-to-minus-inf ok=1 n=4278190081 got inf_vs_inf/4278190081 want inf_vs_inf/any
+CHECK name=ruler-f32-nan-vs-finite ok=1 n=1 got nan_vs_other/None want nan_vs_other/None
+CHECK name=ruler-f32-nan-vs-adjacent-plus-inf ok=1 n=1 got nan_vs_other/None want nan_vs_other/None
+CHECK name=ruler-f32-nan-payload-move ok=1 n=1 got nan_payload/None want nan_payload/None
+CHECK name=ruler-f32-negative-one-step ok=1 n=1 got finite_step/1 want finite_step/1
+CHECK name=ruler-f32-across-zero-minus-one-to-plus-one ok=1 n=2130706433 got finite_step/2130706433 want finite_step/2130706433
+CHECK name=ruler-f32-nan-is-never-within-one ok=1 n=1 even the NaN pattern one ordered step above +inf is refused, in both directions
+CHECK name=ruler-f32-subnormal-boundary-is-one-step ok=1 n=1 the float-quantum ruler cannot say this: it reads the gap as 2 different quanta
+CHECK name=ruler-f32-one-ulp-at-a-power-of-two-is-the-binade-below ok=1 n=1 the step below 1.0 and the step above it are both one step, which is why a length cannot be the ruler
+CHECK name=negatives-bf16-sign-flips-are-real-divergences ok=1 n=6 6 of 6 negative/positive pairs diverge, all of them by >=2 ULP
+CHECK name=dead-branch witness: the naive `x<0` form reports a vacuous zero ok=1 n=6 naive form: 0 differing of 6; the real ruler: 6. That is pitfalls/30 §A firing on this fixture, not a hypothetical
+CENSUS format=bf16 field=s judged=16 identical=14 differing=2 categories[equal=14 finite_step=2] ulp_histogram[1:2] max_ulp=1 subnormal_diverging=0
+POLICY field=s width=F32 verdict=ACCEPT reasons[isolated ±1 ULP: 2 of 16 elements at exactly 1 ULP, 0 at >=2, field declared, width F32 (32.0000 bpw) is >= Q8] attribution=fixture: two negative elements crossed a rounding boundary
+CHECK name=POLICY isolated ±1 on NEGATIVE values is ACCEPTED ok=1 n=2 isolated ±1 ULP: 2 of 16 elements at exactly 1 ULP, 0 at >=2, field declared, width F32 (32.0000 bpw) is >= Q8
+CENSUS format=bf16 field=s judged=16 identical=0 differing=16 categories[finite_step=16] ulp_histogram[1:16] max_ulp=1 subnormal_diverging=0
+POLICY field=s width=F32 verdict=REJECT reasons[systematic shift: 16 of 16 judged elements sit at exactly 1 ULP, so a strict majority is not even bit-identical — a wrong rounding mode or an off-by-one in a reduction looks exactly like this, and that is a different function, not rounding noise] attribution=fixture
+CHECK name=POLICY a systematic shift on NEGATIVE values is REJECTED ok=1 n=16 systematic shift: 16 of 16 judged elements sit at exactly 1 ULP, so a strict majority is not even bit-identical — a wrong rounding mode or an off-by-o
+CHECK name=negatives-f16-sign-flips-are-real-divergences ok=1 n=6 6 of 6 negative/positive pairs diverge, all of them by >=2 ULP
+CHECK name=dead-branch witness: the naive `x<0` form reports a vacuous zero ok=1 n=6 naive form: 0 differing of 6; the real ruler: 6. That is pitfalls/30 §A firing on this fixture, not a hypothetical
+CENSUS format=f16 field=s judged=16 identical=14 differing=2 categories[equal=14 finite_step=2] ulp_histogram[1:2] max_ulp=1 subnormal_diverging=0
+POLICY field=s width=F32 verdict=ACCEPT reasons[isolated ±1 ULP: 2 of 16 elements at exactly 1 ULP, 0 at >=2, field declared, width F32 (32.0000 bpw) is >= Q8] attribution=fixture: two negative elements crossed a rounding boundary
+CHECK name=POLICY isolated ±1 on NEGATIVE values is ACCEPTED ok=1 n=2 isolated ±1 ULP: 2 of 16 elements at exactly 1 ULP, 0 at >=2, field declared, width F32 (32.0000 bpw) is >= Q8
+CENSUS format=f16 field=s judged=16 identical=0 differing=16 categories[finite_step=16] ulp_histogram[1:16] max_ulp=1 subnormal_diverging=0
+POLICY field=s width=F32 verdict=REJECT reasons[systematic shift: 16 of 16 judged elements sit at exactly 1 ULP, so a strict majority is not even bit-identical — a wrong rounding mode or an off-by-one in a reduction looks exactly like this, and that is a different function, not rounding noise] attribution=fixture
+CHECK name=POLICY a systematic shift on NEGATIVE values is REJECTED ok=1 n=16 systematic shift: 16 of 16 judged elements sit at exactly 1 ULP, so a strict majority is not even bit-identical — a wrong rounding mode or an off-by-o
+CHECK name=negatives-f32-sign-flips-are-real-divergences ok=1 n=6 6 of 6 negative/positive pairs diverge, all of them by >=2 ULP
+CHECK name=dead-branch witness: the naive `x<0` form reports a vacuous zero ok=1 n=6 naive form: 0 differing of 6; the real ruler: 6. That is pitfalls/30 §A firing on this fixture, not a hypothetical
+CENSUS format=f32 field=s judged=16 identical=14 differing=2 categories[equal=14 finite_step=2] ulp_histogram[1:2] max_ulp=1 subnormal_diverging=0
+POLICY field=s width=F32 verdict=ACCEPT reasons[isolated ±1 ULP: 2 of 16 elements at exactly 1 ULP, 0 at >=2, field declared, width F32 (32.0000 bpw) is >= Q8] attribution=fixture: two negative elements crossed a rounding boundary
+CHECK name=POLICY isolated ±1 on NEGATIVE values is ACCEPTED ok=1 n=2 isolated ±1 ULP: 2 of 16 elements at exactly 1 ULP, 0 at >=2, field declared, width F32 (32.0000 bpw) is >= Q8
+CENSUS format=f32 field=s judged=16 identical=0 differing=16 categories[finite_step=16] ulp_histogram[1:16] max_ulp=1 subnormal_diverging=0
+POLICY field=s width=F32 verdict=REJECT reasons[systematic shift: 16 of 16 judged elements sit at exactly 1 ULP, so a strict majority is not even bit-identical — a wrong rounding mode or an off-by-one in a reduction looks exactly like this, and that is a different function, not rounding noise] attribution=fixture
+CHECK name=POLICY a systematic shift on NEGATIVE values is REJECTED ok=1 n=16 systematic shift: 16 of 16 judged elements sit at exactly 1 ULP, so a strict majority is not even bit-identical — a wrong rounding mode or an off-by-o
+WIDTHABSENT type=BF16 is not a tensor type in Qwen3.6-35B-A3B-UD-Q4_K_M.gguf: no veto fixture can be built for it here, and this is reported as absent rather than silently skipped
+WIDTHABSENT type=F16 is not a tensor type in Qwen3.6-35B-A3B-UD-Q4_K_M.gguf: no veto fixture can be built for it here, and this is reported as absent rather than silently skipped
+CHECK name=width fixtures are real tensors of their own ggml type ok=1 n=5 WIDTH tensor=output_norm.weight ggml_type=F32(id=0) bpw=32.0000 bpw_independent=32.0000 q8_or_above=1 rule=bpw>=8.0 source=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf | WIDTH tensor=blk.0.ffn_gate_exps.weight ggml_type=Q4_K(id=12) bpw=4.5000 bpw_independent=4.5000 q8_or_above=0 rule=bpw>=8.0 source=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf | WIDTH tensor=blk.0.ffn_down_exps.weight ggml_type=Q5_K(id=13) bpw=5.5000 bpw_independent=5.5000 q8_or_above=0 rule=bpw>=8.0 source=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf | WIDTH tensor=output.weight ggml_type=Q6_K(id=14) bpw=6.5625 bpw_independent=6.5625 q8_or_above=0 rule=bpw>=8.0 source=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf | WIDTH tensor=token_embd.weight ggml_type=Q8_0(id=8) bpw=8.5000 bpw_independent=8.5000 q8_or_above=1 rule=bpw>=8.0 source=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
+CHECK name=width-F32 is >= Q8 ok=1 n=32.0 WIDTH tensor=output_norm.weight ggml_type=F32(id=0) bpw=32.0000 bpw_independent=32.0000 q8_or_above=1 rule=bpw>=8.0 source=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
+CHECK name=width-Q4_K is < Q8 ok=1 n=4.5 WIDTH tensor=blk.0.ffn_gate_exps.weight ggml_type=Q4_K(id=12) bpw=4.5000 bpw_independent=4.5000 q8_or_above=0 rule=bpw>=8.0 source=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
+CHECK name=width-Q5_K is < Q8 ok=1 n=5.5 WIDTH tensor=blk.0.ffn_down_exps.weight ggml_type=Q5_K(id=13) bpw=5.5000 bpw_independent=5.5000 q8_or_above=0 rule=bpw>=8.0 source=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
+CHECK name=width-Q6_K is < Q8 ok=1 n=6.5625 WIDTH tensor=output.weight ggml_type=Q6_K(id=14) bpw=6.5625 bpw_independent=6.5625 q8_or_above=0 rule=bpw>=8.0 source=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
+CHECK name=width-Q8_0 is >= Q8 ok=1 n=8.5 WIDTH tensor=token_embd.weight ggml_type=Q8_0(id=8) bpw=8.5000 bpw_independent=8.5000 q8_or_above=1 rule=bpw>=8.0 source=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
+WIDTHDRIFT type=Q4_0 ggml_block_geom=4.500000 bpw gguf_width_table=8.500000 bpw in_pinned_file=0 note=latent: no tensor of this type in the pinned file, so the file-size witness in gguf_width_table.py cannot see it
+CHECK name=the two width rulers agree on every type the pinned file contains ok=1 n=5 drift inside the file=none; drift outside it=['Q4_0']
+CHECK name=sabotage: an injected stale width-table row is caught ok=1 n=1 the injected Q8_0 row must make WidthClass refuse, not quietly ship
+CENSUS format=f32 field=s judged=16 identical=14 differing=2 categories[equal=14 finite_step=2] ulp_histogram[1:2] max_ulp=1 subnormal_diverging=0
+POLICY field=s width=Q8_0 verdict=ACCEPT reasons[isolated ±1 ULP: 2 of 16 elements at exactly 1 ULP, 0 at >=2, field declared, width Q8_0 (8.5000 bpw) is >= Q8] attribution=fixture: two elements crossed a rounding boundary
+CHECK name=POLICY isolated ±1 in a declared field at Q8 is ACCEPTED ok=1 n=2 isolated ±1 ULP: 2 of 16 elements at exactly 1 ULP, 0 at >=2, field declared, width Q8_0 (8.5000 bpw) is >= Q8
+CENSUS format=f32 field=s judged=16 identical=0 differing=16 categories[finite_step=16] ulp_histogram[1:16] max_ulp=1 subnormal_diverging=0
+POLICY field=s width=Q8_0 verdict=REJECT reasons[systematic shift: 16 of 16 judged elements sit at exactly 1 ULP, so a strict majority is not even bit-identical — a wrong rounding mode or an off-by-one in a reduction looks exactly like this, and that is a different function, not rounding noise] attribution=fixture: two elements crossed a rounding boundary
+CHECK name=POLICY systematic ±1 on EVERY element is REJECTED (the mandatory tripwire) ok=1 n=16 systematic shift: 16 of 16 judged elements sit at exactly 1 ULP, so a strict majority is not even bit-identical — a wrong rounding mode or an off-by-one in a re
+CENSUS format=f32 field=s judged=16 identical=8 differing=8 categories[equal=8 finite_step=8] ulp_histogram[1:8] max_ulp=1 subnormal_diverging=0
+POLICY field=s width=Q8_0 verdict=REJECT reasons[systematic shift: 8 of 16 judged elements sit at exactly 1 ULP, so a strict majority is not even bit-identical — a wrong rounding mode or an off-by-one in a reduction looks exactly like this, and that is a different function, not rounding noise] attribution=fixture: two elements crossed a rounding boundary
+CHECK name=POLICY half-the-field-at-1-ULP is REJECTED (isolation is not the >=2 rule) ok=1 n=8 systematic shift: 8 of 16 judged elements sit at exactly 1 ULP, so a strict majority is not even bit-identical — a wrong rounding mode or an off-by-one in a red
+CENSUS format=f32 field=s judged=16 identical=15 differing=1 categories[equal=15 finite_step=1] ulp_histogram[2:1] max_ulp=2 subnormal_diverging=0
+POLICY field=s width=Q8_0 verdict=REJECT reasons[1 element(s) at >=2 ULP (max 2): isolation requires zero] attribution=fixture: two elements crossed a rounding boundary
+CHECK name=POLICY a single element at 2 ULP is REJECTED ok=1 n=1 1 element(s) at >=2 ULP (max 2): isolation requires zero
+CENSUS format=f32 field=s judged=16 identical=15 differing=1 categories[equal=15 nan_vs_other=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=s width=Q8_0 verdict=REJECT reasons[non-finite divergence refused: nan_payload=0 nan_vs_other=1 inf_vs_finite=0 inf_vs_inf=0 — NaN is never within 1 ULP of a finite value, and a one-step overflow of a single element is exactly the defect an acceptance must never bless] attribution=fixture: two elements crossed a rounding boundary
+CHECK name=POLICY NaN-vs-finite is REJECTED ok=1 n=1 non-finite divergence refused: nan_payload=0 nan_vs_other=1 inf_vs_finite=0 inf_vs_inf=0 — NaN is never within 1 ULP of a finite value, and a one-step overflow 
+CENSUS format=f32 field=s judged=16 identical=15 differing=1 categories[equal=15 nan_payload=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=s width=Q8_0 verdict=REJECT reasons[non-finite divergence refused: nan_payload=1 nan_vs_other=0 inf_vs_finite=0 inf_vs_inf=0 — NaN is never within 1 ULP of a finite value, and a one-step overflow of a single element is exactly the defect an acceptance must never bless] attribution=fixture: two elements crossed a rounding boundary
+CHECK name=POLICY a NaN payload move is REJECTED (not a rounding step) ok=1 n=1 non-finite divergence refused: nan_payload=1 nan_vs_other=0 inf_vs_finite=0 inf_vs_inf=0 — NaN is never within 1 ULP of a finite value, and a one-step overflow 
+CENSUS format=f32 field=s judged=16 identical=14 differing=2 categories[equal=14 finite_step=2] ulp_histogram[1:2] max_ulp=1 subnormal_diverging=0
+POLICY field=s width=Q4_K verdict=REJECT reasons[D-17 width veto: ggml type Q4_K stores 4.5000 bpw, below Q8 (8.0). The Q4 veto is the user's, is structural, and applies even at 1 ULP] attribution=fixture: two elements crossed a rounding boundary
+CHECK name=POLICY Q4_K at exactly 1 ULP is REJECTED — and by the veto, not by accident ok=1 n=2 WIDTH tensor=blk.0.ffn_gate_exps.weight ggml_type=Q4_K(id=12) bpw=4.5000 bpw_independent=4.5000 q8_or_above=0 rule=bpw>=8.0 source=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf | D-17 width veto: ggml type Q4_K stores 4.5000 bpw, below Q8 (8.0). The Q4 veto is the user's, is structural, and applies even at 1 ULP
+CENSUS format=f32 field=s judged=16 identical=14 differing=2 categories[equal=14 finite_step=2] ulp_histogram[1:2] max_ulp=1 subnormal_diverging=0
+POLICY field=s width=Q6_K verdict=REJECT reasons[D-17 width veto: ggml type Q6_K stores 6.5625 bpw, below Q8 (8.0). The Q4 veto is the user's, is structural, and applies even at 1 ULP] attribution=fixture: two elements crossed a rounding boundary
+CHECK name=POLICY Q6_K at exactly 1 ULP is REJECTED (6.5625 bpw is below Q8) ok=1 n=2 D-17 width veto: ggml type Q6_K stores 6.5625 bpw, below Q8 (8.0). The Q4 veto is the user's, is structural, and applies even at 1 ULP
+CENSUS format=f32 field=s judged=16 identical=14 differing=2 categories[equal=14 finite_step=2] ulp_histogram[1:2] max_ulp=1 subnormal_diverging=0
+POLICY field=s width=Q5_K verdict=REJECT reasons[D-17 width veto: ggml type Q5_K stores 5.5000 bpw, below Q8 (8.0). The Q4 veto is the user's, is structural, and applies even at 1 ULP] attribution=fixture: two elements crossed a rounding boundary
+CHECK name=POLICY Q5_K at exactly 1 ULP is REJECTED (5.5 bpw is below Q8) ok=1 n=2 D-17 width veto: ggml type Q5_K stores 5.5000 bpw, below Q8 (8.0). The Q4 veto is the user's, is structural, and applies even at 1 ULP
+CENSUS format=f32 field=s judged=16 identical=14 differing=2 categories[equal=14 finite_step=2] ulp_histogram[1:2] max_ulp=1 subnormal_diverging=0
+POLICY field=s width=F32 verdict=ACCEPT reasons[isolated ±1 ULP: 2 of 16 elements at exactly 1 ULP, 0 at >=2, field declared, width F32 (32.0000 bpw) is >= Q8] attribution=fixture: two elements crossed a rounding boundary
+CHECK name=POLICY F32 (32 bpw) accepts the same isolated ±1 ok=1 n=2 isolated ±1 ULP: 2 of 16 elements at exactly 1 ULP, 0 at >=2, field declared, width F32 (32.0000 bpw) is >= Q8
+CENSUS format=f32 field=gate judged=16 identical=14 differing=2 categories[equal=14 finite_step=2] ulp_histogram[1:2] max_ulp=1 subnormal_diverging=0
+POLICY field=gate width=Q8_0 verdict=REJECT reasons[field 'gate' is not in the lane's declared set (['raw', 's', 'up']): exactness required and 2 elements moved] attribution=fixture: two elements crossed a rounding boundary
+CHECK name=POLICY a divergence in an undeclared field is REJECTED (count must stay zero) ok=1 n=2 field 'gate' is not in the lane's declared set (['raw', 's', 'up']): exactness required and 2 elements moved
+CENSUS format=f32 field=s judged=16 identical=15 differing=1 categories[equal=15 inf_vs_finite=1] ulp_histogram[1:1] max_ulp=1 subnormal_diverging=0
+POLICY field=s width=Q8_0 verdict=REJECT reasons[non-finite divergence refused: nan_payload=0 nan_vs_other=0 inf_vs_finite=1 inf_vs_inf=0 — NaN is never within 1 ULP of a finite value, and a one-step overflow of a single element is exactly the defect an acceptance must never bless] attribution=fixture: two elements crossed a rounding boundary
+CHECK name=POLICY a one-step overflow to +inf is REJECTED (a step count is not permission) ok=1 n=1 non-finite divergence refused: nan_payload=0 nan_vs_other=0 inf_vs_finite=1 inf_vs_inf=0 — NaN is never within 1 ULP of a finite value, and a one-step overflow 
+CENSUS format=f32 field=s judged=16 identical=15 differing=1 categories[equal=15 zero_sign_flip=1] ulp_histogram[1:1] max_ulp=1 subnormal_diverging=0
+POLICY field=s width=Q8_0 verdict=REJECT reasons[signed-zero flip refused: +0 and -0 are one ordered step apart, but the sign of a zero propagates (reciprocal, copysign, a silu denominator), so exactness is required there — 1 element(s)] attribution=fixture: two elements crossed a rounding boundary
+CHECK name=POLICY a signed-zero flip is REJECTED and named, not silently absorbed ok=1 n=1 signed-zero flip refused: +0 and -0 are one ordered step apart, but the sign of a zero propagates (reciprocal, copysign,
+CENSUS format=f32 field=s judged=16 identical=16 differing=0 categories[equal=16] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=s width=Q8_0 verdict=ACCEPT reasons[exact: 16/16 identical, no acceptance was needed] attribution=none
+CHECK name=POLICY all-identical is ACCEPTED as exact, having judged something ok=1 n=16 
+CENSUS format=f32 field=s judged=0 identical=0 differing=0 categories[] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=s width=Q8_0 verdict=REJECT reasons[nothing judged: a census over an empty population cannot fail] attribution=none
+CHECK name=POLICY an empty census is REJECTED (a check that cannot fail) ok=1 n=0 nothing judged: a census over an empty population cannot fail
+CENSUS format=f32 field=s judged=16 identical=14 differing=2 categories[equal=14 finite_step=2] ulp_histogram[1:2] max_ulp=1 subnormal_diverging=0
+POLICY field=s width=Q8_0 verdict=REJECT reasons[no attribution supplied: an accepted divergence must be explained by data the lane computed, not merely observed to be small] attribution=none
+CHECK name=POLICY an isolated ±1 with no attribution is REJECTED ok=1 n=1 no attribution supplied: an accepted divergence must be explained by data the lane computed, not merely observed to be small
+CENSUS format=f32 field=s judged=16 identical=14 differing=2 categories[equal=14 finite_step=2] ulp_histogram[1:2] max_ulp=1 subnormal_diverging=0
+POLICY field=s width=Q8_0 verdict=REJECT reasons[the lane's own attribution does not hold: the lane says the divergence is unexplained] attribution=the lane says the divergence is unexplained
+CHECK name=POLICY a failing attribution is REJECTED ok=1 n=1 the lane's own attribution does not hold: the lane says the divergence is unexplained
+CENSUS format=f32 field=s judged=16 identical=14 differing=2 categories[equal=14 finite_step=2] ulp_histogram[1:2] max_ulp=1 subnormal_diverging=0
+POLICY field=s width=no-artifact-width verdict=REJECT reasons[no width class was read from an artifact: the veto cannot be evaluated, and silence is not permission] attribution=fixture: two elements crossed a rounding boundary
+CHECK name=POLICY a missing width class is REJECTED (never default to permissive) ok=1 n=1 no width class was read from an artifact: the veto cannot be evaluated, and silence is not permission
+BRANCHES declared=28 reached=28 unreached=none bogus_labels=none
+CHECK name=every declared branch was actually executed by this selftest ok=1 n=28 unreached: none — an unexecuted branch has been hoped for, not tested
+CHECK name=every branch reached is a declared one ok=1 n=28 labels not in BRANCHES: none
+RESULT PASS ulp_policy selftest checks=99 findings=0
+FORMAT name=bf16 bits=16 mant=7 exp=8 bias=127 subnormal_min=9.184e-41 normal_min=1.175e-38 max=3.3895e+38 derived_from=bitimage(torch) crosscheck=torch.finfo
+FORMAT name=f16 bits=16 mant=10 exp=5 bias=15 subnormal_min=5.960e-08 normal_min=6.104e-05 max=6.5504e+04 derived_from=bitimage(struct) crosscheck=numpy.finfo
+FORMAT name=f32 bits=32 mant=23 exp=8 bias=127 subnormal_min=1.401e-45 normal_min=1.175e-38 max=3.4028e+38 derived_from=bitimage(struct) crosscheck=numpy.finfo
+FORMAT name=f64 bits=64 mant=52 exp=11 bias=1023 subnormal_min=4.941e-324 normal_min=2.225e-308 max=1.7977e+308 derived_from=bitimage(struct) crosscheck=numpy.finfo

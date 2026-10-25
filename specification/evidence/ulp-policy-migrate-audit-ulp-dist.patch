@@ -1,0 +1,28 @@
+--- a/tools/audit_published_quant.py
++++ b/tools/audit_published_quant.py
+@@ -764,7 +764,24 @@
+ 
+ 
+ def ulp_dist(a, b):
+-    return abs(_f32_ord(a) - _f32_ord(b))
++    """f32 ULP distance, delegated to the repo's one ruler (DECISIONS.md D-17).
++
++    `specification/evidence/ulp_policy_equiv.py` proves the delegated ruler agrees with the body this
++    replaced on every finite pair of a 69,089-pair derived corpus. The NaN arms differ on purpose: the
++    shared ruler refuses to call a NaN a rounding step, while this tool prints a number for every pair
++    it judges, so the numeric answer is kept there and named rather than silently large.
++    """
++    import sys as _sys
++    _sys.path.insert(0, HERE)
++    import ulp_policy
++    r = getattr(ulp_dist, "_ruler", None)
++    if r is None:
++        r = ulp_dist._ruler = ulp_policy.Ruler("f32")   # f32 derives from struct: stdlib only
++    kind, steps = r.classify(struct.unpack("<I", struct.pack("<f", a))[0],
++                             struct.unpack("<I", struct.pack("<f", b))[0])
++    if kind in (ulp_policy.NAN_PAIR, ulp_policy.NAN_OTHER):
++        return abs(_f32_ord(a) - _f32_ord(b))
++    return steps
+ 
+ 
+ def f32_bits(x):

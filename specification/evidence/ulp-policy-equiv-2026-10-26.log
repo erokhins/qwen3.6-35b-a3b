@@ -1,0 +1,27 @@
+POPULATION f32 images=13824 pairs=69089 (derived: 2^8 exp x boundary mants + neighbourhoods)
+POPULATION bf16 images=65536 pairs=327548 (exhaustive: every one of the 2^16 images)
+CHECK name=f32 population is non-trivial ok=1 n=69089 
+CHECK name=bf16 population is exhaustive ok=1 n=65536 
+CHECK name=pairs contain signed zeros ok=1 n=1 
+CHECK name=pairs contain subnormal-to-normal edges ok=1 n=1 
+CHECK name=pairs contain powers of two ok=1 n=1 the 1.0-to-2.0 pair, which no float-quantum ruler can count as steps
+CHECK name=pairs contain infinities and NaN images ok=1 n=1 
+CHECK name=pairs straddle zero ok=1 n=1 
+EQUIVCLASS ruler=tools/audit_published_quant.py:ulp_dist class=nan-arm:the shared ruler refuses to count a step here count=290 example: a=0x80000000 b=0x7fffffff theirs=2147483648
+EQUIV ruler=tools/audit_published_quant.py:ulp_dist format=f32 pairs=69089 agree=68799 disagree=290 classes[nan-arm:the shared ruler refuses to count a step here=290] verdict=DIFFERS-BY-DESIGN(nan arms) | ulp_dist takes floats and bitcasts the same way; the only documented gap is the NaN arms
+CHECK name=ulp_dist agrees with the shared ruler on every finite pair ok=1 n=290 unmet must-fire classes: none
+EQUIVCLASS ruler=prototype/moe_router/gate.py:bf16_ulpdist class=nan-arm:the shared ruler refuses to count a step here count=1401 example: a=0x7f01 b=0x7f81 theirs=128
+EQUIV ruler=prototype/moe_router/gate.py:bf16_ulpdist format=bf16 pairs=327548 agree=326147 disagree=1401 classes[nan-arm:the shared ruler refuses to count a step here=1401] verdict=DIFFERS-BY-DESIGN(nan arms) | same sign-magnitude transform as the shared ruler
+CHECK name=bf16_ulpdist agrees with the shared ruler on every finite pair ok=1 n=1401 unmet must-fire classes: none
+EQUIVCLASS ruler=prototype/moe_router/gate.py:ulpdist_bits class=identifies-plus-zero-with-minus-zero count=2 example: a=0x0 b=0x80000000 ours=1 theirs=0
+EQUIVCLASS ruler=prototype/moe_router/gate.py:ulpdist_bits class=nan-arm:the shared ruler refuses to count a step here count=290 example: a=0x80000000 b=0x7fffffff theirs=2147483647
+EQUIVCLASS ruler=prototype/moe_router/gate.py:ulpdist_bits class=one-step-fewer-where-the-pair-straddles-zero count=13771 example: a=0x1 b=0x80000001 ours=3 theirs=2
+EQUIV ruler=prototype/moe_router/gate.py:ulpdist_bits format=f32-images pairs=69089 agree=55026 disagree=14063 classes[identifies-plus-zero-with-minus-zero=2 nan-arm:the shared ruler refuses to count a step here=290 one-step-fewer-where-the-pair-straddles-zero=13771] verdict=DIVERGES — migration must decide each class | its map is `a if a < 0x80000000 else 0x80000000 - a`, which folds +0 and -0 onto one key: every pair straddling zero is counted ONE STEP SHORT of the true number of representable steps, and +0/-0 read as identical. The direction matters — a band measured with this ruler is one step LAXER across zero than the band it claims to be
+CHECK name=ulpdist_bits disagreement classes are the ones the migration note names ok=1 n=14063 unmet must-fire classes: none — if this reads none, the harness is vacuous
+EQUIVCLASS ruler=speccheck/moe_ref.py:ulp_of class=quantum-miscount (subnormal or binade edge) count=1280 example: image=0x0001 value=9.183549615799121e-41 ulp_of=7.174648137343064e-43 true upward step=9.183549615799121e-41 ratio=0.0078125
+EQUIVCLASS ruler=speccheck/moe_ref.py:ulp_of class=returns-zero-at-zero-or-nonfinite count=18 example: value=0.0 ulp_of=0.0 true upward step=9.183549615799121e-41
+EQUIV ruler=speccheck/moe_ref.py:ulp_of format=bf16 pairs=327548 agree=326250 disagree=1298 classes[quantum-miscount (subnormal or binade edge)=1280 returns-zero-at-zero-or-nonfinite=18] verdict=NOT A STEP COUNT — a length, so it cannot be the acceptance ruler | quantum-miscount (subnormal or binade edge)=1280; returns-zero-at-zero-or-nonfinite=18
+CHECK name=ulp_of disagreements are the documented subnormal/zero classes and are witnessed ok=1 n=1298 unmet must-fire classes: none
+CHECK name=bf16 explicit mantissa bits derive to 7 (moe_ref §ulp_of prose says 8) ok=1 n=7 ulp_of's formula 2^(exp-7) is right; its prose is not. Derived twice: bitimage(torch) + torch.finfo
+CHECK name=moe_stats' BF16_REL_WIDTH is the typed-8 value, not the derived one ok=1 n=0.015625 the constant is 2^-9 under the comment '8 explicit mantissa bits'; with mant=7 the half-ULP relative width is 1.562e-02 = 2^-8. NOTE: grep shows the constant is never used, so this is dead code carrying a wrong width, not a live wrong number
+RESULT PASS ulp_policy equivalence checks=13 findings=0
