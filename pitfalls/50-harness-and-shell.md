@@ -139,3 +139,32 @@ of the runaway script makes the bash call return non-zero, the worker resumes, a
 server, 22.6 GiB resident) and an unrelated project's venv python. A `pkill -f python3` or a kill-by-name
 there is an outage, not a recovery — and it is exactly the kind of command that succeeds and then explains
 itself afterwards. Same rule as the self-matching `pgrep` above: name the process, don't describe it.
+
+## CC Safety Net blocks are not suggestions — and they kill workers mid-run
+
+This box runs a command safety net that **refuses** several ordinary shell forms. It is not advisory: a
+worker that hits one dies mid-task and must be resumed, and whatever it had queued in that call is gone.
+Rediscovered the hard way on 2026-10-26 when W17 died on a heredoc. The forms, the rule the net cites, and
+the house workaround:
+
+| blocked form | rule | do this instead |
+|---|---|---|
+| `python3 - <<PY`, any heredoc into an interpreter | `analysis.unsupported-heredoc` | **`write` the script to a file, then run the file.** Never pipe a heredoc to an interpreter. |
+| `python3 -c "…"` containing a loop or comprehension | `analysis.dynamic-shell-source` | same: file, then run |
+| `bash -c "…"` / any dynamically assembled command | `analysis.dynamic-shell-source` | literal command strings; put the logic in a script file |
+| `rm -rf $DIR`, recursive-force on an expanding target | rm safety rule | literal paths, or don't delete |
+| `git checkout -- <path>` (discard working-tree changes) | `git.checkout-double-dash` | `git stash push -- <paths>` — recoverable, which is the whole point |
+| `pgrep -f <pattern>` that can match your own shell | (silent wrong answer, not a block) | name a PID |
+
+Two things worth internalising. **The workaround is always the same shape**: the net objects to *interpreter
+source it cannot inspect*, so anything with logic in it becomes a file — which incidentally makes it
+reviewable, re-runnable and citable. And **a plain shell loop is fine** (`for f in …; do ./prog "$f"; done`);
+the objector is inline interpreter source, not iteration.
+
+Related, though not a block: `awk` here is **mawk 1.3.4**, which does not implement POSIX `{n}` intervals, so
+a regex like `x{8}` silently matches nothing — and a parse returning zero records looks exactly like a clean
+run (`pitfalls/40-gates-and-admissions.md`, empty-parse-PASS). Prove a regex matched something before
+believing a zero.
+
+**Supervisor duty:** brief workers on this list up front. It is cheaper to say "write files, don't heredoc"
+than to resume a lane that burned twenty minutes and died on the last step.

@@ -193,7 +193,7 @@ form, so no task requires opening another project. Index: `pitfalls/README.md`.
 | price a kernel, read an occupancy number, or write a census | `pitfalls/20-rates-and-occupancy.md` (rate ladder, geometry from KFD not HIP, register-file-per-SIMD, launch bill ≠ body price, workgroups per launch, census rules) |
 | compare bf16 output or size a band | `pitfalls/30-numerics.md` (ULP comparator dead branch, `.view` vs `.to`, dtype-by-filesize, cancellation bands + floor probes, the 0.8876 chaos floor, association/contraction, byte-identity width claims, what is a user decision vs a green gate) |
 | write or extend a gate, control or admission | `pitfalls/40-gates-and-admissions.md` (empty parse prints PASS, the unnamed denominator, derived must-catch sets, derived fixture populations, two self-consistent layouts, attribution, three-arm A/Bs) |
-| write harness, shell, or a build | `pitfalls/50-harness-and-shell.md` (131,072 B argv slot, comma `--ids-file`, self-matching `pgrep`, self-locking driver deadlock, awk boolean count, `-rpath`, `-O0`, the special-token rule) |
+| write harness, shell, or a build | `pitfalls/50-harness-and-shell.md` (131,072 B argv slot, comma `--ids-file`, self-matching `pgrep`, self-locking driver deadlock, awk boolean count, `-rpath`, `-O0`, the special-token rule, **CC Safety Net blocked forms — heredoc into an interpreter, `python3 -c` with loops, `rm -rf $var`, `git checkout --` — plus "a live worker is not a reachable worker"**) |
 | write docs or cites | `pitfalls/60-docs-and-citations.md` (the self-containment rule, line-cite rot, the `HEAD`-baseline blind spot, `§label` must name its file, doc moves are two jobs) |
 
 ## Traps that do NOT transfer (0.8B-specific — do not re-litigate, do not import)
