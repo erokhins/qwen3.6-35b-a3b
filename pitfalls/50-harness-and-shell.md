@@ -168,3 +168,38 @@ believing a zero.
 
 **Supervisor duty:** brief workers on this list up front. It is cheaper to say "write files, don't heredoc"
 than to resume a lane that burned twenty minutes and died on the last step.
+
+## An order-free digest of values is blind to a uniform rescale
+
+**Discovered 2026-10-26 in the `prototype/lm_head/` lane**, by trying to sabotage its own kernel and watching
+the digest not move. An XOR of value bits — the obvious order-free digest, commutative and cheap — **cannot see
+a uniform power-of-two rescale**: `d = 0.5` and `d = 1.0` over the same quants both give
+`xorb = 0xFF400000` (measured, scratch `tmp/worker-lm-head/probe9_literals.cpp`). Every scale-multiplying bug in
+that kernel would have walked straight past a gate whose value digest was XOR alone.
+
+**The rule: state what each digest provably detects, and give it a witness that it moves.** XOR-of-bits detects
+*multiplicity* — which values are present and how often — so it is a fine companion and a poor sole judge. The
+lane added `vsum`, an integer sum of the value bits, which a uniform rescale must change. Two corollaries:
+
+- A digest that survives a bug is not a weak test of that bug, it is **no test of it** — and the failure is
+  invisible, because the digest still prints a plausible hex word. Ask "what transformation leaves this
+  unchanged?" before trusting any summary, exactly as with `sum == target`.
+- The float analogue has the same shape: an absolute-error check is blind to a systematic *relative* error, and
+  a relative check can cancel a uniform scale. When a gate quotes a band, say which of the two it is.
+
+## hipcc compiles the TU twice, so `atomicAdd` inside `__host__ __device__` is a hard error
+
+**Measured 2026-10-26** by the same lane. A single-source header shared between `g++` and `hipcc` fails the
+**host** pass with `reference to __device__ function 'atomicAdd' in __host__ __device__ function`, because
+`hipcc` compiles the translation unit once for the host and once for the device. Guard the device-only call:
+
+```c
+#if defined(__HIP_DEVICE_COMPILE__)
+    atomicAdd(...);
+#endif
+```
+
+`__HIP_DEVICE_COMPILE__` is defined in the gfx1151 pass and not in the host pass (verified, scratch
+`tmp/worker-lm-head/probe6_guard.hip`). General form: in a shared header, "compiles under hipcc" and "compiles
+under g++" are two compilations of one text, so any name of a `__device__` intrinsic needs a guard — and the
+error points at the host half, which reads like the host compiler is broken while the device half is fine.
