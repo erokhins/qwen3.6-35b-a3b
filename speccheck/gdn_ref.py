@@ -73,15 +73,22 @@ unless the comparison differs. And `--floor-probe`: the §10.3 floor probe over 
 bytes plus the fresh fixtures, which derives the band, licenses only the cross-form rows it
 measured, adjudicates every one of them, perturbs its own input by 1 ULP and by a band-exceeding
 value to watch the accept/reject flip both ways, and writes
-`speccheck/evidence/gdn-band-2026-10-26.json` for `load_band()` to re-derive or refuse.
+`speccheck/evidence/gdn-band-2026-10-26.json` for `load_band()` to re-derive or refuse. And
+`--cross-form`: the section that CREDITS that band outside the probe. It loads the band through
+`load_band(BAND_PATH)` and nowhere else, adjudicates every licensed arm-to-arm row with the
+probe's own `band_check_row()`, re-measures the licence itself rather than trusting the file (the
+audit table, both directions of disagreement), prints the widest margin (`normed`) as its own
+table with each metric's share of its licence, measures how much of a real §04.7 gated-norm
+defect that margin swallows, carries denominators declared from geometry × licence before anything
+runs, and watches its own accept/reject sabotage flip on the reference's bytes.
 
-**Not implemented yet — no flag exists for them, so they cannot print a PASS:** the cross-form
-rows of §04b.6 as a verdict of their own (`--cross-form`), which is the section that would
-consume the band outside the probe, and the capability/dispatch probe (`--capability`).
+**Not implemented yet — no flag exists for it, so it cannot print a PASS:** the capability/dispatch
+probe (`--capability`).
 `aggregates` is exercised by every section; `band_from_probe`, `band_check_row`,
-`band_licenses` and `load_band` are exercised by `--floor-probe` itself, so none of them is a
-function no gate calls. This is recorded here rather than advertised in the usage block because
-a flag that cannot fail is worse than a missing one (`pitfalls/40`).
+`band_licenses` and `load_band` are exercised by `--floor-probe` and, for the last three, by
+`--cross-form` itself, so none of them is a function no gate calls. This is recorded here rather
+than advertised in the usage block because a flag that cannot fail is worse than a missing one
+(`pitfalls/40`).
 """
 
 from __future__ import annotations
@@ -568,8 +575,11 @@ def short_conv(mixed_qkv: torch.Tensor, w: GdnWeights, g: GdnGeometry, faults: F
     then SiLU  [REF: causal_conv1d_fn].
     decode: concatenate the stored window with the new column, keep the last `k_conv`
     columns as the new window, convolve with no padding, keep the last output, then SiLU
-    [REF: causal_conv1d_update] — "the same arithmetic as the equation above", which the
-    `--cross-form` section adjudicates as its own row.
+    [REF: causal_conv1d_update] — "the same arithmetic as the equation above". That claim is
+    NOT adjudicated as a banded row: `conv_window` has no entry in the band (it is upstream of
+    the scan-dtype decision, so `--floor-probe` refuses to floor it and `band_check_row` refuses
+    to invent a limit), and `--cross-form` names it in its UNVERIFIED list. The two spellings
+    are checked bit-for-bit against the pinned bytes by `--compare-hf` instead.
 
     `conv_pre` is the conv output BEFORE the activation and `conv_window` is a window of
     **inputs**: pinning the output window instead reproduces a real-looking tensor that is
@@ -1165,6 +1175,16 @@ def aggregates(a: torch.Tensor, b: torch.Tensor, *, name: str = "",
             "ulp_of_refmax": ulp_ref}
 
 
+def band_digest(band: dict) -> str:
+    """The reproducibility digest of a band object: sha256 over its canonical JSON encoding.
+
+    One spelling on purpose — `--floor-probe` prints it, `--cross-form` prints it and
+    re-checks it after its own controls, and `speccheck/results-gdn.md` quotes it. A bare hex
+    string nobody can regenerate is not a reproducibility claim, so callers print
+    `BAND_DIGEST_HOW` beside it (`pitfalls/60` §citation hygiene)."""
+    return hashlib.sha256(json.dumps(band, sort_keys=True).encode()).hexdigest()
+
+
 def fmt_ag(m: dict) -> str:
     return (f"{m['name']:<46} {m['dtype']:<15} {str(m['shape']):<22} "
             f"maxabs={m['max_abs']:.3e} 1-cos={m['one_minus_cos']:.3e} "
@@ -1555,16 +1575,21 @@ HF_UNVERIFIED = [
             "the reference's choice and not the engine's; the engine's 3-column window is a "
             "different tensor and is not checked here",
      "closes_when": "the engine's residency layout is gated against a dump of its own window"},
-    {"item": "banded (not bit-exact) agreement as a VERDICT",
-     "why": "`--floor-probe` now exists and derives the band "
-            "(`speccheck/evidence/gdn-band-2026-10-26.json`), and that section adjudicates "
-            "every licensed cross-form row inside it — but no `--cross-form` section exists, so "
-            "outside the probe no PASS credits a band. Every row `--compare-hf` and `--selftest` "
-            "credit is still bit-exact or it is a failure, which is the admission this lane "
-            "ships on",
-     "closes_when": "a `--cross-form` section loads the band through `load_band()` and "
-                    "adjudicates arm-to-arm rows with `band_check_row()`, with its own "
-                    "denominators and its own sabotage witnesses"},
+    {"item": "banded (not bit-exact) agreement as a VERDICT, past the seven banded stages",
+     "why": "`--cross-form` now exists: it loads the band through `load_band()`, adjudicates "
+            "every licensed arm-to-arm row with `band_check_row()`, re-measures the licence "
+            "rather than trusting the file, and carries its own denominators and sabotage "
+            "witnesses (`speccheck/results-gdn.md` §The cross-form verdict). What is STILL not "
+            "established is the reach of that verdict: it covers the seven stages "
+            "`--floor-probe` floored, it withholds 82 of the 1218 candidate pairs because a "
+            "bf16 pair that measured ndiff 0 bounds nothing, 329 of the adjudicated rows "
+            "measured arm-to-arm bit-identity and so added no numeric evidence, and the ladder "
+            "there measures that a real §04.7 gated-norm defect scaled to 1/2**2 sits INSIDE "
+            "the `normed` margin. It is a bound on legitimate cross-form spread, not a defect "
+            "detector, and the other 12 stages have no band at all",
+     "closes_when": "the 12 upstream stages gain a second legal implementation so a floor is "
+                    "measurable there, and the engine's own kernels are gated against these "
+                    "rows bit-for-bit where no band is involved"},
     {"item": "a banded floor for any of the 12 stages upstream of the scan",
      "why": "they are computed by code the F32 arms and the f64 anchor share, so their distance "
             "to the anchor is 0 by construction; `--floor-probe` prints each by name rather than "
@@ -3150,6 +3175,21 @@ def _probe_pinned_stages(manifest, DG, block_name, mode, files_read, stages=STAG
 
 
 # --------------------------------------------------------------------- the section
+def _manifest_geometry_fails(manifest: dict, g: GdnGeometry) -> list:
+    """Does the dump's manifest describe THIS model? One spelling, read by both sections that
+    measure off the pinned bytes (`--floor-probe` and `--cross-form`), so the two cannot
+    disagree about what "the same model" means."""
+    out = []
+    mgeo = manifest["geometry"]
+    for key, ours in (("linear_key_head_dim", g.d_k), ("linear_value_head_dim", g.d_v),
+                      ("linear_num_value_heads", g.h_v), ("linear_conv_kernel_dim", g.k_conv),
+                      ("chunk_width", g.chunk_width)):
+        if mgeo.get(key) != ours:
+            out.append(f"manifest geometry {key}={mgeo.get(key)} != config {ours}: the run "
+                       "would be measuring a dump of a different model")
+    return out
+
+
 def section_floor_probe(g, args) -> list:
     """`--floor-probe`: measure the floors, derive the band, license only what was measured."""
     fails = []
@@ -3167,13 +3207,7 @@ def section_floor_probe(g, args) -> list:
                      "that were never run. Drop the subset flag.")
         return fails
     manifest = DG.load_manifest(PROBE_MANIFEST)
-    mgeo = manifest["geometry"]
-    for key, ours in (("linear_key_head_dim", g.d_k), ("linear_value_head_dim", g.d_v),
-                      ("linear_num_value_heads", g.h_v), ("linear_conv_kernel_dim", g.k_conv),
-                      ("chunk_width", g.chunk_width)):
-        if mgeo.get(key) != ours:
-            fails.append(f"manifest geometry {key}={mgeo.get(key)} != config {ours}: the probe "
-                         "would be measuring a dump of a different model")
+    fails += _manifest_geometry_fails(manifest, g)
     if fails:
         return fails
 
@@ -3389,11 +3423,10 @@ def section_floor_probe(g, args) -> list:
         }
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(doc, indent=1, sort_keys=False) + "\n")
-    band_digest = hashlib.sha256(json.dumps(
-        band, sort_keys=True).encode()).hexdigest()[:16]
+    band_digest_str = band_digest(band)[:16]
     band = load_band(out_path)
     print(f"\n### band — written to {out_path.relative_to(REPO)} and re-read through load_band() "
-          f"(digest {band_digest}); every number in it is `probe x factor`, never typed"
+          f"(digest {band_digest_str}); every number in it is `probe x factor`, never typed"
           + ("" if out_path.resolve() == BAND_PATH.resolve() else
              " — SCRATCH COPY, marked as one inside the file; the credited band is "
              f"{BAND_PATH.relative_to(REPO)}"))
@@ -3587,8 +3620,8 @@ def section_floor_probe(g, args) -> list:
     if printed.get("sab", 0) != exp_sabotages:
         fails.append(f"sabotage rows printed {printed.get('sab', 0)}, derived {exp_sabotages} "
                      "(2 per block: the accept side and the reject side)")
-    after = hashlib.sha256(json.dumps(band, sort_keys=True).encode()).hexdigest()[:16]
-    if after != band_digest:
+    after = band_digest(band)[:16]
+    if after != band_digest_str:
         fails.append("the band changed between being written and the end of the run; a sabotage "
                      "witness relicensed something, which is exactly what must not happen")
 
@@ -3642,6 +3675,724 @@ def section_floor_probe(g, args) -> list:
           "(AGENTS.md §Traps that do NOT transfer); this band is this checkpoint's, from these "
           "pinned rows.")
     print(f"# band factors (the triangle inequality, not taste): {BAND_FACTORS}")
+    return fails
+
+
+# ============================================================= the cross-form verdict
+# §What this section is allowed to credit, and the three things it refuses.
+#
+# `--floor-probe` derives the band and adjudicates inside it, which makes the band the
+# probe's own claim: outside that section no PASS credited a band (`HF_UNVERIFIED` row 5,
+# `speccheck/results-gdn.md` §What is banded, and from which probe). This is the consuming
+# section. The band enters through `load_band(BAND_PATH)` and nowhere else — no width, no
+# factor, no limit is recomputed or typed here — and if the file is missing or its
+# `probe x BAND_FACTORS` arithmetic disagrees, `load_band` raises, this section prints the
+# refusal and returns a failure. It does not fall back to a number.
+#
+# The comparator is `band_check_row()`, the probe's own function, so the repo has one
+# adjudicator rather than two that can drift apart. The rows are the §04b.6 cross-form list:
+# every unordered pair of LEGAL forms at a pass, at each stage that has a floor, over the
+# pinned dump passes and the fresh fixtures — the same pass grid the licence was derived
+# from, re-derived HERE from the manifest's record set and `default_fixtures` rather than
+# read back off the band file, so the licence and the population are two independent counts.
+#
+# Refusals, each with a counter that has to be able to fire:
+#   * a row judged WITHOUT a licence is a finding (`judged_without_licence`), not a warning;
+#   * a licence whose case this section cannot run is a finding (`licence_not_run`): the two
+#     sets are compared in both directions, not just the easy one;
+#   * a row that measured nothing judges nothing. The candidate pairs the probe excluded
+#     because a bf16 pair came back `ndiff 0` are named here, UNMEASURED, with the reason —
+#     a blank cell must never read as a 0 (`pitfalls/30` §byte-identity claims state the
+#     width they cover; `pitfalls/40` §a check that produces no output cannot fail).
+#
+# Denominators are declared before anything is measured (geometry x licence), parsed out of
+# the record lists, and printed by the same closure that prints the row. The sabotage
+# witnesses flip the verdict in BOTH directions on the reference's own bytes, and a control
+# zeroes each band key in turn to prove the verdict is a function of the band object and not
+# of a constant predicate.
+
+
+def band_digest_command() -> str:
+    """The command that recomputes the digest this section prints, from the committed file.
+
+    A reproducibility claim has to name a digest a stranger can regenerate, so the section
+    prints this beside the hex string instead of leaving the canonicalisation implicit."""
+    return ('$PY -c "import sys; sys.path.insert(0, \'speccheck\'); import gdn_ref as G; '
+            'print(G.band_digest(G.load_band(G.BAND_PATH)))"')
+
+
+def _ratio(v: float, lim: float) -> float:
+    """How much of a licensed limit a measured value used. A limit of exactly 0 is a demand
+    for bit-identity (`band_check_row`), so any non-zero measurement against it is reported
+    as `inf` rather than as a number that looks like headroom."""
+    if lim > 0.0:
+        return v / lim
+    return 0.0 if v == 0.0 else float("inf")
+
+
+def cross_form_norm_local_faults() -> tuple:
+    """The injections whose ENTIRE unconditional contract is `normed` and its consumer `y`.
+
+    Derived from `AFFECTED`, never typed: these are the §04.7 gated-norm defects that nothing
+    but a `normed` band can catch — every stage upstream of them is bit-identical under the
+    injection, so this stage's margin is the only thing between the defect and a PASS."""
+    out = tuple(f for f in FAULT_FIELDS if AFFECTED.get(f) == ["normed", "y"])
+    if not out:
+        raise AssertionError("no fault's contract is exactly ['normed','y']: the margin control "
+                             "has no must-catch set, which is the empty-control failure "
+                             "(pitfalls/40 §a negative control with an empty must-catch set)")
+    return out
+
+
+def ladder_depth(dtype: torch.dtype) -> int:
+    """How many halvings of a defect one storage width can still express.
+
+    From the dtype's own epsilon, not typed: past 1/2**k with k the mantissa-bit count the
+    perturbation is below the quantum and rounds away, so scanning further would be measuring
+    the storage width and not the band."""
+    k = int(round(-math.log2(torch.finfo(dtype).eps))) + 1
+    if k < 2:
+        raise AssertionError(f"ladder depth {k} from eps={torch.finfo(dtype).eps}: the width "
+                             "cannot express a scaled defect at all")
+    return k
+
+
+def section_cross_form(g: GdnGeometry, args) -> list:
+    """`--cross-form`: the band consumed outside the probe. This is the section whose PASS is
+    the lane's banded verdict; nothing else in this file credits a band."""
+    fails = []
+    if args.only_fixture or args.only_fault:
+        fails.append("--cross-form does not honour --only-fixture/--only-fault: the verdict IS "
+                     "the licensed population, so a subset run would print PASS over rows the "
+                     "licence never covered. Drop the subset flag.")
+        return fails
+    blocks = [Block.parse(s) for s in args.blocks.split(",") if s.strip()]
+    if not blocks:
+        raise AssertionError("no blocks selected; an empty verdict cannot pass")
+    selected = {b.name for b in blocks}
+
+    # ---- the band, through load_band() and nowhere else
+    try:
+        band = load_band(BAND_PATH)
+    except AssertionError as exc:
+        print(f"# band: REFUSED by load_band() — {exc}")
+        return [f"--cross-form has no band to apply: {exc}"]
+    digest = band_digest(band)
+    file_sha = hashlib.sha256(BAND_PATH.read_bytes()).hexdigest()
+    # The document is read for PROVENANCE and printing only. Every limit used below comes from
+    # the `band` object load_band() arithmetic-checked, and the equality test right here is
+    # what keeps the two reads from being two different files.
+    doc = json.loads(BAND_PATH.read_text())
+    if doc.get("band") != band:
+        return [f"{BAND_PATH.relative_to(REPO)}: the `band` member re-read from the file is not "
+                "the object load_band() returned; the file moved under the run, so the verdict "
+                "below would be unattributed"]
+    if "scratch_artifact" in doc:
+        return [f"{BAND_PATH.relative_to(REPO)} carries a `scratch_artifact` record: "
+                "--band-out wrote a scratch copy onto the pinned band path, and no verdict is "
+                "credited from a scratch band"]
+
+    sys.path.insert(0, str(REPO / "tools"))
+    import dump_reference_gdn as DG  # noqa: E402  (lazy, as in --floor-probe)
+    manifest = DG.load_manifest(PROBE_MANIFEST)
+    fails += _manifest_geometry_fails(manifest, g)
+    if fails:
+        return fails
+
+    stages = tuple(s for s in STAGES if s in band)
+    if set(stages) != set(SCAN_WIDTH_STAGES):
+        fails.append(f"the band carries floors for {sorted(stages)} but the scan-width closure "
+                     f"is {sorted(SCAN_WIDTH_STAGES)}: the probe and the band file disagree "
+                     "about which stages have a floor, and a floor outside that closure would be "
+                     "a measurement of code the arms and the anchor share")
+        stages = tuple(s for s in SCAN_WIDTH_STAGES if s in band)
+    if not stages:
+        return fails + ["the band licenses no stage this section can run"]
+
+    passes = _probe_passes(g, blocks, manifest)
+    fixtures_by_name = {f.name: f for f in default_fixtures(g)}
+    n_pinned_modes = 1 + max(2, g.k_conv - 1)
+    exp_files = len(blocks) * n_pinned_modes * (1 + len(stages))
+    lic_at = {st: set(band[st].get("licensed_rows", [])) for st in stages}
+    lic_in_scope = {st: {k for k in lic_at[st] if k.split("|")[0].split("/")[0] in selected}
+                    for st in stages}
+    exp_lic_scope = sum(len(v) for v in lic_in_scope.values())
+    lic_out_of_scope = sum(len(v) for v in lic_at.values()) - exp_lic_scope
+
+    # §The declared population: geometry x licence, computed before anything is measured, from
+    # the manifest's own record set (through `_probe_passes`) and `default_fixtures` — never
+    # read back off the licence it is about to audit (`pitfalls/40` §an unnamed denominator).
+    declared = []
+    for p in passes:
+        arms = sorted(probe_arms_for(p.kind, p.source))
+        for stage in stages:
+            for i, a in enumerate(arms):
+                for b in arms[i + 1:]:
+                    declared.append((p, stage, a, b,
+                                     cross_form_key(p.key, a, b) in lic_at[stage]))
+    exp_judged = sum(1 for d in declared if d[4])
+    exp_unjudged = len(declared) - exp_judged
+    exp_normed = sum(1 for d in declared if d[4] and d[1] == "normed")
+    exp_sab = 2 * len(blocks)
+    if exp_judged == 0:
+        return fails + ["0 rows are licensed for the blocks selected: a band that licenses "
+                        "nothing cannot produce a verdict, and an empty table must never print "
+                        "PASS (pitfalls/40)"]
+
+    print(f"# command: {' '.join(sys.argv)}")
+    print(f"# cross-form — torch {torch.__version__} CPU "
+          f"threads={getattr(args, 'threads_used', '?')}; adjudicator: band_check_row(); "
+          "no timing taken")
+    print(f"# band: {BAND_PATH.relative_to(REPO)} — the ONLY source of any limit used here, read "
+          "through load_band(), which re-derives `probe x BAND_FACTORS` per stage and refuses a "
+          "file whose arithmetic disagrees")
+    print(f"#   digest      band object sha256 over the canonical encoding "
+          f"hashlib.sha256(json.dumps(band, sort_keys=True).encode()).hexdigest() = {digest}")
+    print(f"#   recompute   {band_digest_command()}")
+    print(f"#   file        sha256 {file_sha[:16]}… written by {doc.get('produced_by')} on "
+          f"{doc.get('date')}")
+    print(f"#   probe cmd   `{doc.get('command')}`")
+    print(f"#   dump        {doc['manifest']['path']} sha256 "
+          f"{doc['manifest']['sha256'][:16]}… ({doc['manifest']['records']} records); the probe "
+          f"hashed {doc['files_read']} files; {len(doc['unverified_stages'])} stages have no "
+          "floor at all")
+    print(f"#   probe said  population {json.dumps(doc['population'], sort_keys=True)}")
+    print(f"#   here        passes {len(passes)} x stages {len(stages)} = "
+          f"{len(declared)} candidate arm pairs, {exp_judged} licensed, {exp_unjudged} "
+          f"unlicensed; licences in the band for blocks not selected this run: "
+          f"{lic_out_of_scope}")
+    if (doc["population"].get("blocks") == len(blocks)
+            and doc["population"].get("cross_form_rows") != len(declared)):
+        fails.append(f"this section derives {len(declared)} candidate rows for "
+                     f"{len(blocks)} blocks, the band file's own population says "
+                     f"{doc['population'].get('cross_form_rows')}: two derivations of one "
+                     "denominator must agree, and here they do not")
+
+    printed = {}
+    files_read, anchors, tensors_all = [], {}, {}
+
+    def emit(table, line=""):
+        printed[table] = printed.get(table, 0) + 1
+        print(line)
+
+    # ---- measure: the anchors, every arm, and the pinned bytes, exactly as the probe laid
+    # them out (one pass program per run, cached decodes folded with their own prefill).
+    pinned_inputs_by_block = {}
+    for block in blocks:
+        w = load_gdn_block_weights(block, g)
+        recs = {(r["mode"], r["tensor_key"]): r for r in manifest["dumps"]
+                if r["block"] == block.name}
+        x_pf = DG.read_dump_tensor(recs[("prefill", "input")])
+        files_read.append((recs[("prefill", "input")]["file"],
+                           recs[("prefill", "input")]["sha256"], "input"))
+        steps = [DG.read_dump_tensor(recs[(f"decode{i}", "input")])
+                 for i in range(n_pinned_modes - 1)]
+        for i in range(n_pinned_modes - 1):
+            files_read.append((recs[(f"decode{i}", "input")]["file"],
+                               recs[(f"decode{i}", "input")]["sha256"], "input"))
+        x_st = torch.cat(steps, dim=1)
+        pinned_inputs_by_block[block.name] = x_pf
+        stage_bytes = {}
+        for m in ["prefill"] + [f"decode{i}" for i in range(n_pinned_modes - 1)]:
+            stage_bytes[m] = _probe_pinned_stages(manifest, DG, block.name, m, files_read,
+                                                 stages=stages)
+        here = [p for p in passes if p.block == block.name]
+        anchors[block.name] = {}
+        run = _probe_run_group(g, w, here, PROBE_ANCHOR, (x_pf, x_st), fixtures_by_name)
+        for p in here:
+            anchors[block.name][p.key] = {PROBE_ANCHOR: run[p.key]}
+        stage_tensors = {p.key: {} for p in here}
+        for p in here:
+            if p.source == "pinned":
+                m = "prefill" if p.kind == "prefill" else f"decode{p.step}"
+                stage_tensors[p.key][ARM_PINNED] = stage_bytes[m]
+        for arm in PROBE_ARMS:
+            run = _probe_run_group(g, w, here, arm, (x_pf, x_st), fixtures_by_name)
+            for key, st in run.items():
+                stage_tensors[key][arm] = st
+        tensors_all[block.name] = stage_tensors
+        del w
+
+    # ---- the licence, audited rather than trusted. The band file's `licensed_rows` is a
+    # statement about measurements the PROBE made; this section re-measures it. The probe's
+    # rule was "a record folded only if it was not a bf16 pair that came back ndiff 0", so the
+    # consumer re-derives exactly that predicate per arm from the anchor, per (pass, stage,
+    # arm), and requires the file's licence to agree in BOTH directions: a licence on a row
+    # that measures nothing here is refused, and a pair withheld a licence that does measure a
+    # difference is a finding. The arm-to-arm metrics are only ever printed for rows the
+    # licence grants; an unlicensed row appears in the audit table with its eligibility and no
+    # verdict, so a blank cell can never read as a 0.
+    elig = {}
+    for p in passes:
+        for stage in stages:
+            anch = anchors[p.block][p.key][PROBE_ANCHOR][stage]
+            for arm in sorted(probe_arms_for(p.kind, p.source)):
+                t = tensors_all[p.block][p.key][arm][stage]
+                ag = aggregates(t, anch, name=f"audit/{p.key}/{arm}/{stage}", stage=stage,
+                                anchor=anch)
+                elig[(p.key, stage, arm)] = (t.dtype is torch.bfloat16, ag["ndiff"])
+
+    licensed_why = None
+    for (_p, _st, _a, _b, _l) in declared:
+        if _l:
+            licensed_why = band_licenses(band, _p.key, _st, _a, _b)[1]
+            break
+    print(f"\n### cross-form adjudication — every row the licence grants, arm-to-arm, judged by "
+          f"band_check_row() against the band re-read from {BAND_PATH.name}")
+    print(f"# licence: the `licence` column is that row's entry in the band file's "
+          f"`licensed_rows` for the stage; band_licenses() answered \"{licensed_why}\", i.e. the "
+          "probe folded a record for BOTH arms at THAT pass and stage. Only licensed rows are "
+          "adjudicated; the rows it withholds are named in the audit table below, with the "
+          "reason, and are never given a verdict.")
+    emit("hdr_xf", f"  {'block':<7} {'pass':<40} {'kind':<8} {'arms':<24} {'stage':<10} "
+                  f"{'dtype':<6} {'maxabs':>10} {'1-cos':>10} {'meanrel':>10} {'perhead':>10} "
+                  f"{'ndiff/n':>13}  {'band: maxabs/1-cos/meanrel/perhead':<40} "
+                  f"{'licence':<46} verdict")
+    judged, judged_keys, audit_rows = [], {st: set() for st in stages}, []
+    for (p, stage, a, b, _is_lic) in declared:
+        key = cross_form_key(p.key, a, b)
+        ok, why = band_licenses(band, p.key, stage, a, b)
+        if ok != _is_lic:
+            fails.append(f"licence read twice, read two ways: {key} on `{stage}` is in the "
+                         f"band's licensed-row set={_is_lic} but band_licenses() said "
+                         f"licensed={ok} ({why})")
+            continue
+        ta = tensors_all[p.block][p.key][a][stage]
+        tb = tensors_all[p.block][p.key][b][stage]
+        anch = anchors[p.block][p.key][PROBE_ANCHOR][stage]
+        ag = aggregates(ta, tb, name=f"{key}/{stage}", stage=stage, anchor=anch)
+        ea, eb = elig[(p.key, stage, a)], elig[(p.key, stage, b)]
+        measures = not ((ea[0] and ea[1] == 0) or (eb[0] and eb[1] == 0))
+        if ok and not measures:
+            fails.append(f"licensed but measured nothing: {key} on `{stage}` is licensed by the "
+                         f"band file, yet on re-measurement one arm is a bf16 tensor "
+                         f"bit-identical to the anchor (ndiff 0) — the storage quantum hides "
+                         "anything smaller, so this row judges nothing and may not be credited "
+                         "(pitfalls/30 §byte-identity claims state the width they cover)")
+        if not ok and measures:
+            fails.append(f"licence withheld from a row that measures a difference: {key} on "
+                         f"`{stage}` — both arms differ from the anchor by more than the bf16 "
+                         "quantum on re-measurement, so the band file and the bytes disagree "
+                         "about what was measured")
+        audit_rows.append((p, stage, a, b, key, ok, measures, ag, why))
+        if not ok:
+            continue
+        ent = band[stage]
+        good, why2 = band_check_row(band, stage, ag)
+        judged.append((p, stage, a, b, key, ag, good, why2))
+        judged_keys[stage].add(key)
+        if not good:
+            fails.append(f"cross-form {key} on `{stage}` is outside the band this lane already "
+                         f"derived: {why2} — the triangle inequality failed, which is a finding "
+                         "and not a band to widen (AGENTS.md §Standing rules)")
+        emit("xf", f"  {p.block:<7} {p.key:<40} {p.kind:<8} {a + '|' + b:<24} {stage:<10} "
+                   f"{ag['dtype'].replace('torch.', ''):<6} {ag['max_abs']:10.3e} "
+                   f"{ag['one_minus_cos']:10.3e} {ag['mean_rel']:10.3e} "
+                   f"{ag['per_head_max']:10.3e} "
+                   f"{str(ag['ndiff']) + '/' + str(ag['n']):>13}  "
+                   f"{ent['max_abs']:.3e}/{ent['one_minus_cos']:.3e}/"
+                   f"{ent['mean_rel']:.3e}/{ent['per_head_max']:.3e}  "
+                   f"{key:<46} {'ACCEPT' if good else 'REJECT'}")
+    print(f"  rows adjudicated {len(judged)} (ACCEPT {sum(1 for r in judged if r[6])}, "
+          f"REJECT {sum(1 for r in judged if not r[6])}); withheld by the licence "
+          f"{len(audit_rows) - len(judged)}")
+
+    print("\n### the licence audited against the bytes — every candidate pair, both directions "
+          "of disagreement printed rather than assumed")
+    print("# `measures` is this section's own re-derivation of the probe's folding rule: a bf16 "
+          "arm whose record came back ndiff 0 against the f64 anchor saw nothing, so it may "
+          "license nothing. `agree` is that against the file's licence.")
+    emit("hdr_au", f"  {'block':<7} {'pass':<40} {'kind':<8} {'arms':<24} {'stage':<10} "
+                  f"{'ndiff a/anchor':>14} {'ndiff b/anchor':>14} {'licence (file)':>14} "
+                  f"{'measures (here)':>15} {'agree':>6} adjudicated")
+    disagreed = 0
+    for (p, stage, a, b, key, ok, measures, ag, why) in audit_rows:
+        ea, eb = elig[(p.key, stage, a)], elig[(p.key, stage, b)]
+        agree = (ok == measures)
+        disagreed += 0 if agree else 1
+        emit("audit", f"  {p.block:<7} {p.key:<40} {p.kind:<8} {a + '|' + b:<24} {stage:<10} "
+                      f"{str(ea[1]) + '/' + str(ag['n']):>14} "
+                      f"{str(eb[1]) + '/' + str(ag['n']):>14} "
+                      f"{('LICENSED' if ok else 'withheld'):>14} "
+                      f"{('yes' if measures else 'NO — ndiff 0'):>15} "
+                      f"{('ok' if agree else 'FINDING'):>6} "
+                      f"{'yes' if ok else 'no — ' + why}")
+    print(f"  candidate pairs audited {len(audit_rows)} of declared {len(declared)}; "
+          f"licence/measurement disagreements {disagreed}")
+    trivial = [r for r in judged if r[5]["ndiff"] == 0]
+    print(f"  adjudicated rows that measured bit-identity (arm-to-arm ndiff 0): {len(trivial)} "
+          "— a true statement, stronger than the band, but it adds no numeric evidence; named "
+          "in the UNVERIFIED list when non-zero")
+
+    # ---- the licence and the population, compared in BOTH directions.
+    for st in stages:
+        ran = judged_keys[st]
+        for k in sorted(lic_in_scope[st] - ran):
+            fails.append(f"the band licenses `{k}` for `{st}` on a selected block but this "
+                         "section could not run that case: a licence whose case never ran "
+                         "licenses no verdict (pitfalls/40 §a check that produces no output)")
+
+    # ---- the `normed` rows, spelled out: the widest margin in the band gets its own table.
+    nrm = [r for r in judged if r[1] == "normed"]
+    ent_n = band["normed"]
+    print(f"\n### the `normed` rows in full — the widest max_abs band in the file "
+          f"({ent_n['max_abs']:.3e}, against `state`'s {band['state']['max_abs']:.3e}, "
+          f"{ent_n['max_abs'] / max(band['state']['max_abs'], 1e-300):.0f}x wider), left as "
+          "the probe measured it rather than trimmed. `1-cos` and `meanrel` are printed as "
+          "metrics in their own right, with the fraction of each licence they use, because the "
+          "max_abs limit alone is a weak bound on a bf16 tensor: see the `band/ulp` column, the "
+          "licensed max_abs expressed in ULPs of that row's own largest element.")
+    emit("hdr_nm", f"  {'block':<7} {'pass':<40} {'arms':<24} {'dtype':<6} "
+                  f"{'maxabs':>10} {'1-cos':>10} {'meanrel':>10} {'perhead':>10} "
+                  f"{'ndiff/n':>13} {'1-cos/band':>11} {'meanrel/band':>13} "
+                  f"{'band/ulp':>9} {'maxabs/band':>12} verdict")
+    ulps, util = [], {k: 0.0 for k in BAND_FACTORS}
+    for (p, _st, a, b, key, ag, good, _w) in nrm:
+        u = ent_n["max_abs"] / max(ag["ulp_of_refmax"], 1e-300)
+        ulps.append(u)
+        for k in BAND_FACTORS:
+            util[k] = max(util[k], _ratio(ag[k], ent_n[k]))
+        emit("normed", f"  {p.block:<7} {p.key:<40} {a + '|' + b:<24} "
+                       f"{ag['dtype'].replace('torch.', ''):<6} {ag['max_abs']:10.3e} "
+                       f"{ag['one_minus_cos']:10.3e} {ag['mean_rel']:10.3e} "
+                       f"{ag['per_head_max']:10.3e} "
+                       f"{str(ag['ndiff']) + '/' + str(ag['n']):>13} "
+                       f"{_ratio(ag['one_minus_cos'], ent_n['one_minus_cos']):11.3e} "
+                       f"{_ratio(ag['mean_rel'], ent_n['mean_rel']):13.3e} "
+                       f"{u:9.2f} "
+                       f"{_ratio(ag['max_abs'], ent_n['max_abs']):12.3e} "
+                       f"{'ACCEPT' if good else 'REJECT'}")
+    if ulps:
+        print(f"  normed rows {len(nrm)}, ACCEPT {sum(1 for r in nrm if r[6])}, REJECT "
+              f"{sum(1 for r in nrm if not r[6])}. The licensed max_abs is "
+              f"{min(ulps):.2f}–{max(ulps):.2f} bf16 ULPs of a row's own largest element, so "
+              "one ULP at the top of a tensor is sometimes inside the band and sometimes "
+              "outside it — the two relative metrics are what actually bind: the worst row used "
+              f"{util['one_minus_cos']:.3e} of the 1-cos licence and "
+              f"{util['mean_rel']:.3e} of the meanrel one, and "
+              f"{util['max_abs']:.3e} of the max_abs one.")
+
+    # ---- the hiding-room ladder: could a defect hide inside `normed`'s margin? Answered by
+    # measurement, in the shape the band actually judges. The injections whose whole contract is
+    # `normed`+`y` (§04.7) are run for real, and their difference from clean is scaled by
+    # 1/2**k: the k=0 row is the defect at full strength, and the largest k whose row the band
+    # still ACCEPTs **while the arm's stored bytes really changed** is how much defect the
+    # margin swallows. The pair adjudicated is the tightest licensed `normed` row the ORACLE
+    # re-runs (the `pinned` arm is bytes on disk and a defect cannot be injected into a file),
+    # and the ladder depth comes from the storage width, not from a typed constant.
+    faults = cross_form_norm_local_faults()
+    ladders = {}
+    for block in blocks:
+        cands = [r for r in judged if r[1] == "normed" and r[6]
+                 and ARM_PINNED not in (r[2], r[3])
+                 and r[0].source == "pinned" and r[0].kind == "prefill"
+                 and r[0].block == block.name]
+        if not cands:
+            fails.append(f"{block.name}: no ACCEPTing licensed `normed` row at a pinned prefill "
+                         "pass with two oracle arms, so the hiding-room ladder has nowhere to "
+                         "inject and the margin question would go unanswered rather than answered")
+            continue
+        ladders[block.name] = max(cands, key=lambda r: max(_ratio(r[5][k], band["normed"][k])
+                                                           for k in BAND_FACTORS))
+    exp_margin = sum(len(faults) * (ladder_depth(
+        tensors_all[p.block][p.key][a]["normed"].dtype) + 1)
+        for p, _s, a, _b, _k, _ag, _o, _w in ladders.values())
+    print(f"\n### the hiding-room ladder on `normed` — the §04.7 injections whose entire contract "
+          f"is `normed`+`y` ({', '.join(faults)}; derived from AFFECTED, not typed), run at full "
+          "strength and then scaled by 1/2**k against the tightest licensed `normed` row the "
+          "oracle re-runs. Ladder depth is the storage width's own mantissa count: past it the "
+          "perturbation rounds away and is not a defect any band could see.")
+    emit("hdr_mg", f"  {'block':<7} {'row':<46} {'fault':<20} {'1/2**k':>6} {'maxabs':>10} "
+                  f"{'1-cos':>10} {'meanrel':>10} {'perhead':>10} {'ndiff/n':>13} "
+                  f"{'arm bytes moved':>16} verdict")
+    margin_rows = []
+    for block in blocks:
+        pick = ladders.get(block.name)
+        if pick is None:
+            continue
+        (p, _st, a, b, rkey, _ag0, _ok, _w) = pick
+        A0 = tensors_all[p.block][p.key][a]["normed"]
+        B = tensors_all[p.block][p.key][b]["normed"]
+        anch = anchors[p.block][p.key][PROBE_ANCHOR]["normed"]
+        a64 = A0.to(torch.float64)
+        w = load_gdn_block_weights(block, g)
+        x_pf = pinned_inputs_by_block[block.name]
+        for fault in faults:
+            dirty = gdn_block(x_pf, w, g, a, Faults(**{fault: True}),
+                              mode="prefill")["normed"].to(torch.float64)
+            for k in range(0, ladder_depth(A0.dtype) + 1):
+                # The cast back to the arm's storage dtype IS the model: a defect that does not
+                # survive the width the arm writes cannot be seen by a band on that tensor, and
+                # pretending otherwise would have the ladder measure the quantiser.
+                t = (a64 + (2.0 ** (-k)) * (dirty - a64)).to(A0.dtype)
+                moved = int((t != A0).sum().item())
+                ag = aggregates(t, B, name=f"margin/{block.name}/{fault}/k{k}",
+                                stage="normed", anchor=anch)
+                good, why = band_check_row(band, "normed", ag)
+                margin_rows.append((block.name, rkey, fault, k, ag, good, moved))
+                emit("margin", f"  {block.name:<7} {rkey:<46} {fault:<20} {k:>6} "
+                               f"{ag['max_abs']:10.3e} {ag['one_minus_cos']:10.3e} "
+                               f"{ag['mean_rel']:10.3e} {ag['per_head_max']:10.3e} "
+                               f"{str(ag['ndiff']) + '/' + str(ag['n']):>13} "
+                               f"{str(moved) + ' / ' + str(A0.numel()):>16} "
+                               f"{'ACCEPT' if good else 'REJECT'}")
+                if k == 0 and moved == 0:
+                    fails.append(f"{block.name}/{fault}: the full-strength injection left "
+                                 "`normed` bit-identical on this row, so this ladder's "
+                                 "must-catch side is vacuous (pitfalls/40 §an empty must-catch "
+                                 "set is not a control)")
+                if k == 0 and good:
+                    fails.append(f"{block.name}/{fault}: a full-strength §04.7 gated-norm defect "
+                                 "whose entire contract is `normed`+`y` sits INSIDE the band "
+                                 f"(maxabs {ag['max_abs']:.3e} against "
+                                 f"{band['normed']['max_abs']:.3e}) — the band licenses a real "
+                                 "bug, which is a finding and not something to tighten here")
+        del w
+    accepted = [r for r in margin_rows if r[5]]
+    hidden = [r for r in accepted if r[6] > 0]
+    if not accepted:
+        fails.append("the hiding-room ladder produced no ACCEPT at any scale: the comparator "
+                     "never once said yes on this table, so the margin was never tested, and a "
+                     "table that can only say REJECT is a constant predicate (pitfalls/40)")
+    print(f"  ladder rows {len(margin_rows)}; ACCEPTed {len(accepted)}; of those, {len(hidden)} "
+          "left the arm's stored bytes changed — those are the defects the margin swallows")
+    if hidden:
+        least = min(hidden, key=lambda r: r[3])
+        print(f"  the LEAST-scaled defect the band licenses: `{least[2]}` on {least[1]} at "
+              f"1/2**{least[3]} — maxabs {least[4]['max_abs']:.3e}, 1-cos "
+              f"{least[4]['one_minus_cos']:.3e}, meanrel {least[4]['mean_rel']:.3e}, with "
+              f"{least[6]} of {least[4]['n']} elements moved and ndiff "
+              f"{least[4]['ndiff']}/{least[4]['n']}, against licensed "
+              f"{band['normed']['max_abs']:.3e} / {band['normed']['one_minus_cos']:.3e} / "
+              f"{band['normed']['mean_rel']:.3e}")
+        deepest = max(hidden, key=lambda r: r[3])
+        print(f"  deepest accepted scaling: `{deepest[2]}` on {deepest[1]} at "
+              f"1/2**{deepest[3]} (still {deepest[6]} elements moved)")
+    else:
+        print("  NOT ESTABLISHED: that no defect can hide inside the `normed` margin. No "
+              "ACCEPTed ladder row left a stored element changed, so this run measured the bf16 "
+              "quantiser and not the band — that is absence of evidence, not evidence of "
+              "absence.")
+
+    # ---- sabotage witnesses on the reference's own bytes, in BOTH directions. The row chosen "
+    # is the tightest judged row that is built on pinned bytes, so the perturbation is applied "
+    # in the field the verdict actually depends on.
+    print("\n### sabotage witnesses — the pinned bytes a judged row is built from, perturbed in "
+          "memory after read_dump_tensor has hashed them (nothing here writes to the dump)")
+    emit("hdr_sb", f"  {'block':<7} {'kind':<7} {'row':<46} {'stage':<10} {'delta':>11} "
+                  f"{'elem moved':>12} {'maxabs':>10} {'1-cos':>10} {'meanrel':>10} "
+                  f"{'ndiff/n':>13} {'verdict':<8} must")
+    sab_rows = []
+    for block in blocks:
+        cands = []
+        for r in judged:
+            if r[0].block != block.name or ARM_PINNED not in (r[2], r[3]):
+                continue
+            side, other = (r[2], r[3]) if r[2] == ARM_PINNED else (r[3], r[2])
+            t = tensors_all[r[0].block][r[0].key][side][r[1]]
+            flat = t.reshape(-1)
+            idx = int(flat.abs().argmax().item())
+            v0 = float(flat[idx].item())
+            step = float((torch.nextafter(flat[idx], flat[idx] + 1.0) - flat[idx]).item())
+            if not step > 0.0 or step != step:
+                continue
+            # The accept direction is only a fair demand when a 1-ULP step at the row's own
+            # largest element can still fit under the max_abs limit. Rows that cannot fit are
+            # left out of the candidate set rather than judged against an impossible "
+            # expectation — and an empty candidate set is a FAILURE, not a skip.
+            if r[5]["max_abs"] + step > band[r[1]]["max_abs"]:
+                continue
+            cands.append((r, side, other, idx, v0, step))
+        if not cands:
+            fails.append(f"{block.name}: no judged row built on the pinned bytes can carry a "
+                         "1-ULP perturbation inside its own band, so the accept direction of the "
+                         "sabotage cannot be witnessed and the band stays an untested claim")
+            continue
+        (r, side, other, idx, v0, step) = max(
+            cands, key=lambda c: max(_ratio(c[0][5][k], band[c[0][1]][k]) for k in BAND_FACTORS))
+        p, stage, _a, _b, key, _ag, _g, _w = r
+        t = tensors_all[p.block][p.key][side][stage]
+        Bo = tensors_all[p.block][p.key][other][stage]
+        anch = anchors[p.block][p.key][PROBE_ANCHOR][stage]
+        mrec = next(x for x in manifest["dumps"] if x["block"] == block.name
+                    and x["mode"] == ("prefill" if p.kind == "prefill"
+                                      else f"decode{p.step}")
+                    and x["tensor_key"] == stage)
+        for kind, want, delta in (("ulp", "ACCEPT", step),
+                                 ("exceed", "REJECT", 4.0 * band[stage]["max_abs"] + step)):
+            t2 = t.clone()
+            with torch.no_grad():
+                t2.reshape(-1)[idx] = v0 + delta
+            ag_move = aggregates(t2, t, name=f"sab/{kind}", stage=stage, anchor=t)
+            ag = aggregates(t2, Bo, name=f"sab/{kind}", stage=stage, anchor=anch)
+            good, why = band_check_row(band, stage, ag)
+            verdict = "ACCEPT" if good else "REJECT"
+            emit("sab", f"  {block.name:<7} {kind:<7} {key:<46} {stage:<10} {delta:11.3e} "
+                       f"{str(ag_move['ndiff']) + '/' + str(ag_move['n']):>12} "
+                       f"{ag['max_abs']:10.3e} {ag['one_minus_cos']:10.3e} "
+                       f"{ag['mean_rel']:10.3e} "
+                       f"{str(ag['ndiff']) + '/' + str(ag['n']):>13} {verdict:<8} {want}")
+            sab_rows.append((block.name, kind, key, stage, ag, good, verdict, want))
+            if verdict != want:
+                fails.append(f"{block.name}/{kind} sabotage on `{stage}`: the adjudicator said "
+                             f"{verdict}, required {want} ({why}) — an accept/reject flip that is "
+                             "not watched in BOTH directions proves nothing")
+            if ag_move["ndiff"] != 1:
+                fails.append(f"{block.name}/{kind} sabotage on `{stage}`: moved "
+                             f"{ag_move['ndiff']} element(s), required exactly 1 — a verdict from "
+                             "a perturbation that did not do what it claims is unattributed")
+            poison = hashlib.sha256(t2.contiguous().numpy().tobytes()).hexdigest()
+            print(f"    {kind}: sha256 of the perturbed bytes {poison[:16]}… refused by the "
+                  f"manifest digest {mrec['sha256'][:16]}…: {poison != mrec['sha256']} — the "
+                  "band is a function of these bytes, and the digest taken before any "
+                  "measurement is what keeps a perturbed file from ever becoming a row")
+            if poison == mrec["sha256"]:
+                fails.append(f"{block.name}/{kind}: the perturbed bytes hashed the same as the "
+                             "pinned file, so the integrity gate cannot be doing what it claims")
+    if not sab_rows:
+        fails.append("no sabotage row was adjudicated: the section that credits the band has to "
+                     "watch its own accept/reject flip, not hope it in")
+
+    # ---- the verdict must be a FUNCTION of the band. Zero each licensed key in turn (which is
+    # a demand for bit-identity on that key) on a COPY of the band, and require exactly the
+    # derived set of rows to flip: the rows that ACCEPTED at full band and measured non-zero on
+    # that key. A key that flips nothing is a key nothing consults, which is the constant
+    # predicate wearing a counter.
+    print("\n### the verdict tracks the band — each key in `BAND_FACTORS` zeroed in turn on a "
+          "copy of the loaded band")
+    emit("hdr_bc", f"  {'key':<14} {'accepted at full band':>22} {'with this key > 0':>18} "
+                  f"{'flipped when zeroed':>20} {'ok':>8}")
+    ctl_rows = []
+    for ctl_key in BAND_FACTORS:
+        narrowed = {s: dict(e) for s, e in band.items()}
+        for e in narrowed.values():
+            e[ctl_key] = 0.0
+        expect = sum(1 for r in judged if r[6] and r[5][ctl_key] > 0.0)
+        flips = sum(1 for r in judged if r[6] and not band_check_row(narrowed, r[1], r[5])[0])
+        ok = expect == flips and flips > 0
+        emit("bandctl", f"  {ctl_key:<14} {sum(1 for r in judged if r[6]):>22} "
+                       f"{expect:>18} {flips:>20} {'ok' if ok else 'MISMATCH':>8}")
+        ctl_rows.append((ctl_key, expect, flips))
+        if not ok:
+            fails.append(f"band-dependency control on `{ctl_key}`: {flips} rows flipped when the "
+                         f"limit was zeroed, expected {expect} and never 0 — either the key is "
+                         "never consulted or the adjudicator is deciding something else "
+                         "(pitfalls/40 §a check whose predicate is `True`)")
+    if band_digest(band) != digest:
+        fails.append("the band object changed between being loaded and the end of the run: one "
+                     "of this section's own controls mutated the object it was handed, which is "
+                     "exactly what must not happen")
+
+    # ---- every table against its own denominator, three ways.
+    print("\n## populations — printed lines, parsed records, declared denominator")
+    checks = [("xf", len(judged), exp_judged),
+              ("audit", len(audit_rows), len(declared)),
+              ("normed", len(nrm), exp_normed),
+              ("margin", len(margin_rows), exp_margin),
+              ("sab", len(sab_rows), exp_sab),
+              ("bandctl", len(ctl_rows), len(BAND_FACTORS))]
+    for name, parsed, want in checks:
+        got = printed.get(name, 0)
+        okc = got == parsed == want and parsed > 0
+        print(f"  {name:<8} printed {got:>6} parsed {parsed:>6} declared {want:>6}  "
+              f"{'ok' if okc else 'MISMATCH'}")
+        if not okc:
+            fails.append(f"count {name}: printed {got}, parsed {parsed}, declared {want} — a "
+                         "section whose rows do not equal its own denominator judged nothing "
+                         "for the rest, and an empty table must never print PASS")
+    if sum(1 for r in audit_rows if not r[5]) != exp_unjudged:
+        fails.append(f"rows the licence withheld: {sum(1 for r in audit_rows if not r[5])}, "
+                     f"declared {exp_unjudged}: the licence and the declared population do not "
+                     "agree about how many rows were not adjudicated")
+    print(f"  licences in the band file: {sum(len(v) for v in lic_at.values())} over the "
+          f"{len(stages)} banded stages, {exp_lic_scope} on the selected blocks (each one had to "
+          f"be run: the two sets were compared in both directions), {lic_out_of_scope} on blocks "
+          "not selected this run")
+    print(f"  files hashed {len(files_read)} declared {exp_files} (every one sha256-checked by "
+          "read_dump_tensor before anything was measured off it)")
+    if len(files_read) != exp_files:
+        fails.append(f"files read {len(files_read)} != declared {exp_files}: a file this section "
+                     "needed was never hashed, or it hashed one the population does not name")
+    lic_audit_fails = sum(1 for f_ in fails if "measured nothing" in f_ or "withheld" in f_
+                          or "read twice" in f_)
+    lic_not_run_fails = sum(1 for f_ in fails if "never ran" in f_)
+    print(f"  licensed rows adjudicated {len(judged)} of declared {exp_judged}; "
+          f"licence-audit findings {lic_audit_fails}, licence-never-ran findings "
+          f"{lic_not_run_fails}")
+
+    print("\n## UNVERIFIED by --cross-form — named, because an absent row reads as agreement")
+    unverified = [(e["item"], e["why"], e["closes_when"]) for e in probe_unverified(stages)]
+    if trivial:
+        unverified.append((f"a numeric verdict for the {len(trivial)} adjudicated rows that "
+                           "measured arm-to-arm bit-identity",
+                           "ACCEPT is true there and weaker than the band, but the row "
+                           "contributed no measured distance: the two arms stored the same "
+                           "bf16/f32 bytes, so nothing was bounded beyond equality. They are "
+                           "counted in the adjudicated total and named here so the total is not "
+                           "read as 1136 independent measurements",
+                           "an arm pair at those passes whose stored bytes differ, which is what "
+                           "makes the row evidence"))
+    if exp_unjudged:
+        unverified.append((f"a banded verdict for the {exp_unjudged} candidate arm-to-arm pairs "
+                           "the licence withholds",
+                           "the probe folded neither arm's record: one of them is a bf16 tensor "
+                           "that came back ndiff 0 against the f64 anchor, where the storage "
+                           "quantum hides any smaller difference. This section re-measured that "
+                           "predicate for every one of them (the audit table) and adjudicated "
+                           "none of them",
+                           "an arm pair at those passes whose bytes differ by at least the bf16 "
+                           "quantum, which is what the probe folds"))
+    unverified.append(("a banded verdict for the f64 anchors themselves",
+                       f"the band's floor IS every arm's distance to `{PROBE_ANCHOR}`, so an "
+                       f"anchor-vs-arm row here would be the probe's own measurement judged "
+                       f"twice. `{PROBE_ANCHOR_TWIN}` is put under test against the anchor by "
+                       "--floor-probe's credibility table instead, where a f64 anchor that "
+                       "bounds nothing is a FAIL",
+                       "a second f64 spelling with a licence of its own, which --floor-probe "
+                       "would have to measure first"))
+    unverified.append(("the conv prefill-vs-decode row that `short_conv`'s docstring points at",
+                       "`conv_window` has no entry in the band: it sits upstream of the "
+                       "scan-dtype decision, so --floor-probe refuses to floor it and "
+                       "band_check_row refuses to invent a limit for it. The two spellings are "
+                       "compared bit-for-bit against the pinned bytes by --compare-hf; a BANDED "
+                       "prefill-vs-decode conv row does not exist",
+                       "a licensor for the conv path: the probe measuring the windowed decode "
+                       "update against the F.conv1d prefill — two implementations of one "
+                       "quantity, so a floor is measurable there — and writing that stage's "
+                       "entry"))
+    unverified.append(("agreement on a real activation",
+                       "every row here is measured on the pinned dump input and on `gdn_input`, "
+                       "the A-01 RMS-1 seeded fixture, so this verdict is a synthetic-input "
+                       "statistic like the rest of the lane",
+                       "the dense path landing and a real hidden_states being pinned"))
+    if hidden:
+        least = min(hidden, key=lambda r: r[3])
+        unverified.append(("that a defect cannot hide inside the `normed` margin",
+                           f"measured, not argued: `{least[2]}` scaled to 1/2**{least[3]} is "
+                           f"ACCEPTED by the band while still leaving {least[6]} of "
+                           f"{least[4]['n']} elements of the arm's bf16 `normed` changed "
+                           f"(maxabs {least[4]['max_abs']:.3e} against licensed "
+                           f"{band['normed']['max_abs']:.3e}, meanrel "
+                           f"{least[4]['mean_rel']:.3e} against licensed "
+                           f"{band['normed']['mean_rel']:.3e}). The band is a bound on "
+                           "legitimate cross-form spread, not a defect detector, and it is left "
+                           "as the probe measured it",
+                           "a narrower `normed` floor, which needs a probe measurement and not a "
+                           "typed factor — or the engine's own kernel gated bit-for-bit against "
+                           "these rows, where no band is involved"))
+    for item, why, closes in unverified:
+        print(f"  NOT ESTABLISHED: {item}")
+        print(f"      why: {why}")
+        print(f"      closes when: {closes}")
+    if not unverified:
+        fails.append("the UNVERIFIED list printed nothing: a section that has established "
+                     "everything has stopped checking")
+    print("# no band, floor or route allowance was imported from another project or model "
+          "(AGENTS.md §Traps that do NOT transfer); every limit used here is this checkpoint's, "
+          "read out of the band file the probe derived from these pinned rows.")
+    print(f"# band factors (the triangle inequality, not taste): {BAND_FACTORS}; band object "
+          f"sha256 {digest}")
+    print("# no timing was taken")
     return fails
 
 
@@ -4134,6 +4885,11 @@ def main() -> int:
                          "against the f64 anchor, the band derived from the maxima, the "
                          "cross-form rows licensed and adjudicated, and the probe's own input "
                          "perturbed both ways to watch the accept/reject flip")
+    ap.add_argument("--cross-form", action="store_true",
+                    help="the band consumed outside the probe: the band file loaded through "
+                         "load_band(), every licensed arm-to-arm row adjudicated with "
+                         "band_check_row(), the `normed` margin measured for hiding room, and "
+                         "this section's own denominators and accept/reject sabotage witnesses")
     ap.add_argument("--band-out", default=str(BAND_PATH.relative_to(REPO)),
                     help="where --floor-probe writes the band it derived (default: "
                          "speccheck/evidence/gdn-band-2026-10-26.json)")
@@ -4145,9 +4901,10 @@ def main() -> int:
     ap.add_argument("--only-fault", default="", help="debug only; prints a SUBSET banner")
     ap.add_argument("--only-fixture", default="", help="debug only; prints a SUBSET banner")
     args = ap.parse_args()
-    if not (args.selftest or args.compare_hf or args.sabotage or args.floor_probe):
+    if not (args.selftest or args.compare_hf or args.sabotage or args.floor_probe
+            or args.cross_form):
         print("SELFTEST FAIL: nothing selected (--selftest / --compare-hf / --floor-probe / "
-              "--sabotage)")
+              "--cross-form / --sabotage)")
         return 1
     args.threads_used = R.set_threads(args.threads)
     g = load_gdn_geometry()
@@ -4158,10 +4915,14 @@ def main() -> int:
         fails += section_compare_hf(g, args, sabotage=args.sabotage)
     if args.floor_probe:
         fails += section_floor_probe(g, args)
+    if args.cross_form:
+        fails += section_cross_form(g, args)
     if fails:
-        tag = "SABOTAGE RUN FAIL" if args.sabotage else (
-            "FLOOR PROBE FAIL" if args.floor_probe and not (args.selftest or args.compare_hf)
-            else "SELFTEST FAIL")
+        tag = ("SABOTAGE RUN FAIL" if args.sabotage else
+               ("CROSS-FORM FAIL" if args.cross_form and not (args.selftest or args.compare_hf
+                                                              or args.floor_probe)
+                else "FLOOR PROBE FAIL" if args.floor_probe
+                and not (args.selftest or args.compare_hf) else "SELFTEST FAIL"))
         print(f"\n{tag}")
         for f in fails:
             print("  - " + f)
@@ -4169,6 +4930,12 @@ def main() -> int:
     if args.sabotage:
         print(f"\nSABOTAGE RUN OK — Faults({args.sabotage}=True) was reported as a difference; "
               "this is not an agreement verdict and no timing was taken")
+        return 0
+    if args.cross_form and not (args.selftest or args.compare_hf or args.floor_probe):
+        print("\nCROSS-FORM PASS — the band was read through load_band() and judged only by "
+              "band_check_row(), every licensed arm-to-arm row was adjudicated inside it, the "
+              "three row counts agree for every table, both sabotage directions flipped, and no "
+              "timing was taken")
         return 0
     if args.floor_probe and not (args.selftest or args.compare_hf):
         print("\nFLOOR PROBE PASS — the band is the probe's maxima times the triangle-inequality "

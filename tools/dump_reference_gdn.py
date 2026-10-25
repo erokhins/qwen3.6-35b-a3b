@@ -126,6 +126,74 @@ def element_count(shape) -> int:
     return D.element_count(shape)
 
 
+def load_manifest(manifest_path: Path = None) -> dict:
+    """Read the GDN manifest, refusing a manifest that is not this lane's.
+
+    `load_band()`'s rule is that a missing artifact is an error rather than a default, and the
+    same rule applies here: a probe that reads a dump directory without the manifest has no
+    dtype, no shape and no digest, so "every file agreed" would be vacuous (`pitfalls/40`)."""
+    p = Path(manifest_path) if manifest_path is not None else (REPO / DEFAULT_MANIFEST)
+    if not p.exists():
+        raise AssertionError(f"{p} does not exist: run `tools/dump_reference_gdn.py` with the "
+                             "write path first. A dump read without its manifest has no dtype "
+                             "and no digest to check the bytes against.")
+    m = json.loads(p.read_text())
+    if m.get("lane") != "gdn":
+        raise AssertionError(f"{p} is a {m.get('lane')!r} manifest; the GDN reader reads the "
+                             "GDN one")
+    return m
+
+
+def read_dump_tensor(rec: dict, verify: bool = True) -> torch.Tensor:
+    """Read one pinned tensor back off its bytes, against its manifest record.
+
+    Lives beside `stage_records` (which writes them) so there is ONE byte contract for both
+    directions (`pitfalls/40` §one address expression shared by writer and reader), and the path
+    is resolved exactly the way `verify()` resolves it — `REPO / rec["file"]`, one expression,
+    not a second one that could drift.
+
+    The three refusals are the `pitfalls/30` dump-reading traps, each of which produces a
+    plausible tensor if it is not checked:
+      * the file's size must equal `elements x itemsize` — that is how the dtype is read off
+        the size rather than trusted from a name;
+      * BF16 is a two-byte **bit image**: view uint16 then `bitcast`, never `cast`, which
+        would turn the bit pattern into a float of the wrong value and still print a
+        believable ndiff;
+      * the sha256 must equal the manifest's, so a probe that believes it is measuring the
+        reference's bytes is not measuring a tampered file (`verify=False` exists only for
+        `gdn_ref.py --floor-probe`'s witnessed sabotage, which mutates the tensor in memory
+        AFTER this function has hashed and refused or accepted it; nothing here writes).
+    """
+    p = Path(rec["file"])
+    if not p.is_absolute():
+        p = REPO / p
+    if not p.exists():
+        raise AssertionError(f"{p}: the manifest names it and it is not on disk")
+    size = p.stat().st_size
+    want = int(rec["elements"]) * dtype_size(rec["dtype"])
+    if size != want:
+        raise AssertionError(f"{p.name}: {size} B on disk cannot hold {rec['elements']} x "
+                             f"{rec['dtype']} ({want} B); the dtype-by-filesize check "
+                             "(pitfalls/30 §read a dump's dtype off its file size)")
+    if verify:
+        got = D.sha256_file(p)
+        if got != rec["sha256"]:
+            raise AssertionError(f"{p.name}: sha256 {got[:16]}… != manifest {rec['sha256'][:16]}… "
+                                 "— these are not the pinned bytes; re-run "
+                                 "`tools/dump_reference_gdn.py --verify`")
+    raw = p.read_bytes()
+    dt = getattr(torch, rec["dtype"].replace("torch.", ""))
+    if dt is torch.bfloat16 or dt is torch.float16:
+        t = torch.frombuffer(bytearray(raw), dtype=torch.uint16).view(dt)
+    else:
+        t = torch.frombuffer(bytearray(raw), dtype=dt)
+    t = t.reshape(rec["shape"]).clone()
+    if list(t.shape) != list(rec["shape"]) or t.dtype is not dt:
+        raise AssertionError(f"{p.name}: read back as {t.dtype} {tuple(t.shape)}, manifest says "
+                             f"{rec['dtype']} {rec['shape']}")
+    return t
+
+
 def stage_records(block: G.Block, stages: dict, mode: str, step, out_dir: Path,
                   command: str, x_row: torch.Tensor, g: G.GdnGeometry, seed: int) -> list:
     """Write the pinned input row plus every stage of one pass, in `G.STAGES` order."""

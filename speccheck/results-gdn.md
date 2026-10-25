@@ -153,7 +153,14 @@ was run three times from the pinned bytes, with nothing cached between runs, and
 clean against the first run's bytes even for the run made after `--floor-probe`'s write path was edited)
 — the
 numbers below are a function of the pinned bytes and the arm list, not of run order or of what the
-builder had already computed.
+builder had already computed. A **fourth** run, made in the `--cross-form` pass after that section's own
+band consumer had been added, left the committed file byte-identical again (`git status --porcelain
+speccheck/evidence/gdn-band-2026-10-26.json` empty afterwards). **The digest is stated with its
+canonicalisation, not as a bare hex string**: it is
+`hashlib.sha256(json.dumps(band, sort_keys=True).encode()).hexdigest()` over the `band` member of the
+JSON document
+(`27a68c7e82c9aa0507b9bcd677adc0d5d1b0bc865dd1e86bf495ed90f47392ee`), and `--cross-form` prints it
+beside the command that regenerates it from the committed file.
 
 | stage | probe maxabs | **band maxabs** | probe 1−cos | **band 1−cos** | probe meanrel | **band meanrel** | licensed rows |
 |---|---|---|---|---|---|---|---|
@@ -172,6 +179,11 @@ with the probe is a finding, not a thing to widen. And `core_attn`/`normed`/`y` 
 rows (152/149/139 against 174) because a bf16 row that measured `ndiff 0` is excluded: the bf16 storage
 quantum hides anything smaller, so such a row may not license a verdict
 (`pitfalls/30` §byte-identity claims state the width they cover).
+
+**This is the band `--cross-form` consumes**, and consumes honestly: §§The cross-form verdict is the
+section that turns it into a verdict — the licence re-derived from the bytes rather than trusted, the
+`normed` margin printed as three metrics plus its share of each licence, and a measurement of how much
+of a real §04.7 gated-norm defect that margin swallows.
 
 **The anchor's credibility is under test, not quoted.** `specification/04-gdn-linear-attention.md §04.6`
 says the outer-product spelling is equivalent to the rank-1 one; the probe requires the f64 twin to sit
@@ -243,6 +255,142 @@ widened 10× "for safety" (refused), probe maxima inflated without the band foll
 licensed row for a pass that never ran (refused), every licence emptied (refused), and the bf16 rule in
 *both* directions: a bf16 stage measuring all-zero floors loses its licence, and the same stage with
 one real 3e-06 measurement earns it back.
+
+---
+
+## §The cross-form verdict — the band credited outside the probe
+
+```
+command: /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python speccheck/gdn_ref.py --cross-form
+rc=0 — CROSS-FORM PASS
+```
+
+Capture `speccheck/evidence/gdn-cross-form-2026-10-26.txt`; the controls that fire its guards are in
+`speccheck/evidence/gdn-cross-form-controls-2026-10-26.txt`. Before this section existed, the band was
+credited inside one process only: `--floor-probe` derived it, adjudicated the licensed rows, and exited, so
+outside the probe no PASS credited a band — `HF_UNVERIFIED` row 5 said so in `--floor-probe`'s own words.
+This section is the consumer, and a consumer that re-derives everything it is asked to believe.
+
+**1,136 rows, none of them read from a file.** Each row is a `(pass, arm-pair, stage)` triple on a selected
+block, drawn from **1,218** candidate pairs (2 blocks × 21 unordered arm pairs per pass × 29 pass-stage
+combinations), and its `max_abs`, `1 − cos`, `mean_rel` and per-head maxima are recomputed by `compare()`
+from tensors read fresh off disk by `read_dump_tensor`, which sha256-verifies each of the **64** dump files
+this section touches before anything is measured off it. The band file's role is narrower still: it is read
+by `load_band(BAND_PATH)` and nowhere else, it supplies only `limits[stage]`, `licensed_rows[pass|a|b]` and
+the `band_derivation` string, and no number in this section recomputes or restates a limit —
+`--floor-probe`'s `probe × BAND_FACTORS` arithmetic is the only thing allowed to say what a limit is, and the
+three refusals that enforce it (file missing, foreign derivation, a `probe × factor` mismatch) are each
+witnessed firing in the controls capture. A scratch copy parked on the credited path by `--band-out` is
+refused too, so no verdict is credited from a file someone hand-made.
+
+**The counts agree three ways, for every table**, each denominator declared from geometry × licence before
+any measurement and from the loaded band before any judgement:
+
+```
+  xf       printed   1136 parsed   1136 declared   1136  ok      (ACCEPT 1136, REJECT 0)
+  audit    printed   1218 parsed   1218 declared   1218  ok      (licence/measurement disagreements 0)
+  normed   printed    149 parsed    149 declared    149  ok      (ACCEPT 149, REJECT 0)
+  margin   printed     72 parsed     72 declared     72  ok
+  sab      printed      4 parsed      4 declared      4  ok
+  bandctl  printed      4 parsed      4 declared      4  ok
+  files hashed 64 declared 64
+```
+
+**The licence is audited, not believed — and in both directions.** `band_licenses()` answers "licensed by
+probe records for both arms at this pass", which is a claim about measurements the *probe* made; a consumer
+cannot re-run the probe and still be told the truth by a file. So the audit re-derives the probe's own
+folding rule from the bytes: a bf16 arm whose record came back `ndiff 0` against the f64 anchor saw nothing,
+and a pair where both arms saw nothing compared two blind men. All 1,218 candidates are checked that way and
+disagreement is a failure either way round — *"licensed but measured nothing"* and *"licence withheld from a
+row that measures a difference"*. Both strings are witnessed firing against the real section (controls 6 and
+7), where `load_band()` is the thing that fails to notice — its coverage check is real, so a phantom licence
+for a withheld `ndiff 0` pair passes it — and only the audit catches it. A licence for a case this section
+could not run is a failure too (*"a licence whose case never ran lists as adjudicated evidence"*), which is
+what makes 1,136 mean 1,136 measurements and not 1,136 lines of a file.
+
+**The `normed` row, scrutinised.** `--floor-probe`'s own words are that `normed`'s band is four orders of
+magnitude wider than `state`'s (MUFU-class disagreement through rsqrt, sigmoid and SiLU), and
+`normed.max_abs = 3.125e-02` sits beside `state`'s `1.153e-06`. The section prints all three metrics for
+every one of its 149 rows plus each metric's share of its own licence, because for this stage max_abs alone
+cannot tell you anything: the licensed limit is **0.25–8.00 bf16 ULPs of a row's own largest element**, so
+one ULP at the top of a tensor is sometimes inside the band and sometimes outside it. The worst row used
+2.581e-01 of the 1−cos licence and 5.010e-01 of the mean-rel one; three rows sit above their max_abs licence
+and pass on the relative metrics, at 1.25× and 2 × 1.38× — all prefill rows with `1 − cos ≤ 1.2e-09` and
+`mean_rel ≤ 4e-08`, which is the `pitfalls/30` §a max-ULP band cannot see a whole-tensor 1-ULP error
+situation — max-abs alone is the wrong ruler for a chain, and the aggregates are what bind — rather than an
+accident of the band. `normed` is also one of the two stages that can move `y`, so every `normed` verdict is re-checked at
+`y`'s own licence: 149 of 149, 0 failures.
+
+**Can a defect hide inside that margin? Yes — measured, not argued.** The margin ladder takes the four §04.7
+injections whose entire contract is `normed` + `y` (derived from `AFFECTED`, so the list is that table's and
+not this section's opinion) and injects the oracle side on a real adjudicated row, at full strength and then
+at 1/2**k. All four REJECT at full strength on both blocks, as they must. Then the ladder halves the defect
+until the band stops noticing:
+
+```
+  ladder rows 72; ACCEPTed 15; of those, 3 left the arm's stored bytes changed — those are the defects the
+  margin swallows
+  the LEAST-scaled defect the band licenses: `norm_weight_f32` on layer0/pinned/prefill|reassoc|substitution
+  at 1/2**2 — maxabs 3.906e-03, 1-cos 4.051e-09, meanrel 1.988e-06, with 190 of 131072 elements moved and
+  ndiff 249/131072, against licensed 3.125e-02 / 2.662e-08 / 3.941e-06
+  deepest accepted scaling: `norm_variance_flat` on layer0/pinned/prefill|reassoc|substitution at 1/2**8
+  (still 144 elements moved)
+```
+
+So a gated-norm width defect at **one quarter strength** — the norm weight read at f32 instead of bf16 — is
+accepted by this band while still leaving 190 stored elements changed. The consequence for the engine lane is
+the reason the number is printed: **the cross-form band is a bound on legitimate cross-form spread, not a
+defect detector.** A kernel whose only pass condition is these rows can ship a real gated-norm width bug at
+25 % strength and print ACCEPT. The detector for that class is §04.7's injection matrix (`--selftest`; the
+ladder above is its scaled twin), and a `normed`-width gate must be paired with a must-catch set the way
+`--selftest` pairs them. The band was not tightened to make this answer comfortable, and it cannot be
+tightened from here: a smaller `normed` limit would be a number nobody measured (`AGENTS.md` §Standing
+rules).
+
+**Both directions of the accept/reject sabotage, on the reference's own bytes.** The probe's witnesses
+perturb an oracle-side arm; a consumer needs the same proof on the side it reads from disk. The perturbation
+happens in memory, after `read_dump_tensor` has hashed the file — nothing here writes to the dump:
+
+```
+  layer0  ulp     layer0/pinned/decode2|pinned|reassoc  scan_out  4.657e-10  1/4096  ACCEPT  ACCEPT
+  layer0  exceed  layer0/pinned/decode2|pinned|reassoc  scan_out  1.398e-07  1/4096  REJECT  REJECT
+  layer1  ulp     layer1/pinned/decode0|pinned|reassoc  scan_out  4.657e-10  1/4096  ACCEPT  ACCEPT
+  layer1  exceed  layer1/pinned/decode0|pinned|reassoc  scan_out  1.398e-07  1/4096  REJECT  REJECT
+```
+
+`1/4096` on the accept side is the proof the comparator was awake: exactly one element of the pinned
+reference moved (`ndiff 1/4096`, one element per witness) and the band still accepted the row. The 1-ULP step
+is derived with `torch.nextafter` at the row's largest element, not with a typed quantum, and the exceed
+delta is `4 × band + 1 ULP` so the reject cannot be a rounding accident; a candidate row whose own 1-ULP step
+would not fit its licence is excluded from the candidate set, and an empty candidate set is a failure rather
+than a skip. A `--blocks layer0` run therefore carries layer0's two witnesses and `--blocks layer1` carries
+layer1's — a per-block guarantee, not one witness standing in for two files.
+
+**The verdict tracks the band.** Each key in `BAND_FACTORS` is zeroed in turn on a copy of the loaded band,
+and the rows that flip must be *exactly* the rows whose measurement on that key is non-zero — and never zero
+rows, which is `pitfalls/00-measurement.md` §A counter that reads exactly 0 is vacuous: 1,065
+rows flip on `one_minus_cos`, 807 on each of `max_abs`, `mean_rel` and `per_head_max`. With `band_check_row`
+stubbed to accept everything the reject direction fails; stubbed to refuse everything the accept direction
+fails (controls 10 and 11), so neither witness is a constant.
+
+**NOT ESTABLISHED by this section** — named, not summarised, and the same list `--cross-form` prints:
+
+- **12 of the 19 stages have no floor**, so no cross-form row can be judged for the input projections,
+  `conv_weight`, `dt_bias`, `norm_weight`, `A_cumsum`, `l2q`, `l2k`, `beta`, `gamma`, `q`, `k`, `v`. The band
+  covers the seven stages `--floor-probe` measured; a wider claim would be about a band that does not exist.
+- **82 of the 1,218 candidate pairs are unadjudicated**, withheld by the licence because an arm measured
+  `ndiff 0` on bf16. Agreements the file licenses are checked; agreements it does not license are absent, and
+  the 1,136 must not be read as the whole cross-form surface.
+- **329 of the 1,136 adjudicated rows measured arm-to-arm bit-identity** (`ndiff 0`). Each is a true
+  statement and a stronger one than the band, but it is not an independent test of the band, so the number of
+  rows that actually stressed a limit is 807, not 1,136.
+- **The reference is not judged.** Both arms are compared to one shared f64 anchor, so a bug in the oracle's
+  anchor moves both arms together and is invisible to every row here. The independence evidence is §04.7's
+  injections and §§What is bit-exact, not this table.
+- **`conv_window` has no banded row.** It is upstream of the scan-dtype decision, so the probe refuses to
+  floor it and `band_check_row` refuses to invent a limit; the two conv spellings are still checked
+  bit-for-bit against the pinned bytes by `--compare-hf`. Closing this needs a probe measurement (a second
+  legal conv path to floor against), not a licensor written by the consumer.
 
 ---
 
@@ -329,7 +477,9 @@ legal implementation of its own (a kernel, or a re-associated producer).
 | the fused kernels the box does not have | `causal_conv1d` and `flash-linear-attention` are not installed, so the reference ran its own torch fallbacks (the function objects that ran are printed with the section) |
 | chunked continuation (§04b.1 row 4) | no pinned case hands a live state to the chunked scan; only chunked-from-zero prefill and single-token recurrent decode are covered |
 | the engine's conv-window policy (A-09) | `conv_window` is compared against the *reference's* k_conv-column cache, which is the reference's choice; the engine's 3-column window is a different tensor |
-| banded agreement as a VERDICT | the band exists and the probe adjudicates inside it, but no `--cross-form` section exists, so outside the probe no PASS credits a band — every row `--compare-hf` and `--selftest` credit is bit-exact or it is a failure |
+| banded agreement as a VERDICT | **narrowed, not closed.** `--cross-form` exists and credits the band (§§The cross-form verdict): `load_band()` only, `band_check_row()` as the sole comparator, denominators declared before the run, both sabotage directions witnessed on the reference's own bytes. What is still not established is the *reach* of that verdict — 12 unbanded stages, the 82 candidate pairs the licence withholds, the 329 adjudicated rows that measured arm-to-arm bit-identity, and the measured fact that a §04.7 gated-norm defect scaled to 1/2**2 sits inside the `normed` margin. It is a bound on legitimate cross-form spread, not a defect detector. Fresh capture of the two lists: `speccheck/evidence/gdn-hf-unverified-2026-10-26-r2.txt` |
+| a defect cannot hide inside the `normed` margin | it can, and the ladder measures how much: `norm_weight_f32` at **1/2**2** is ACCEPTED with 190 of 131,072 elements still changed (maxabs 3.906e-03 vs 3.125e-02 licensed, meanrel 1.988e-06 vs 3.941e-06), and `norm_variance_flat` hides down to 1/2**8. The band may not be tightened from here to close this — a smaller `normed` limit would be a number nobody measured |
+| the adjudicated rows are all evidence | **329 of 1,136** measured `ndiff 0` arm-to-arm: true, stronger than the band, and worth nothing as a test of it. The count that stressed a limit is 807 |
 | a floor for the 12 upstream stages | as above, by name |
 
 **`NOT_ESTABLISHED`, the injection matrix's own two entries:** the bf16 UT solve (§§above, with its
@@ -395,6 +545,21 @@ earned rather than assumed. The `scan_moved_cases` / `pre_scan_moved_cases` spli
 witness that both sides of the scan boundary can move — a matrix in which nothing upstream ever moved
 would make the pre-scan assertion vacuous.
 
+From the rc=0 `--cross-form` (`speccheck/evidence/gdn-cross-form-2026-10-26.txt`), the same discipline on
+the consumer side — every denominator declared before the measurement it is meant to catch a silence in:
+
+```
+  xf       printed   1136 parsed   1136 declared   1136
+  audit    printed   1218 parsed   1218 declared   1218
+  normed   printed    149 parsed    149 declared    149
+  margin   printed     72 parsed     72 declared     72      = 4 norm-contract faults x 2 blocks x 3
+                                                               passes x 3 arms, x 3 rungs
+  sab      printed      4 parsed      4 declared      4      = 2 directions x 2 blocks
+  bandctl  printed      4 parsed      4 declared      4      = |BAND_FACTORS|
+  files hashed 64 declared 64
+  ladder rows 72; ACCEPTed 15; of those 3 left stored bytes changed; 4/4 faults REJECT at full strength
+```
+
 ---
 
 ## §Findings and contradictions from this pass
@@ -421,6 +586,35 @@ would make the pre-scan assertion vacuous.
 5. **A 1 ULP perturbation is not distinguishable from legal spread, and that is the correct answer.**
    Both `ulp` sabotages are ACCEPTED by the band while `ndiff 1/4096` proves the comparator saw them.
    The sha256 — not the band — is what keeps a perturbed pinned file out.
+6. **The `normed` margin swallows a real defect, measured.** Finding 3 said the margin is wide and left it
+   there; the ladder quantifies what "wide" buys. `norm_weight_f32` — the §04.7 gated-norm width injection —
+   is ACCEPTED at **1/2**2** with 190 of 131,072 stored elements still changed (maxabs 3.906e-03 against a
+   licensed 3.125e-02, meanrel 1.988e-06 against 3.941e-06), and `norm_variance_flat` is accepted down to
+   1/2**8 on both blocks with 144 elements still moved. All four norm faults REJECT at full strength on both
+   blocks, so this is not the band being broken; it is the band being what it is — a bound on legitimate
+   cross-form spread, priced against a probe of legal implementations, and therefore unable to see an
+   illegal one that stays under it. The correction is in how the band is *used*, not in the band: a
+   `normed` gate must be paired with a must-catch set, and the number to quote when someone proposes
+   shipping a kernel on these rows alone is 1/2**2.
+7. **The band-content digest the brief carried, `827b155820f8aa89`, is not reproducible from the committed
+   artifact**, and `--cross-form` does not print a digest it cannot recompute. What the artifact does carry,
+   reproducibly: `sha256sum` of the file is `dd68fd953896da09…`, and the `band` member's object digest over
+   `json.dumps(band, sort_keys=True)` — the one `--floor-probe` itself prints — is
+   `27a68c7e82c9aa0507b9bcd677adc0d5d1b0bc865dd1e86bf495ed90f47392ee`. Candidates I computed and ruled out
+   include the whole-file bytes, the file minus `files_read_sha256`, the `population`, `band_derivation`,
+   `unverified_stages`, `generated_from` and `files_read_sha256` members individually, and `limits` alone.
+   The section prints the canonicalisation and the command (`pitfalls/40` §provenance and attribution rules
+   for reports: a digest is an input/output pairing claim, so it has to name how it was made), so this is a
+   discrepancy to reconcile with the measurement lane, not a claim to
+   inherit.
+8. **`short_conv`'s docstring promised a verdict it cannot deliver.** It said the two conv spellings'
+   equivalence was "the `--cross-form` section adjudicates as its own row" — but `conv_window` has no entry
+   in the band, `--floor-probe` refuses to floor a stage upstream of the scan-dtype decision, and
+   `band_check_row` refuses to invent a limit. Writing a `conv_window` licensor in the consumer would have
+   been a band number typed by the section that consumes the band, which is the one thing this lane is not
+   allowed to do. The docstring now states what is and is not adjudicated (§What is bit-exact keeps the
+   bit-for-bit check `--compare-hf` does make); closing the row needs a second legal conv path for the probe
+   to floor against.
 
 ---
 
@@ -432,6 +626,8 @@ $PY speccheck/gdn_ref.py --selftest          # three arms + HF comparison + witn
 $PY speccheck/gdn_ref.py --compare-hf        # the 150-row bit-identity table and its 14 controls
 $PY speccheck/gdn_ref.py --floor-probe       # derives and writes the band; FLOOR PROBE PASS
 $PY speccheck/gdn_ref.py --floor-probe --band-out tmp/scratch-band.json   # scratch, never the pinned file
+$PY speccheck/gdn_ref.py --cross-form        # credits that band; 1,136 rows, 6 tables, 4 witnesses;
+                                              # CROSS-FORM PASS
 $PY speccheck/gdn_ref.py --sabotage read_pre_update_state   # one Faults field, not a list; prints
                                               # `SABOTAGE RUN OK`, never `PASS`
 $PY tools/dump_reference_gdn.py --verify --out data/dumps/2026-10-26-gdn \
@@ -445,18 +641,31 @@ subset probe would size a band from rows that were never run`). `--band-out` out
 pinned band's path, and why no verdict is credited from a scratch file — and prints `SCRATCH COPY,
 marked as one inside the file`; the default path carries no such record, and the section that credits a
 band loads `BAND_PATH`, never `--band-out`. So a hand-made band cannot be mistaken for the pinned one,
-and `load_band()` runs the same `probe × factor` arithmetic on either. All of it is CPU-only; none of it
+and `load_band()` runs the same `probe × factor` arithmetic on either. `--cross-form` refuses
+`--only-fixture` / `--only-fault` for the same reason the probe does (its population is the licensed grid,
+not a subset of it), and refuses to run at all when the band is missing, was written by a foreign
+derivation, disagrees with its own `probe × factor` arithmetic, or is a scratch copy — four of those
+refusals, plus the seven the band file cannot cause, are witnessed in
+`speccheck/evidence/gdn-cross-form-controls-2026-10-26.txt`, which also carries the driver's source in
+full because the driver lives in the ignored `tmp/` (restore it to `tmp/w22_crossform_controls.py` and run
+it with the venv python above to re-witness all eleven). All of it is CPU-only; none of it
 takes a timing, and `tools/gpu_lock.sh` is never acquired
 because nothing here touches the iGPU.
 
 ## §Open work owed by this lane
 
-- **`--cross-form`** — the section that loads the band through `load_band()` and adjudicates
-  arm-to-arm rows with `band_check_row()` *outside* the probe, with its own denominators and its own
-  sabotage witnesses. Until it exists, no PASS outside `--floor-probe` credits a band
-  (`HF_UNVERIFIED` row 5).
-- **`--capability`** — the third missing section (`speccheck/gdn_ref.py`'s module docstring names the
-  three; two are now built).
+- **A `conv_window` licensor the consumer is not allowed to write.** `short_conv`'s two spellings are
+  checked bit-for-bit by `--compare-hf` but have no banded row, because the stage is upstream of the
+  scan-dtype decision and `--floor-probe` has no second legal implementation to floor against (§Findings
+  item 8). Closing it means building that second path in the probe, not typing a limit in `--cross-form`.
+- **A narrower `normed` floor, if one is wanted.** The current limit is the probe's maximum × 2 and the
+  ladder measures what that tolerates (a real gated-norm width defect at 1/2**2). Tightening it from the
+  consumer is forbidden; a tighter number has to come from a probe measurement — e.g. comparing the gated
+  norm against a re-associated or MUFU-free implementation of §04.7 and letting THAT set the maximum — and
+  until then the band stays where the triangle inequality puts it and the injection matrix stays the
+  detector.
+- **`--capability`** — the last missing section (`speccheck/gdn_ref.py`'s module docstring named three;
+  `--floor-probe` and `--cross-form` are built).
 - **A real activation.** Every agreement figure here is a synthetic-input statistic until the dense path
   lands and a real `hidden_states` is pinned.
 - **The engine's conv-window policy (A-09)**, which is the engine's tensor, not the reference's.
