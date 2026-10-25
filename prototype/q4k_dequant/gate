@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# gate — the device gate for prototype/q4k_dequant.
+#
+# THIS WRAPPER IS THE ONLY FILE IN THIS OP THAT ACQUIRES THE GPU LOCK. gate.py never does: a driver
+# that self-acquires and is called by a caller already holding the lock parks forever with no CPU,
+# no GPU, no message and no exit, and `gpu_lock.sh status` afterwards reads STALE
+# (pitfalls/50-harness-and-shell.md §"Self-locking gate drivers deadlock silently"). The check is
+# printed below at run time rather than remembered: `grep -c` for the lock tool in gate.py must be 0.
+#
+#   ./gate                 full device gate (correctness only, PASS/FAIL, under ~60 s)
+#   ./gate --selftest      host-only witnesses: no device, so no lock is taken
+#   ./gate --check-only    plan + driver structural verification: no device, so no lock is taken
+#   ./gate --max-units N   cut the sample (never the assertions) if the run looks too long
+#
+# No timing: this script takes no duration of the gate's own work. The wall-clock line it prints is
+# the lock record AGENTS.md asks a device run to carry (command line, wall time, util, and the
+# literal words "no timing taken"), not a measurement of the kernel.
+set -uo pipefail
+
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REPO=$(cd "$HERE/../.." && pwd)
+LOCK="$REPO/tools/gpu_lock.sh"
+TAG="q36 W6 q4k_dequant device gate"
+LOCKED=0
+
+release() {
+  if [ "$LOCKED" = 1 ]; then
+    LOCKED=0
+    "$LOCK" release "$TAG" || echo "gate: WARNING the lock release was refused; check $LOCK status"
+    echo "LOCK released tag=$TAG"
+  fi
+}
+trap release EXIT INT TERM
+
+MODE=device
+for a in "$@"; do
+  case "$a" in
+    --selftest|--check-only) MODE=host ;;
+  esac
+done
+
+if [ ! -x "$HERE/q4k_dequant" ] || [ ! -x "$HERE/host_probe" ]; then
+  echo "gate: binaries missing, building (compile only, no device, no lock)"
+  "$HERE/build.sh" || { echo "RESULT FAIL build"; exit 1; }
+fi
+
+echo "LOCKREF gate.py references to the lock tool must be 0: $(grep -c 'gpu_lock' "$HERE/gate.py")"
+if [ "$MODE" = host ]; then
+  echo "NO LOCK reason=host-only ($MODE): no device work, so the lock stays free for the main agent"
+  echo "CMD python3 $HERE/gate.py $*"
+  python3 "$HERE/gate.py" "$@"
+  rc=$?
+  echo "gate: host-only run complete rc=$rc"
+  exit $rc
+fi
+
+ST=$("$LOCK" status)
+case "$ST" in
+  free) ;;
+  HELD*)
+    echo "LOCK refused: $ST"
+    echo "gate: another holder is live; refusing to queue a device run on top of it. Not run."
+    echo "RESULT FAIL not-run lock-held"
+    exit 3
+    ;;
+  *)
+    echo "LOCK status unreadable: $ST"
+    echo "RESULT FAIL not-run lock-status"
+    exit 3
+    ;;
+esac
+
+if ! "$LOCK" acquire-noblock "$TAG"; then
+  echo "LOCK refused: raced with another acquirer ($("$LOCK" status))"
+  echo "RESULT FAIL not-run lock-race"
+  exit 3
+fi
+LOCKED=1
+echo "LOCK acquired tag=$TAG status=$("$LOCK" status)"
+echo "UTIL_BEFORE $("$LOCK" util)"
+echo "CMD python3 $HERE/gate.py $*"
+START=$(date -u +%FT%TZ)
+python3 "$HERE/gate.py" "$@"
+rc=$?
+END=$(date -u +%FT%TZ)
+echo "UTIL_AFTER $("$LOCK" util)"
+echo "WALL started=$START finished=$END  (lock record only; no timing taken)"
+echo "no timing taken"
+echo "LOCK releasing"
+exit $rc

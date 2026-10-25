@@ -51,3 +51,6 @@ compile_commands.json
 # The sibling repo's lesson (`prototype/**/<op>` matched the op DIRECTORY, so the
 # whole prototype/<op>/ went untracked): list binaries as `prototype/<op>/<op>`.
 # Check `git status --ignored` after adding an op.
+prototype/q4k_dequant/q4k_dequant
+prototype/q4k_dequant/host_probe
+prototype/q4k_dequant/work/

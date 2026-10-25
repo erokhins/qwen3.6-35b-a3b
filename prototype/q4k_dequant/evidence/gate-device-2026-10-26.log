@@ -1,0 +1,86 @@
+LOCKREF gate.py references to the lock tool must be 0: 0
+LOCK acquired tag=q36 W6 q4k_dequant device gate status=HELD: 2026-10-25T06:22:11Z	q36 W6 q4k_dequant device gate	pid=259321
+UTIL_BEFORE gpu use: 99%
+CMD python3 /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/q4k_dequant/gate.py 
+MARKER file=audit-selftest-2026-10-26.json first_pass=2026-10-25T01:31:24Z latest_pass=2026-10-25T03:43:53Z
+GGUF file=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf bytes=22134528992 n_tensors=733 header_bytes_read=10990035 data_start=10990048 alignment=32
+GEOMETRY attn_output_gate=True full_attention_interval=4 head_dim=256 hidden_size=2048 moe_intermediate_size=512 num_attention_heads=16 num_experts=256 num_hidden_layers=40 vocab_size=248320
+CHECK name=geometry-keys ok=1 n=9 detail=attn_output_gate=True full_attention_interval=4 head_dim=256 hidden_size=2048 moe_intermediate_size=512 num_attention_heads=16 num_experts=256 num_hidden_layers=40 vocab_size=248320
+CENSUS families=13 tensors=331 records=733
+CENSUS family=GDN out_proj   type=Q8_0  tensors=30
+CENSUS family=GDN qkv        type=Q8_0  tensors=30
+CENSUS family=GDN z-gate     type=Q8_0  tensors=30
+CENSUS family=attn k         type=Q8_0  tensors=10
+CENSUS family=attn output    type=Q8_0  tensors=10
+CENSUS family=attn q         type=Q8_0  tensors=10
+CENSUS family=attn v         type=Q8_0  tensors=10
+CENSUS family=embeddings     type=Q8_0  tensors=1
+CENSUS family=routed gate    type=Q4_K  tensors=40
+CENSUS family=routed up      type=Q4_K  tensors=40
+CENSUS family=shared down    type=Q8_0  tensors=40
+CENSUS family=shared gate    type=Q8_0  tensors=40
+CENSUS family=shared up      type=Q8_0  tensors=40
+SAMPLE tensors=50 (derived from 12 census families)
+CUT reason=max_units=1400 units=1501 action=tensors_per_family 3->2 (the sample is cut, no assertion is)
+CENSUS families=13 tensors=331 records=733
+CENSUS family=GDN out_proj   type=Q8_0  tensors=30
+CENSUS family=GDN qkv        type=Q8_0  tensors=30
+CENSUS family=GDN z-gate     type=Q8_0  tensors=30
+CENSUS family=attn k         type=Q8_0  tensors=10
+CENSUS family=attn output    type=Q8_0  tensors=10
+CENSUS family=attn q         type=Q8_0  tensors=10
+CENSUS family=attn v         type=Q8_0  tensors=10
+CENSUS family=embeddings     type=Q8_0  tensors=1
+CENSUS family=routed gate    type=Q4_K  tensors=40
+CENSUS family=routed up      type=Q4_K  tensors=40
+CENSUS family=shared down    type=Q8_0  tensors=40
+CENSUS family=shared gate    type=Q8_0  tensors=40
+CENSUS family=shared up      type=Q8_0  tensors=40
+SAMPLE tensors=38 (derived from 12 census families)
+CHECK name=plan-mode-kind-pairing ok=1 n=4052 detail=Q4_K-only modes applied to Q8_0 units (or the reverse): 0
+PLAN units=1147 cases=4052 launches=10 out_floats=513824 slab_bytes=80625 modes=correct,q4k_as_q4nl,q4k_drop_min,q4k_naive_sc_min,q4k_subblock_rot3,q4k_block_off_1,q4k_byte_shift_1,q4k_xpose_expert,q8_0_block_off_1,q8_0_byte_shift_1
+PLAN units_by_kind_cls Q4_K/real=189 Q4_K/synth=4 Q4_K/support=175 Q8_0/real=775 Q8_0/synth=4
+PLAN cases_by_expect ALT=2081 IMMUNE=107 MATCH=1147 MISMATCH=717
+PLAN tensors_sampled=42 blocks_sampled=972 support_blocks=175
+PLAN files units=units.tsv cases=cases.tsv slab=slab.raw
+CHECK name=host-probe-clean ok=1 n=23 detail=rows=23 match=19 fired=4 rc=0 (row records in the log: 23, probe file rows: 23)
+CHECK name=host-probe-corrupt-rejects ok=1 n=1 detail=corrupted row is q4k_zero; probe rc=1 and printed DEVIATE=True
+CHECK name=host-probe-f16-exhaustive ok=1 n=65536 detail=rows=65536 bad=0 coverage={'nan': 2046, 'denormal': 2046, 'inf': 2, 'zero': 2} (lines written: 65536)
+CHECK name=host-probe-f16-corrupt-rejects ok=1 n=1 detail=corrupted f16 input is 0x7c01; probe rc=1 printed bad=1
+CHECK name=comparator-nan-rule ok=1 n=2 detail=64 expected NaN words in 2 rows had their sign bit flipped; probe still reports rows=23 unexpected=0 match=19 fired=4, identical to the clean run
+CHECK name=driver-selftest ok=1 n=6 detail=lines=6 checks_printed=6 failures=0 rc=0
+CMD /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/q4k_dequant/q4k_dequant --plan /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/q4k_dequant/work/units.tsv --cases /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/q4k_dequant/work/cases.tsv --slab /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/q4k_dequant/work/slab.raw --out /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/q4k_dequant/work/out.f32 --report /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/q4k_dequant/work/report.tsv --expect-units 1147 --expect-cases 4052
+DRIVER PLAN units_file=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/q4k_dequant/work/units.tsv cases_file=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/q4k_dequant/work/cases.tsv units_parsed=1147 cases_parsed=4052
+DRIVER PLANCHECK units=1147 cases=4052 checks_run=6348
+DRIVER REPORT file=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/q4k_dequant/work/report.tsv rows=4052
+DRIVER DEQCELLS cells=22 cases=4052
+DRIVER RESULT PASS device plan units=1147 cases=4052 cells=22 out_floats=513824
+CHECK name=driver-result ok=1 n=1 detail='RESULT PASS device plan units=1147 cases=4052 cells=22 out_floats=513824' rc=0
+CHECK name=driver-planchannel ok=1 n=6348 detail=structural checks_run=6348 units=1147 cases=4052
+CHECK name=driver-plan-parse ok=1 n=2 detail=driver parsed 1147/4052 from units.tsv + cases.tsv, the plan has 1147/4052
+CHECK name=driver-out-file ok=1 n=1 detail=driver dumped 513824 floats / 2055296 bytes to out.f32; the plan wants 513824 floats
+CHECK name=expect-MATCH ok=1 n=1147 detail=ok=1147/1147
+CHECK name=expect-MISMATCH ok=1 n=717 detail=ok=717/717
+CHECK name=expect-ALT ok=1 n=2081 detail=ok=2081/2081
+CHECK name=expect-IMMUNE ok=1 n=107 detail=ok=107/107
+CHECK name=driver-bad-column-agrees ok=1 n=4052 detail=mismatches=0
+CHECK name=no-unexpected-nan ok=1 n=145632 detail=control/immune elements scanned=145632, device NaN where the reader is finite=0; cases carrying NaN anywhere=97 of 4052 (the reader produces NaN for some real bytes, so that number is a fact about the file, not a verdict)
+CHECK name=expect-classes-populated ok=1 n=4052 detail=MATCH=1147 MISMATCH=717 ALT=2081 IMMUNE=107
+CHECK name=every-injection-mode-fires ok=1 n=9 detail=modes_used=9 silent=none
+CHECK name=deqcells-cells ok=1 n=22 detail=driver printed 22 cells, the plan implies 22; keys_match=True units_match=True
+CHECK name=deqcells-out_sum ok=1 n=22 detail=cells_outside_accumulator_allowance=0
+CHECK name=cell-kind-purity ok=1 n=22 detail=leaks=none
+CHECK name=census-families-covered ok=1 n=13 detail=families sampled=13 of 13 derived; missing=none
+CHECK name=named-tensors-sampled ok=1 n=4 detail=missing=none
+CHECK name=sampled-blocks-in-range ok=1 n=972 detail=every sampled block index is inside its own tensor's block count
+CHECK name=real-and-synthetic-units ok=1 n=972 detail=real=964 synthetic=8 support=175
+CHECK name=witness-comparator-flip ok=1 n=1 detail=flipping one bit of one element must make exactly one element disagree
+CHECK name=comparator-rules-witnessed ok=1 n=5 detail=5 claims about the comparator; all hold
+CHECK name=witness-parsers ok=1 n=2 detail=parsers must yield records, refuse garbage and refuse empty
+CHECKS ran=30 failed=0
+RESULT PASS device checks=30 findings=0
+UTIL_AFTER gpu use: 78%
+WALL started=2026-10-25T06:22:11Z finished=2026-10-25T06:22:12Z  (lock record only; no timing taken)
+no timing taken
+LOCK releasing
+LOCK released tag=q36 W6 q4k_dequant device gate
