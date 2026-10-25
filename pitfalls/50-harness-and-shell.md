@@ -203,3 +203,26 @@ lane added `vsum`, an integer sum of the value bits, which a uniform rescale mus
 `tmp/worker-lm-head/probe6_guard.hip`). General form: in a shared header, "compiles under hipcc" and "compiles
 under g++" are two compilations of one text, so any name of a `__device__` intrinsic needs a guard — and the
 error points at the host half, which reads like the host compiler is broken while the device half is fine.
+
+## Piping a gate through `head` kills it mid-run and destroys the evidence it was writing
+
+**Done by the main agent, 2026-10-26, not by a worker.** While verifying a lane I ran `./gate 2>&1 | grep -E
+"^RESULT" | head -6`. `head` exits as soon as it has six lines, the pipe closes, `gate` gets `SIGPIPE` and dies
+mid-run — and because **`gate` truncates its own evidence log at startup**, the file left on disk was a partial
+from the killed process with no `RESULT` line in it. The worker's complete 911-check device log was gone. The
+follow-up `grep '^RESULT' evidence/…log` printing *nothing* then looked like the lane had fabricated its verdict,
+when the actual cause was my own pipe four commands earlier.
+
+**Rules:**
+- **Never put a consumer that exits early in front of a process that writes the evidence file.** Run it to
+  completion (`./gate > /tmp/run.out 2>&1`), then grep the file. `head` exits early and sends `SIGPIPE`; `tail
+  -n` reads to EOF and does not.
+- **A tool that truncates its own log must write a start sentinel** — `RUN STARTED pid=… argv=…` before the
+  work — so a truncated log is *identifiable as truncated*. Without it, "killed halfway", "never ran" and
+  "lied about running" are all the same empty file, which is the same defect as a counter seeded at 0.
+- **Recovering from this is only legitimate because it was a correctness gate.** I regenerated the log by
+  running the gate again, and that is admissible for PASS/FAIL with no timing taken. It would **not** be
+  admissible for a measurement: a re-run under live workers is not the run whose number you quoted, and the
+  only honest output in that case is "the measurement is lost, it must be retaken in an exclusive window".
+- And the reflex this cost: when evidence goes missing, **suspect your own last five commands before suspecting
+  the author of the file.**
