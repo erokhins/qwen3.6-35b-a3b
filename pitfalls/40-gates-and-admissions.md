@@ -157,3 +157,19 @@ check whose predicate is a constant would have caught nothing under any mutation
   one-row gate passes, and the defect surfaces at the second slot — as a SIGSEGV inside libamdhip64's memcpy, one
   copy *after* the bad one, which is why allocation dumps and printed pointers all read clean. Put the arithmetic
   on `void *` (or index a `char *`) at the site.
+
+## The host twin and the device kernel must interpret the plan identically, sentinels included
+
+Found 2026-10-26 in `prototype/shared_expert/`. Stage 3 shared one item list between two kernels: one sentinel
+item per case with `base = -1` (the probability) plus 16 row items. The host twin filtered the sentinel out
+(`host_probe.cpp:186`, `else if (base < 0)`); neither device kernel did. Thread 0 of the leaked block therefore
+computed column -1, which reads `x[-1]` and writes the **last word of the previous field** -- inside the
+allocation, so no allocator or sanitizer flagged it, and onto a word the honest block also reads, which turned a
+deterministic bug into a race.
+
+Every symptom downstream read as a numerics question: the divergent value was four orders of magnitude away
+from adjacent in bf16, and the count varied run to run, which is the shape of an accumulation-order argument.
+It was neither. Rule: a sentinel in a shared plan is part of the contract between arms, and both arms must
+filter it identically -- and make that a **check**, not a convention. Assert that no stage writes a word outside
+the field its stage owns. That single check fires with 43 named violations when the guards are deleted and 0
+with them in place; it is what would have caught this on the first device run instead of two investigations.

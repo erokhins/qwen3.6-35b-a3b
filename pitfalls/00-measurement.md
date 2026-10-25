@@ -216,3 +216,24 @@ seeding with `None` and printing `NOT MEASURED` when nothing was recorded — an
 fail") turned on a measurement: **a counter sitting at exactly its own initial value is unproven until it has
 been witnessed non-zero where it must fire**, and `0.00 GiB` of a 128 GiB machine should have been the tell
 that the instrumentation, not the machine, had failed.
+
+## A divergence count that changes between identical runs is a race, not rounding
+
+Found 2026-10-26 in `prototype/shared_expert/`: the device arm disagreed with the host reference in 73, then 56,
+then 48 words across runs of identical code, every one of them in a single column. The comfortable reading
+(two ULP, libdevice versus glibc, count it and move on) becomes unavailable the moment the count moves, because
+a rounding rule is a function of its inputs and therefore gives the same answer every time. Three rungs:
+
+- constant count, adjacent bit images, an attributed third side: rounding. Count it, print it, never band it
+  silently (that is the D-16 shape);
+- constant count, non-adjacent bit images: a deterministic defect, however plausible it looks;
+- **moving count: uninitialised memory, a race, or a comparison reading an address nobody owns.** Never band it,
+  and never average it. Repeating the run to get a tighter estimate is not a cure; it is a description.
+
+Two things made this answerable, and both are cheap to adopt in advance. The device output slab was pre-filled
+with a poison NaN rather than zero-filled, so never-written reads `0x7FC00000` and not `0.0` -- the gather lane
+had already been forced to delete a `hipMemset` for precisely this reason. And the durable check snapshots the
+buffer **between stage groups** rather than relaunching the kernel, because an idempotent re-clobber hides from a
+relaunch: the second write puts the right value back and the probe sees a clean buffer. Decomposing the moving
+number was what localised the race -- 43 clobbers constant plus 30/13/5 race losers says the variable part is
+the race and the constant part is the defect that caused it.

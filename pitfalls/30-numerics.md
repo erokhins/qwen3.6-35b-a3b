@@ -102,3 +102,16 @@ Reference pins typically say `argmax(decode{s}.logits_last) == greedy_continuati
 sample at step *s* pairs with `greedy[s+1]`, never `greedy[s]`; a REPL-style session's first generated token
 pairs with `greedy[i]` instead. Aligned on the wrong index, a 128-token free run read 0/128 and a 64-step run
 read 1/64 — both false. **Always state which alignment a comparison used.**
+
+## array("f", [h << 16]) converts; it does not reinterpret
+
+To turn a bf16 bit image `h` into the float it denotes, move bytes, not values:
+`array("f", array("I", [h << 16]).tobytes())` -- **not** `array("f", [h << 16])`, which numerically converts the
+integer and prints `1.01626675e+09` for the bits `0x3C93`, which denote `0.017944`. Found 2026-10-26 in a
+shared-expert debug driver, where the bit columns were correct and only the value column lied.
+
+That is the dangerous half of a half-correct printout: the column reviewers check agrees with the expectation,
+and the absurd column is assumed to be a formatting choice. Same family as the `uint16` sign trap above -- a
+comparator that reads plausible numbers out of the wrong interpretation is worse than one that raises, because
+it produces evidence that survives review. Any debug print that shows both bits and a decoded value must derive
+the value from the bytes, and it is worth a one-line self-check on a known pattern (`0x3F80` must print 1.0).
