@@ -258,10 +258,16 @@ def cmd_families(args):
 
     sec("what tools/quant_scenarios.py --census prints for the same families (committed instrument)")
     print("  run: python3 tools/quant_scenarios.py --census")
-    print("  its family grouping differs: gdn_linear_attn 1.416 GiB, norms_misc 0.071 GiB,")
-    print("  text total 65.720 GiB, and it reports the index delta as 1.86 % 'vision tower + small")
-    print("  tensors'. Compare against the rows above; specification/ASSUMPTIONS.md A-07 records")
-    print("  the reconciliation this script produces and where the two instruments disagree.")
+    print("  its family grouping differs: gdn_linear_attn 1.8842 GiB, norms_misc 0.0160 GiB, text")
+    print("  total 66.1337 GiB, and the index-minus-text delta it closes against is the vision tower")
+    print("  0.8318 GiB and nothing else (there is no 'small tensors' remainder; the element sum")
+    print("  equals the index's own total_size). Compare against the rows above;")
+    print("  specification/ASSUMPTIONS.md A-07 records the reconciliation this script produces.")
+    print("  Until the census was rebuilt on 2026-10-26 this same block read gdn 1.416 / norms_misc")
+    print("  0.071 / text 65.720 GiB and reported the index delta as 1.86 % 'vision tower + small")
+    print("  tensors': that delta was 0.8318 GiB of vision plus 0.4138 GiB of the census's own error")
+    print("  (omitted GDN out_proj and mtp.fc, a phantom 9h^2 in norms_misc, a short norm count) —")
+    print("  quantization/evidence/bf16-census-adjudication-2026-10-26.md §3/§5.")
 
 
 def _report_rows(w, mtp=True):
@@ -344,8 +350,13 @@ def cmd_per_token(args):
          _w(gate_up="Q4_K", down="Q5_K", router="F32", control="F32", shared="Q8_0",
             attn="Q8_0", lm_head="Q6_K", embed="Q8_0"))
     print("\nThe committed policy table is quantization/README.md §'The policies, priced'; reproduce")
-    print("with: python3 tools/quant_scenarios.py --read 237 210 190   (policy A: 2.331 GiB/token).")
-    print("Where the two disagree, the row is GDN out_proj — see specification/ASSUMPTIONS.md A-07.")
+    print("with: python3 tools/quant_scenarios.py --read 237 210 190. Its policy-A row is 2.5252")
+    print("GiB/token with one MTP draft pass charged per token, 2.4653 target-only; it read 2.331")
+    print("until the 2026-10-26 census correction, and that +0.194 GiB is +0.249 of GDN out_proj and")
+    print("+0.016 of mtp.fc minus 0.070 of the phantom norms term (adjudication §5/§6). The rows printed")
+    print("above are this script's own width assignment — routers and the GDN controls at F32, and no")
+    print("mtp.fc row — so they are a different arithmetic from that row by construction; where the")
+    print("two instruments are reconciled is specification/ASSUMPTIONS.md A-07.")
     print("Published column: down_proj is Q5_K on 38 of 41 layers and Q6_K on 3, so that line is a")
     print("lower bound on the file's real cost (the 3 Q6_K layers are counted at Q5_K).")
     return 0

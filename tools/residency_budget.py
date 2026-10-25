@@ -8,10 +8,13 @@ with it — the verdicts, the give-up ladder, the trap rows and the UNMEASURED q
 
 Why this file exists: `tools/quant_scenarios.py` answers "how big is the weight set at width X"; it
 deliberately ignores everything that grows with context (KV) and with concurrency (the GDN state
-pool), and this is the first model in this project lineage where the pool binds (bf16 65.72 GiB
-against a box-wide device-visible pool of 55.5-56.5 GiB, of which one process gets ~32 GiB while
-halogen is resident — `devices/measured-facts.md` §"Device-visible memory" and §"Residency above the
-pool"). Nobody had written that budget down. This is that budget, per component, derived.
+pool), and this is the first model in this project lineage where the pool binds (bf16 text weights
+66.1337 GiB including the MTP draft block, 64.5604 GiB without it — the figure was 65.72 GiB until
+quantization/evidence/bf16-census-adjudication-2026-10-26.md settled it, and this file now reconciles
+against `tools/bf16_census.py` rather than quoting it; against a box-wide device-visible pool of
+55.5-56.5 GiB, of which one process gets ~32 GiB while halogen is resident — `devices/measured-facts.md`
+§"Device-visible memory" and §"Residency above the pool"). Nobody had written that budget down. This is
+that budget, per component, derived.
 
 Everything is derived from three committed sources, never typed:
   * `checkpoints/Qwen3.6-35B-A3B.config.json`   — the geometry (layers, heads, experts, state dims)
@@ -540,92 +543,153 @@ def witnesses(src, b, artifact_required):
                     "SKIPPED: %s absent, so the census-vs-artifact witness is vacuous this run%s"
                     % (GGUF_PATH, "" if not artifact_required else
                        "  <-- pass --allow-missing-artifact to accept this")))
-    # W8 cross-check against tools/quant_scenarios.py's census, with every delta explained
-    out.extend(quant_scenarios_reconcile(b))
+    # W8 reconcile against the census (tools/bf16_census.py), family by family and convention by
+    # convention. Never against a remembered number: see census_reconcile's header comment.
+    out.extend(census_reconcile(b))
     return out
 
 
-def quant_scenarios_reconcile(b):
-    """Reconcile against `tools/quant_scenarios.py`, naming every difference instead of asserting ease.
+_REFERENCE = {}
 
-    The two tools disagree today, by a real amount, and the disagreement is the finding: quant_scenarios'
-    family census has no `out_proj` term in `gdn_linear_attn`, and its `norms_misc` carries a
-    `3h x 3h` term that matches no tensor in this checkpoint while omitting the MTP block's own norms.
-    Enumerating the delta — rather than asserting equality or quietly reconciling it — is what makes the
-    day someone fixes quant_scenarios.py a loud event here instead of a silent drift between two files
-    that both claim to be the census.
+
+def census_reference():
+    """tools/bf16_census.py's populations and policy-A row, derived once per process and then frozen.
+
+    Memoised on purpose, for two reasons. The cheap one: building it parses the pinned GGUF, four
+    safetensors headers and an imported quant_scenarios census, and a selftest asks ten times. The
+    load-bearing one: the reference must NOT move when one of this file's own fault hooks fires, so
+    the same frozen object is what every injection in the selftest is measured against.
+    """
+    if "d" not in _REFERENCE:
+        import bf16_census as BC
+        import quant_scenarios as QS
+        p = BC.build()
+        # The reference must be complete or it is not a reference: an empty population would let every
+        # row below "agree" with nothing, so a short census aborts instead of reconciling against 0.
+        fam = {k: v for k, v in p["fam_index"].items() if k != "vision"}
+        if len(fam) != 8 or sum(fam.values()) <= 0:
+            raise AssertionError("bf16_census gave %d text families totalling %d elements; a short "
+                                 "reference census is an error, not a zero to reconcile against"
+                                 % (len(fam), sum(fam.values())))
+        rows, draft = BC.policy_rows(p, "A", "bf16")          # bf16_census census + bf16_census widths
+        bc_a = (sum(rows.values()) + sum(draft.values())) / GiB
+        if bc_a <= 0:
+            raise AssertionError("bf16_census priced policy A at %.6f GiB; a zero policy row is not a "
+                                 "figure" % bc_a)
+        qs_a = QS.derived_numbers(QS.build_population())["A_resident"]   # theirs, both census and widths
+        if qs_a <= 0:
+            raise AssertionError("quant_scenarios priced policy A at %.6f GiB; a zero policy row is not "
+                                 "a figure" % qs_a)
+        _REFERENCE["d"] = dict(fam=fam, policy_a_gib=bc_a, qs_policy_a_gib=qs_a)
+    return _REFERENCE["d"]
+
+
+# ---- The 19.7856 / 19.7848 GiB difference: read this before re-litigating it. --------------------
+# Two honest rulers print two policy-A resident figures for the same decided policy: this tool prints
+# 19.7856 GiB and tools/bf16_census.py (and tools/quant_scenarios.py, and quantization/README.md,
+# README.md and DECISIONS.md) print 19.7848 GiB. The difference is 927,000 bytes = 0.000863 GiB, it is
+# not a disagreement about anything, and census_reconcile's third row below proves that claim rather
+# than asserting it: it attributes the whole gap to one convention and requires the residue to be ~0 B.
+#
+# The convention is which width class the four 1-D GDN controls belong to — `ssm_conv1d`, `ssm_a`
+# (A_log), `ssm_dt.bias` (dt_bias) and `ssm_norm`, 988,800 elements in total (30 linear layers x
+# 32,960). quant_scenarios and bf16_census price by FAMILY, and those four tensors sit inside the GDN
+# family, so policy A's attention width (Q8_0, 8.5 bpw) is applied to them. This tool splits the family
+# into `gdn_matrices` and `gdn_controls` and keeps the controls exact (bf16, 16 bpw), which is what
+# quantization/README §"How a quantized path gets gated" item 3 ("router, norms ... stay exact") reads
+# like. That is the entire gap: 988,800 x (16 - 8.5)/8 = 927,000 B.
+#
+# So the two tools agree on the inventory (row 1, 0 elts on all eight families), on the policy, and on
+# every other width, and they differ on the reading of one sentence of a doc — which is a width
+# decision, and width decisions are the user's (the D-01/D-01a pattern). It is recorded as an open
+# question in quantization/evidence/bf16-census-adjudication-2026-10-26.md §10.2 ("policy A's 'exact'
+# bucket: bf16 or F32", with this 0.000863 GiB as its §5 item 7). 0.000863 GiB is 0.88 MiB: two orders
+# of magnitude below anything that could move a fit verdict (the co-resident budget bracket is 31.84-33.88
+# GiB, a 2.04 GiB window) and below the 0.0403 GiB that the F32-vs-bf16 reading of the same bucket is
+# worth. Nothing in this file should be changed to chase the fourth decimal place; pick one convention
+# when the user picks one for §10.2 and both tools will agree to the byte.
+def census_reconcile(b):
+    """Reconcile against `tools/bf16_census.py` — the census — naming every difference that survives.
+
+    This used to reconcile against `tools/quant_scenarios.py`'s hand-written census and enumerate the
+    four defects that census carried, and its own text said what to do the day they were fixed: "retire
+    the reconciliation here, do not tune the tolerance." That day is 2026-10-26 (commit a912ac9), so the
+    cause-by-cause rows are gone: a reconciliation whose cause list describes a census that no longer
+    exists fires forever, and a witness that fires forever is worth exactly as much as one that never
+    fires. What replaces them is a reconciliation against the *census*, which still has work to do:
+
+      1. this tool's own inventory (config shape rules x the index name list) vs bf16_census's inventory
+         (the artifact's records + the draft names it lacks, shard-witnessed). Two independently written
+         shape models, required to agree element for element on all eight text families.
+      2. policy A priced twice: bf16_census's census x bf16_census's widths vs quant_scenarios's own
+         census x quant_scenarios's own derived row. Two width rules over two censuses; they must land
+         on the same figure to within 0.0005 GiB.
+      3. this tool's policy A vs bf16_census's, with the whole difference attributed to the one
+         convention described above and required to have no residue.
+
+    Row 1 is what `gdn_out_proj_dropped` and `one_attn_layer_lost` now trip, so the retirement did not
+    quietly remove a live check; run `--selftest` and read the FIRED lines to see it.
     """
     try:
-        import quant_scenarios as QS
+        ref = census_reference()
     except Exception as e:                                        # pragma: no cover
-        return [("quant_scenarios cross-check", False, "cannot import quant_scenarios: %r" % e)]
-    fam, _ = QS.census()
-    if not fam:
-        return [("quant_scenarios cross-check", False, "quant_scenarios.census() returned nothing")]
-    # This witness is about policy A specifically (that is the figure the repo quotes), so it judges a
+        return [("census reconciliation vs tools/bf16_census.py", False,
+                 "cannot build the reference population: %r — a census tool that cannot run is not the "
+                 "same thing as a census that agrees" % e)]
+    # These rows are about policy A specifically (that is the figure the repo quotes), so they judge a
     # policy-A budget even when the run asked for a different policy row.
     if b.policy_name != "A (DECIDED)":
         b = Budget(b.src)
-    c = b.src.cfg
-    H = c["hidden_size"]
+    out = []
+
     mine = {"routed_experts": b.census["routed_experts"],
             "gdn_linear_attn": b.census["gdn_matrices"] + b.census["gdn_controls"],
             "full_attn": b.census["full_attn"], "shared_experts": b.census["shared_experts"],
             "embed": b.census["embed"], "lm_head": b.census["lm_head"],
             "routers": b.census["routers"], "norms_misc": b.census["norms"]}
-    out_proj_el = b.n_lin * b.lv * b.dv * H
-    phantom_el = 3 * H * (3 * H)
-    mtp_fc_el = 2 * H * H
-    my_norm_slots = sum(1 for n in b.src.names if family_of(n) == "norms") - 1        # -1: mtp.fc
-    # their norms live in two places: a `+ 2*h` per linear layer inside gdn_linear_attn, and
-    # `(2*L+4)*h` in norms_misc. Both read straight out of their census() expression.
-    their_norm_slots = (2 * b.L + 4) + 2 * b.n_lin
-    slot_delta_el = (my_norm_slots - their_norm_slots) * H
-    causes = {"gdn out_proj absent from their census": out_proj_el,
-              "mtp.fc (the draft block's fusion projection) absent from theirs": mtp_fc_el,
-              "a 3h x 3h term in their norms_misc that matches no tensor here": -phantom_el,
-              "their norm slots %d vs the inventory's %d" % (their_norm_slots, my_norm_slots):
-                  slot_delta_el}
-    delta_el = sum(mine.values()) - sum(fam.values()) / 2.0
-    residual_el = delta_el - sum(causes.values())
-    out = []
-    out.append(("bf16 census vs quant_scenarios, cause by cause", abs(residual_el) < 1.0,
-                "ours %.4f GiB vs theirs %.4f GiB bf16, delta %.4f GiB = %s -> residual %.0f B"
-                % (sum(mine.values()) * 2 / GiB, sum(fam.values()) / GiB, delta_el * 2 / GiB,
-                   ", ".join("%s %+d el" % (k, v) for k, v in causes.items()), residual_el * 2)))
-    # (b) the headline policy-A resident figure, term by term
-    qs_policy_a = policy_a_from_quant_scenarios(QS)
-    ours_policy_a = sum(b.weight_bytes()) / GiB
+    theirs = ref["fam"]
+    per_family = {f: mine.get(f, 0) - theirs.get(f, 0) for f in sorted(set(mine) | set(theirs))}
+    drift = {f: d for f, d in per_family.items() if d}
+    mine_total, theirs_total = sum(mine.values()), sum(theirs.values())
+    # non-vacuity is part of the condition: eight populated families, neither side empty. A reconcile
+    # against an empty census would "agree" with nothing at all.
+    ok = not drift and len(theirs) == 8 and theirs_total > 0 and mine_total > 0
+    out.append(("text census vs tools/bf16_census.py, family by family", ok,
+                "ours %.4f GiB vs theirs %.4f GiB bf16 over %d families (%d elements each side): %s%s"
+                % (mine_total * 2 / GiB, theirs_total * 2 / GiB, len(theirs), mine_total,
+                   "0 elements of difference on every family" if not drift
+                   else "DRIFT " + ", ".join("%s %+d el" % kv for kv in drift.items()),
+                   "" if theirs_total else "  <-- the reference census is empty, which is not agreement")))
+
+    bc_a, qs_a = ref["policy_a_gib"], ref["qs_policy_a_gib"]
+    out.append(("policy A resident: bf16_census widths vs quant_scenarios' own derived row",
+                abs(bc_a - qs_a) <= 5e-4 and qs_a > 0,
+                "bf16_census %.4f GiB, quant_scenarios %.4f GiB (both derived here, tolerance 0.0005 "
+                "GiB). Two independent width rules over two independent censuses, so a gap is a width "
+                "rule and never a census. Neither side is a remembered number; if this fires, look at "
+                "ggml_block_geom, not at a tolerance."
+                % (bc_a, qs_a)))
+
+    ours_a = sum(b.weight_bytes()) / GiB
     attn_bits = b.width_bits("gdn_matrices")
     ctrl_bits = b.width_bits("gdn_controls")
-    exact_bits = b.width_bits("norms")
-    terms = {"gdn out_proj, at the attention width": out_proj_el * attn_bits / 8.0,
-             "mtp.fc, at the exact-control width": mtp_fc_el * exact_bits / 8.0,
-             "their phantom 3h x 3h, at the exact width": -phantom_el * exact_bits / 8.0,
-             "their extra norm slots, at the exact width": slot_delta_el * exact_bits / 8.0,
-             # their `+ 2*h` per linear layer sits INSIDE gdn_linear_attn, so their policy quantizes
-             # those norms at the attention width; this tool keeps every norm exact.
-             ("their %d linear-layer norm slots ride the attention width, ours stay exact"
-              % (2 * b.n_lin)):
-                 (2 * b.n_lin * H) * (exact_bits - attn_bits) / 8.0,
-             "they quantize the whole gdn family; this tool keeps its 1-D controls exact":
-                 b.census["gdn_controls"] * (ctrl_bits - attn_bits) / 8.0}
-    residual = (ours_policy_a - qs_policy_a) * GiB - sum(terms.values())
-    out.append(("policy A resident vs quant_scenarios' 19.59 GiB, term by term",
-                abs(residual) < 1.0,
-                "this tool %.4f GiB, quant_scenarios %.4f GiB (the repo quotes 19.59); gap %.4f GiB = %s"
-                " -> residual %.0f B. If this fires, quant_scenarios was fixed or moved: retire the "
-                "reconciliation here, do not tune the tolerance."
-                % (ours_policy_a, qs_policy_a, ours_policy_a - qs_policy_a,
-                   ", ".join("%s %+.4f GiB" % (k, v / GiB) for k, v in terms.items()), residual)))
+    ctrl_el = b.census["gdn_controls"]
+    convention = ctrl_el * (ctrl_bits - attn_bits) / 8.0
+    gap = (ours_a - bc_a) * GiB
+    # The slack is block rounding, not fudge: this tool scales a family by bpw, bf16_census prices whole
+    # ggml blocks per tensor. On this checkpoint the two agree to the byte; the slack is for a family
+    # that stops dividing evenly into a block, and it is ~1e-6 of the 927,000 B this row attributes, so
+    # it cannot absorb a real convention change.
+    residual = gap - convention
+    out.append(("policy A: this tool minus bf16_census is only the GDN-control width convention",
+                abs(residual) < 1024.0 and ctrl_el > 0,
+                "this tool %.4f GiB, bf16_census %.4f GiB, gap %.6f GiB = %d GDN 1-D control elements "
+                "(ssm_conv1d/ssm_a/ssm_dt/ssm_norm) charged %g bpw here and %g bpw there = %.0f B, "
+                "unattributed %.0f B. Convention, not disagreement — see the block comment above "
+                "census_reconcile and adjudication §10.2; do not chase it."
+                % (ours_a, bc_a, ours_a - bc_a, ctrl_el, ctrl_bits, attn_bits, convention, residual)))
     return out
 
-
-def policy_a_from_quant_scenarios(QS):
-    """Reproduce quant_scenarios' policy-A resident figure with ITS census, to make the delta honest."""
-    fam, _ = QS.census()
-    pol = QS.POLICIES["A experts Q4_K, rest Q8_0"]
-    return sum(v * (QS.BAM_BITS(k, pol) / 16.0) for k, v in fam.items()) / GiB
 
 
 # -----------------------------------------------------------------------------------------------

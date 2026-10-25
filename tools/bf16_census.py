@@ -1,14 +1,22 @@
 #!/usr/bin/env python3
-"""bf16_census.py — adjudicate the three bf16 text-weight figures (65.7198 / 66.1337 / 64.5604).
+"""bf16_census.py — the authoritative text-bf16 census, and the closures that keep it honest.
 
-Three rulers disagree about "text weights, bf16", and the number is load-bearing (AGENTS.md SCOPE,
-README.md, PLAN.md, DECISIONS.md D-01/D-11):
+Three rulers once disagreed about "text weights, bf16", and the number is load-bearing (AGENTS.md
+SCOPE, README.md, PLAN.md, DECISIONS.md D-01/D-11):
 
-  tools/quant_scenarios.py --census      65.7198 GiB   config-driven model of the architecture
+  tools/quant_scenarios.py --census      65.7198 GiB   a hand-written model of the architecture
   W7, quantization/residency-layout.md   66.1337 GiB   its own config-driven census
   the pinned GGUF's own records          64.5604 GiB   sum(elts) x 2 over 733 tensor records
 
-This tool does not pick the prettiest of the three. It builds four populations, each derived from a
+The adjudication is quantization/evidence/bf16-census-adjudication-2026-10-26.md: 66.1337 GiB is the
+text model *including* the MTP draft block, 64.5604 GiB is what the pinned artifact carries because
+it has no draft block, and the 65.7198 GiB was a config model worth -0.4138 GiB of error. That tool
+has since been rebuilt (commit a912ac9) to derive its census from the same files this one reads, so
+its live answer now agrees with this one element for element. What is left of the dispute is not
+forgotten: closure C4 keeps the retired model's defect decomposition alive against a frozen copy of
+it, so a regression to the hand-written model is caught rather than remembered.
+
+This tool does not pick the prettiest of the three. It builds five populations, each derived from a
 file rather than typed, and then requires them to be equal where they ought to be equal:
 
   P_ARTIFACT  every tensor record in models/unsloth-q4km/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
@@ -18,15 +26,20 @@ file rather than typed, and then requires them to be equal where they ought to b
               shards under models/qwen36-src/ (those headers carry real shapes and dtypes)
   P_MTP       the index names the artifact does not carry — derived from the name-set difference,
               not from a hard-coded list
-  P_TOOL      quant_scenarios.census(), imported: the ruler under adjudication, not a copy of it
+  P_TOOL      quant_scenarios.census(), imported: the ruler this census was adjudicated against, now
+              rebuilt from files; compared live, never retyped
+  P_BROKEN    the retired hand-written census, frozen in quantization/evidence/
+              bf16-census-broken-model-2026-10-26.json, because it no longer exists anywhere on disk
 
 Closures enforced (each must close to 0 bytes, or this tool names the leftover):
   C1  P_ARTIFACT + P_MTP == P_INDEX restricted to text names   -> the artifact/text gap is the draft
   C2  sum(elts over all index names) x 2 == index total_size    -> nothing is missing from the census
   C3  per-name element equality for every HF name paired into the GGUF, an orphan check on both
       sides, and a half-shape check on the fused->split pair      -> no phantom, no double count
-  C4  P_INDEX(text) - P_TOOL decomposed into named sub-terms     -> every GiB of the tool's error is
-                                              attributed to a term, the rest is printed unexplained
+  C4a P_INDEX(text) - P_TOOL must be 0 elts on every text family -> the rebuilt tool has not drifted
+  C4b P_INDEX(text) - P_BROKEN decomposed into named sub-terms   -> the retired model's
+       -222,179,328-elt error stays attributed to terms *and witnessed non-zero*; C4 has to be a
+       live comparison or a frozen one, and it is now both, because neither alone can fail
 Policy arithmetic then recomputes the two numbers that decide D-01/D-11 — policy-A resident bytes and
 per-token bytes — from P_ARTIFACT + P_MTP with widths read out of the pinned ggml header
 (tools/ggml_block_geom.py, never retyped), and prints the same rows from P_TOOL so a number that
@@ -56,16 +69,24 @@ GGUF = os.path.join(REPO, "models/unsloth-q4km/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf")
 CFG = os.path.join(REPO, "checkpoints/Qwen3.6-35B-A3B.config.json")
 IDX = os.path.join(REPO, "checkpoints/Qwen3.6-35B-A3B.safetensors.index.json")
 SHARD_DIR = os.path.join(REPO, "models/qwen36-src")
+# The frozen retired census. C4b has nothing else to check the named-cause list against now that
+# quant_scenarios.py derives its own census; if this file goes missing C4b cannot run, and the tool
+# says so instead of printing a clean 0.
+BROKEN_MODEL = os.path.join(REPO, "quantization/evidence/bf16-census-broken-model-2026-10-26.json")
 GiB = 2.0 ** 30
 READS = (237.0, 210.0, 190.0)              # GB/s already measured and recorded in this repo
 
-# Quoted claims, for naming the drift. Not inputs to anything computed here.
-CLAIM_DOCS_BF16 = 65.7198                   # AGENTS.md / README.md / PLAN.md / DECISIONS.md D-01, D-11
-CLAIM_W7_BF16 = 66.1337                     # quantization/residency-layout.md (W7, uncommitted)
-CLAIM_ARTIFACT_BF16 = 64.5604               # tmp/bf16_ruler.py (the supervisor's ruler)
-CLAIM_A_RESIDENT = 19.59                    # quantization/README.md, DECISIONS.md D-01a
-CLAIM_A_PERTOKEN = 2.331
-CLAIM_Q8_THROUGHOUT = 34.97                 # DECISIONS.md D-11, devices/measured-facts.md
+# Quoted claims, for naming the drift. Not inputs to anything computed here. These are the figures the
+# docs carried BEFORE the 2026-10-26 adjudication corrected them (README.md / AGENTS.md / PLAN.md /
+# DECISIONS.md D-01/D-11 now carry 66.1337 / 19.7848 / 2.5252 / 35.16); they are kept because "how far
+# did the correction move the answer" is a question a future reader has to ask, and the frozen answer is
+# in the fixture alongside them.
+CLAIM_DOCS_BF16 = 65.7198                   # the pre-correction text-bf16 figure (adjudication §1)
+CLAIM_W7_BF16 = 66.1337                     # quantization/residency-layout.md (W7), now the authority
+CLAIM_ARTIFACT_BF16 = 64.5604               # tmp/bf16_ruler.py (the supervisor's ruler); artifact only
+CLAIM_A_RESIDENT = 19.59                    # policy A resident, pre-correction
+CLAIM_A_PERTOKEN = 2.331                    # policy A per token, pre-correction
+CLAIM_Q8_THROUGHOUT = 34.97                 # Q8-throughout resident, pre-correction
 
 # Width *names* per policy class; the bits come from the pinned ggml header at run time.
 # "exact_*" is deliberately two entries: the published artifact keeps router/norms/conv1d/A_log/
@@ -178,6 +199,54 @@ def shard_witnesses():
                 raise AssertionError("tensor %s witnessed in two shards" % k)
             out[k] = (hdr[k]["dtype"], tuple(hdr[k]["shape"]))
     return out, files
+
+
+_BROKEN_CACHE = {}
+
+
+def broken_model():
+    """The retired hand-written census, frozen — the only population C4b can decompose against.
+
+    Loud by design. This fixture is the input that makes C4b a check rather than a formality, so an
+    absent, unparseable or short file aborts the whole tool instead of letting C4 print a tidy 0 and a
+    PASS nobody earned. It is reproducible from git (`tools/quant_scenarios.py::census()` at
+    a912ac9^), which is the only reason it can be trusted now that the model that produced it is gone.
+    """
+    if "m" in _BROKEN_CACHE:
+        return _BROKEN_CACHE["m"]
+    rel = os.path.relpath(BROKEN_MODEL, REPO)
+    try:
+        raw = json.load(open(BROKEN_MODEL))
+    except FileNotFoundError:
+        raise SystemExit("the frozen retired census %s is absent, so closure C4b has nothing to "
+                         "decompose against. Restore it from git; it is the only thing that witnesses "
+                         "C4's named terms still do work." % rel)
+    except ValueError as e:
+        raise SystemExit("cannot parse the frozen retired census %s: %s" % (rel, e))
+    fam = {k: int(v) for k, v in (raw.get("broken_census_elements_by_family") or {}).items()}
+    if len(fam) != 8:
+        raise SystemExit("%s carries %d families, C4b expects 8 — a short fixture checks "
+                         "fewer families and still prints a clean total" % (rel, len(fam)))
+    if [k for k, v in fam.items() if v <= 0]:
+        raise SystemExit("%s has a non-positive family element count: %s" % (rel, fam))
+    tot = int(raw.get("broken_census_total_elements") or 0)
+    if sum(fam.values()) != tot:
+        raise SystemExit("%s is internally inconsistent: families sum to %d, its own total says %d"
+                         % (rel, sum(fam.values()), tot))
+    terms = {}
+    for row in raw.get("defect_decomposition_elements_authoritative_minus_broken") or []:
+        terms[row["family"]] = terms.get(row["family"], 0) + int(row["elts"])
+    fam_terms = {k: int(v) for k, v in
+                 (raw.get("defect_decomposition_by_family_elements_authoritative_minus_broken")
+                  or {}).items()}
+    if not terms or fam_terms != terms:
+        raise SystemExit("%s's per-term rows do not sum to its per-family decomposition (%s vs %s); a "
+                         "fixture edited to float free of its own terms would agree with anything"
+                         % (rel, sorted(fam_terms.items()), sorted(terms.items())))
+    out = dict(fam=fam, terms=terms, total=tot,
+               gib=float(raw.get("broken_census_total_bf16_gib_as_printed") or 0))
+    _BROKEN_CACHE["m"] = out
+    return out
 
 
 def hf_shape(name, g):
@@ -409,8 +478,13 @@ def build(faults=()):
     if "drop-family" in faults:
         nlin = sum(1 for x in g["layer_types"] if x == "linear_attention")
         fam_art["gdn_linear_attn"] -= nlin * g["lv"] * g["dv"] * g["h"]
-    tool_bytes, _ = QS.census()                      # the ruler under adjudication, imported
+    tool_bytes, _ = QS.census()                      # the ruler, imported — never retyped
     tool_fam = {k: v // 2 for k, v in tool_bytes.items()}
+    if "model-regression" in faults:
+        # The regression C4 was written to catch: the live tool population replaced by the retired
+        # model's, i.e. what quant_scenarios would print if the rebuild were reverted. Nothing is
+        # typed here — it is the same frozen population C4b decomposes against.
+        tool_fam = dict(broken_model()["fam"])
     if "phantom-term" in faults:
         fam_index["norms_misc"] += 9 * g["h"] * g["h"]
 
@@ -445,48 +519,92 @@ def closures(p):
                  "%d of %d shapes witnessed by real shard headers"
                  % (p["pairs"], len(p["gguf"]), p["shape_checks"], p["n_index"]))
 
-    # ---- C4: quant_scenarios' error, decomposed into named terms -------------------------------
+    # ---- C4: quant_scenarios' census, in two arms ------------------------------------------------
+    # C4 used to be one closure: the tool's hand-written config model differed from this census by
+    # +222,179,328 elts and the five named terms below accounted for every one of them. The rebuild
+    # (commit a912ac9) made quant_scenarios derive from the same files this census derives from, so the
+    # live delta is 0 on every family and a decomposition of *it* would be a decomposition of nothing --
+    # the exact state in which a closure stops being able to fail. So C4 is two arms:
+    #   C4a  the live tool population must equal this census, 0 elts on every text family;
+    #   C4b  the named-cause list must reproduce the frozen broken census, element for element, so the
+    #        decomposition stays witnessed non-zero against
+    #        quantization/evidence/bf16-census-broken-model-2026-10-26.json.
+    # Neither arm can pass by being empty: C4a fires on any live drift, C4b fires if a term stops
+    # carrying its magnitude, or if the fixture is edited to fit the terms.
     h, L = g["h"], g["L"]
     nlin = sum(1 for x in g["layer_types"] if x == "linear_attention")
     draft = g["draft"]
     real_norm_h = 2 * L + 1 + draft * 5          # in+post per layer, final norm, draft's 5 h-norms
     terms = [
-        ("gdn out_proj / ssm_out [h, lv*dv] x %d — a real tensor the tool does not model" % nlin,
-         "gdn_linear_attn", nlin * g["lv"] * g["dv"] * g["h"]),
-        ("gdn term's `+ 2*h` per linear layer — no tensor behind it",
+        ("gdn out_proj / ssm_out [h, lv*dv] x %d — a real tensor the retired model did not model"
+         % nlin, "gdn_linear_attn", nlin * g["lv"] * g["dv"] * g["h"]),
+        ("the retired gdn term's `+ 2*h` per linear layer — no tensor behind it",
          "gdn_linear_attn", -2 * h * nlin),
         ("norms_misc's `3*h*(3*h)` = 9h^2 — no tensor family of this size exists",
          "norms_misc", -9 * h * h),
-        ("norms: real %d h-sized norms vs the tool's 2L+4 = %d (x h elements each)"
+        ("norms: real %d h-sized norms vs the retired model's 2L+4 = %d (x h elements each)"
          % (real_norm_h, 2 * L + 4),
          "norms_misc", (real_norm_h - (2 * L + 4)) * h),
-        ("mtp.fc [h, 2h] — the draft's fusion projection, absent from the tool",
+        ("mtp.fc [h, 2h] — the draft's fusion projection, absent from the retired model",
          "norms_misc", h * 2 * h * draft),
     ]
     named = {}
     for _, fam, d in terms:
         named[fam] = named.get(fam, 0) + d
-    lines.append("C4  per-family delta (authoritative - quant_scenarios), elements:")
-    unexplained_total, fam_delta = 0, {}
+    broken = broken_model()
+    fam_broken = broken["fam"]
+
+    lines.append("C4a live per-family delta (authoritative - quant_scenarios.census()), elements; "
+                 "every text family must read 0:")
+    unexplained_live, fam_delta = 0, {}
     for fam in sorted(set(p["fam_index"]) | set(p["tool_fam"])):
         if fam == "vision":
             continue
         d = p["fam_index"].get(fam, 0) - p["tool_fam"].get(fam, 0)
         fam_delta[fam] = d
+        unexplained_live += d
+        lines.append("      %-18s %14d vs %14d  delta %+12d  unexplained %+d"
+                     % (fam, p["fam_index"].get(fam, 0), p["tool_fam"].get(fam, 0), d, d))
+    live_total = sum(fam_delta.values())
+    lines.append("      total live delta %+d elts = %+.4f GiB across %d text families "
+                 "(0 is the rebuilt tool agreeing with this census to the element)"
+                 % (live_total, live_total * 2 / GiB, len(fam_delta)))
+    if unexplained_live:
+        res["C4 quant_scenarios delta"] = unexplained_live * 2
+
+    lines.append("C4b frozen retired model (%.4f GiB, %s), per-family delta "
+                 "(authoritative - fixture), elements:" % (broken["gib"],
+                                                           os.path.relpath(BROKEN_MODEL, REPO)))
+    unexplained_fx, fam_fx_delta = 0, {}
+    for fam in sorted(fam_broken):
+        d = p["fam_index"].get(fam, 0) - fam_broken[fam]
+        fam_fx_delta[fam] = d
         left = d - named.get(fam, 0)
-        unexplained_total += left
+        unexplained_fx += left
         lines.append("      %-18s %14d vs %14d  delta %+12d  named %+12d  unexplained %+d"
-                     % (fam, p["fam_index"].get(fam, 0), p["tool_fam"].get(fam, 0), d,
-                        named.get(fam, 0), left))
+                     % (fam, p["fam_index"].get(fam, 0), fam_broken[fam], d, named.get(fam, 0), left))
     for label, _, d in terms:
         lines.append("      term %+12d elts  %s" % (d, label))
-    tot_delta = sum(fam_delta.values())
-    lines.append("      total delta %+d elts = %+.4f GiB; unexplained %+d elts"
-                 % (tot_delta, tot_delta * 2 / GiB, unexplained_total))
-    if unexplained_total:
-        res["C4 quant_scenarios delta"] = unexplained_total * 2
+    fx_total = sum(fam_fx_delta.values())
+    lines.append("      total broken-model delta %+d elts = %+.4f GiB; unexplained %+d elts"
+                 % (fx_total, fx_total * 2 / GiB, unexplained_fx))
+    if unexplained_fx:
+        res["C4 broken-model decomposition"] = unexplained_fx * 2
+    # The fixture carries its own frozen copy of the decomposition. The terms above are re-derived from
+    # the checkpoint's geometry, so the two agreeing is a real cross-check: it is what stops a term
+    # being quietly retuned until the fixture balanced.
+    drift = {f: named.get(f, 0) - broken["terms"].get(f, 0)
+             for f in set(named) | set(broken["terms"])
+             if named.get(f, 0) != broken["terms"].get(f, 0)}
+    lines.append("      derived terms vs the fixture's own frozen decomposition: %s"
+                 % ("agree on every family" if not drift else "DISAGREE %s" % sorted(drift.items())))
+    if drift:
+        res["C4 broken-model terms disagree"] = sum(drift.values()) * 2
     return lines, res, dict(text_index=text_index, art=art, mtp=mtp, all_index=all_index,
-                            terms=terms, fam_delta=fam_delta, vision=p["fam_index"].get("vision", 0))
+                            terms=terms, fam_delta=fam_delta, live_total=live_total,
+                            fam_fx_delta=fam_fx_delta, fx_total=fx_total,
+                            broken_total=broken["total"], broken_gib=broken["gib"],
+                            vision=p["fam_index"].get("vision", 0))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -589,7 +707,7 @@ def report():
     g = p["g"]
     lines, res, sc = closures(p)
     ti, art, mtp = sc["text_index"], sc["art"], sc["mtp"]
-    print("bf16_census — three rulers, four populations, four closures")
+    print("bf16_census — three rulers, five populations, five closures")
     print("sources: %s (%d weight_map names, total_size %d B); %d shards under %s (%d tensors of "
           "real shape/dtype); %s (%d records)"
           % (os.path.relpath(IDX, REPO), p["n_index"], p["index_total"], len(p["shards"]),
@@ -605,11 +723,15 @@ def report():
           % (art * 2 / GiB, p["decl_tensors"], g["L"] - 1, draft_claimed))
     print("  P_INDEX text %9.4f GiB  %d names = %d body + %d draft-block (mtp.*)"
           % (ti * 2 / GiB, n_text_idx, n_text_idx - len(p["mtp"]), len(p["mtp"])))
-    print("  W7 claim      %10.4f GiB  quantization/residency-layout.md" % CLAIM_W7_BF16)
-    print("  P_TOOL        %10.4f GiB  quant_scenarios.census(), imported"
+    print("  W7 claim      %10.4f GiB  quantization/residency-layout.md — confirmed as the authority"
+          % CLAIM_W7_BF16)
+    print("  P_TOOL        %10.4f GiB  quant_scenarios.census(), imported (rebuilt 2026-10-26 to "
+          "derive from files; C4a requires this line and the one above to agree to the element)"
           % (sum(p["tool_fam"].values()) * 2 / GiB))
-    print("  docs carry    %10.4f GiB  AGENTS.md / README.md / PLAN.md / DECISIONS.md"
-          % CLAIM_DOCS_BF16)
+    print("  retired model %10.4f GiB  the frozen hand-written census, quantization/evidence/"
+          "bf16-census-broken-model-2026-10-26.json (C4b's input)" % sc["broken_gib"])
+    print("  docs carried  %10.4f GiB  what the docs quoted before the correction (adjudication §1); "
+          "they now carry the line above" % CLAIM_DOCS_BF16)
     print("  artifact ruler%9.4f GiB  tmp/bf16_ruler.py" % CLAIM_ARTIFACT_BF16)
     print("  index total   %10.4f GiB  all %d names: text + draft + vision (%d names, %.4f GiB)"
           % (p["index_total"] / GiB, p["n_index"],
@@ -647,14 +769,20 @@ def report():
         d = p["fam_index"].get(fam, 0) - p["tool_fam"].get(fam, 0)
         print("  %-18s tool %14d  real %14d  delta %+12d elts (%+.5f GiB bf16)"
               % (fam, p["tool_fam"].get(fam, 0), p["fam_index"].get(fam, 0), d, d * 2 / GiB))
-    print("  named causes (their sum equals the delta above, or C4 would print an unexplained term):")
+    print("  the live per-family delta in C4a is 0 everywhere: the rebuilt tool and this census read")
+    print("  the same files. The named causes below are the retired model's error, which C4b keeps")
+    print("  witnessed non-zero against the frozen fixture — their sum is %+.4f GiB and it is not 0,"
+          % (sc["fx_total"] * 2 / GiB))
+    print("  because a decomposition of a 0 delta would be a decomposition of nothing.")
     for label, fam, d in sc["terms"]:
         print("      %+12d elts  %s" % (d, label))
 
     print("\n== 5. the two deciding numbers, recomputed from the artifact census ==")
     ctrl_res, ctrl_per = tool_policy_rows(p, "A")
-    print("  control: policy A priced from quant_scenarios' own census -> %.2f GiB resident, "
-          "%.3f GiB/token (published: %.2f / %.3f)"
+    print("  control: policy A priced from quant_scenarios' own census with this tool's width rule -> "
+          "%.2f GiB resident, %.3f GiB/token. The hand-written model published %.2f / %.3f and the two "
+          "rulers now derive the same census, so any difference left between this line and the rows "
+          "below is the width rule and nothing else."
           % (ctrl_res / GiB, ctrl_per / GiB, CLAIM_A_RESIDENT, CLAIM_A_PERTOKEN))
     out = {}
     for polkey, modes in (("bf16", ("bf16",)), ("A", ("bf16", "artifact")),
@@ -680,12 +808,14 @@ def report():
         print("  %-30s" % ("policy %s/%s target-only" % (polkey, mode))
               + "".join("%9.0f" % (r * 1e9 / pto) for r in READS))
     a = out[("A", "bf16")]
-    print("  vs the published policy-A row: resident %+.4f GiB (%+.2f %%), per-token %+.4f GiB "
-          "(%+.1f %%)"
-          % ((a[0] + a[1]) / GiB - CLAIM_A_RESIDENT, 100 * ((a[0] + a[1]) / GiB / CLAIM_A_RESIDENT
-                                                             - 1), a[2] / GiB - CLAIM_A_PERTOKEN,
+    print("  vs the policy-A row the docs carried before the correction (%.2f resident / %.3f per "
+          "token): resident %+.4f GiB (%+.2f %%), per-token %+.4f GiB (%+.1f %%) — that is the whole "
+          "cost of the four census defects, and the docs now carry these figures"
+          % (CLAIM_A_RESIDENT, CLAIM_A_PERTOKEN,
+             (a[0] + a[1]) / GiB - CLAIM_A_RESIDENT, 100 * ((a[0] + a[1]) / GiB / CLAIM_A_RESIDENT
+                                                            - 1), a[2] / GiB - CLAIM_A_PERTOKEN,
              100 * (a[2] / GiB / CLAIM_A_PERTOKEN - 1)))
-    print("  vs D-11's Q8-throughout row (%.2f GiB): %+.4f GiB" %
+    print("  vs the pre-correction Q8-throughout row (%.2f GiB): %+.4f GiB" %
           (CLAIM_Q8_THROUGHOUT, (out[("F", "bf16")][0] + out[("F", "bf16")][1]) / GiB
            - CLAIM_Q8_THROUGHOUT))
 
@@ -718,15 +848,19 @@ def report():
 # ---------------------------------------------------------------------------------------------
 def selftest():
     print("bf16_census --selftest")
-    fired, missed = [], []
+    fired, missed, clean = [], [], []
+    injected = [0]
 
     def expect(name, fn, why):
         """A fault counts as fired if the tool raises, or if fn() returns a detection note.
 
         Two shapes because two faults are structurally impossible to mis-read (a short parse, a
-        double claim) while the other two are only visible as a non-zero residual: raising is
-        evidence, and so is a closure that came back with a named leftover.
+        double claim) while the others are only visible as a non-zero residual: raising is evidence,
+        and so is a closure that came back with a named leftover. `injected` is counted here rather
+        than derived from len(fired)+len(missed), because a failed clean-run condition is not an
+        injected fault and must not be printed as one.
         """
+        injected[0] += 1
         try:
             note = fn()
         except (AssertionError, ValueError) as e:
@@ -741,18 +875,31 @@ def selftest():
     p = build()
     lines, res, sc = closures(p)
     if res:
-        missed.append("clean run left residuals: %s" % res)
-    if sc["mtp"] == 0 or sc["fam_delta"].get("gdn_linear_attn", 0) == 0:
-        missed.append("clean run is vacuous: draft elts or the gdn delta read 0")
+        clean.append("clean run left residuals: %s" % res)
+    if sc["mtp"] == 0:
+        clean.append("clean run is vacuous: the draft block reads 0 elements")
     if sc["vision"] == 0:
-        missed.append("clean run is vacuous: the vision family read 0")
-    print("  clean run: text %.4f GiB, artifact %.4f GiB, draft %.4f GiB, vision %.4f GiB, "
-          "C4 delta %+d elts" % (sc["text_index"] * 2 / GiB, sc["art"] * 2 / GiB,
-                                 sc["mtp"] * 2 / GiB, sc["vision"] * 2 / GiB,
-                                 sum(sc["fam_delta"].values())))
-    print("  witnesses that a 0 here would have meant something: %d names paired, %d shapes "
-          "witnessed against real headers, %d draft names, %d named C4 terms"
-          % (p["pairs"], p["shape_checks"], len(p["mtp"]), len(sc["terms"])))
+        clean.append("clean run is vacuous: the vision family read 0")
+    # C4a's clean value is 0 by construction now, so non-vacuity has to come from the other arm: the
+    # frozen broken model must still carry a non-zero defect signature, and no named term may have
+    # gone quiet. Without these two the C4 block could print all-zeros forever and still say PASS.
+    if sc["fx_total"] == 0 or sc["fam_fx_delta"].get("gdn_linear_attn", 0) == 0:
+        clean.append("clean run is vacuous: the frozen broken model's defect signature reads 0, so C4b "
+                     "is decomposing nothing (fixture total %d elts)" % sc["broken_total"])
+    if not sc["terms"] or [t for t in sc["terms"] if t[2] == 0]:
+        clean.append("a C4 named term is missing or reads 0 — a term that reads 0 checks nothing")
+    print("  clean run: text %.4f GiB, artifact %.4f GiB, draft %.4f GiB, vision %.4f GiB; "
+          "C4a live delta %+d elts (must be 0), C4b frozen-model delta %+d elts (must NOT be 0)"
+          % (sc["text_index"] * 2 / GiB, sc["art"] * 2 / GiB, sc["mtp"] * 2 / GiB,
+             sc["vision"] * 2 / GiB, sc["live_total"], sc["fx_total"]))
+    print("  witnesses that a 0 there would have meant something: %d names paired, %d shapes witnessed "
+          "against real headers, %d draft names, %d named C4 terms worth %+.4f GiB against the frozen "
+          "model (gdn %+d elts, norms %+d elts)"
+          % (p["pairs"], p["shape_checks"], len(p["mtp"]), len(sc["terms"]),
+             sc["fx_total"] * 2 / GiB, sc["fam_fx_delta"].get("gdn_linear_attn", 0),
+             sc["fam_fx_delta"].get("norms_misc", 0)))
+    for ln in clean:
+        print("  FAIL " + ln)
 
     # 1. a dropped family: GDN out_proj removed from the artifact census
     def drop_family():
@@ -762,14 +909,39 @@ def selftest():
                 % r["C1 text-vs-artifact+draft"]) if "C1 text-vs-artifact+draft" in r else None
     expect("dropped-family", drop_family, "C1 reported no residual for a missing family")
 
-    # 2. a phantom term of the shape quant_scenarios carries: 3h x 3h added to norms_misc
+    # 2. a phantom term of the shape the retired model carried: 3h x 3h added to norms_misc. It now
+    #    breaks both C4 arms at once — the live census no longer balances, and neither does the
+    #    decomposition against the frozen model — so the note names both.
     def phantom():
         pf = build(faults=("phantom-term",))
         _, r, s = closures(pf)
-        return ("C4 left %+d B unexplained — the named-term decomposition refused to absorb a term "
-                "with no tensor behind it" % r["C4 quant_scenarios delta"]) \
-            if "C4 quant_scenarios delta" in r else None
+        if "C4 quant_scenarios delta" not in r:
+            return None
+        return ("C4 left %+d B unexplained live and %+d B against the frozen model — the named-term "
+                "decomposition refused to absorb a term with no tensor behind it"
+                % (r["C4 quant_scenarios delta"],
+                   r.get("C4 broken-model decomposition", 0)))
     expect("phantom-term", phantom, "C4 accepted an unexplained phantom term")
+
+    # 2b. the regression C4 exists to catch: the live tool population replaced by the hand-written
+    #     model it superseded. C4a must fire with the whole defect signature unexplained, and C4b must
+    #     stay clean, because the frozen census really did carry that defect.
+    def model_regression():
+        pf = build(faults=("model-regression",))
+        _, r, s = closures(pf)
+        if "C4 quant_scenarios delta" not in r:
+            return None
+        other = sorted(k for k in r if k.startswith("C4 broken-model"))
+        if other:
+            return ("C4a fired but C4b broke with it (%s): the fixture and the live populations no "
+                    "longer describe the same retired model, which is a fixture problem, not a "
+                    "regression" % other)
+        return ("C4a left %+d B unexplained — the tool's census had been swapped for the retired "
+                "model and only the live arm noticed; C4b stayed clean, which is what 'the two agree' "
+                "has to mean"
+                % r["C4 quant_scenarios delta"])
+    expect("tool-regression-to-model", model_regression,
+           "the live C4a arm could not tell the rebuilt census from the hand-written model it replaced")
 
     # 3. a fused/split mis-pairing: gate_up_proj paired with gate_exps + down_exps. Element counts
     #    alone cannot catch this (both halves are 268,435,456 elts); the half-shape and double-claim
@@ -791,10 +963,10 @@ def selftest():
         print("  PASS " + ln)
     for ln in missed:
         print("  FAIL " + ln)
-    print("selftest: %d faults injected, %d fired, %d missed — %s"
-          % (len(fired) + len(missed), len(fired), len(missed),
-             "PASS" if not missed and len(fired) >= 3 else "FAIL"))
-    return 0 if (not missed and len(fired) >= 3) else 1
+    ok = not missed and not clean and len(fired) == injected[0]
+    print("selftest: %d faults injected, %d fired, %d missed, %d clean-run condition(s) failed — %s"
+          % (injected[0], len(fired), len(missed), len(clean), "PASS" if ok else "FAIL"))
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

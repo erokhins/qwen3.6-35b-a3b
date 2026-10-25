@@ -1,0 +1,49 @@
+{
+  "_what": "Frozen fixture of the RETIRED hand-modelled census that tools/quant_scenarios.py used to print (65.7198 GiB text bf16). tools/quant_scenarios.py was rebuilt (commit a912ac9) to derive its census from files, so that broken model no longer exists anywhere on disk; this file pins its per-family element counts so tools/bf16_census.py closure C4 stays witnessed NON-VACUOUS against it. C4's named-cause list is a decomposition of THIS census, not of the live one.",
+  "_why_a_fixture": "A closure whose defect signature has no input left to check reads 0 whether or not the tool is broken. C4 used to prove itself by reproducing quant_scenarios' real -222,179,328-element error term by term; after the repair the live delta is 0 elements on every family, so the same five terms produce a -444,358,656 B residual and the gdn delta that used to witness non-vacuity reads 0. Pinning the broken census keeps both halves true: the live comparison requires 0 elts on every family (a regression check on the repaired tool), and the defect decomposition stays fired-and-caught against this file (the non-vacuity witness). This is not a tolerance and nothing here is tuned to make a check pass; it is a snapshot of a state independently reproducible from git.",
+  "_provenance": "The eight family values are what census() returned from tools/quant_scenarios.py at revision a912ac9^ (the commit the rebuild replaced), re-evaluated against checkpoints/Qwen3.6-35B-A3B.config.json on 2026-10-26 by W12. The total reproduces the retired print exactly: 35,283,072,128 elements = 70,566,144,256 bf16 bytes = 65.7198 GiB. The per-family differences against tools/bf16_census.py's authoritative census reproduce quantization/evidence/bf16-census-adjudication-2026-10-26.md section 3 to the element. Elements first, GiB last, per that file's own rule.",
+  "_retired_family_expressions": {
+    "routed_experts": "(L)*(2*me*h*E + h*me*E) + (1)*same  -- already right",
+    "gdn_linear_attn": "nlin * ((2*lk*dk + lv*dv)*h + (lv*dv)*h + lv*h + lv*h + (2*lk*dk + lv*dv)*kf + 2*lv + 2*h + dv)  -- no out_proj term, and '+ 2*h' is a phantom",
+    "full_attn": "(nfull+1) * ((2*nq*hd)*h + 2*(nkv*hd)*h + h*(nq*hd) + 2*hd)  -- already right",
+    "shared_experts": "(L+1) * (3*se*h + h)  -- already right",
+    "routers": "(L+1) * (h*E)  -- already right",
+    "embed": "V*h  -- already right",
+    "lm_head": "V*h  -- already right",
+    "norms_misc": "(2*L+4)*h + 3*h*(3*h)  -- the 9h^2 term is a phantom; 2L+4 undercounts the 86 h-norms; mtp.fc absent"
+  },
+  "broken_census_elements_by_family": {
+    "routed_experts": 33017561088,
+    "gdn_linear_attn": 760018560,
+    "embed": 508559360,
+    "lm_head": 508559360,
+    "full_attn": 299898368,
+    "shared_experts": 129058816,
+    "norms_misc": 37920768,
+    "routers": 21495808
+  },
+  "broken_census_total_elements": 35283072128,
+  "broken_census_total_bf16_gib_as_printed": 65.7198,
+  "broken_census_total_bf16_bytes": 70566144256,
+  "_delta_convention": "authoritative minus broken, in ELEMENTS -- the sign convention tools/bf16_census.py and adjudication section 3 use. quant_scenarios.py's own fault injections carry the same magnitudes with the OPPOSITE sign, because they perturb the tool's own census: its _f_out_proj is -251,658,240 where the out_proj term here is +251,658,240.",
+  "defect_decomposition_elements_authoritative_minus_broken": [
+    {"family": "gdn_linear_attn", "elts": 251658240, "real_or_phantom": "real", "term": "GDN out_proj / ssm_out [h, lv*dv] x 30 linear layers, absent from the tool's gdn term"},
+    {"family": "gdn_linear_attn", "elts": -122880, "real_or_phantom": "phantom", "term": "the gdn term's '+ 2*h' per linear layer x 30; the term had 8 summands for the 9 tensors a GDN layer carries, and the tensor left with no summand was out_proj"},
+    {"family": "norms_misc", "elts": -37748736, "real_or_phantom": "phantom", "term": "norms_misc's '3*h*(3*h)' = 9h^2; no tensor family of that size exists in this checkpoint"},
+    {"family": "norms_misc", "elts": 4096, "real_or_phantom": "real", "term": "norm count: 86 h-sized norms exist (40 input + 40 post + language_model.norm + the draft's five), the tool modelled 2L+4 = 84"},
+    {"family": "norms_misc", "elts": 8388608, "real_or_phantom": "real", "term": "mtp.fc.weight [h, 2h], the draft block's fusion projection, absent from the tool"}
+  ],
+  "defect_decomposition_by_family_elements_authoritative_minus_broken": {
+    "gdn_linear_attn": 251535360,
+    "norms_misc": -29356032
+  },
+  "defect_total_elements": 222179328,
+  "defect_total_bf16_bytes": 444358656,
+  "defect_total_bf16_gib": 0.413837,
+  "_figures_the_broken_census_alone_produced": {
+    "text_bf16_gib": 65.7198,
+    "policy_a_resident_gib": 19.59,
+    "policy_a_gib_per_token": 2.331,
+    "note": "The three figures quoted across README.md, AGENTS.md, PLAN.md and DECISIONS.md D-01/D-11 before the correction. The corrected rows from the repaired tool: 66.1337 GiB text bf16, policy A 19.7848 GiB resident, 2.5252 GiB/token with one draft pass (2.4653 target-only). Adjudication sections 3 and 6."
+  }
+}
