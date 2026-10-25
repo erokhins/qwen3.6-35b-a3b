@@ -42,6 +42,10 @@ import traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
+sys.path.insert(0, os.path.join(REPO, "tools"))
+import ulp_policy                                   # noqa: E402  the repo's one ULP ruler (D-17)
+
+_RULER32 = ulp_policy.Ruler("f32")                  # f32 facts derive from `struct`, stdlib only
 BIN = os.path.join(HERE, "moe_router")
 PROBE_BIN = os.path.join(HERE, "host_probe")
 ORACLE_PY = "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python"
@@ -52,6 +56,23 @@ MANIFEST = os.path.join(REPO, "checkpoints", "dump-manifest-2026-10-26.json")
 HEADER = os.path.join(HERE, "moe_router_kernels.h")
 BLOCKS = ["layer0", "layer1", "layer39", "mtp0"]
 E, K, H = 256, 8, 2048
+# Prediction 3's own geometry, in one place. The oracle reads one selected expert of each block
+# three ways at two (token, slot) probes, so the record population the gate must parse is the
+# Cartesian product of these three sets — derived from the geometry, not counted from whatever file
+# turned up (pitfalls/40 §"a fixture list typed from memory"). The oracle spells the same two tuples
+# because it is a separate process; `prediction3-record-population` is what makes that duplication
+# fail loudly instead of drifting.
+P3_READINGS = ("chunk2", "halves_swapped", "stack_transposed")
+P3_SLOTS = ((0, 0), (7, 3))
+P3_RECORDS = len(BLOCKS) * len(P3_SLOTS) * len(P3_READINGS)
+# A reading "reproduces" the pinned expert_raw below this 1-minus-cos, and the claim is only made when
+# the nearest wrong reading is at least this many times worse. Both come from the corrigendum's own
+# measurements, not from what the current build produces: the correct reading sits at 1-cos ~1e-6 with
+# at most 91 of 2048 elements differing (the measured grouped-vs-per-slot re-association bound), while
+# every wrong reading is orthogonal (1-cos ~1.0, 65,251-65,503 of 65,536 differing). A threshold that
+# separates 1e-6 from 1.0 by six orders of magnitude is not fitted to the answer.
+P3_ADMISSIBLE_ONE_MINUS_COS = 1e-3
+P3_SEPARATION_MIN = 10.0
 CASE_FLOATS = E + E + K + K + K + H
 OFF = {"logits": 0, "probs": E, "wpre": 2 * E, "wcast": 2 * E + K, "ids": 2 * E + 2 * K,
        "routed": 2 * E + 3 * K}
@@ -103,9 +124,24 @@ def bf16_round(b):
 
 
 def ulpdist_bits(a, b):
-    ai = a if a < 0x80000000 else 0x80000000 - a
-    bi = b if b < 0x80000000 else 0x80000000 - b
-    return abs(ai - bi)
+    """Steps between two f32 images — delegated to the repo's one ruler (DECISIONS.md D-17).
+
+    The body this replaced (`a if a < 0x80000000 else 0x80000000 - a`) folds +0 and -0 onto one key, so
+    EVERY pair straddling zero was counted one step short of the true number of representable steps and
+    a signed-zero flip read as no difference at all: 13,771 of 69,089 pairs in the derived corpus of
+    `specification/evidence/ulp_policy_equiv.py`. A NaN pair now answers None; every call site here
+    compares the result against a band, and `None <= band` is a TypeError rather than a silent pass,
+    which is the point — NaN reaching a band is a finding, not a small value.
+
+    CONSEQUENCE THIS LANE OWNS: the bands measured with the short ruler
+    (`weights_vs_pinned_f32_ulp`, `softmax_denominator_reassoc_ulp`) were measured with the short ruler,
+    so a straddling pair now reads one step larger. Re-derive them before quoting the lane's verdicts
+    again. Staged, not pushed.
+    """
+    kind, steps = _RULER32.classify(a, b)
+    if kind in (ulp_policy.NAN_PAIR, ulp_policy.NAN_OTHER):
+        return None
+    return steps
 
 
 def pack_f32(vals):
@@ -540,8 +576,16 @@ def read_oracle(v, work):
         floors[nm] = int(val)
     if not floors:
         raise GateError("the floor probe produced no bands; every band would be vacuous")
-    p3 = parse_tsv(os.path.join(work, "oracle_p3.tsv"), 8) if \
-        os.path.exists(os.path.join(work, "oracle_p3.tsv")) else []
+    p3 = parse_tsv(os.path.join(work, "oracle_p3.tsv"), 8)
+    # the same producer/reader equality the rows and synth tables get, and no silent empty parse: an
+    # oracle run with --skip-p3, or a table that was never written, is a finding, not a zero
+    if len(p3) != got.get("p3"):
+        raise GateError("oracle_p3.tsv holds %d records, the oracle printed %s"
+                        % (len(p3), got.get("p3")))
+    if not p3:
+        raise GateError("the oracle printed %d p3 records: a prediction-3 probe that produced nothing "
+                        "cannot adjudicate prediction 3 (an empty parse may not print PASS)"
+                        % got.get("p3"))
     orows = {}
     for r in rows:
         orows[int(r[0])] = {
@@ -1351,6 +1395,184 @@ def check_manifest_agreement(p, results, v):
 # -----------------------------------------------------------------------------------------------
 # what the lane was asked to find out, printed rather than asserted away
 # -----------------------------------------------------------------------------------------------
+def p3_records(p3):
+    """{(block, token, slot, read): (one_minus_cos, ndiff, n_elts)} from the oracle's p3 table.
+
+    Every field is parsed to a number here, so a table that wrote a word where a float belongs is a
+    GateError rather than a comparison that silently never happened.
+    """
+    by_key = {}
+    for l in p3:
+        try:
+            key = (l[0], int(l[1]), int(l[2]), l[3])
+            by_key[key] = (float(l[5]), int(l[6]), int(l[7]))
+        except (ValueError, IndexError) as e:
+            raise GateError("P3 record is not well-formed (%s): %r" % (e, l))
+    return by_key
+
+
+def p3_verdict(by_key):
+    """(adjudicable, best_right, best_wrong, worst_ndiff, n_rec) — the ONE place the resolved/unresolved
+    decision is computed, so the check and the report line cannot disagree about the state.
+    """
+    right = [v for k, v in by_key.items() if k[3] == "chunk2"]
+    wrong = [v for k, v in by_key.items() if k[3] != "chunk2"]
+    if not right or not wrong:
+        return False, float("inf"), 0.0, -1, len(by_key)
+    best_right = max(r[0] for r in right)
+    best_wrong = min(r[0] for r in wrong)
+    worst_ndiff = max(r[1] for r in right)
+    adjudicable = (best_right < P3_ADMISSIBLE_ONE_MINUS_COS
+                   and best_right * P3_SEPARATION_MIN < best_wrong)
+    return adjudicable, best_right, best_wrong, worst_ndiff, len(by_key)
+
+
+def p3_report(adjudicable, best_right, best_wrong, n_rec, worst_ndiff):
+    """The prediction-3 sentence, with every number it asserts in a `field=value` form that
+    `p3_report_is_honest` can read back out of it. A report whose numbers are not checked against the
+    data is a comment; this one is a claim.
+    """
+    common = ("records=%d worst_correct_1_minus_cos=%.3e worst_chunk2_elements_differing=%d/%d"
+              % (n_rec, best_right, worst_ndiff, H))
+    if adjudicable:
+        return ("P3 RESOLVED the halves-as-read reading is the only one of the three that reproduces "
+                "the pinned expert_raw nearest_wrong_1_minus_cos=%.3e separation=%.1fx "
+                "threshold=%.1e/%.0fx evidence=prototype/moe_router/results.md#corrigendum %s"
+                % (best_wrong, best_wrong / max(best_right, 1e-12),
+                   P3_ADMISSIBLE_ONE_MINUS_COS, P3_SEPARATION_MIN, common))
+    return ("P3 UNRESOLVED no reading of gate_up_proj reproduces the pinned expert_raw; this lane "
+            "contains no expert GEMM, so no router verdict rests on it "
+            "threshold=%.1e/%.0fx evidence=prototype/moe_router/results.md#corrigendum %s"
+            % (P3_ADMISSIBLE_ONE_MINUS_COS, P3_SEPARATION_MIN, common))
+
+
+def p3_report_is_honest(line, adjudicable, best_right, best_wrong, n_rec, worst_ndiff):
+    """Can this check fail? Yes — five ways, each named, and `witness-p3-report-fires` shows all five.
+
+    It replaced `v.check("prediction3-fused-layout-unresolved-is-reported", True, ...)`, a predicate
+    that was the literal `True`: recording that something was reported is a note, not an assertion
+    (`results.md §"The checker defect this exposed"`, `pitfalls/40` §"a check whose predicate is True").
+    """
+    want = "P3 RESOLVED" if adjudicable else "P3 UNRESOLVED"
+    if not line.startswith(want):
+        return False, "the line states %s while the data says %s" % (
+            "RESOLVED" if line.startswith("P3 RESOLVED") else "UNRESOLVED",
+            "RESOLVED" if adjudicable else "UNRESOLVED")
+    fields = {}
+    for tok in line.split():
+        if "=" in tok:
+            k, _, val = tok.partition("=")
+            fields[k] = val
+    if fields.get("records") != str(n_rec):
+        return False, "the line quotes records=%s, the parse holds %d" % (fields.get("records"), n_rec)
+    try:
+        quoted = float(fields["worst_correct_1_minus_cos"])
+        quoted_ndiff = int(fields["worst_chunk2_elements_differing"].split("/")[0])
+    except (KeyError, ValueError):
+        return False, "the line is missing a field the data has"
+    if quoted != best_right:
+        return False, "the line quotes worst_correct_1_minus_cos=%r, the data says %r" % (quoted,
+                                                                                           best_right)
+    if quoted_ndiff != worst_ndiff:
+        return False, "the line quotes %d differing chunk2 elements, the data says %d" % (
+            quoted_ndiff, worst_ndiff)
+    if not fields.get("evidence", "").startswith("prototype/"):
+        return False, "the line names no evidence path"
+    if adjudicable:
+        try:
+            qw = float(fields["nearest_wrong_1_minus_cos"])
+            sep = float(fields["separation"].rstrip("x"))
+        except (KeyError, ValueError):
+            return False, "RESOLVED without its separation fields"
+        if qw != best_wrong:
+            return False, "the quoted wrong-reading distance is not the computed one"
+        if sep < P3_SEPARATION_MIN:
+            return False, "RESOLVED claimed at %.1fx, below the derived %.0fx minimum" % (
+                sep, P3_SEPARATION_MIN)
+        if not (best_right < P3_ADMISSIBLE_ONE_MINUS_COS
+                and best_right * P3_SEPARATION_MIN < best_wrong):
+            return False, ("RESOLVED claimed at 1-cos %.3e with the nearest wrong reading %.3e: the "
+                           "derived thresholds (%.1e, >=%.0fx) do not license that word"
+                           % (best_right, best_wrong, P3_ADMISSIBLE_ONE_MINUS_COS,
+                              P3_SEPARATION_MIN))
+    return True, "ok"
+
+
+def witness_p3_report(v):
+    """The predicate above is worthless until it has been seen refusing. Five arms, all in memory:
+    four ways the report can lie, one honest report as the control that must still pass, and a
+    non-vacuity check on the fixture itself (`pitfalls/40` §"a counter that reads zero is vacuous").
+    """
+    adj, br, bw, wn, nr = p3_verdict({("layer0", 0, 0, "chunk2"): (1e-6, 1, H),
+                                      ("layer0", 0, 0, "halves_swapped"): (0.9, 2048, H),
+                                      ("layer0", 0, 0, "stack_transposed"): (1.0, 2048, H)})
+    fixture_ok = adj and br < P3_ADMISSIBLE_ONE_MINUS_COS and bw / br >= P3_SEPARATION_MIN
+    unlicensed = p3_verdict({("layer0", 0, 0, "chunk2"): (0.05, 1900, H),
+                             ("layer0", 0, 0, "halves_swapped"): (0.9, 2048, H),
+                             ("layer0", 0, 0, "stack_transposed"): (1.0, 2048, H)})
+    lies = []
+    # 1. the word RESOLVED over numbers the derived thresholds do not license
+    lies.append(("claims RESOLVED at 1-cos 0.05 with a 18x separation",
+                 not p3_report_is_honest(p3_report(True, unlicensed[1], unlicensed[2],
+                                                   unlicensed[4], unlicensed[3]),
+                                         True, unlicensed[1], unlicensed[2],
+                                         unlicensed[4], unlicensed[3])[0]))
+    # 2. the state string disagrees with the data
+    lies.append(("states UNRESOLVED while the data is RESOLVED",
+                 not p3_report_is_honest(p3_report(False, br, bw, nr, wn), True, br, bw, nr, wn)[0]))
+    # 3. the record count on the line is not the parsed count
+    lies.append(("quotes a record count the parse does not hold",
+                 not p3_report_is_honest(p3_report(adj, br, bw, nr + 7, wn), adj, br, bw, nr, wn)[0]))
+    # 4. a stale distance, and 5. a separation below the derived minimum
+    lies.append(("quotes a distance the data does not contain",
+                 not p3_report_is_honest(
+                     p3_report(adj, br, bw, nr, wn).replace("%.3e" % bw, "%.3e" % (bw / 3.0)),
+                     adj, br, bw, nr, wn)[0]))
+    lies.append(("claims RESOLVED below the separation minimum",
+                 not p3_report_is_honest(
+                     p3_report(adj, br, bw, nr, wn).replace(
+                         "separation=%.1fx" % (bw / max(br, 1e-12)), "separation=1.0x"),
+                     adj, br, bw, nr, wn)[0]))
+    honest = p3_report_is_honest(p3_report(adj, br, bw, nr, wn), adj, br, bw, nr, wn)
+    slipped = [name for name, fired in lies if not fired]
+    v.check("witness-p3-report-fires", not slipped and honest[0] and fixture_ok, len(lies),
+            "ways the report can lie that the predicate failed to catch: %s (the honest report %s; "
+            "the witness fixture itself %s)"
+            % (slipped or "none", "passes" if honest[0] else "REFUSED: %s" % honest[1],
+               "is adjudicable as built" if fixture_ok else "is NOT adjudicable, so arms 1-2 prove "
+                                                            "nothing"))
+
+
+def p3_distinguishable_ok(by_key):
+    """(ok, detail): every (block, token, slot) probe carries all three readings and they are three
+    different numbers. A probe whose "three readings" are one reading is not probing the layout."""
+    reads = {}
+    for (blk, tok, slot, read), (omc, _nd, _n) in by_key.items():
+        reads.setdefault((blk, tok, slot), {})[read] = omc
+    indistinct = ["%s/%d/%d" % k for k, d in reads.items()
+                  if len(set("%.6e" % val for val in d.values())) != len(P3_READINGS)
+                  or set(d) != set(P3_READINGS)]
+    return (not indistinct and len(reads) > 0), (indistinct[:4] or "none"), len(reads)
+
+
+def p3_population_ok(by_key):
+    """(ok, detail): the parsed p3 table is exactly the Cartesian product the geometry says the probe
+    runs — len(BLOCKS) blocks x len(P3_SLOTS) probes x len(P3_READINGS) readings.
+
+    Factored out of `report_predictions` so
+    `specification/evidence/router_p3_controls.py` can drive it with a truncated or duplicated table
+    and require it to refuse; a predicate nobody has seen return False is a note, not a check.
+    """
+    want_keys = {(b, t, s, r) for b in BLOCKS for (t, s) in P3_SLOTS for r in P3_READINGS}
+    missing = sorted("%s/%d/%d/%s" % k for k in want_keys - set(by_key))
+    extra = sorted("%s/%d/%d/%s" % k for k in set(by_key) - want_keys)
+    detail = ("derived = %d blocks x %d probes x %d readings = %d records; parsed %d, missing %s, "
+              "outside the product %s" % (len(BLOCKS), len(P3_SLOTS), len(P3_READINGS), P3_RECORDS,
+                                          len(by_key), missing[:4] or "none",
+                                          extra[:4] or "none"))
+    return (len(by_key) == P3_RECORDS and not missing and not extra), detail
+
+
 def report_predictions(p, results, oracle_rows, p3, bands, v):
     # prediction 1: the serial spine, counted from the code and the geometry, with no clock read
     stages = 5
@@ -1360,46 +1582,35 @@ def report_predictions(p, results, oracle_rows, p3, bands, v):
           % (stages, 41, stages * 41, tok_reads, 2, 0))
     v.check("serial-structure-shape", stages == 5 and tok_reads == 328, tok_reads,
             "R1..R5 per block, one gather per (token, slot), 41 blocks per token")
-    # prediction 3: the fused layout. What this probe CAN claim is that the three readings of
-    # gate_up_proj are three different functions (a reading that made no difference would mean the
-    # layout is not being read at all). What it CANNOT claim is a verdict on which reading the model
-    # uses, and the reason is reported rather than smoothed over: no reading reproduces the pinned
-    # expert_raw, including the one the oracle's own _expert_apply implements.
-    reads = {}
-    for l in p3:
-        reads.setdefault((l[0], l[1], l[2]), {})[l[3]] = float(l[4])
-    indistinct = [k for k, d in reads.items() if len(set("%.6e" % v for v in d.values())) != 3]
-    v.check("prediction3-readings-distinguishable", not indistinct and len(reads) > 0, len(reads),
-            "(block,token,slot) readings where the three ways of reading [E,2I,H] are not three "
-            "different answers: %s" % (indistinct[:4] or "none"))
-    right = [float(l[5]) for l in p3 if l[3] == "chunk2"]
-    wrong = [float(l[5]) for l in p3 if l[3] != "chunk2"]
-    if right and wrong:
-        best_right, best_wrong = max(right), min(wrong)
-        print("P3 chunk2_worst_1_minus_cos=%.3e wrong_reads_best_1_minus_cos=%.3e n=%d"
-              % (best_right, best_wrong, len(p3)))
-        if best_right < 1e-3:
-            v.check("prediction3-fused-layout", best_right < best_wrong, len(p3),
-                    "the halves-as-read reading is the only one that reproduces the pinned "
-                    "expert_raw, by %.1fx over the nearest wrong reading"
-                    % (best_wrong / max(1e-12, best_right)))
-        else:
-            # An unresolved prediction, stated as one. This lane contains no expert GEMM, so P3 is a
-            # claim about the checkpoint's weights, and the pinned dump cannot adjudicate it: the
-            # oracle's own _expert_apply and this file's independent numpy SwiGLU agree with each
-            # other to the last bit and neither correlates with expert_raw (best cosine 0.065 over
-            # all 256 experts for layer0 token0 slot0 — work/probe15.py). Reporting it, not
-            # relaxing a threshold to make it look adjudicated.
-            print("P3 UNRESOLVED no reading of gate_up_proj reproduces the pinned expert_raw "
-                  "(worst 1-cos over the correct reading = %.3f); the oracle's _expert_apply and a "
-                  "separate numpy SwiGLU agree with each other, and sweeping all 256 experts for "
-                  "layer0/token0/slot0 peaked at cos 0.065 (work/probe15.py). expert_raw is not "
-                  "down(silu(gate*x)*up*x) for any expert under the manifest's geometry, so the "
-                  "dump cannot settle the layout claim; what IS verified from expert_raw is the "
-                  "combine, because routed_sum reproduces from it on every real row." % best_right)
-            v.check("prediction3-fused-layout-unresolved-is-reported", True, len(p3),
-                    "P3 is reported as unresolved with its evidence; the router verdicts do not "
-                    "rest on it (no expert GEMM in this lane)")
+    # prediction 3: is `gate_up_proj` really [E, 2I, H] with `gate, up = chunk(2)`? The probe reads one
+    # selected expert per (block, token, slot) three ways and scores each against the pinned
+    # expert_raw. Until 2026-10-26 the read itself was wrong by 8 bytes (`results.md §Corrigendum`),
+    # which is why the lane recorded this as unresolved; the offset is now derived from the shard's own
+    # size (oracle_arm.py §shard_data_start), so the probe can actually decide the claim. What the
+    # gate asserts is not merely that one reading reproduces the dump but that the readings are
+    # DISTINGUISHED from each other by the derived margin — the same standard the two independent
+    # witnesses in results.md were held to.
+    by_key = p3_records(p3)
+    pop_ok, pop_detail = p3_population_ok(by_key)
+    v.check("prediction3-record-population", pop_ok, len(p3),
+            pop_detail + " (the oracle's printed count is compared with this parse in read_oracle)")
+    reads_ok, indistinct, n_probes = p3_distinguishable_ok(by_key)
+    v.check("prediction3-readings-distinguishable", reads_ok, n_probes,
+            "(block,token,slot) probes where the %d ways of reading [E,2I,H] are not %d different "
+            "answers: %s" % (len(P3_READINGS), len(P3_READINGS), indistinct))
+    adjudicable, best_right, best_wrong, worst_ndiff, n_rec = p3_verdict(by_key)
+    line = p3_report(adjudicable, best_right, best_wrong, n_rec, worst_ndiff)
+    print(line)
+    ok, why = p3_report_is_honest(line, adjudicable, best_right, best_wrong, n_rec, worst_ndiff)
+    v.check("prediction3-fused-layout", adjudicable, n_rec,
+            "chunk2 reproduces the pinned expert_raw below 1-cos %.1e (%.3e) and the nearest wrong "
+            "reading is %.3e, %.1fx worse (>= %.0fx required); worst chunk2 record moves %d of %d "
+            "elements" % (P3_ADMISSIBLE_ONE_MINUS_COS, best_right, best_wrong,
+                          best_wrong / max(best_right, 1e-12), P3_SEPARATION_MIN, worst_ndiff, H))
+    v.check("prediction3-report-matches-the-data", ok, n_rec,
+            "the printed P3 line must quote the numbers the data holds, name its evidence, and state "
+            "the state the data supports: %s" % why)
+    witness_p3_report(v)
     # prediction 4: which cast order the dump agrees with, and what the other one produced
     agree_before = disagree = 0
     worst = 0
@@ -1473,8 +1684,10 @@ DEVICE_ROSTER = [
     "witness-injections-fired", "witness-unjudged-is-derived", "witness-bands-reject",
     "witness-bf16-ruler", "host-device-f32-carrying-separation-reported",
     "witness-parsers", "manifest-claims-ids-hold", "manifest-claims-routed-hold",
-    "serial-structure-shape", "prediction3-readings-distinguishable",
-    "prediction3-fused-layout-unresolved-is-reported", "prediction4-wrong-order-differs",
+    "serial-structure-shape", "prediction3-record-population",
+    "prediction3-readings-distinguishable", "prediction3-fused-layout",
+    "prediction3-report-matches-the-data", "witness-p3-report-fires",
+    "prediction4-wrong-order-differs",
     "a03-population-nonempty", "cast-is-robust-not-lucky", "witness-prob-sum-bound",
     "witness-prob-bound-tight", "sample-declared", "judge-arm-device",
 ]

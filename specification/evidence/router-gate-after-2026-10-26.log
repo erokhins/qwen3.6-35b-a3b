@@ -1,0 +1,15 @@
+### AFTER: five staged patches applied + the P3 lane repair, same three modes (final tree)
+$ ./gate --selftest
+RESULT PASS selftest checks=11 findings=0
+
+$ ./gate --check-only
+P3 RESOLVED the halves-as-read reading is the only one of the three that reproduces the pinned expert_raw nearest_wrong_1_minus_cos=6.598e-02 separation=7825.9x threshold=1.0e-03/10x evidence=prototype/moe_router/results.md#corrigendum records=24 worst_correct_1_minus_cos=8.431e-06 worst_chunk2_elements_differing=2048/2048
+RESULT PASS check-only checks=33 findings=0
+
+$ ./gate (device, via ./gate, the wrapper is the only gpu_lock acquirer)
+LOCK acquired tag=q36 W13 moe_router device gate status=HELD: 2026-10-25T23:33:47Z	q36 W13 moe_router device gate	pid=649061
+UTIL_BEFORE gpu use: 100%
+RESULT PASS device checks=43 findings=0
+UTIL_AFTER gpu use: 99%
+WALL started=2026-10-25T23:33:47Z finished=2026-10-25T23:34:25Z  (lock record only; no timing taken)
+no timing taken

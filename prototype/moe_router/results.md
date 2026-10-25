@@ -280,3 +280,40 @@ What is still open in this file is the checker, not the physics: `gate.py`'s
 `prediction3-fused-layout-unresolved-is-reported` still asserts the literal `True`, and the P3 block in
 `oracle_arm.py` still reads with the missing 8 bytes. Both are now superseded by the two witnesses above and
 are scheduled for repair — see `pitfalls/40-gates-and-admissions.md` §A check whose predicate is `True`.
+Both were repaired the same day; see §Repaired, 2026-10-26.
+
+## Repaired, 2026-10-26 — the two scheduled defects, and what the repair moved
+
+Both items the Corrigendum scheduled are done, and neither repair is taken on trust: each is shown
+changing a behaviour, not just applying.
+
+**The oracle's P3 offsets.** `oracle_arm.py` now derives the data region from the shard's own 8-byte
+prefix (`shard_data_start`) and refuses to run unless `data_start + max(data_offsets[1]) == filesize`, so
+an 8-byte slip can no longer read a whole tensor and report a number. At the correct offset
+layer0/token0/slot0 reproduces the pinned `expert_raw` to **1 − cos = 5.131e-06**; at the lane's old
+offset the same read gives **1.005** — orthogonal to the dump.
+`specification/evidence/router_p3_controls.py` witnesses both the guard (two tampered headers, both
+refused) and that difference, and prints `RESULT PASS router P3 controls checks=14 findings=0`.
+
+**The literal-`True` predicate.** `prediction3-fused-layout-unresolved-is-reported` is gone. In its
+place: `prediction3-record-population` (derived: 4 blocks × 2 probes × 3 readings = 24 records, and the
+oracle's printed `ORACLESECTION section=p3 records=` count must equal the parse),
+`prediction3-readings-distinguishable` (8 probes × 3 genuinely different answers),
+`prediction3-fused-layout` (chunk2 below 1 − cos **1e-3**, nearest wrong reading ≥ **10×** worse) and
+`prediction3-report-matches-the-data`, whose state is computed in one place (`p3_verdict`) and compared
+with the machine-readable `P3` line. `witness-p3-report-fires` then lies in five ways — resolved when
+not, a 1.0× separation called decisive, a fabricated evidence label, a wrong record count, an honest word
+over dishonest numbers — and requires the predicate to catch each, with the honest report passing in the
+same breath. The pre-fix table is driven through the same predicates and is refused
+(`control:the PRE-FIX (shifted-offset) table is NOT adjudicable`).
+
+The lane is adjudicated, not unresolved: **RESOLVED**, chunk2's worst 1 − cos 8.431e-06, the nearest wrong
+reading (halves swapped) 6.598e-02, separation **7825.9×**. Check counts moved 11 / 30 / 40 →
+**11 / 33 / 43** for selftest / check-only / device, all `RESULT PASS findings=0`; the before-and-after
+`RESULT` lines are in `specification/evidence/router-gate-{before,after}-2026-10-26.log` — the lane's own
+`evidence/` files are truncated by every run, so a comparison needs a copy that is not.
+
+One caveat the numbers carry: the worst chunk2 record differs from the pinned dump in **2048 of 2048**
+elements, because §P3 computes the expert in `torch.float32` while the dump is a bf16 rounding of an f32
+compute. The element count is therefore never the discriminator in this block — 1 − cos is, and the 10×
+separation is what makes the verdict mean something.

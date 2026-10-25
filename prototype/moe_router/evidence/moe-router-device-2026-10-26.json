@@ -356,15 +356,33 @@
    "ok": true
   },
   {
-   "detail": "(block,token,slot) readings where the three ways of reading [E,2I,H] are not three different answers: none",
+   "detail": "derived = 4 blocks x 2 probes x 3 readings = 24 records; parsed 24, missing none, outside the product none (the oracle's printed count is compared with this parse in read_oracle)",
+   "n": 24,
+   "name": "prediction3-record-population",
+   "ok": true
+  },
+  {
+   "detail": "(block,token,slot) probes where the 3 ways of reading [E,2I,H] are not 3 different answers: none",
    "n": 8,
    "name": "prediction3-readings-distinguishable",
    "ok": true
   },
   {
-   "detail": "P3 is reported as unresolved with its evidence; the router verdicts do not rest on it (no expert GEMM in this lane)",
+   "detail": "chunk2 reproduces the pinned expert_raw below 1-cos 1.0e-03 (8.431e-06) and the nearest wrong reading is 6.598e-02, 7825.9x worse (>= 10x required); worst chunk2 record moves 2048 of 2048 elements",
    "n": 24,
-   "name": "prediction3-fused-layout-unresolved-is-reported",
+   "name": "prediction3-fused-layout",
+   "ok": true
+  },
+  {
+   "detail": "the printed P3 line must quote the numbers the data holds, name its evidence, and state the state the data supports: ok",
+   "n": 24,
+   "name": "prediction3-report-matches-the-data",
+   "ok": true
+  },
+  {
+   "detail": "ways the report can lie that the predicate failed to catch: none (the honest report passes; the witness fixture itself is adjudicable as built)",
+   "n": 5,
+   "name": "witness-p3-report-fires",
    "ok": true
   },
   {
@@ -403,7 +421,7 @@
  "expect_units_note": "this lane's unit is the field comparison (cases x 6 fields); the driver takes --expect-cases only, so expect_units is the gate's own declaration (the SAMPLE line), not a driver flag",
  "field_comparisons": 19344,
  "findings": [],
- "gate_sha256": "d903280be94b57983fda2536e64ca8a546b0f8a3c31fcdccad0051abe9c5b854",
+ "gate_sha256": "d4a76990b6733944fe3728904f6fc0e927e7e25b1694ae9606caaa086f5d7b47",
  "hip_sha256": "12f5220aa491d83ee6c6f27ed020ed10c96cf5db259f40ea348f32e7a70f016f",
  "host_probe_sha256": "da0d13bf616d40ff42491b6f8f8bd851febbdbd08f4bd6b9afbd44f6e33b611c",
  "kernels_header_sha256": "322fe09397278d4732dd6f5f947f0bfeddc5ece49f18dcfe6569b5158e8e4ea8",
@@ -411,8 +429,8 @@
  "mode": "device",
  "modes_that_never_fired": [],
  "notes": [],
- "oracle_arm_sha256": "1b09111821de3574c4f52d6d3ee2db820d325177f1512a4e9aa5c20904c98fa2",
- "oracle_module_sha256": "74f05bf349125563767a3f2e54701f217ab7aa1b7777da7b299f508d88c55a06",
+ "oracle_arm_sha256": "1ab09d8a8a1ea3bfa10fdfbb96680ad6e31aae74212990850b5bdab3959b14b3",
+ "oracle_module_sha256": "fc1ae931eebdc9465d131178e88f2edfd58ce5cdd2dd1e229f80dc098324ac94",
  "out_floats": 8330816,
  "prob_sum_bound": 3.045843642361689e-05,
  "records_parse_equal": true,

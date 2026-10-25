@@ -1,6 +1,6 @@
 LOCKREF gate.py references to the lock tool must be 0: 0
-LOCK acquired tag=q36 W13 moe_router device gate status=HELD: 2026-10-25T09:23:23Z	q36 W13 moe_router device gate	pid=309308
-UTIL_BEFORE gpu use: 2%
+LOCK acquired tag=q36 W13 moe_router device gate status=HELD: 2026-10-25T23:33:47Z	q36 W13 moe_router device gate	pid=649061
+UTIL_BEFORE gpu use: 100%
 CMD python3 /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/moe_router/gate.py 
 CHECK manifest-geometry-matches-config       ok n=7 hidden_size=2048 moe_intermediate_size=512 mtp_num_hidden_layers=1 num_experts=256 num_hidden_layers=40 shared_expert_intermediate_size=512 top_k=8
 CHECK manifest-dump-census                   ok n=8 missing arms: none
@@ -24,30 +24,30 @@ ORACLE> FLOOR name=softmax_denominator_reassoc_ulp n=1 max_ulp=19
 ORACLE> FLOOR name=weights_vs_pinned_f32_ulp n=1 max_ulp=5
 ORACLE> ORACLESECTION section=floor records=10
 ORACLE> ORACLESECTION section=synth records=12 derived_from=K+1+1+2
-ORACLE> P3 layer0 0 0 chunk2 5.530277e-02 1.005e+00 2048 2048
-ORACLE> P3 layer0 0 0 halves_swapped 5.505186e-02 9.749e-01 2048 2048
-ORACLE> P3 layer0 0 0 stack_transposed 5.228273e-02 1.040e+00 2048 2048
-ORACLE> P3 layer0 7 3 chunk2 4.933447e-02 1.026e+00 2048 2048
-ORACLE> P3 layer0 7 3 halves_swapped 5.028841e-02 1.050e+00 2048 2048
-ORACLE> P3 layer0 7 3 stack_transposed 4.984739e-02 9.818e-01 2048 2048
-ORACLE> P3 layer1 0 0 chunk2 1.467485e-01 1.016e+00 2048 2048
-ORACLE> P3 layer1 0 0 halves_swapped 1.670905e-01 1.008e+00 2048 2048
-ORACLE> P3 layer1 0 0 stack_transposed 1.205087e-01 9.650e-01 2048 2048
-ORACLE> P3 layer1 7 3 chunk2 1.130382e-01 1.065e+00 2048 2048
-ORACLE> P3 layer1 7 3 halves_swapped 1.116603e-01 1.071e+00 2048 2048
-ORACLE> P3 layer1 7 3 stack_transposed 1.075719e-01 9.768e-01 2048 2048
-ORACLE> P3 layer39 0 0 chunk2 3.731465e-01 1.140e+00 2048 2048
-ORACLE> P3 layer39 0 0 halves_swapped 4.276804e-01 1.161e+00 2048 2048
-ORACLE> P3 layer39 0 0 stack_transposed 2.404734e-01 1.011e+00 2048 2048
-ORACLE> P3 layer39 7 3 chunk2 1.655402e-01 9.639e-01 2048 2048
-ORACLE> P3 layer39 7 3 halves_swapped 1.873690e-01 9.643e-01 2048 2048
-ORACLE> P3 layer39 7 3 stack_transposed 2.156914e-01 9.695e-01 2048 2048
-ORACLE> P3 mtp0 0 0 chunk2 5.023579e-01 9.785e-01 2048 2048
-ORACLE> P3 mtp0 0 0 halves_swapped 6.425314e-01 9.200e-01 2048 2048
-ORACLE> P3 mtp0 0 0 stack_transposed 3.908563e-01 1.005e+00 2048 2048
-ORACLE> P3 mtp0 7 3 chunk2 5.985706e-01 1.069e+00 2048 2048
-ORACLE> P3 mtp0 7 3 halves_swapped 5.987558e-01 1.082e+00 2048 2048
-ORACLE> P3 mtp0 7 3 stack_transposed 4.362057e-01 1.015e+00 2048 2048
+ORACLE> P3 layer0 0 0 chunk2 2.044216e-04 5.131e-06 2048 2048
+ORACLE> P3 layer0 0 0 halves_swapped 1.829738e-02 6.868e-02 2048 2048
+ORACLE> P3 layer0 0 0 stack_transposed 5.140209e-02 9.742e-01 2048 2048
+ORACLE> P3 layer0 7 3 chunk2 2.042875e-04 4.018e-06 2048 2048
+ORACLE> P3 layer0 7 3 halves_swapped 1.614504e-02 6.598e-02 2048 2048
+ORACLE> P3 layer0 7 3 stack_transposed 4.924588e-02 9.936e-01 2048 2048
+ORACLE> P3 layer1 0 0 chunk2 3.316235e-04 7.492e-06 2048 2048
+ORACLE> P3 layer1 0 0 halves_swapped 6.093741e-02 1.563e-01 2048 2048
+ORACLE> P3 layer1 0 0 stack_transposed 1.041897e-01 9.786e-01 2048 2048
+ORACLE> P3 layer1 7 3 chunk2 2.971999e-04 5.986e-06 2048 2048
+ORACLE> P3 layer1 7 3 halves_swapped 3.344608e-02 1.008e-01 2048 2048
+ORACLE> P3 layer1 7 3 stack_transposed 1.062836e-01 1.019e+00 2048 2048
+ORACLE> P3 layer39 0 0 chunk2 5.781576e-04 5.914e-06 2048 2048
+ORACLE> P3 layer39 0 0 halves_swapped 7.571629e-02 1.481e-01 2048 2048
+ORACLE> P3 layer39 0 0 stack_transposed 2.975620e-01 9.685e-01 2048 2048
+ORACLE> P3 layer39 7 3 chunk2 5.224347e-04 8.431e-06 2048 2048
+ORACLE> P3 layer39 7 3 halves_swapped 1.260358e-01 1.682e-01 2048 2048
+ORACLE> P3 layer39 7 3 stack_transposed 2.114870e-01 9.669e-01 2048 2048
+ORACLE> P3 mtp0 0 0 chunk2 8.856505e-04 6.738e-06 2048 2048
+ORACLE> P3 mtp0 0 0 halves_swapped 1.539788e-01 2.352e-01 2048 2048
+ORACLE> P3 mtp0 0 0 stack_transposed 3.503377e-01 1.038e+00 2048 2048
+ORACLE> P3 mtp0 7 3 chunk2 1.991212e-03 6.497e-06 2048 2048
+ORACLE> P3 mtp0 7 3 halves_swapped 2.425355e-01 2.514e-01 2048 2048
+ORACLE> P3 mtp0 7 3 stack_transposed 4.971290e-01 9.809e-01 2048 2048
 ORACLE> ORACLESECTION section=p3 records=24
 ORACLE> RESULT PASS oracle arm rows=128 synth=12
 CHECK oracle-arm                             ok n=140 rows=128 synth=12 bands=10 p3=24 sha256-verified-dumps=104
@@ -92,10 +92,12 @@ CHECK manifest-claims-ids-hold               ok n=4 blocks where the ids still a
 CHECK manifest-claims-routed-hold            ok n=4 blocks where the routed sum still agrees: 4/4
 SERIAL stages_per_block=5 blocks_per_token=41 dependent_router_stages_per_token=205 dependent_expert_reads_per_token=328 barriers_per_router_row=2 host_values_emitted=0
 CHECK serial-structure-shape                 ok n=328 R1..R5 per block, one gather per (token, slot), 41 blocks per token
-CHECK prediction3-readings-distinguishable   ok n=8 (block,token,slot) readings where the three ways of reading [E,2I,H] are not three different answers: none
-P3 chunk2_worst_1_minus_cos=1.140e+00 wrong_reads_best_1_minus_cos=9.200e-01 n=24
-P3 UNRESOLVED no reading of gate_up_proj reproduces the pinned expert_raw (worst 1-cos over the correct reading = 1.140); the oracle's _expert_apply and a separate numpy SwiGLU agree with each other, and sweeping all 256 experts for layer0/token0/slot0 peaked at cos 0.065 (work/probe15.py). expert_raw is not down(silu(gate*x)*up*x) for any expert under the manifest's geometry, so the dump cannot settle the layout claim; what IS verified from expert_raw is the combine, because routed_sum reproduces from it on every real row.
-CHECK prediction3-fused-layout-unresolved-is-reported ok n=24 P3 is reported as unresolved with its evidence; the router verdicts do not rest on it (no expert GEMM in this lane)
+CHECK prediction3-record-population          ok n=24 derived = 4 blocks x 2 probes x 3 readings = 24 records; parsed 24, missing none, outside the product none (the oracle's printed count is compared with this parse in read_oracle)
+CHECK prediction3-readings-distinguishable   ok n=8 (block,token,slot) probes where the 3 ways of reading [E,2I,H] are not 3 different answers: none
+P3 RESOLVED the halves-as-read reading is the only one of the three that reproduces the pinned expert_raw nearest_wrong_1_minus_cos=6.598e-02 separation=7825.9x threshold=1.0e-03/10x evidence=prototype/moe_router/results.md#corrigendum records=24 worst_correct_1_minus_cos=8.431e-06 worst_chunk2_elements_differing=2048/2048
+CHECK prediction3-fused-layout               ok n=24 chunk2 reproduces the pinned expert_raw below 1-cos 1.0e-03 (8.431e-06) and the nearest wrong reading is 6.598e-02, 7825.9x worse (>= 10x required); worst chunk2 record moves 2048 of 2048 elements
+CHECK prediction3-report-matches-the-data    ok n=24 the printed P3 line must quote the numbers the data holds, name its evidence, and state the state the data supports: ok
+CHECK witness-p3-report-fires                ok n=5 ways the report can lie that the predicate failed to catch: none (the honest report passes; the witness fixture itself is adjudicable as built)
 PREDICTION4 rows_compared=128 rows_whose_cast_weights_match_the_authoritative_arm=128
 PREDICTION4 cast_after_rows=128 worst_row_elements_differing=1111 of 2048
 CHECK prediction4-wrong-order-differs        ok n=128 the wrong order produced a different number on 128 real rows, worst 1111 of 2048 elements
@@ -120,9 +122,9 @@ TALLY arm=device mode=no_max_sub     logits[IMMUNE=268] probs[MAY_MOVED=268] wpr
 TALLY arm=device mode=poison_nan     logits[MATCH=8] probs[MATCH=8] wpre[MATCH=8] wcast[MATCH=8] ids[MATCH=8] routed[MATCH=8]
 ALT-EXACT arm=device {"cast_after/routed": 267, "cast_after/routed:coincides": 1, "f32_combine/routed": 268, "no_renorm/wpre": 267, "no_renorm/wpre:coincides": 1, "rank_accum/routed": 265, "tie_high/ids": 99, "topk_asc/ids": 265, "topk_asc/wcast": 265, "topk_asc/wpre": 160, "topk_asc/wpre:inexact": 105, "w_by_expert_id/routed": 265, "w_by_expert_id/routed:coincides": 1}
 CHECK judge-arm-device                       ok n=1564 the device arm's judges produced verdicts and none of them is outside every expectation
-RESULT PASS device checks=40 findings=0
-UTIL_AFTER gpu use: 0%
-WALL started=2026-10-25T09:23:23Z finished=2026-10-25T09:23:41Z  (lock record only; no timing taken)
+RESULT PASS device checks=43 findings=0
+UTIL_AFTER gpu use: 99%
+WALL started=2026-10-25T23:33:47Z finished=2026-10-25T23:34:25Z  (lock record only; no timing taken)
 no timing taken
 LOG /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/moe_router/evidence/moe-router-device-2026-10-26.log
 LOCK releasing

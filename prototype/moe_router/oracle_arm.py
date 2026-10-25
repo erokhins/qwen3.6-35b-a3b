@@ -51,6 +51,35 @@ F32 = "torch.float32"
 I64 = "torch.int64"
 
 
+def shard_data_start(shard, hdr, header_len=None):
+    """Where a safetensors data region begins: AFTER the 8-byte little-endian header length.
+
+    `moe_ref.read_header` returns the LENGTH of the JSON header, which is not an offset. This lane
+    once memmapped expert weights at `header_len + data_offsets[0]` and read four bf16 elements early,
+    which is what made prediction 3 look unresolvable (`results.md §Corrigendum 2026-10-26`, witnessed
+    by `work/verify_p3_offset.py`). The offset is therefore not taken on trust from either number: the
+    length is re-read here out of the shard's own first 8 bytes and required to agree with the header
+    reader's answer, and the shard's own invariant `data_start + max(data_offsets[1]) == filesize` is
+    checked before anything memmaps — at `header_len` alone that identity is off by exactly 8.
+    """
+    size = os.path.getsize(shard)
+    with open(shard, "rb") as fh:
+        own_len = struct.unpack("<Q", fh.read(8))[0]
+    if header_len is not None and int(header_len) != own_len:
+        raise AssertionError("%s: the header reader says the JSON header is %s bytes, the file's own "
+                             "8-byte prefix says %d — do not compute an offset from a number you "
+                             "cannot reproduce" % (shard, header_len, own_len))
+    start = 8 + own_len
+    top = max([v["data_offsets"][1] for k, v in hdr.items() if k != "__metadata__"] or [0])
+    if start + top != size:
+        raise AssertionError(
+            "%s: data_start=%d (8 + header_len=%d) plus the last tensor's data_offsets[1]=%d is %d, "
+            "but the file is %d bytes. The offset arithmetic is wrong by %d; at `header_len` without "
+            "the 8-byte prefix it is wrong by exactly 8 and every value read sits four bf16 elements "
+            "early" % (shard, start, own_len, top, start + top, size, size - (start + top)))
+    return start
+
+
 # --------------------------------------------------------------------- dump reading, by manifest
 def load_manifest():
     m = json.load(open(MANIFEST))
@@ -571,11 +600,20 @@ def main():
                 if (gu_hi - gu_lo) != E * g.two_i * H * 2 or (dn_hi - dn_lo) != E * H * I * 2:
                     raise AssertionError("%s byte span does not match [E,2I,H]+[E,H,I] bf16"
                                          % gu_name)
+                # NOT `gu_hn + gu_lo`: that is the shifted read the corrigendum is about. The data
+                # region begins at 8 + header length, and shard_data_start refuses to run if the
+                # shard's own size does not say so.
+                gu_data0 = shard_data_start(gu_shard, gu_hdr, gu_hn)
+                dn_data0 = shard_data_start(dn_shard, dn_hdr, dn_hn)
+                if (gu_data0 + gu_hi) > os.path.getsize(gu_shard) or \
+                        (dn_data0 + dn_hi) > os.path.getsize(dn_shard):
+                    raise AssertionError("%s: a tensor's data span runs past the end of its shard"
+                                         % gu_name)
                 gu = np.memmap(gu_shard, dtype=np.uint16, mode="r",
-                               offset=gu_hn + gu_lo,
+                               offset=gu_data0 + gu_lo,
                                shape=(E, g.two_i, H))
                 dn = np.memmap(dn_shard, dtype=np.uint16, mode="r",
-                               offset=dn_hn + dn_lo,
+                               offset=dn_data0 + dn_lo,
                                shape=(E, H, I))
                 ids_pin = read_arr(D[blk + ".topk_ids"])[0]
                 raw_pin, _ = read_arr(D[blk + ".expert_raw"])

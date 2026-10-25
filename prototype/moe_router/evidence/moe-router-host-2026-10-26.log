@@ -1,106 +1,18 @@
 LOCKREF gate.py references to the lock tool must be 0: 0
 NO LOCK reason=host-only (host): no device work, so the lock stays free for the main agent
-CMD python3 /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/moe_router/gate.py --check-only
+CMD python3 /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/moe_router/gate.py --selftest
 CHECK manifest-geometry-matches-config       ok n=7 hidden_size=2048 moe_intermediate_size=512 mtp_num_hidden_layers=1 num_experts=256 num_hidden_layers=40 shared_expert_intermediate_size=512 top_k=8
 CHECK manifest-dump-census                   ok n=8 missing arms: none
 CHECK manifest-selfconsistent-sizes          ok n=104 every declared byte count equals shape x itemsize
-CHECK manifest-sha256                        ok n=104 dumps whose bytes are not what the manifest hashed: none
-CMD /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/moe_router/oracle_arm.py --work /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/moe_router/work
-ORACLE> ORACLE threads_requested=8 threads_active=8 source=manifest.interpreter
-ORACLE> ORACLESECTION section=rows records=128 blocks=4 K=8
-ORACLE> ORACLE tie_histogram_pinned_route class0=83 class1=32 class2=12 class3=1
-ORACLE> ORACLE tie_histogram_reference_route class0=83 class1=32 class2=12 class3=1
-ORACLE> ORACLE margins pinned_min_nonzero_ulp=12797 pinned_zero_rows=13 reference_min_nonzero_ulp=12797 reference_zero_rows=13
-ORACLE> FLOOR name=exp_route_ulp n=1 max_ulp=19
-ORACLE> FLOOR name=logit_dot_route_disagreement_elements n=1 max_ulp=5
-ORACLE> FLOOR name=logit_dot_route_ulp n=1 max_ulp=65536
-ORACLE> FLOOR name=logit_ref_vs_pinned_elements n=1 max_ulp=0
-ORACLE> FLOOR name=logit_ref_vs_pinned_ulp n=1 max_ulp=0
-ORACLE> FLOOR name=n_rows_probed n=1 max_ulp=128
-ORACLE> FLOOR name=pinned_weight_to_bf16_boundary_f32ulp n=1 max_ulp=164
-ORACLE> FLOOR name=renorm_sum_reassoc_ulp n=1 max_ulp=2
-ORACLE> FLOOR name=softmax_denominator_reassoc_ulp n=1 max_ulp=19
-ORACLE> FLOOR name=weights_vs_pinned_f32_ulp n=1 max_ulp=5
-ORACLE> ORACLESECTION section=floor records=10
-ORACLE> ORACLESECTION section=synth records=12 derived_from=K+1+1+2
-ORACLE> P3 layer0 0 0 chunk2 5.530277e-02 1.005e+00 2048 2048
-ORACLE> P3 layer0 0 0 halves_swapped 5.505186e-02 9.749e-01 2048 2048
-ORACLE> P3 layer0 0 0 stack_transposed 5.228273e-02 1.040e+00 2048 2048
-ORACLE> P3 layer0 7 3 chunk2 4.933447e-02 1.026e+00 2048 2048
-ORACLE> P3 layer0 7 3 halves_swapped 5.028841e-02 1.050e+00 2048 2048
-ORACLE> P3 layer0 7 3 stack_transposed 4.984739e-02 9.818e-01 2048 2048
-ORACLE> P3 layer1 0 0 chunk2 1.467485e-01 1.016e+00 2048 2048
-ORACLE> P3 layer1 0 0 halves_swapped 1.670905e-01 1.008e+00 2048 2048
-ORACLE> P3 layer1 0 0 stack_transposed 1.205087e-01 9.650e-01 2048 2048
-ORACLE> P3 layer1 7 3 chunk2 1.130382e-01 1.065e+00 2048 2048
-ORACLE> P3 layer1 7 3 halves_swapped 1.116603e-01 1.071e+00 2048 2048
-ORACLE> P3 layer1 7 3 stack_transposed 1.075719e-01 9.768e-01 2048 2048
-ORACLE> P3 layer39 0 0 chunk2 3.731465e-01 1.140e+00 2048 2048
-ORACLE> P3 layer39 0 0 halves_swapped 4.276804e-01 1.161e+00 2048 2048
-ORACLE> P3 layer39 0 0 stack_transposed 2.404734e-01 1.011e+00 2048 2048
-ORACLE> P3 layer39 7 3 chunk2 1.655402e-01 9.639e-01 2048 2048
-ORACLE> P3 layer39 7 3 halves_swapped 1.873690e-01 9.643e-01 2048 2048
-ORACLE> P3 layer39 7 3 stack_transposed 2.156914e-01 9.695e-01 2048 2048
-ORACLE> P3 mtp0 0 0 chunk2 5.023579e-01 9.785e-01 2048 2048
-ORACLE> P3 mtp0 0 0 halves_swapped 6.425314e-01 9.200e-01 2048 2048
-ORACLE> P3 mtp0 0 0 stack_transposed 3.908563e-01 1.005e+00 2048 2048
-ORACLE> P3 mtp0 7 3 chunk2 5.985706e-01 1.069e+00 2048 2048
-ORACLE> P3 mtp0 7 3 halves_swapped 5.987558e-01 1.082e+00 2048 2048
-ORACLE> P3 mtp0 7 3 stack_transposed 4.362057e-01 1.015e+00 2048 2048
-ORACLE> ORACLESECTION section=p3 records=24
-ORACLE> RESULT PASS oracle arm rows=128 synth=12
-CHECK oracle-arm                             ok n=140 rows=128 synth=12 bands=10 p3=24 sha256-verified-dumps=104
-SAMPLE cases=3224 arms=268 rows=140(real=128,synth=12) field_comparisons=19344 elements_compared=8330816 launches=13 slab_elems=4688896 slab_MiB=8.9 modes=13
-CHECK plan-shape                             ok n=3224 rows=140 (128 pinned = 4 blocks x 32 + 12 synthetic)
-CHECK sample-declared                        ok n=19344 field comparisons declared before any device work; the driver must match it
-CMD /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/moe_router/host_probe --plan /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/moe_router/work/plan.tsv --slab /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/moe_router/work/plan.bin --out /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/moe_router/work/host_out.f32 --report /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/moe_router/work/host_report.tsv
-CHECK host-probe-roster                      ok n=13 missing=none extra=none
-CHECK host-structural-probes                 ok n=13 all ok
+CHECK witness-parsers                        ok n=7 parsers must yield records, refuse a missing field, refuse a short row, refuse a wrong-width hex list, yield nothing from nothing, keep PLAN out of PLANCHECK, and read a multi-word tag
+CMD /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/moe_router/moe_router --selftest
+CHECK driver-selftest                        ok n=9 all ok
+CHECK driver-selftest-roster                 ok n=9 missing=none extra=none
 CHECK witness-prob-sum-bound                 ok n=256 bound=(2(E-1)+1)*2^-24/(1-(E-1)2^-24)=3.046e-05 for E=256; a row summing to 1 passes, a 3x-bound perturbation is rejected (True), the widest-dynamic-range fp32 accumulation drift 6.313e-08 is accepted and non-zero (True), and a few-ULP drift is accepted (True)
 CHECK witness-prob-bound-tight               ok n=256 a bound that accepted 1% off 1.0 would not be a certificate (bound=3.046e-05)
-CHECK witness-comparator-flip                ok n=1 one flipped bit must move exactly one element
-CHECK witness-cast-orders-differ             ok n=128 real rows where cast-before and cast-after differ: 128 of 128; worst 1111 of 2048 elements
-CHECK witness-class-MATCH                    ok n=1564 reference agreement
-CHECK witness-class-ALT                      ok n=2171 an alternative form reached exactly
-CHECK witness-class-IMMUNE                   ok n=9635 a derived immunity actually exercised
-CHECK witness-class-FIRED                    ok n=896 an injection fired
-CHECK class-mismatch-empty                   ok n=0 no comparison may land outside every expectation
-CHECK witness-injections-fired               ok n=11 modes that never fired anywhere: none
-CHECK witness-unjudged-is-derived            ok n=46 routed comparisons skipped: 46, derived from 23 set-divergent rows x 2 arms x 1 mode (injections compare against the row's own reference record, not the dump)
-CHECK witness-bands-reject                   ok n=10 bands a band+1 perturbation slips through: none
+CHECK witness-bands-reject                   ok n=2 bands a band+1 perturbation slips through: none
 CHECK cast-is-robust-not-lucky               ok n=32 min distance to a bf16 rounding boundary (164 f32 ULP) over the route spread (5) = 32x
-CHECK witness-parsers                        ok n=7 parsers must yield records, refuse a missing field, refuse a short row, refuse a wrong-width hex list, yield nothing from nothing, keep PLAN out of PLANCHECK, and read a multi-word tag
-CHECK manifest-claims-ids-hold               ok n=4 blocks where the ids still agree with the pinned arm: 4/4
-CHECK manifest-claims-routed-hold            ok n=4 blocks where the routed sum still agrees: 4/4
-SERIAL stages_per_block=5 blocks_per_token=41 dependent_router_stages_per_token=205 dependent_expert_reads_per_token=328 barriers_per_router_row=2 host_values_emitted=0
-CHECK serial-structure-shape                 ok n=328 R1..R5 per block, one gather per (token, slot), 41 blocks per token
-CHECK prediction3-readings-distinguishable   ok n=8 (block,token,slot) readings where the three ways of reading [E,2I,H] are not three different answers: none
-P3 chunk2_worst_1_minus_cos=1.140e+00 wrong_reads_best_1_minus_cos=9.200e-01 n=24
-P3 UNRESOLVED no reading of gate_up_proj reproduces the pinned expert_raw (worst 1-cos over the correct reading = 1.140); the oracle's _expert_apply and a separate numpy SwiGLU agree with each other, and sweeping all 256 experts for layer0/token0/slot0 peaked at cos 0.065 (work/probe15.py). expert_raw is not down(silu(gate*x)*up*x) for any expert under the manifest's geometry, so the dump cannot settle the layout claim; what IS verified from expert_raw is the combine, because routed_sum reproduces from it on every real row.
-CHECK prediction3-fused-layout-unresolved-is-reported ok n=24 P3 is reported as unresolved with its evidence; the router verdicts do not rest on it (no expert GEMM in this lane)
-PREDICTION4 rows_compared=128 rows_whose_cast_weights_match_the_authoritative_arm=128
-PREDICTION4 cast_after_rows=128 worst_row_elements_differing=1111 of 2048
-CHECK prediction4-wrong-order-differs        ok n=128 the wrong order produced a different number on 128 real rows, worst 1111 of 2048 elements
-A03 tie_class_population class0=83 class1=32 class2=12 class3=1
-A03 straddle_rows=13 margins_ulp=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-A03 rows_where_the_engine_and_the_pinned_arm_chose_different_tied_experts=23 keys=[8, 22, 25, 27, 29, 34, 35, 41, 47, 49, 55, 85, 92, 96, 98, 99]
-CHECK a03-population-nonempty                ok n=13 the dump contains rows whose 8th/9th probabilities are bit-identical, which is the witness A-03 says is owed before any gate claims to cover ties
-A03 rows_where_lower_index_rule_disagrees_with_pinned_ids=23 of 128
-CLASSES arm=host ALT=2171 FIRED=896 IMMUNE=9635 MATCH=1564 MAY_MOVED=2897 MAY_UNCHANGED=2135 MISMATCH=0
-TALLY arm=host mode=correct        logits[MATCH=268] probs[MATCH=268] wpre[MATCH=268] wcast[MATCH=268] ids[ALT=46,MATCH=222] routed[MATCH=222,NOT_JUDGED=46]
-TALLY arm=host mode=softmax_bf16   logits[IMMUNE=268] probs[FIRED=268] wpre[FIRED=268] wcast[MAY_MOVED=249,MAY_UNCHANGED=19] ids[MAY_MOVED=28,MAY_UNCHANGED=240] routed[MAY_MOVED=251,MAY_UNCHANGED=17]
-TALLY arm=host mode=no_renorm      logits[IMMUNE=268] probs[IMMUNE=268] wpre[ALT=268] wcast[MAY_MOVED=265,MAY_UNCHANGED=3] ids[IMMUNE=268] routed[MAY_MOVED=265,MAY_UNCHANGED=3]
-TALLY arm=host mode=cast_after     logits[IMMUNE=268] probs[IMMUNE=268] wpre[IMMUNE=268] wcast[IMMUNE=268] ids[IMMUNE=268] routed[ALT=268]
-TALLY arm=host mode=rank_accum     logits[IMMUNE=268] probs[IMMUNE=268] wpre[IMMUNE=268] wcast[IMMUNE=268] ids[IMMUNE=268] routed[ALT=265,IMMUNE=3]
-TALLY arm=host mode=w_by_expert_id logits[IMMUNE=268] probs[IMMUNE=268] wpre[IMMUNE=268] wcast[IMMUNE=268] ids[IMMUNE=268] routed[ALT=266,IMMUNE=2]
-TALLY arm=host mode=row_off_1      logits[FIRED=128,IMMUNE=140] probs[IMMUNE=140,MAY_MOVED=128] wpre[IMMUNE=140,MAY_MOVED=48,MAY_UNCHANGED=80] wcast[IMMUNE=140,MAY_UNCHANGED=128] ids[IMMUNE=140,MAY_MOVED=128] routed[IMMUNE=140,MAY_MOVED=6,MAY_UNCHANGED=122]
-TALLY arm=host mode=wg_transposed  logits[FIRED=128,IMMUNE=140] probs[IMMUNE=140,MAY_MOVED=128] wpre[IMMUNE=140,MAY_MOVED=128] wcast[IMMUNE=140,MAY_MOVED=128] ids[IMMUNE=140,MAY_MOVED=128] routed[IMMUNE=140,MAY_MOVED=128]
-TALLY arm=host mode=tie_high       logits[IMMUNE=268] probs[IMMUNE=268] wpre[MAY_UNCHANGED=268] wcast[MAY_UNCHANGED=268] ids[ALT=99,IMMUNE=169] routed[MAY_MOVED=92,MAY_UNCHANGED=176]
-TALLY arm=host mode=f32_combine    logits[IMMUNE=268] probs[IMMUNE=268] wpre[IMMUNE=268] wcast[IMMUNE=268] ids[IMMUNE=268] routed[ALT=268]
-TALLY arm=host mode=topk_asc       logits[IMMUNE=268] probs[IMMUNE=268] wpre[ALT=161,FIRED=104,IMMUNE=3] wcast[ALT=265,IMMUNE=3] ids[ALT=265,IMMUNE=3] routed[MAY_MOVED=265,MAY_UNCHANGED=3]
-TALLY arm=host mode=no_max_sub     logits[IMMUNE=268] probs[MAY_MOVED=267,MAY_UNCHANGED=1] wpre[MAY_MOVED=265,MAY_UNCHANGED=3] wcast[MAY_UNCHANGED=268] ids[MAY_UNCHANGED=268] routed[MAY_UNCHANGED=268]
-TALLY arm=host mode=poison_nan     logits[MATCH=8] probs[MATCH=8] wpre[MATCH=8] wcast[MATCH=8] ids[MATCH=8] routed[MATCH=8]
-ALT-EXACT arm=host {"cast_after/routed": 267, "cast_after/routed:coincides": 1, "f32_combine/routed": 268, "no_renorm/wpre": 267, "no_renorm/wpre:coincides": 1, "rank_accum/routed": 265, "tie_high/ids": 99, "topk_asc/ids": 265, "topk_asc/wcast": 265, "topk_asc/wpre": 161, "topk_asc/wpre:inexact": 104, "w_by_expert_id/routed": 265, "w_by_expert_id/routed:coincides": 1}
-RESULT PASS check-only checks=30 findings=0
+CHECK reach-table-shape                      ok n=30 the reference mode moves nothing on either arm, the poison mode moves everything, and the two R1 injections move nothing on the arm that never computes R1
+RESULT PASS selftest checks=11 findings=0
 gate: host-only run complete rc=0
 LOG /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/moe_router/evidence/moe-router-host-2026-10-26.log

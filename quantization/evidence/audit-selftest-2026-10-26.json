@@ -129,7 +129,7 @@
   "silent": [],
   "verdict": "PASS"
  },
- "gate_sha256": "1b5c1f2c3b2e03477661fafc05d2b324d24a02917d1b9a423e029354d0cdaa0b",
+ "gate_sha256": "ccf3090538251a695c1c011c26d6b62762addaef1278e025a87ad7acc8e53597",
  "index_injections_structural": {
   "expert_transpose": true,
   "gate_up_split": true,
@@ -292,6 +292,6 @@
   "Q6_K"
  ],
  "utc_first_selftest_pass": "2026-10-25T01:31:24Z",
- "utc_latest_selftest_pass": "2026-10-25T14:48:45Z",
+ "utc_latest_selftest_pass": "2026-10-25T23:20:50Z",
  "wrongly_fired": 0
 }

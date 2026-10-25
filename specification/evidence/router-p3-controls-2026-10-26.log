@@ -1,0 +1,18 @@
+TABLE records=24 probes=8 thresholds: 1-cos<1.0e-03 separation>=10x
+CHECK name=control:population accepts the real table ok=1 n=24 derived = 4 blocks x 2 probes x 3 readings = 24 records; parsed 24, missing none, outside the product none
+CHECK name=control:population refuses a truncated table ok=1 n=23 dropped one record -> derived = 4 blocks x 2 probes x 3 readings = 24 records; parsed 23, missing ['layer0/0/0/chunk2'], outside the product none
+CHECK name=control:population refuses a duplicated key ok=1 n=23 count still 23 -> derived = 4 blocks x 2 probes x 3 readings = 24 records; parsed 23, missing ['mtp0/7/3/stack_transposed'], outside the product none
+CHECK name=control:population refuses a block outside the manifest's four ok=1 n=25 -> derived = 4 blocks x 2 probes x 3 readings = 24 records; parsed 25, missing none, outside the product ['layer7/0/0/chunk2']
+CHECK name=control:the three tampered tables are refused and the honest one is accepted ok=1 n=3 honest=True tampered=False,False,False (a predicate that refuses everything fails this too)
+CHECK name=control:distinguishability accepts the real table ok=1 n=8 probes where the readings are not three answers: none
+CHECK name=control:distinguishability refuses one reading under three names ok=1 n=24 all three readings 0.5 -> ['layer0/0/0', 'layer0/7/3', 'layer1/0/0', 'layer1/7/3']
+CHECK name=control:the repaired table is adjudicable ok=1 n=24 worst chunk2 1-cos=8.431e-06, nearest wrong=6.598e-02
+CHECK name=control:the PRE-FIX (shifted-offset) table is NOT adjudicable ok=1 n=24 chunk2 1-cos=1.005 — the word the old lane reached for was UNRESOLVED, and the only P3 assertion that then ran was the literal-`True` one
+CHECK name=control:the report predicate refuses RESOLVED on the pre-fix table ok=1 n=1 refused: RESOLVED claimed at 1.0x, below the derived 10x minimum
+CHECK name=control:data_start satisfies the shard's own size identity ok=1 n=2848 data_start=2848 = 8 + header_len=2840; + last data_offsets[1]=3996196864 == filesize=3996199712
+CHECK name=control:data_start refuses offsets that do not fill the shard ok=1 n=1 /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/models/qwen36-src/model-00001-of-00026.safetensors: data_start=2848 (8 + header_len=2840) plus the la
+CHECK name=control:data_start refuses a header length the file contradicts ok=1 n=1 /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/models/qwen36-src/model-00001-of-00026.safetensors: the header reader says the JSON header is 2841 by
+OFFSET layer0/token0/slot0 correct: 1_minus_cos=5.131e-06 elements_differing=2048/2048
+OFFSET layer0/token0/slot0 shifted: 1_minus_cos=1.005e+00 elements_differing=2048/2048
+CHECK name=control:the correct offset reproduces and the 8-byte-shifted one does not ok=1 n=2 5.131e-06 vs 1.005e+00 (>=100x apart) — element-differing counts are 2048 and 2048 of 2048 because the probe computes the expert in f32 while the dump is bf16, so 1-cos, not the element count, is the discriminator here (results.md §the four arms, arm 1b)
+RESULT PASS router P3 controls checks=14 findings=0

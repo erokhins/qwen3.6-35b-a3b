@@ -49,7 +49,19 @@ sys.path.insert(0, str(REPO / "tools"))
 
 import moe_ref as R  # noqa: E402
 
-BF16_REL_WIDTH = 2.0 ** -9      # 8 explicit mantissa bits -> half-ULP relative width
+# bf16 has 7 EXPLICIT mantissa bits (1+8+7); the precision including the implicit bit is 8, which is
+# what the old comment here called "8 explicit". Half-ULP relative width is therefore 2**-8, not 2**-9.
+# Derived rather than typed: see tools/ulp_policy.py and DECISIONS.md D-17. grep shows this constant has
+# no reader anywhere in the file, so no number this tool ever printed changes — deleting it is the better
+# move, and this patch is the fallback if it is kept.
+sys.path.insert(0, str(REPO / "tools"))
+import ulp_policy as _UP                            # noqa: E402
+# The staged patch (`ulp-policy-migrate-moe-stats-rel-width.patch`) wrote `-(mant - 1)`, which is
+# 2**-6 — four times the value its own comment names, and the error the constant is meant to fix.
+# Half an ULP of relative width is 2**-(explicit+1): p = explicit + 1 significand bits, spacing above
+# 1.0 is 2**(1-p) = 2**-mant = 2**-7 (verified: ulp_of(1.0) == 0.0078125), so half of it is 2**-8.
+# Witnessed by specification/evidence/ulp_policy_migration_witness.py.
+BF16_REL_WIDTH = 2.0 ** -(_UP.format_facts("bf16").mant + 1)
 
 
 # --------------------------------------------------------------------- quantizers (vectorised)

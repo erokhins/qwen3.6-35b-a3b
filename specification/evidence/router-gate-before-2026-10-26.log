@@ -1,0 +1,20 @@
+### BEFORE: pre-patch HEAD cf3f144, three modes, captured 2026-10-25 before any edit
+$ ./gate --selftest
+RESULT PASS selftest checks=11 findings=0
+
+$ ./gate --check-only
+P3 chunk2_worst_1_minus_cos=1.140e+00 wrong_reads_best_1_minus_cos=9.200e-01 n=24
+P3 UNRESOLVED no reading of gate_up_proj reproduces the pinned expert_raw (worst 1-cos over the correct reading = 1.140); the oracle's _expert_apply and a separate numpy SwiGLU agree with each other, and sweeping all 256 experts for layer0/token0/slot0 peaked at cos 0.065 (work/probe15.py). expert_raw is not down(silu(gate*x)*up*x) for any expert under the manifest's geometry, so the dump cannot settle the layout claim; what IS verified from expert_raw is the combine, because routed_sum reproduces from it on every real row.
+RESULT PASS check-only checks=30 findings=0
+
+$ ./gate (device, via ./gate)
+LOCK acquired tag=q36 W13 moe_router device gate status=HELD: 2026-10-25T22:33:26Z	q36 W13 moe_router device gate	pid=624662
+UTIL_BEFORE gpu use: 99%
+RESULT PASS device checks=40 findings=0
+UTIL_AFTER gpu use: 100%
+WALL started=2026-10-25T22:33:26Z finished=2026-10-25T22:33:56Z  (lock record only; no timing taken)
+no timing taken
+
+### the P3 checks the pre-patch lane ran (device mode) — one literal-True assertion, no population, no report predicate, no witness
+CHECK prediction3-readings-distinguishable   ok n=8 (block,token,slot) readings where the three ways of reading [E,2I,H] are not three different answers: none
+CHECK prediction3-fused-layout-unresolved-is-reported ok n=24 P3 is reported as unresolved with its evidence; the router verdicts do not rest on it (no expert GEMM in this lane)

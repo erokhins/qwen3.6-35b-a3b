@@ -1,0 +1,51 @@
+CHECK name=the type universe is non-empty and contains the subject ok=1 n=13 13 types: 5 in the pinned file, 9 required by the geometry, 13 rows in BLK
+WIDTHDRIFT type=IQ4_NL elts_geom=32 elts_table=256 bytes_geom=18 bytes_table=144 bpw_geom=4.500000 bpw_table=4.500000 struct=block_iq4_nl static_assert=sizeof(ggml_half) + QK4_NL/2 table_expression='sizeof(ggml_half)*2 + QK_K/2' in_pinned_file=0 note=LATENT: no tensor of this type in the pinned file, so the file-size witness in tools/gguf_width_table.py cannot see it — this check is the only witness
+WIDTHDRIFT type=Q4_0 elts_geom=32 elts_table=32 bytes_geom=18 bytes_table=34 bpw_geom=4.500000 bpw_table=8.500000 struct=block_q4_0 static_assert=sizeof(ggml_half) + QK4_0 / 2 table_expression='sizeof(ggml_half) + QK' in_pinned_file=0 note=LATENT: no tensor of this type in the pinned file, so the file-size witness in tools/gguf_width_table.py cannot see it — this check is the only witness
+CHECK name=two-width-rulers-agree-on-every-type ok=0 n=13 types where the rulers disagree: ['IQ4_NL', 'Q4_0'] — red is the CORRECT state until the stale row is corrected by the file's owner; this tool does not edit tools/gguf_width_table.py
+CHECK name=the Q4_0 disagreement is among them (the check is not vacuous) ok=1 n=1 if this reads none, either the row was fixed or this file is comparing nothing
+SYNTHETIC file=q4_0_probe_1_18.gguf elts=32 blocks=1 bytes_written=18 identity_with_geom=1 identity_with_table=0 off_by=-16
+CHECK name=synthetic Q4_0 tensor 1 blocks: the derived geometry reproduces the file ok=1 n=18 data_start=96 + 18 == 114
+CHECK name=synthetic Q4_0 tensor 1 blocks: the hand-typed row BREAKS the same identity ok=1 n=-16 the file-size witness in tools/gguf_width_table.py now bites, because a Q4_0 tensor exists to price
+SYNTHETIC file=q4_0_probe_2_18.gguf elts=64 blocks=2 bytes_written=36 identity_with_geom=1 identity_with_table=0 off_by=-32
+CHECK name=synthetic Q4_0 tensor 2 blocks: the derived geometry reproduces the file ok=1 n=36 data_start=96 + 36 == 132
+CHECK name=synthetic Q4_0 tensor 2 blocks: the hand-typed row BREAKS the same identity ok=1 n=-32 the file-size witness in tools/gguf_width_table.py now bites, because a Q4_0 tensor exists to price
+SYNTHETIC file=q4_0_probe_3_18.gguf elts=96 blocks=3 bytes_written=54 identity_with_geom=1 identity_with_table=0 off_by=-48
+CHECK name=synthetic Q4_0 tensor 3 blocks: the derived geometry reproduces the file ok=1 n=54 data_start=96 + 54 == 150
+CHECK name=synthetic Q4_0 tensor 3 blocks: the hand-typed row BREAKS the same identity ok=1 n=-48 the file-size witness in tools/gguf_width_table.py now bites, because a Q4_0 tensor exists to price
+SYNTHETIC file=q4_0_probe_4_18.gguf elts=128 blocks=4 bytes_written=72 identity_with_geom=1 identity_with_table=0 off_by=-64
+CHECK name=synthetic Q4_0 tensor 4 blocks: the derived geometry reproduces the file ok=1 n=72 data_start=96 + 72 == 168
+CHECK name=synthetic Q4_0 tensor 4 blocks: the hand-typed row BREAKS the same identity ok=1 n=-64 the file-size witness in tools/gguf_width_table.py now bites, because a Q4_0 tensor exists to price
+SYNTHETIC file=q4_0_probe_7_18.gguf elts=224 blocks=7 bytes_written=126 identity_with_geom=1 identity_with_table=0 off_by=-112
+CHECK name=synthetic Q4_0 tensor 7 blocks: the derived geometry reproduces the file ok=1 n=126 data_start=96 + 126 == 222
+CHECK name=synthetic Q4_0 tensor 7 blocks: the hand-typed row BREAKS the same identity ok=1 n=-112 the file-size witness in tools/gguf_width_table.py now bites, because a Q4_0 tensor exists to price
+SYNTHETIC file=q4_0_probe_8_18.gguf elts=256 blocks=8 bytes_written=144 identity_with_geom=1 identity_with_table=0 off_by=-128
+CHECK name=synthetic Q4_0 tensor 8 blocks: the derived geometry reproduces the file ok=1 n=144 data_start=96 + 144 == 240
+CHECK name=synthetic Q4_0 tensor 8 blocks: the hand-typed row BREAKS the same identity ok=1 n=-128 the file-size witness in tools/gguf_width_table.py now bites, because a Q4_0 tensor exists to price
+SYNTHETIC file=q4_0_probe_16_18.gguf elts=512 blocks=16 bytes_written=288 identity_with_geom=1 identity_with_table=0 off_by=-256
+CHECK name=synthetic Q4_0 tensor 16 blocks: the derived geometry reproduces the file ok=1 n=288 data_start=96 + 288 == 384
+CHECK name=synthetic Q4_0 tensor 16 blocks: the hand-typed row BREAKS the same identity ok=1 n=-256 the file-size witness in tools/gguf_width_table.py now bites, because a Q4_0 tensor exists to price
+SYNTHETIC file=q4_0_probe_32_18.gguf elts=1024 blocks=32 bytes_written=576 identity_with_geom=1 identity_with_table=0 off_by=-512
+CHECK name=synthetic Q4_0 tensor 32 blocks: the derived geometry reproduces the file ok=1 n=576 data_start=96 + 576 == 672
+CHECK name=synthetic Q4_0 tensor 32 blocks: the hand-typed row BREAKS the same identity ok=1 n=-512 the file-size witness in tools/gguf_width_table.py now bites, because a Q4_0 tensor exists to price
+SYNTHETIC file=q4_0_probe_64_18.gguf elts=2048 blocks=64 bytes_written=1152 identity_with_geom=1 identity_with_table=0 off_by=-1024
+CHECK name=synthetic Q4_0 tensor 64 blocks: the derived geometry reproduces the file ok=1 n=1152 data_start=96 + 1152 == 1248
+CHECK name=synthetic Q4_0 tensor 64 blocks: the hand-typed row BREAKS the same identity ok=1 n=-1024 the file-size witness in tools/gguf_width_table.py now bites, because a Q4_0 tensor exists to price
+SYNTHETIC file=q4_0_probe_128_18.gguf elts=4096 blocks=128 bytes_written=2304 identity_with_geom=1 identity_with_table=0 off_by=-2048
+CHECK name=synthetic Q4_0 tensor 128 blocks: the derived geometry reproduces the file ok=1 n=2304 data_start=96 + 2304 == 2400
+CHECK name=synthetic Q4_0 tensor 128 blocks: the hand-typed row BREAKS the same identity ok=1 n=-2048 the file-size witness in tools/gguf_width_table.py now bites, because a Q4_0 tensor exists to price
+CHECK name=the witness fires on every size in the derived population ok=1 n=10 population [1, 2, 3, 4, 7, 8, 16, 32, 64, 128] derived from block_elts(Q4_0)=32
+ARITHMETIC type=Q4_0 struct=block_q4_0 header_line=195
+ARITHMETIC elts=32 bytes=18 bpw=4.500000 static_assert='sizeof(ggml_half) + QK4_0 / 2' evaluates_to=18
+ARITHMETIC table_row=(32,34,'sizeof(ggml_half) + QK') does not evaluate against the pinned header: unknown symbol 'QK'; macros QK=None QK4_0=32
+ARITHMETIC members: ggml_half d = 2 B, uint8_t qs[QK4_0/2] = 32/2 = 16 B; total 18 B per 32 elts = 4.5000 bpw
+CHECK name=the arithmetic settles which ruler is right, and it is the derived one ok=1 n=18 block_q4_0 is `ggml_half d` + `uint8_t qs[QK4_0/2]` = 2 + 16 = 18 B per 32 elts = 4.5000 bpw; the table's expression string is 'sizeof(ggml_half) + QK', which is the same expression with the /2 (two nibbles per byte) dropped — 34 B = 8.5000 bpw
+CHECK name=while the rulers disagree the policy REFUSES to price Q4_0 (fail closed) ok=1 n=1 WidthClass said: two width rulers disagree for Q4_0: ggml_block_geom says 4.500000 bpw, gguf_width_table says 8.500000 bpw
+CENSUS format=f32 field=s judged=16 identical=15 differing=1 categories[equal=15 finite_step=1] ulp_histogram[1:1] max_ulp=1 subnormal_diverging=0
+POLICY field=s width=Q4_0 verdict=REJECT reasons[D-17 width veto: ggml type Q4_0 stores 4.5000 bpw, below Q8 (8.0). The Q4 veto is the user's, is structural, and applies even at 1 ULP] attribution=fixture: one element crossed a rounding boundary
+CHECK name=the Q4 veto fires at exactly 1 ULP on a Q4_0 width, and names the veto ok=1 n=1 WIDTH tensor=<type-derived:Q4_0> ggml_type=Q4_0(id=?) bpw=4.5000 bpw_independent=4.5000 q8_or_above=0 rule=bpw>=8.0 source=pinned ggml-common.h | D-17 width veto: ggml type Q4_0 stores 4.5000 bpw, below Q8 (8.0). The Q4 veto is the user's, is structural, and applies even at 1 ULP
+CENSUS format=f32 field=s judged=16 identical=15 differing=1 categories[equal=15 finite_step=1] ulp_histogram[1:1] max_ulp=1 subnormal_diverging=0
+POLICY field=s width=Q8_0 verdict=ACCEPT reasons[isolated ±1 ULP: 1 of 16 elements at exactly 1 ULP, 0 at >=2, field declared, width Q8_0 (8.5000 bpw) is >= Q8] attribution=fixture: one element crossed a rounding boundary
+CHECK name=the same census at Q8_0 is ACCEPTED, so the Q4 refusal is the width and nothing else ok=1 n=1 isolated ±1 ULP: 1 of 16 elements at exactly 1 ULP, 0 at >=2, field declared, width Q8_0 (8.5000 bpw) is >= Q8
+CHECK name=the injected row was restored (a tampered table must not outlive the control) ok=1 n=1 BLK[Q4_0]=(32, 34, 'sizeof(ggml_half) + QK')
+VERDICT source_right=tools/ggml_block_geom.py (block_q4_0 = 18 B / 32 elts = 4.5000 bpw) source_wrong=tools/gguf_width_table.py BLK['Q4_0'] (34 B = 8.5 bpw) not_fixed_here=that file is not this lane's; the row belongs (32, 18, "sizeof(ggml_half) + QK4_0/2")
+RESULT FAIL q4_0 width witness checks=29 findings=1
