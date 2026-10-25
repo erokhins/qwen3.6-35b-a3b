@@ -215,3 +215,14 @@
 2026-10-25T11:14:03Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=selfcheck_widths
 2026-10-25T11:14:04Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=summary
 2026-10-25T11:16:42Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T12:33:11Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=ssm_a ulp bound
+2026-10-25T12:43:22Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=ssm_a ulp bound
+2026-10-25T12:52:06Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=ssm_a ulp bound
+2026-10-25T12:56:41Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=ssm_a ulp bound
+2026-10-25T12:58:31Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=ssm_a ulp bound
+2026-10-25T13:02:24Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=ssm_a ulp bound
+2026-10-25T13:05:28Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=ssm_a ulp bound
+2026-10-25T13:12:18Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=ssm_a ulp bound
+2026-10-25T13:15:31Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=ssm_a ulp bound
+2026-10-25T13:17:57Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=ssm_a ulp bound
+2026-10-25T13:19:39Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=ssm_a ulp bound
