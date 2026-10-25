@@ -260,3 +260,23 @@ so the lane's P3 verdict rested entirely on the unfailable one.
   `layer1`/`layer39`/`mtp0` are locally available and unprobed, `layer2` is not available.
 - **Do not re-run** `probe9.py` / `probe15.py`, and do not reuse the P3 block in `oracle_arm.py`, until their
   offsets carry the 8-byte prefix. `work/verify_p3_offset.py` is the corrected reading to copy from.
+
+### Update, same day — prediction 3 is CLOSED, by two independent witnesses
+
+The gather lane (`prototype/moe_gather/`) ran the distinguishing probe this file said was missing, and I
+re-ran it independently rather than accepting the report. Both agree, and they agree on the part that matters
+— not that one candidate reproduces, but that the candidates are **separated from each other**:
+
+| witness | gate-first | neighbours |
+|---|---|---|
+| lane's own `oracle_arm.py`, 4 blocks × 4 tokens × 8 slots | 1 / 91 / 49 / 56 differing per block — **equal to the measured re-association bound** | `up_first`, `input_chunk_even/odd`, `stack_transposed`: 65,251–65,503 (700–1337× the bound); `P3DISTINCT pairs=10 distinguished=10 identical=0` |
+| `work/verify_p3_offset.py`, sanctioned reader, layer0, 524,288 elements | **0** | halves-swapped **522,177**; stack-transposed **523,893** |
+
+The bound was measured from grouped/per-slot/hand-rolled re-association (see §the four arms above), not typed,
+so "equals the bound" is an exactness statement rather than a tolerance that was fitted to the answer.
+`layer2` remains unprobed because it is not on this box; my arm covers layer0, the lane's covers four blocks.
+
+What is still open in this file is the checker, not the physics: `gate.py`'s
+`prediction3-fused-layout-unresolved-is-reported` still asserts the literal `True`, and the P3 block in
+`oracle_arm.py` still reads with the missing 8 bytes. Both are now superseded by the two witnesses above and
+are scheduled for repair — see `pitfalls/40-gates-and-admissions.md` §A check whose predicate is `True`.

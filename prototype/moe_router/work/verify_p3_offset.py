@@ -138,6 +138,30 @@ def arm_canonical(block, g, batching="grouped"):
     return _count(got, dump_raw_u)
 
 
+def arm_candidates(block, g):
+    """P3 candidate readings, through the sanctioned reader, judged against the pinned expert_raw.
+
+    The gather lane claims P3 is closed: gate-first reproduces while every neighbouring layout differs
+    enormously. That claim came out of THEIR oracle_arm.py, so this arm re-checks the two candidates
+    moe_ref exposes directly (swap_halves = halves swapped, transpose_stack = stack transposed) with
+    MY witness. What is asserted is not 'gate-first matches' but 'gate-first is DISTINGUISHED from its
+    neighbours': a candidate that differed by the same little bit as gate-first would leave P3 open.
+    """
+    bo = moe_ref.Block.parse(block)
+    w = moe_ref.load_block_weights(bo, g)
+    _, dump_x_u = O.read_arr(O.DUMP_REC["%s.input" % block])
+    _, dump_raw_u = O.read_arr(O.DUMP_REC["%s.expert_raw" % block])
+    x = O.u16_to_torch_bf16(np.asarray(dump_x_u, dtype=np.uint16))
+    out = {}
+    for name, kw in (("gate_first", {}),
+                     ("halves_swapped", {"swap_halves": True}),
+                     ("stack_transposed", {"transpose_stack": True})):
+        r = moe_ref.moe_block(x, w, g, moe_ref.Form(), **kw)
+        got = r["expert_raw"].view(torch.uint16).numpy()
+        out[name] = _count(got, dump_raw_u)
+    return out
+
+
 def main():
     g = moe_ref.load_geometry()
     if (g.num_experts, g.hidden_size, g.moe_intermediate_size) != (E, H, I):
@@ -175,6 +199,13 @@ def main():
     print("  elements_compared=%d differing=%d rows=%d rows_bad=%d"
           % (a32["elements"], a32["differing"], a32["rows"], a32["rows_bad"]))
 
+    print("\n--- P3 candidates (sanctioned reader, against pinned expert_raw) ---")
+    cands = arm_candidates(BLOCK, g)
+    for name in ("gate_first", "halves_swapped", "stack_transposed"):
+        v = cands[name]
+        print("  %-16s differing=%7d of %d  rows_bad=%d/%d"
+              % (name, v["differing"], v["elements"], v["rows_bad"], v["rows"]))
+
     print("\n--- VERDICT ---")
     findings = []
     reproduction = (c["elements"] > 0 and c["differing"] == 0)
@@ -202,6 +233,20 @@ def main():
             findings.append("hand-rolled bf16 arm's %d differing elements are NOT attributed (per-slot "
                             "canonical differs by %d) -- do not quote them" % (a["differing"], d["differing"]))
 
+    # P3: gate-first must be near-exact and its neighbours must be separated from it by a wide margin.
+    gf, hs, st = cands["gate_first"]["differing"], cands["halves_swapped"]["differing"], cands["stack_transposed"]["differing"]
+    pop = cands["gate_first"]["elements"]
+    if gf > pop // 100:
+        findings.append("gate_first differs by %d/%d -- not near-exact, so P3 cannot be called closed"
+                        % (gf, pop))
+    for nm, val in (("halves_swapped", hs), ("stack_transposed", st)):
+        if val < 50 * max(gf, 1):
+            findings.append("%s differs by only %d vs gate_first's %d -- the candidates are NOT "
+                            "distinguished; P3 stays UNRESOLVED" % (nm, val, gf))
+    print("  p3_distinguished=%s (gate_first=%d, halves_swapped=%d, stack_transposed=%d, margin>=50x required)"
+          % ("YES" if (gf <= pop // 100 and hs >= 50 * max(gf, 1) and st >= 50 * max(gf, 1)) else "NO",
+             gf, hs, st))
+
     for f in findings:
         print("  FINDING: %s" % f)
     verdict = "PASS" if not findings else "FAIL"
@@ -215,7 +260,7 @@ def main():
     print("  f32_then_round_drift=%d of %d -- f32-then-round does NOT reproduce the dump, so a kernel "
           "that does it cannot have its mismatch waved through as a tolerance"
           % (a32["differing"], a32["elements"]))
-    print("  scope=layer0 only (32 tokens x 8 slots); layer1/layer39/mtp0 unprobed, layer2 absent")
+    print("  scope=layer0 only (32 tokens x 8 slots); layer1/layer39/mtp0 unprobed here, layer2 absent")
     print("  amend_router_results_md=%s" % ("YES -- dated corrigendum for the shifted reads"
                                             if (reproduction and shift_is_garbage) else "NO"))
     print("no timing taken")
