@@ -321,3 +321,39 @@ are always writing — a check that cannot report STALE is not a check. Dropping
 signal fixed it, and `bash tools/worker_lanes.sh 1` confirms the STALE branch is reachable, so the
 verdict is witnessed rather than hoped for. It currently separates my 4 live lanes from 5 real corpses
 and 10 historical ones.
+
+## Step 1 closed: the audit's own verdicts, re-run by me rather than adopted
+
+W1 finished the D-14 work and I re-ran the gate myself instead of reading its summary — `--selftest`
+PASS, and `--exact` reproduces its numbers exactly: **1.4a 25 cases / 0 outside** at zero tolerance,
+**1.4b 64 elements → 63 bit-exact + 1 within-route + 0 outside + 0 reference disagreements**, the summary
+line reading `27 = 26 bit-exact + 1 within-route (a within-route case is NOT a bit-exact case)`, and the
+zero-tolerance `FAIL on blk.1.ssm_a` printed beside the PASS-with-finding rather than under it. Its own
+selftest caught a live bug in the new predicate — an inverted bit mapping made "within one step" mean
+"within 3.8", a bound that could not fail — which is why the spacing is now witnessed against
+hand-worked binary neighbours (`2**-23` on [1,2), `2**-24` on [0.5,1), `2**-22` on [2,4)) instead of
+trusted.
+
+On the drift it adopted my number and kept its own on the record as a correction rather than deleting
+it: `38,797,312 blocks × 2 B = 77,594,624 B = 74.00 MiB`, which I re-derived independently; its earlier
+~232 MiB is unreproducible from any correct ruler (nearest misread: putting the 0.0625 bpw delta over
+the whole-model denominator). It then went further than I asked and made the widths **derived from
+`ggml-common.h` at run time** (`tools/ggml_block_geom.py`, each struct checked against its own
+`static_assert`) instead of retyped, re-auditing every family: exactly one wrong row in eight, the rest
+already right — which is the shape that survives a spot-check and the reason two independent rulers now
+agree on this file. Policy A is unmoved and says so in the tool's own output: **19.59 GiB resident /
+2.331 GiB/token**, because no policy row spends Q5_K.
+
+**And an error of mine, caught because I re-read my own file after the fix landed.** Once
+`gguf_header_types.py` and `quant_scenarios.py` were corrected, `tools/gguf_width_table.py` was still
+printing "tools say 5.5625" next to Q5_K — an accusation that had outlived the bug it described. An
+outdated claim in a validator is worse than no claim, because the validator is the thing people trust.
+The constant is now empty with the history recorded in a comment, and `--selftest` still fires 3/3
+because the negative control re-derives the failure from an injected stale row rather than from the
+removed table. Lesson worth keeping: **when a bug gets fixed, grep for the places that were written to
+catch it.**
+
+I also released `/tmp/pi_halogen.lock` on W1's completion — and the first attempt silently failed,
+because I ran `rmdir` on a directory still holding `holder`. `halogen_gate.sh status` printed the stale
+claim and only then did I notice; the retry removes the file first and now reads `stream claim: none`,
+so a down-window can admit. A lock released by a command that failed is a lock still held.

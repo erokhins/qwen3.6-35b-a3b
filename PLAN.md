@@ -1,8 +1,32 @@
 # PLAN — the funded queue
 
-**Step 1 is APPROVED (user, 2026-10-26) and NOT STARTED.** Nothing below has been downloaded, and no
-gate below has been run. This file records what will happen when it is started; it is not evidence
-that any of it happened. Anything written here after a run must cite the artifact that proves it.
+**Step 1 is COMPLETE (2026-10-26).** The artifact is fetched, audited against the bf16 authority and
+pinned; every sub-step below has been run and its raw output committed under
+`quantization/evidence/audit-*`. The pre-run text is kept, not rewritten, so the gate can still be
+read as it was designed — a plan written before the data exists is worth more than one edited to fit
+it — and everything asserted below after the run cites the artifact that proves it.
+
+| step | verdict | artifact |
+|---|---|---|
+| 1.0 gate authored from the spec | PASS — selftest first passed 01:31:24Z, **before** the first tensor-data read at 01:42:30Z; `--exact` is *refused* if the tool files change after a PASS (the marker stores both tools' sha256) | `audit-selftest-2026-10-26.json`, `audit-ordering-2026-10-26.log` |
+| 1.1 sha / revision / header | PASS — sha256 `ac0e2c1189e055fa…53e31a61` twice and equal to the HF LFS etag; 733 records declared = parsed = expected; `sum(row_bytes)+data_start == file size` | `audit-hash-2026-10-26.json` |
+| 1.2 shards + `mtp.*` | PASS — 4/4 shard sets and sha256 match the committed `weight_map`/etags; **this plan's own MTP figure was refuted here** (see the fetch list) | `audit-shards-2026-10-26.json` |
+| 1.3 structure, all 733 | PASS — 0 unreconciled, 0 absent, 0 dim mismatches, before any value was judged | `audit-structure-2026-10-26.json` |
+| 1.4a copied families | PASS — 25 cases, 0 outside, zero tolerance, unchanged code path | `audit-exactness-2026-10-26.json` |
+| 1.4b derived transcendental | **PASS-with-finding** — `blk.1.ssm_a[21]` is 1 f32 step from `-exp(A_log)`; 26 bit-exact + 1 within-route, and the zero-tolerance FAIL is retained beside it. See `DECISIONS.md` D-14 | same file, `zero_tolerance_verdict` |
+| 1.5a floor probe | RUN — bands written before any published value was compared | `audit-floor-probe-2026-10-26.json` |
+| 1.5b dequant vs bands | PASS — worst family 1.00× its own floor against a 1.5× band, judged by **our own** reader | `audit-dequant-2026-10-26.json` |
+| 1.5c injections | PASS — 150 band + 14 route cases, 0 wrong, 0 leaks into any must-not-catch set | `audit-injections-2026-10-26.json` |
+| 1.6 shared storage + pin | PASS — no alias pair, no overlapping range; `token_embd` vs `output` witnessed distinct (65,306/65,536 bytes differ) | `checkpoints/Qwen3.6-35B-A3B.gguf-pin.json` |
+
+**What is on disk as a result:** the shipping artifact `models/unsloth-q4km/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf`
+(22,134,528,992 B), the draft block extracted to `models/w1-mtp-extract/mtp.safetensors` (19 tensors,
+1,689,283,656 B), and the pin. **What the audit also settled, against this repo's own prior claims:**
+PLAN's MTP element count was wrong by 20.14× (corrected above); Q5_K was carried at 5.5625 bpw in two
+tools where the pinned struct says 5.5 (now derived from `ggml-common.h` at run time by
+`tools/ggml_block_geom.py`, with `tools/gguf_width_table.py` as the independent second ruler — the
+correction moves **no policy figure**, because no policy row spends Q5_K); and the published file
+carries **zero** draft-block tensors, so llama.cpp cannot serve MTP from it.
 
 ## Step 1 — acquire the artifact, and witness it (approved: `published + mtp + audit`)
 

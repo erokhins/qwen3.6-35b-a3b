@@ -499,3 +499,13 @@ sets. **If the user prefers the stricter reading**, the change is one flag: reve
 again as report-only, the artifact stays pinnable, and nothing else in the audit moves. Escalated for
 ratification rather than assumed, because `AGENTS.md` makes "what counts as a band" the user's question
 and this is the nearest thing to one that a structural audit can produce.
+
+**Status 2026-10-26: implemented, ratification still open.** The split is in
+`tools/audit_published_quant.py` as `1.4a`/`1.4b`; a fresh re-run of the gate reads `1.4 PASS-with-finding
+(zero-tolerance view, kept for the record: FAIL on blk.1.ssm_a)`, with 1.4a at 25 cases / 0 outside, 1.4b
+at 64 elements judged → 63 bit-exact + 1 within-route + 0 outside + 0 reference disagreements, and 14
+route injections (±2 steps, sign flip, permutation, wrong-`A_log`-order) all firing while ±1 step does
+not. The selftest caught a live bug in its own predicate on the way — an inverted bit mapping made
+"within one step" mean "within 3.8", a bound that could not fail — which is the reason the spacing is
+now witnessed against hand-worked binary neighbours rather than trusted. If the user prefers the flat
+predicate, the flag above restores it and 1.4 returns to FAIL.
