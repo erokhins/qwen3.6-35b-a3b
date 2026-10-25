@@ -5,7 +5,7 @@ ARTIFACTWIDTH q6_k_tensors=4 first=['blk.34.ffn_down_exps.weight'] note=Q6_K ker
 CHECK name=the stored width of the two tables this lane gates is read from the artifact, not assumed ok=1 n=733 output.weight=Q6_K token_embd.weight=Q8_0
 CHECK name=no Q8_0 table is sourced from the published GGUF (Q6_K would be read as Q8_0) ok=1 n=2 Q8_0 sources=['model-00001-of-00026.safetensors', 'model-00026-of-00026.safetensors']
 ORACLECONTRACT fields P=10 T=10 C=20 modes=10 exp=5 q8=34B/32 elts
-ORACLEPLAN file=work/plan.tsv records=201 p=1 tables=8 cases=192 h=2048 head_dim=256 vocab=248320 n_hidden=68 ids=11 out_floats=27488 slab_bytes=557568
+ORACLEPLAN file=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/plan.tsv records=201 p=1 tables=8 cases=192 h=2048 head_dim=256 vocab=248320 n_hidden=68 ids=11 out_floats=27488 slab_bytes=557568
 ARTIFACTWIDTH tensor=output.weight stored=Q6_K policy_a=Q8_0 note=D-10-deviation
 ARTIFACTWIDTH tensor=token_embd.weight stored=Q8_0 policy_a=Q8_0 note=D-10-deviation
 ARTIFACTFILE file=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf declared_tensors=733 parsed_rows=733
@@ -114,17 +114,12 @@ RESULT PASS oracle arm filled=1884/27488 words slab=557568 B hidden=68
 CHECK name=the oracle filled exactly the honest cases' words ok=1 n=1884 oracle=1884/1884 total=27488 expected=1884 band_nonpositive=0
 CHECK name=the oracle and the gate agree on the artifact widths (parsed == printed) ok=1 n=2 oracle=['Q6_K', 'Q8_0'] gate=['Q6_K', 'Q8_0']
 CHECK name=deriving the classes changed the expect column and nothing else ok=1 n=33 33 records differ, unexpected columns=[]
-
-Traceback (most recent call last):
-  File "/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/gate.py", line 2117, in <module>
-    sys.exit(main())
-             ^^^^^^
-  File "/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/gate.py", line 2108, in main
-    do_run(a, v, a.device, fc, en, fields, modes, fmts)
-  File "/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/gate.py", line 1770, in do_run
-    return control_q6k_geometry(v, p, cfg, fc, en, work)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/gate.py", line 1903, in control_q6k_geometry
-    elts, blk = GWT.BLK["Q6_K"]
-    ^^^^^^^^^
-ValueError: too many values to unpack (expected 2)
+CONTROL q6k-geometry table=2 enc=Q8_0 honest_bytes=69632 q6k_geometry=53760 (210 B / 256 elts from tools/gguf_width_table.py BLK, expression 2*sizeof(ggml_half) + QK_K/16 + QK_K/4 + QK_K/2)
+CONTROLARM host_probe rc=1 refused=1 first=['FAIL verify table 2 nbytes=53760, the encoding says 69632 for 32 rows of 2048']
+CONTROLARM device rc=1 refused=1 first=['FAIL verify table 2 nbytes=53760, the encoding says 69632 for 32 rows of 2048']
+CHECK name=a Q6_K-shaped table declared Q8_0 is refused by both drivers ok=1 n=2 accepted it silently: none
+CONTROLARM-REFUSED host_probe=1 device=1 honest_bytes=69632 q6k_geometry=53760 geom=210 B/256 elts expression=2*sizeof(ggml_half) + QK_K/16 + QK_K/4 + QK_K/2
+FAIL CONTROL q6k-geometry: both drivers refused the Q6_K-shaped Q8_0 table as designed (69632 B vs 53760 B); a control that achieved its refusal still exits non-zero
+CHECK name=the run reached its adjudication ok=0 n=1 refusal=CONTROL q6k-geometry: both drivers refused the Q6_K-shaped Q8_0 table as designed (69632 B vs 53760 B); a control that achieved its refusal still exits non-zero
+CHECKS ran=7 failed=1 the run refused: CONTROL q6k-geometry: both drivers refused the Q6_K-shaped Q8_0 table as designed (69632 B vs 53760 B); a control that a
+RESULT FAIL lm_head (refused) checks=7 findings=1

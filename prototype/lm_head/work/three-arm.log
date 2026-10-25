@@ -1,0 +1,71 @@
+ARM RUN arm=host cases=192 skipped=0 items=1186 out_floats=27488
+ARM RESULT PASS host arm cases=192 items=1186
+ARM RUN arm=device-hostpath cases=192 skipped=0 items=1186 out_floats=27488 hip_calls=0
+ARM RESULT PASS device-compiled host path cases=192 items=1186 (no device touched)
+REPORT file=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/ta_host.tsv parsed=192 printed=192 fields=33 forms=hex:2,dec:30,real:1
+REPORT file=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/ta_hip.tsv parsed=192 printed=192 fields=33 forms=hex:2,dec:30,real:1
+THREEARM pair=host_twin_vs_hip_hostpath group=all_honest n=1884 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_hip_hostpath group=table0_enc0 n=976 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_hip_hostpath group=table1_enc0 n=180 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_hip_hostpath group=table2_enc1 n=200 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_hip_hostpath group=table3_enc1 n=180 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_hip_hostpath group=table4_enc0 n=64 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_hip_hostpath group=table5_enc0 n=80 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_hip_hostpath group=table6_enc0 n=104 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_hip_hostpath group=table7_enc1 n=100 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_hip_hostpath group=assoc_seq n=1724 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_hip_hostpath group=assoc_rev n=128 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_hip_hostpath group=assoc_split8 n=32 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_hip_hostpath group=path_dense n=1592 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_hip_hostpath group=path_gather n=292 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_hip_hostpath group=batch_batched n=1372 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_hip_hostpath group=batch_perrow n=512 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARMF pair=host_twin_vs_hip_hostpath field=bytes n=192 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARMF pair=host_twin_vs_hip_hostpath field=loads n=192 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARMF pair=host_twin_vs_hip_hostpath field=xorb n=192 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARMF pair=host_twin_vs_hip_hostpath field=vsum n=192 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARMF pair=host_twin_vs_hip_hostpath field=bsum n=192 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARMF pair=host_twin_vs_hip_hostpath field=lo n=192 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARMF pair=host_twin_vs_hip_hostpath field=hi n=192 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARMF pair=host_twin_vs_hip_hostpath field=cross n=192 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARMF pair=host_twin_vs_hip_hostpath field=peer_hits n=192 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARMF pair=host_twin_vs_hip_hostpath field=lanes n=192 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARMF pair=host_twin_vs_hip_hostpath field=bover n=192 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARMF pair=host_twin_vs_hip_hostpath field=oxor n=192 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARMF pair=host_twin_vs_hip_hostpath field=osum n=192 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=nan worst_word=nan cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_oracle group=all_honest n=1884 bit_identical=0 ndiff=1263 maxabs=2.86102e-06 relL2=2.44258e-10 relL2_bandnorm=0.0001627 worst_word=0.001646 cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_oracle group=table0_enc0 n=976 bit_identical=0 ndiff=794 maxabs=7.45058e-08 relL2=3.9815e-08 relL2_bandnorm=0.0001496 worst_word=0.0009653 cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_oracle group=table1_enc0 n=180 bit_identical=0 ndiff=85 maxabs=1.67638e-08 relL2=2.20711e-08 relL2_bandnorm=0.0002102 worst_word=0.0008592 cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_oracle group=table2_enc1 n=200 bit_identical=0 ndiff=115 maxabs=1.2666e-07 relL2=2.88515e-08 relL2_bandnorm=0.0002346 worst_word=0.001646 cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_oracle group=table3_enc1 n=180 bit_identical=0 ndiff=92 maxabs=2.98023e-08 relL2=2.58864e-08 relL2_bandnorm=0.0001964 worst_word=0.001187 cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_oracle group=table4_enc0 n=64 bit_identical=0 ndiff=56 maxabs=2.98023e-08 relL2=3.28188e-07 relL2_bandnorm=0.000104 worst_word=0.0003665 cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_oracle group=table5_enc0 n=80 bit_identical=0 ndiff=70 maxabs=2.98023e-08 relL2=3.30779e-07 relL2_bandnorm=0.0001065 worst_word=0.0003665 cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_oracle group=table6_enc0 n=104 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=0 worst_word=0 cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_oracle group=table7_enc1 n=100 bit_identical=0 ndiff=51 maxabs=2.86102e-06 relL2=3.43314e-10 relL2_bandnorm=7.179e-05 worst_word=0.0004558 cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_oracle group=assoc_seq n=1724 bit_identical=0 ndiff=1186 maxabs=2.86102e-06 relL2=2.44113e-10 relL2_bandnorm=0.0001576 worst_word=0.0009653 cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_oracle group=assoc_rev n=128 bit_identical=0 ndiff=55 maxabs=1.2666e-07 relL2=1.64157e-08 relL2_bandnorm=0.0002328 worst_word=0.001646 cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_oracle group=assoc_split8 n=32 bit_identical=0 ndiff=22 maxabs=9.31323e-09 relL2=1.45197e-07 relL2_bandnorm=5.623e-05 worst_word=0.0001335 cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_oracle group=path_dense n=1592 bit_identical=0 ndiff=1041 maxabs=9.53674e-07 relL2=1.26623e-10 relL2_bandnorm=0.0001628 worst_word=0.001646 cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_oracle group=path_gather n=292 bit_identical=0 ndiff=222 maxabs=2.86102e-06 relL2=2.03164e-07 relL2_bandnorm=0.0001621 worst_word=0.0008592 cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_oracle group=batch_batched n=1372 bit_identical=0 ndiff=821 maxabs=2.86102e-06 relL2=2.27399e-10 relL2_bandnorm=0.0001604 worst_word=0.001646 cos=1 maxabs_blind_words=0
+THREEARM pair=host_twin_vs_oracle group=batch_perrow n=512 bit_identical=0 ndiff=442 maxabs=9.53674e-07 relL2=1.22229e-07 relL2_bandnorm=0.0001687 worst_word=0.0009653 cos=1 maxabs_blind_words=0
+THREEARM pair=hip_hostpath_vs_oracle group=all_honest n=1884 bit_identical=0 ndiff=1263 maxabs=2.86102e-06 relL2=2.44258e-10 relL2_bandnorm=0.0001627 worst_word=0.001646 cos=1 maxabs_blind_words=0
+THREEARM pair=hip_hostpath_vs_oracle group=table0_enc0 n=976 bit_identical=0 ndiff=794 maxabs=7.45058e-08 relL2=3.9815e-08 relL2_bandnorm=0.0001496 worst_word=0.0009653 cos=1 maxabs_blind_words=0
+THREEARM pair=hip_hostpath_vs_oracle group=table1_enc0 n=180 bit_identical=0 ndiff=85 maxabs=1.67638e-08 relL2=2.20711e-08 relL2_bandnorm=0.0002102 worst_word=0.0008592 cos=1 maxabs_blind_words=0
+THREEARM pair=hip_hostpath_vs_oracle group=table2_enc1 n=200 bit_identical=0 ndiff=115 maxabs=1.2666e-07 relL2=2.88515e-08 relL2_bandnorm=0.0002346 worst_word=0.001646 cos=1 maxabs_blind_words=0
+THREEARM pair=hip_hostpath_vs_oracle group=table3_enc1 n=180 bit_identical=0 ndiff=92 maxabs=2.98023e-08 relL2=2.58864e-08 relL2_bandnorm=0.0001964 worst_word=0.001187 cos=1 maxabs_blind_words=0
+THREEARM pair=hip_hostpath_vs_oracle group=table4_enc0 n=64 bit_identical=0 ndiff=56 maxabs=2.98023e-08 relL2=3.28188e-07 relL2_bandnorm=0.000104 worst_word=0.0003665 cos=1 maxabs_blind_words=0
+THREEARM pair=hip_hostpath_vs_oracle group=table5_enc0 n=80 bit_identical=0 ndiff=70 maxabs=2.98023e-08 relL2=3.30779e-07 relL2_bandnorm=0.0001065 worst_word=0.0003665 cos=1 maxabs_blind_words=0
+THREEARM pair=hip_hostpath_vs_oracle group=table6_enc0 n=104 bit_identical=1 ndiff=0 maxabs=0 relL2=0 relL2_bandnorm=0 worst_word=0 cos=1 maxabs_blind_words=0
+THREEARM pair=hip_hostpath_vs_oracle group=table7_enc1 n=100 bit_identical=0 ndiff=51 maxabs=2.86102e-06 relL2=3.43314e-10 relL2_bandnorm=7.179e-05 worst_word=0.0004558 cos=1 maxabs_blind_words=0
+THREEARM pair=hip_hostpath_vs_oracle group=assoc_seq n=1724 bit_identical=0 ndiff=1186 maxabs=2.86102e-06 relL2=2.44113e-10 relL2_bandnorm=0.0001576 worst_word=0.0009653 cos=1 maxabs_blind_words=0
+THREEARM pair=hip_hostpath_vs_oracle group=assoc_rev n=128 bit_identical=0 ndiff=55 maxabs=1.2666e-07 relL2=1.64157e-08 relL2_bandnorm=0.0002328 worst_word=0.001646 cos=1 maxabs_blind_words=0
+THREEARM pair=hip_hostpath_vs_oracle group=assoc_split8 n=32 bit_identical=0 ndiff=22 maxabs=9.31323e-09 relL2=1.45197e-07 relL2_bandnorm=5.623e-05 worst_word=0.0001335 cos=1 maxabs_blind_words=0
+THREEARM pair=hip_hostpath_vs_oracle group=path_dense n=1592 bit_identical=0 ndiff=1041 maxabs=9.53674e-07 relL2=1.26623e-10 relL2_bandnorm=0.0001628 worst_word=0.001646 cos=1 maxabs_blind_words=0
+THREEARM pair=hip_hostpath_vs_oracle group=path_gather n=292 bit_identical=0 ndiff=222 maxabs=2.86102e-06 relL2=2.03164e-07 relL2_bandnorm=0.0001621 worst_word=0.0008592 cos=1 maxabs_blind_words=0
+THREEARM pair=hip_hostpath_vs_oracle group=batch_batched n=1372 bit_identical=0 ndiff=821 maxabs=2.86102e-06 relL2=2.27399e-10 relL2_bandnorm=0.0001604 worst_word=0.001646 cos=1 maxabs_blind_words=0
+THREEARM pair=hip_hostpath_vs_oracle group=batch_perrow n=512 bit_identical=0 ndiff=442 maxabs=9.53674e-07 relL2=1.22229e-07 relL2_bandnorm=0.0001687 worst_word=0.0009653 cos=1 maxabs_blind_words=0
+THREEARMRANK pair=host_twin_vs_oracle relL2_worst_group=table2_enc1 maxabs_worst_group=all_honest ranking_agrees=0 note=maxabs_is_reported_only
+THREEARMRANK pair=hip_hostpath_vs_oracle relL2_worst_group=table2_enc1 maxabs_worst_group=all_honest ranking_agrees=0 note=maxabs_is_reported_only
+THREEARMAGG records_printed=61 word_groups=48 field_rows=13 arms=3 pairs=3 honest_cases=115 words_compared=28260 load_bearing=relL2_bandnorm+ndiff maxabs_load_bearing=0 cos_load_bearing=0
+RESULT PASS lm_head three-arm host agreement groups=48 field_rows=13 compiled_pair_bit_identical=1 oracle_inside_band=1

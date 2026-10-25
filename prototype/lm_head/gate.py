@@ -1046,11 +1046,17 @@ def legal_class(c, cls):
 def adjudicate(v, p, d, report, words, expw, bandw, tag, fc, en):
     rep = report
     counts = {}
-    fired, immunes, subband = [], [], []
+    # Keyed by CASE INDEX, not appended to a list. The gather branch and the FIRES branch both register
+    # the same case, so the old list counted those arms twice: `injection denominator matches the plan`
+    # read 79 judged against 77 declared, and a duplicate is exactly what lets one case that was never
+    # judged hide behind a case that was judged twice.
+    fired, immunes, subband = {}, {}, {}
     results = {}
     results = {}
     skip_all = (tag != "host")
     want_inj = sum(1 for c in p.cases if c["mode"] != en["LMH_MODE_CORRECT"]
+                   and (not skip_all or c["on_device"]))
+    want_idx = set(c["idx"] for c in p.cases if c["mode"] != en["LMH_MODE_CORRECT"]
                    and (not skip_all or c["on_device"]))
     for c in p.cases:
         cls, pred = derive_class(c, d)
@@ -1177,6 +1183,9 @@ def adjudicate(v, p, d, report, words, expw, bandw, tag, fc, en):
             nd = sum(1 for b in range(c["bcount"]) for j in range(c["n_out"])
                      if not word_eq(words[c["out_off"] + b * js + j],
                                     words[twin["out_off"] + b * ts + j]))
+            res["nd"] = nd          # read back by the amortisation witness: bytes alone must be what
+            #                       catches the re-looping kernel, so the words-identical half needs
+            #                       to be visible outside this function without being recomputed
             beyond = 0
             worst = 0.0
             for b in range(c["bcount"]):
@@ -1208,18 +1217,18 @@ def adjudicate(v, p, d, report, words, expw, bandw, tag, fc, en):
                     "cross=%s expected=%s (%d of %d ids escape v_rows=%d)"
                     % (r["cross"], want_cross, esc, len(ids), tv)) and res["ok"]
                 if esc:
-                    fired.append((c["mode"], c["name"], int(r["cross"]) == want_cross))
+                    fired[c["idx"]] = (c["mode"], c["name"], int(r["cross"]) == want_cross)
             if cls == "FIRES":
                 ok = v.check("%s case=%d %s FIRED beyond the band" % (tag, c["idx"], c["name"]),
                              beyond > 0, c["bcount"] * c["n_out"],
                              "differing=%d beyond-band=%d worst=%.3g x band | %s"
                              % (nd, beyond, worst, pred))
-                fired.append((c["mode"], c["name"], ok))
+                fired[c["idx"]] = (c["mode"], c["name"], ok)
             elif cls == "IMMUNE":
                 ok = v.check("%s case=%d %s IMMUNE (bit-identical to its twin)"
                              % (tag, c["idx"], c["name"]), nd == 0, c["bcount"] * c["n_out"],
                              "differing=%d | %s" % (nd, pred))
-                immunes.append((c["mode"], c["name"], ok))
+                immunes[c["idx"]] = (c["mode"], c["name"], ok)
             elif cls == "INSIDE":
                 # Two falsifiable halves: the words are NOT the twin's (the injection happened), and no
                 # word left the band (the perturbation is smaller than fp32 summation noise at this h).
@@ -1229,7 +1238,7 @@ def adjudicate(v, p, d, report, words, expw, bandw, tag, fc, en):
                              c["bcount"] * c["n_out"],
                              "differing=%d beyond-band=%d worst=%.3g x band | %s"
                              % (nd, beyond, worst, pred))
-                subband.append((c["mode"], c["name"], ok))
+                subband[c["idx"]] = (c["mode"], c["name"], ok)
             else:
                 ok = v.check("%s case=%d %s BYTES: output still equals its twin"
                              % (tag, c["idx"], c["name"]), nd == 0, c["bcount"] * c["n_out"],
@@ -1249,7 +1258,8 @@ def adjudicate(v, p, d, report, words, expw, bandw, tag, fc, en):
                                  "bytes %s/%s loads %s/%s xorb %s/%s vsum %s/%s"
                                  % (r["bytes"], hh["bytes"], r["loads"], hh["loads"], r["xorb"],
                                     hh["xorb"], r["vsum"], hh["vsum"])) and ok
-                    fired.append((c["mode"], c["name"], f > 1 and int(r["bytes"]) == f * int(hh["bytes"])))
+                    fired[c["idx"]] = (c["mode"], c["name"],
+                                       f > 1 and int(r["bytes"]) == f * int(hh["bytes"]))
                 elif c["mode"] == en["LMH_MODE_CROSS_TABLE_READ"]:
                     t = p.tables[c["table"]]
                     peer = p.tables[t["peer"]]
@@ -1257,21 +1267,35 @@ def adjudicate(v, p, d, report, words, expw, bandw, tag, fc, en):
                     n_add = c["n_out"] * nlanes
                     want_cross = int(hh["cross"]) if tied else int(hh["cross"]) + n_add
                     want_peer = int(hh["peer_hits"]) + n_add
+                    extents_ok = (int(r["cross"]) == want_cross
+                                  and int(r["peer_hits"]) == want_peer)
                     ok = v.check("%s case=%d %s cross/peer_hits as the extents say (%s)"
                                  % (tag, c["idx"], c["name"],
                                     "tied control: cross cannot move" if tied
                                     else "untied: every peer range is a cross"),
-                                 int(r["cross"]) == want_cross and int(r["peer_hits"]) == want_peer, 1,
+                                 extents_ok, 1,
                                  "cross=%s/%s peer_hits=%s/%s" % (r["cross"], want_cross,
                                                                  r["peer_hits"], want_peer)) and ok
-                    # The tied arm is a MUST-NOT-MOVE arm: reading the peer of a tied pair reads the
-                    # same bytes, so neither the words nor the counters can move. Putting it in the
-                    # must-fire list would demand a cross read from a case whose peer is its own range
-                    # — a check that can only ever be red. The untied arms carry the firing claim.
-                    (immunes if tied else fired).append(
-                        (c["mode"], c["name"],
-                         int(r["cross"]) == int(hh["cross"])
-                         and int(r["peer_hits"]) == int(hh["peer_hits"])))
+                    # ONE predicate for the verdict and for the roll-up. They were two, and the roll-up
+                    # asked whether the counters had NOT moved: the four untied arms, whose entire claim
+                    # is that cross and peer_hits DO move and which the check above confirms at 4/4,
+                    # were registered `fired=0`, so `every injection that must fire fired` could never
+                    # go green. A must-fire flag that is the negation of the must-fire claim is a broken
+                    # check, not a strict one.
+                    #
+                    # The tied arm keeps a must-not-move claim, but over `cross` only. For a tied pair
+                    # the peer extent IS the own extent, so the witness read lands inside it: peer_hits
+                    # must move by n_add while cross stays 0 (lmh_trace_range tests the own range first;
+                    # the driver self-test's tied-control-peer-read-is-not-a-cross-read is the witness,
+                    # and the host report says cross=0/0 peer_hits=8/8 against the twin's 4). Requiring
+                    # peer_hits to stand still there demanded a counter that cannot behave that way, and
+                    # it is why `every derived-immune case really is immune` was red on that one case.
+                    if tied:
+                        immunes[c["idx"]] = (c["mode"], c["name"],
+                                             int(r["cross"]) == int(hh["cross"])
+                                             and int(r["peer_hits"]) == int(r["loads"]))
+                    else:
+                        fired[c["idx"]] = (c["mode"], c["name"], extents_ok)
                 elif c["mode"] == en["LMH_MODE_GATHER_ROW_OFF_1"]:
                     want_cross = c["n_out"] * nlanes
         else:
@@ -1285,28 +1309,30 @@ def adjudicate(v, p, d, report, words, expw, bandw, tag, fc, en):
                                                      for k in ("BAND", "EXACT", "FIRES", "IMMUNE",
                                                                "BYTES", "INSIDE")), want_inj))
     print("INJECTIONS %s judged=%d fired=%d immune=%d immune-held=%d"
-          % (tag, len(fired) + len(immunes), sum(1 for _, _, o in fired if o), len(immunes),
-             sum(1 for _, _, o in immunes if o)))
-    for mode, nm, ok in fired:
+          % (tag, len(fired) + len(immunes), sum(1 for _, _, o in fired.values() if o),
+             len(immunes), sum(1 for _, _, o in immunes.values() if o)))
+    for mode, nm, ok in fired.values():
         print("INJECTION arm=%s fired=%d" % (nm, 1 if ok else 0))
-    for mode, nm, ok in immunes:
+    for mode, nm, ok in immunes.values():
         print("IMMUNITY arm=%s held=%d" % (nm, 1 if ok else 0))
-    for mode, nm, ok in subband:
+    for mode, nm, ok in subband.values():
         print("SUBBAND arm=%s inside=%d" % (nm, 1 if ok else 0))
+    judged = set(fired) | set(immunes) | set(subband)
+    never = sorted(want_idx - judged)
+    not_inj = sorted(judged - want_idx)
     v.check("%s injection denominator matches the plan" % tag,
-            want_inj > 0 and len(fired) + len(immunes) + len(subband) == want_inj, want_inj,
-            "plan=%d judged=%d (fired=%d immune=%d inside=%d)"
-            % (want_inj, len(fired) + len(immunes) + len(subband), len(fired), len(immunes),
-               len(subband)))
+            want_inj > 0 and len(judged) == want_inj and not never and not not_inj, want_inj,
+            "plan=%d judged=%d (fired=%d immune=%d inside=%d) never_judged=%s judged_but_not_injection=%s"
+            % (want_inj, len(judged), len(fired), len(immunes), len(subband), never[:6], not_inj[:6]))
     v.check("%s every arm judged INSIDE the band really moved and really stayed inside" % tag,
-            all(o for _, _, o in subband), len(subband),
-            "wrong: %s" % (",".join(nm for _, nm, o in subband if not o) or "none"))
+            all(o for _, _, o in subband.values()), len(subband),
+            "wrong: %s" % (",".join(nm for _, nm, o in subband.values() if not o) or "none"))
     v.check("%s every injection that must fire fired" % tag,
-            len(fired) > 0 and all(o for _, _, o in fired), len(fired),
-            "did not fire: %s" % (",".join(nm for _, nm, o in fired if not o) or "none"))
+            len(fired) > 0 and all(o for _, _, o in fired.values()), len(fired),
+            "did not fire: %s" % (",".join(nm for _, nm, o in fired.values() if not o) or "none"))
     v.check("%s every derived-immune case really is immune" % tag,
-            len(immunes) > 0 and all(o for _, _, o in immunes), len(immunes),
-            "moved anyway: %s" % (",".join(nm for _, nm, o in immunes if not o) or "none"))
+            len(immunes) > 0 and all(o for _, _, o in immunes.values()), len(immunes),
+            "moved anyway: %s" % (",".join(nm for _, nm, o in immunes.values() if not o) or "none"))
     # an immunity that is true by construction is not evidence: each mode with an immune arm has to be
     # demonstrably fireable somewhere in this same plan, and each mode has to be exercised at all.
     reach = {}
@@ -1318,7 +1344,7 @@ def adjudicate(v, p, d, report, words, expw, bandw, tag, fc, en):
             e["immune"] += 1
         if c["derived"] in ("FIRES", "BYTES"):
             e["fires"] += 1
-    for mode, nm, ok in fired:
+    for mode, nm, ok in fired.values():
         if mode in reach and ok:
             reach[mode]["fired"] += 1
     untested = sorted(mode_token_id(m, en) for m, e in reach.items()
@@ -1492,7 +1518,7 @@ def three_way(v, p, d, host_rep, dev_rep, hostw, devw, expw, bandw, fc, en):
             "outside=%s" % ({k: val[1] for k, val in per_arm.items()},))
 
 
-def amortisation_and_disjointness(v, p, d, rep, tag, fc, en):
+def amortisation_and_disjointness(v, p, d, rep, tag, fc, en, results):
     """The two claims this lane can make WITHOUT a timer, both read off the traced read-set."""
     # ---- amortisation: batching must buy weight reads, and only weight reads ------------------
     # The families are the per-row cases' OWN declarations (their grp names the batched case they are
@@ -1565,25 +1591,111 @@ def amortisation_and_disjointness(v, p, d, rep, tag, fc, en):
                   % (tag, key[0], key[1], key[2], sorted(bs)[0], sorted(bc)))
     v.check("%s addressed bytes are independent of bcount for the same row set" % tag,
             tested > 0 and not flat_bad, tested, "; ".join(flat_bad[:4]) or "flat")
+    # ---- the re-looping batched kernel: caught on BYTES ALONE -----------------------------------
+    # LMH_MODE_BATCH_RELOOPS walks the row set once per batch row while still writing one correct
+    # output per batch row, so every arithmetic field is unchanged and only `bytes`/`loads` can see it.
+    # The driver self-test's `batch-reloops-immune-at-bcount-1` is the immunity half (at bcount=1 the
+    # injection is invisible BY CONSTRUCTION and must be classed IMMUNE there); this is the firing half,
+    # and the claim being witnessed is that the words are bit-identical to the twin while bytes is
+    # exactly bcount x the twin's -- an amortisation claim with no timer in it.
+    rl_bad, rl_witnessed, rl_checked = [], 0, 0
+    for c in p.cases:
+        if c["mode"] != en["LMH_MODE_BATCH_RELOOPS"] or c["batching"] != en["LMH_BATCH_BATCHED"]:
+            continue
+        if tag != "host" and not c["on_device"]:
+            continue                      # a host-only case has no device trace to witness
+        if c["bcount"] <= 1:
+            continue                      # immune by construction; the driver self-test owns that arm
+        rl_checked += 1
+        r, res = rep[c["idx"]], results.get(c["idx"])
+        twin = p.honest_twin(c)
+        if twin is None or res is None:
+            rl_bad.append("case %d %s: no honest twin / no judgement to read the words-identical "
+                          "claim from" % (c["idx"], c["name"]))
+            continue
+        tr = rep[twin["idx"]]
+        tb, rb = int(tr["bytes"]), int(r["bytes"])
+        if res.get("nd", -1) != 0:
+            rl_bad.append("case %d %s: %d words differ from the twin, so this is not a bytes-only "
+                          "catch" % (c["idx"], c["name"], res["nd"]))
+        elif tb <= 0 or rb != c["bcount"] * tb:
+            rl_bad.append("case %d %s: bytes %d != %d x twin %d" % (c["idx"], c["name"],
+                                                                    rb, c["bcount"], tb))
+        elif int(r["xorb"]) != int(tr["xorb"]) or int(r["vsum"]) != int(tr["vsum"]):
+            rl_bad.append("case %d %s: a value digest moved (%s/%s, %s/%s), so the injection was not "
+                          "confined to the read-set" % (c["idx"], c["name"], r["xorb"], tr["xorb"],
+                                                        r["vsum"], tr["vsum"]))
+        else:
+            rl_witnessed += 1
+            print("AMORTISE tag=%s reloops case=%d bcount=%d bytes=%d twin_bytes=%d ratio=%d "
+                  "words_identical=1 xorb_unchanged=1 vsum_unchanged=1"
+                  % (tag, c["idx"], c["bcount"], rb, tb, rb // tb))
+    v.check("%s the re-looping batched kernel is caught on bytes alone (words bit-identical)" % tag,
+            rl_checked > 0 and rl_witnessed == rl_checked, rl_checked,
+            "witnessed=%d/%d; %s" % (rl_witnessed, rl_checked, "; ".join(rl_bad[:3]) or "clean"))
     # ---- disjointness: nobody read outside the table they were given ---------------------------
-    stray = []
+    # The predicate has to know which table is a TIED pair. `peer_hits` counts every read that lands
+    # inside the peer EXTENT (lm_head_kernels.h §lmh_trace_range), and for a tied pair the peer extent
+    # IS the own extent -- so requiring peer_hits == 0 of every case whose mode is not a foreign reader
+    # was a claim the tied control could never satisfy (cases 32-35, honest-bf16-tied-a-*, peer_hits=4
+    # =loads). A policy check that can only ever be red is a broken check, not a strict one; the strict
+    # claims are (a) an UNTIED case reads neither its peer nor any foreign range, and (b) a TIED case
+    # never counts a cross, because a read of the peer extent of a tied pair is a read of its own bytes.
+    # Both are witnessed non-zero below, so neither can be satisfied by a counter that never moves.
+    stray, tied_idx, tied_witness, untied_checked, tied_cross_max = [], [], [], 0, 0
     for c in p.cases:
         r = rep[c["idx"]]
-        cross, peer = int(r["cross"]), int(r["peer_hits"])
+        cross, peer, loads = int(r["cross"]), int(r["peer_hits"]), int(r["loads"])
+        t = p.tables[c["table"]]
+        pt = p.tables[t["peer"]] if t["peer"] >= 0 else None
+        tied = pt is not None and pt["base"] == t["base"] and pt["nbytes"] == t["nbytes"]
         # The modes whose own rule says a foreign range must be touched: the two peer readers, and the
-        # successor-row gather, whose successor of the last row is by construction outside the table.
-        # Exempting it here costs nothing: adjudicate requires cross == n_out*nlanes for exactly that
-        # case, so a gather that read further than its one successor row is still caught.
+        # successor-row gather, whose successor of the last row is by construction outside the table
+        # (and can land in the peer range). Exempting them here costs nothing: adjudicate requires
+        # cross == n_out*nlanes for the gather and the exact extents for the peer readers, so a kernel
+        # that read further than its one sanctioned range is still caught there.
         reads_foreign = c["mode"] in (en["LMH_MODE_TIED_ALIAS"], en["LMH_MODE_CROSS_TABLE_READ"],
                                       en["LMH_MODE_GATHER_ROW_OFF_1"])
+        if tied:
+            tied_idx.append(c["idx"])
+            tied_cross_max = max(tied_cross_max, cross)
+            if cross:
+                stray.append("case %d %s tied pair: cross=%d, but a read of a tied peer extent is a "
+                             "read of the own extent" % (c["idx"], c["name"], cross))
+            if loads and peer != loads:
+                stray.append("case %d %s tied pair: peer_hits=%d != loads=%d (every read of a tied "
+                             "pair lands inside the peer extent)"
+                             % (c["idx"], c["name"], peer, loads))
+            if loads and peer > 0:
+                tied_witness.append(c["idx"])
+            continue
+        untied_checked += 1
         if cross and not reads_foreign:
             stray.append("case %d %s cross=%d without a foreign-reading mode" % (c["idx"], c["name"],
                                                                                  cross))
         if peer and not reads_foreign:
             stray.append("case %d %s peer_hits=%d without a foreign-reading mode" % (c["idx"],
                                                                                       c["name"], peer))
-    v.check("%s no case reads outside its own table unless its mode says it must" % tag,
+    v.check("%s no untied case reads outside its own table unless its mode says it must" % tag,
             not stray, len(p.cases), "; ".join(stray[:4]) or "no stray reads")
+    # the positive halves: a counter that reads 0 everywhere is vacuous, so the tied peer read and the
+    # witness mode's cross must be seen MOVING, over a population that contains the cases at all.
+    cross_w = [(c["idx"], int(rep[c["idx"]]["cross"]), int(rep[c["idx"]]["peer_hits"]))
+               for c in p.cases
+               if c["mode"] == en["LMH_MODE_CROSS_TABLE_READ"]
+               and not (tag != "host" and not c["on_device"])
+               and (p.tables[p.tables[c["table"]]["peer"]]["base"]
+                    != p.tables[c["table"]]["base"])]
+    print("DISJOINT tag=%s witness untied_cases=%d tied_cases=%d tied_peer_nonzero=%d "
+          "tied_cross_max=%d untied_cross_arms=%d arms_with_cross>0=%d"
+          % (tag, untied_checked, len(tied_idx), len(tied_witness), tied_cross_max,
+             len(cross_w), sum(1 for _, cr, _ph in cross_w if cr > 0)))
+    v.check("%s the tied control's peer read is witnessed non-zero (peer_hits is not vacuous)" % tag,
+            len(tied_idx) > 0 and len(tied_witness) == len(tied_idx) > 0, len(tied_idx),
+            "tied cases=%d with peer_hits>0=%d" % (len(tied_idx), len(tied_witness)))
+    v.check("%s the cross-table-read witness moves `cross` on every untied arm" % tag,
+            len(cross_w) > 0 and all(cr > 0 for _i, cr, _ph in cross_w), len(cross_w),
+            "arms=%s" % (cross_w[:4],))
     # the two real tables: disjoint in the slab AND from different files, which is the untiedness
     real = [t for t in p.tables if t["real"] == 1 and t["kind"] == "real"]
     pairs = []
@@ -1692,10 +1804,32 @@ def do_run(a, v, device, fc, en, fields, modes, fmts):
                       os.path.join(work, "control-q6k-source.log"))
         for line in out.splitlines():
             print(line)
-        refused = [l for l in out.splitlines() if l.startswith("REFUSE") and "Q6_K" in l]
+        lines = out.splitlines()
+        # The witness is the READER'S refusal, which exists only if the width check executed. Three
+        # lines in that log start with REFUSE and name Q6_K: the control's own announcement
+        # (`REFUSE_CONTROL injecting ...'), the setup-cannot-fire line (`REFUSE-CONTROL-SETUP no Q6_K
+        # tensor in ...'), and the reader's verdict (`REFUSE table N: ... Q6_K is not a Q8_0 source').
+        # Counting any REFUSE line let the control certify its own injection, and a control that
+        # cannot find a Q6_K tensor in the artifact passed. Only the third line is evidence.
+        announced = [l for l in lines if l.startswith("REFUSE_CONTROL ")]
+        cannot = [l for l in lines if l.startswith("REFUSE-CONTROL-SETUP")]
+        reader = [l for l in lines
+                  if l.startswith("REFUSE table") and "Q6_K is not a Q8_0 source" in l]
+        v.check("the q6k-source injection reaches the reader (an announcement is not a refusal)",
+                len(announced) == 1 and not cannot, 1,
+                "announced=%d setup_cannot_fire=%d" % (len(announced), len(cannot)))
         v.check("a Q6_K source tensor is refused rather than read as Q8_0",
-                rc != 0 and len(refused) >= 1, 1, "rc=%d refusal=%s" % (rc, refused[:1]))
-        return v
+                rc != 0 and len(reader) >= 1, 1, "rc=%d reader_refusal=%s" % (rc, reader[:1]))
+        print("CONTROL q6k-source rc=%d reader_refusals=%d announced=%d setup_blocked=%d"
+              % (rc, len(reader), len(announced), len(cannot)))
+        # A control whose expected outcome IS a refusal has to leave the run red. Until now this one
+        # printed two REFUSE lines, checked them, and returned PASS/exit 0 -- so `gate.py --control
+        # q6k-source` was indistinguishable, by exit code alone, from a run in which the Q6_K tensor
+        # had been silently accepted. That is the empty-parse-PASS trap in a refusal's clothes, and it
+        # is why --selftest carried a finding for it.
+        raise Fail("CONTROL q6k-source refused as designed (the reader printed %d refusal line(s)); "
+                   "a control that achieved its refusal still exits non-zero"
+                   % len(reader))
     cmd = [PY, ORACLE, "--work", work]
     if a.full_table:
         cmd.append("--full-table")
@@ -1849,8 +1983,8 @@ def do_run(a, v, device, fc, en, fields, modes, fmts):
               % (a.control, os.path.basename(rp), hit[0], hit[1], hit[3], hit[2]))
     hostw = words_of(os.path.join(work, "host_out.f32"), p.out_floats)
     host_rep = read_report(os.path.join(work, "host_report.tsv"), p, fields, fc, fmts)
-    adjudicate(v, p, d, host_rep, hostw, expw, bandw, "host", fc, en)
-    amortisation_and_disjointness(v, p, d, host_rep, "host", fc, en)
+    host_res = adjudicate(v, p, d, host_rep, hostw, expw, bandw, "host", fc, en)
+    amortisation_and_disjointness(v, p, d, host_rep, "host", fc, en, host_res)
 
     if a.control == "scale-q8":
         return control_scale_q8(v, p, d, cfg, fc, en, work, host_rep, expw, bandw, fields, fmts)
@@ -1874,8 +2008,8 @@ def do_run(a, v, device, fc, en, fields, modes, fmts):
             % (drec["planned"], drec["skipped"], drec["cases"], n_off))
     devw = words_of(os.path.join(work, "out.f32"), p.out_floats)
     dev_rep = read_report(os.path.join(work, "report.tsv"), p, fields, fc, fmts)
-    adjudicate(v, p, d, dev_rep, devw, expw, bandw, "device", fc, en)
-    amortisation_and_disjointness(v, p, d, dev_rep, "device", fc, en)
+    dev_res = adjudicate(v, p, d, dev_rep, devw, expw, bandw, "device", fc, en)
+    amortisation_and_disjointness(v, p, d, dev_rep, "device", fc, en, dev_res)
     launch_bad = []
     for c in p.cases:
         got = int(dev_rep[c["idx"]]["launches"])
@@ -1900,13 +2034,18 @@ def control_q6k_geometry(v, p, cfg, fc, en, work):
     geometry, the C++ verifier refuses (`FAIL verify ... the encoding says`) and the oracle refuses;
     a plan that walked through either would mean the width was never actually checked."""
     import gguf_width_table as GWT
-    elts, blk = GWT.BLK["Q6_K"]
+    # BLK rows are (elts per block, bytes per block, the ggml-common.h expression it came from) -- a
+    # 3-tuple (tools/gguf_width_table.py §BLK). Unpacking two names from it raised ValueError before
+    # the CONTROL line could print, so this control had never executed at all: rc=1 with no marker is a
+    # traceback, not a verdict, and the Q6_K geometry was unproven on both drivers.
+    elts, blk, geom_expr = GWT.BLK["Q6_K"]
     h = p.cfg["h"]
     q6_row = (h // elts) * blk
     t = next(t for t in p.tables if t["enc"] == en["LMH_ENC_Q8_0"] and t["kind"] == "real")
     want = t["nbytes"]
     print("CONTROL q6k-geometry table=%d enc=Q8_0 honest_bytes=%d q6k_geometry=%d (%d B / %d elts "
-          "from tools/gguf_width_table.py BLK)" % (t["idx"], want, q6_row * t["v_rows"], blk, elts))
+          "from tools/gguf_width_table.py BLK, expression %s)"
+          % (t["idx"], want, q6_row * t["v_rows"], blk, elts, geom_expr))
     if q6_row * t["v_rows"] == want:
         raise Fail("the Q6_K and Q8_0 geometries coincide at h=%d: this control cannot fire and the "
                    "refusal is unproven" % h)
@@ -1936,6 +2075,14 @@ def control_q6k_geometry(v, p, cfg, fc, en, work):
             bad.append(nm)
     v.check("a Q6_K-shaped table declared Q8_0 is refused by both drivers", not bad, 2,
             "accepted it silently: %s" % (",".join(bad) or "none"))
+    if not bad:
+        # Printed only when BOTH arms actually refused, which is what makes it a marker rather than a
+        # line that prints whatever happened; --selftest requires it and requires rc != 0.
+        print("CONTROLARM-REFUSED host_probe=1 device=1 honest_bytes=%d q6k_geometry=%d "
+              "geom=%d B/%d elts expression=%s" % (want, q6_row * t["v_rows"], blk, elts, geom_expr))
+        raise Fail("CONTROL q6k-geometry: both drivers refused the Q6_K-shaped Q8_0 table as designed "
+                   "(%d B vs %d B); a control that achieved its refusal still exits non-zero"
+                   % (want, q6_row * t["v_rows"]))
     return v
 
 
@@ -1961,27 +2108,71 @@ def control_scale_q8(v, p, d, cfg, fc, en, work, host_rep, expw, bandw, fields, 
                    "the control expects to be caught by the judge" % rc)
     rep2 = read_report(os.path.join(work, "report_scaled.tsv"), p, fields, fc, fmts)
     words2 = words_of(os.path.join(work, "out_scaled.f32"), p.out_floats)
-    moved_v = moved_x = same_x = n_traced = 0
+    moved_v = moved_x = same_x = n_traced = moved_nonexempt = 0
+    must_move, exempt, blind = [], [], []
     for c in p.cases:
         if c["table"] != t["idx"] or not c["trace"]:
             continue
         n_traced += 1
         aa, bb = host_rep[c["idx"]], rep2[c["idx"]]
-        moved_v += 1 if aa["vsum"] != bb["vsum"] else 0
-        moved_x += 1 if aa["xorb"] != bb["xorb"] else 0
-        same_x += 1 if aa["xorb"] == bb["xorb"] else 0
+        vm = aa["vsum"] != bb["vsum"]
+        xm = aa["xorb"] != bb["xorb"]
+        moved_v += 1 if vm else 0
+        moved_x += 1 if xm else 0
+        same_x += 1 if not xm else 0
+        # Why one case may legitimately not move, DERIVED from its own record rather than typed: the
+        # tamper touched the block deltas of THIS table only, and only a decode that multiplies by the
+        # delta can see them. So a case is exempt when part of its read-set lies outside the tampered
+        # table (cross > 0: the untied tied-alias arm reads the PEER's bytes, and the successor-row
+        # gather escapes into the 0xCD pad), or when the injection it carries throws the delta away
+        # (LMH_MODE_Q8_DROP_SCALE digests the raw quants, so doubling the delta moves nothing).
+        # Measured on this plan the derived exempt set is cases 119 (mode 3, reads the PEER table's
+        # bytes), 120 (mode 8, the cross-table witness -- which moves anyway), 122 (mode 7) and 176
+        # (mode 1, the successor row that escapes into the pad): 4 of 35 traced cases, and the 3 that
+        # vsum also failed to move ({119, 122, 176}) are a subset of it. Anything else that fails to
+        # move is a finding, not an exemption.
+        escapes = int(aa["cross"]) > 0 or c["mode"] == en["LMH_MODE_Q8_DROP_SCALE"]
+        (exempt if escapes else must_move).append(c["idx"])
+        if vm and not escapes:
+            moved_nonexempt += 1
+        if not vm and not escapes:
+            blind.append("case %d mode=%d cross=%s vsum=%s->%s xorb=%s->%s"
+                         % (c["idx"], c["mode"], aa["cross"], aa["vsum"], bb["vsum"],
+                            aa["xorb"], bb["xorb"]))
     print("SCALEDIFF table=%d blocks=%d traced_cases=%d vsum_moved=%d xorb_moved=%d "
-          "xorb_unchanged=%d" % (t["idx"], nblk, n_traced, moved_v, moved_x, same_x))
+          "xorb_unchanged=%d must_move=%d moved_nonexempt=%d exempt=%d exempt_cases=%s"
+          % (t["idx"], nblk, n_traced, moved_v, moved_x, same_x, len(must_move), moved_nonexempt,
+             len(exempt), exempt))
     inner = V()
     adjudicate(inner, p, d, rep2, words2, expw, bandw, "scaled", fc, en)
     print("CONTROL scale-q8 red_checks=%d of %d checks" % (len(inner.bad), inner.n))
     v.check("a uniform x2 rescale of the Q8_0 deltas makes the judge red",
             len(inner.bad) > 0, inner.n, "red checks=%d (%s)"
             % (len(inner.bad), ",".join(inner.bad[:3])))
-    v.check("vsum moves on the rescaled table's traced cases", moved_v > 0 and moved_v <= n_traced,
-            n_traced, "vsum_moved=%d/%d xorb_moved=%d xorb_unchanged=%d"
-            % (moved_v, n_traced, moved_x, same_x))
-    return v
+    # `moved_v <= n_traced` was the second conjunct here, and it is true by construction: moved_v
+    # counts a subset of n_traced, so the predicate was `moved_v > 0 and True` -- a decoration, in the
+    # same family as a literal-True predicate. The claim that can actually go red is per-case: every
+    # traced case whose read-set lies inside the tampered table, and whose decode uses the delta, moved
+    # its vsum.
+    v.check("vsum moves on every traced case of the tampered table that is not exempt by geometry",
+            len(must_move) > 0 and moved_nonexempt == len(must_move) and not blind, len(must_move),
+            "moved=%d/%d non-exempt (exempt=%d) vsum_moved_all=%d xorb_moved=%d xorb_unchanged=%d "
+            "blind=%s"
+            % (moved_nonexempt, len(must_move), len(exempt), moved_v, moved_x, same_x,
+               blind[:4] or "none"))
+    v.check("the rescale control has a non-empty population to be red about",
+            n_traced > 0 and len(exempt) < n_traced, n_traced,
+            "traced_cases=%d must_move=%d exempt=%d" % (n_traced, len(must_move), len(exempt)))
+    print("CONTROL scale-q8 inner_red=%d/%d vsum_moved=%d moved_nonexempt=%d/%d exempt=%d"
+          % (len(inner.bad), inner.n, moved_v, moved_nonexempt, len(must_move), len(exempt)))
+    # Same class as the two q6k controls: this control's DESIGNED outcome is a red judge, so rc=0 on
+    # success was a control a driver walked past (it printed SCALEDIFF with 103 red inner checks and
+    # the outer run said RESULT PASS). The red now comes from the control itself, and the SCALEDIFF
+    # marker is what distinguishes "caught it" from "did not catch it" -- in the latter the two checks
+    # above are red and no FAIL names the control.
+    raise Fail("CONTROL scale-q8 caught the uniform x2 delta rescale (%d red inner checks of %d; vsum "
+               "moved on %d/%d non-exempt traced cases); a control that achieved its red still exits "
+               "non-zero" % (len(inner.bad), inner.n, moved_nonexempt, len(must_move)))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -2049,8 +2240,8 @@ def selftest(v, a, fc, en, modes):
                          ("no-report", "CONTROL no-report"),
                          ("digest-radix", "CONTROL digest-radix"),
                          ("count-radix", "CONTROL count-radix"),
-                         ("q6k-geometry", "CONTROLARM host_probe"),
-                         ("q6k-source", "REFUSE"),
+                         ("q6k-geometry", "CONTROLARM-REFUSED"),
+                         ("q6k-source", "REFUSE table"),
                          ("scale-q8", "SCALEDIFF")):
         rc, out = run([PY, os.path.join(here, "gate.py"), "--control", name,
                        "--work", a.work, "--max-rows", str(a.max_rows),
@@ -2062,7 +2253,8 @@ def selftest(v, a, fc, en, modes):
                                                                 saw[:1] and saw[0][:150]))
         v.check("control %s is refused or goes red" % name, rc != 0 and len(saw) >= 1, 1,
                 "rc=%d marker_lines=%d" % (rc, len(saw)))
-    for name in ("no-fire", "tampered-out", "no-report", "digest-radix", "count-radix", "scale-q8"):
+    for name in ("no-fire", "tampered-out", "no-report", "digest-radix", "count-radix",
+                 "scale-q8", "q6k-geometry", "q6k-source"):
         log = os.path.join(a.work, "control-%s.log" % name)
         text = open(log).read() if os.path.exists(log) else ""
         bad = [l for l in text.splitlines() if l.startswith("CHECK ") and " ok=0 " in l]

@@ -44,12 +44,12 @@ SELFTEST name=reloops-doubles-bytes-and-cancels-the-digest ok=1
 SELFTEST name=untied-read-stays-in-its-table ok=1
 SELFTEST name=tied-control-peer-read-is-not-a-cross-read ok=1
 SELFTEST name=tied-control-reads-one-row-set ok=1
-FAIL plan work/selftest_plan_1.tsv line 3: C has 19 fields, expected 20
-FAIL plan work/selftest_plan_2.tsv line 2: unknown record type X
-FAIL plan work/selftest_plan_3.tsv line 2: a second P record
+FAIL plan /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/selftest_plan_1.tsv line 3: C has 19 fields, expected 20
+FAIL plan /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/selftest_plan_2.tsv line 2: unknown record type X
+FAIL plan /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/selftest_plan_3.tsv line 2: a second P record
 SELFTEST name=plan-parser-fires-on-malformed-input ok=1
 SELFTEST name=report-form-table-agrees-with-the-field-names ok=1
-REPORT file=work/selftest_report.tsv rows=1 cases=1 arm=host
+REPORT file=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/selftest_report.tsv rows=1 cases=1 arm=host
 SELFTEST name=report-field-count-names-and-vsum-column ok=1
 SELFTEST name=digest-radix-is-in-the-text-not-in-the-parser ok=1
 SELFTEST name=half-accum-fires-on-an-inexact-product ok=1

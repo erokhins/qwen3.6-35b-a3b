@@ -15,6 +15,8 @@
  *                               then this binary with --device-only)
  *         ./lm_head --selftest  host-only driver witnesses, no device
  *         ./lm_head --check     parse + verify the plan, no device
+ *         ./lm_head --host-path the device-compiled host arithmetic: hipcc's codegen on the CPU,
+ *                               no hipMalloc / no launch / no lock (the third arm of the agreement)
  */
 #include <hip/hip_runtime.h>
 
@@ -113,7 +115,7 @@ int main(int argc, char **argv) {
         printf("usage: lm_head --plan P --slab S --hidden H --ids I --out O --report R\n"
                "                 [--expect-tables N] [--expect-cases N]\n"
                "                 [--expect-head-dim N] [--expect-h N] [--expect-vocab N]\n"
-               "                 [--device-only] [--check] | --selftest [--work DIR]\n");
+               "                 [--device-only] [--check] [--host-path] | --selftest [--work DIR]\n");
         return 2;
     }
 
@@ -155,6 +157,62 @@ int main(int argc, char **argv) {
     if (have_flag(argc, argv, "--check")) {
         printf("RESULT PASS check plan tables=%zu cases=%zu (no device touched)\n",
                plan.tables.size(), plan.cases.size());
+        return 0;
+    }
+
+    /* ---- the device-compiled HOST path ---------------------------------------------------------- *
+     * The same translation unit the device kernel lives in, built by hipcc, running the shared
+     * lmh_run_case_host arithmetic: no hipMalloc, no hipMemcpy, no launch, no lock. It exists because
+     * the three-arm agreement otherwise has only two implementations to compare on this box — g++'s
+     * host twin and numpy's oracle — and the claim being made about the kernel is about what THE
+     * DEVICE COMPILER does to this arithmetic. `arm=device-hostpath` is labelled as what it is: the
+     * device binary's host code, not the iGPU. CORRECTNESS ONLY, as everywhere in this file. */
+    if (have_flag(argc, argv, "--host-path")) {
+        std::vector<float> out((size_t)plan.out_floats, 0.0f);
+        std::vector<LmhTrace> traces(plan.cases.size());
+        std::vector<long long> launches(plan.cases.size(), 0);
+        for (size_t i = 0; i < plan.cases.size(); ++i) lmh_trace_init(&traces[i]);
+        LmhCtx ctx;
+        memset(&ctx, 0, sizeof(ctx));
+        ctx.tabs = plan.tables.data();
+        ctx.n_tables = (int)plan.tables.size();
+        ctx.slab = slab.data();
+        ctx.hidden = reinterpret_cast<const float *>(hidb.data());
+        ctx.ids = reinterpret_cast<const int32_t *>(idsb.data());
+        ctx.head_dim = plan.head_dim;
+        ctx.out = out.data();
+        ctx.out_floats = plan.out_floats;
+        long long hp_items = 0, hp_cases = 0, hp_skipped = 0;
+        for (size_t i = 0; i < plan.cases.size(); ++i) {
+            const LmhCase &c = plan.cases[i];
+            if (have_flag(argc, argv, "--device-only") && !c.on_device) { ++hp_skipped; continue; }
+            lmh_run_case_host(ctx, c, &traces[c.idx], lmh_case_out_span(plan, c));
+            hp_items += lmh_case_n_items(c);
+            ++hp_cases;
+            launches[c.idx] = 1;                /* one host call is the host path's whole "launch" */
+        }
+        printf("RUN arm=device-hostpath cases=%lld skipped=%lld items=%lld out_floats=%lld "
+               "hip_calls=0\n", hp_cases, hp_skipped, hp_items, plan.out_floats);
+        FILE *hf = fopen(out_path, "wb");
+        if (!hf) { printf("FAIL cannot write out %s\n", out_path); return 1; }
+        if (plan.out_floats &&
+            fwrite(out.data(), sizeof(float), (size_t)plan.out_floats, hf)
+                != (size_t)plan.out_floats) {
+            printf("FAIL short write on out %s\n", out_path);
+            fclose(hf);
+            return 1;
+        }
+        if (fflush(hf) || ferror(hf)) { printf("FAIL flush of %s\n", out_path); fclose(hf); return 1; }
+        fclose(hf);
+        printf("OUT file=%s floats=%lld bytes=%lld\n", out_path, plan.out_floats,
+               4LL * plan.out_floats);
+        if (lmh_write_report(rep_path, plan, traces.data(), out.data(), launches.data(), 0)) return 1;
+        if (g_hip_failures) {
+            printf("RESULT FAIL host-path hip-calls=%d\n", g_hip_failures);
+            return 2;
+        }
+        printf("RESULT PASS device-compiled host path cases=%zu items=%lld (no device touched)\n",
+               plan.cases.size(), hp_items);
         return 0;
     }
 

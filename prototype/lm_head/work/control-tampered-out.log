@@ -5,7 +5,7 @@ ARTIFACTWIDTH q6_k_tensors=4 first=['blk.34.ffn_down_exps.weight'] note=Q6_K ker
 CHECK name=the stored width of the two tables this lane gates is read from the artifact, not assumed ok=1 n=733 output.weight=Q6_K token_embd.weight=Q8_0
 CHECK name=no Q8_0 table is sourced from the published GGUF (Q6_K would be read as Q8_0) ok=1 n=2 Q8_0 sources=['model-00001-of-00026.safetensors', 'model-00026-of-00026.safetensors']
 ORACLECONTRACT fields P=10 T=10 C=20 modes=10 exp=5 q8=34B/32 elts
-ORACLEPLAN file=work/plan.tsv records=201 p=1 tables=8 cases=192 h=2048 head_dim=256 vocab=248320 n_hidden=68 ids=11 out_floats=27488 slab_bytes=557568
+ORACLEPLAN file=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/plan.tsv records=201 p=1 tables=8 cases=192 h=2048 head_dim=256 vocab=248320 n_hidden=68 ids=11 out_floats=27488 slab_bytes=557568
 ARTIFACTWIDTH tensor=output.weight stored=Q6_K policy_a=Q8_0 note=D-10-deviation
 ARTIFACTWIDTH tensor=token_embd.weight stored=Q8_0 policy_a=Q8_0 note=D-10-deviation
 ARTIFACTFILE file=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf declared_tensors=733 parsed_rows=733
@@ -114,15 +114,15 @@ RESULT PASS oracle arm filled=1884/27488 words slab=557568 B hidden=68
 CHECK name=the oracle filled exactly the honest cases' words ok=1 n=1884 oracle=1884/1884 total=27488 expected=1884 band_nonpositive=0
 CHECK name=the oracle and the gate agree on the artifact widths (parsed == printed) ok=1 n=2 oracle=['Q6_K', 'Q8_0'] gate=['Q6_K', 'Q8_0']
 CHECK name=deriving the classes changed the expect column and nothing else ok=1 n=33 33 records differ, unexpected columns=[]
-PLAN file=work/plan.tsv p_records=1 tables_parsed=8 cases_parsed=192 h=2048 head_dim=256 vocab=248320 n_hidden=68 ids=11 out_floats=27488 slab_bytes=557568
+PLAN file=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/plan.tsv p_records=1 tables_parsed=8 cases_parsed=192 h=2048 head_dim=256 vocab=248320 n_hidden=68 ids=11 out_floats=27488 slab_bytes=557568
 RUN arm=host cases=192 skipped=0 items=1186 out_floats=27488
-OUT file=work/host_out.f32 floats=27488 bytes=109952
-REPORT file=work/host_report.tsv rows=192 cases=192 arm=host
+OUT file=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/host_out.f32 floats=27488 bytes=109952
+REPORT file=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/host_report.tsv rows=192 cases=192 arm=host
 RESULT PASS host arm cases=192 items=1186
 CHECK name=host arm parsed the plan exactly ok=1 n=192 p=1 tables=8 cases=192
 CHECK name=host arm ran every case (nothing skipped) ok=1 n=192 cases=192 skipped=0 items=1186
 CONTROL tampered-out flipped the low bit of word 0 (case 0 honest-bf16-lmhead-dense-batched): the run MUST go red
-REPORT file=work/host_report.tsv parsed=192 printed=192 fields=33 forms=hex:2,dec:30,real:1
+REPORT file=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/host_report.tsv parsed=192 printed=192 fields=33 forms=hex:2,dec:30,real:1
 CHECK name=host case=0 honest-bf16-lmhead-dense-batched R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=0 honest-bf16-lmhead-dense-batched oxor==recount ok=0 n=16 driver=0x0C0102A4 recount=0x0C0102A5
 CHECK name=host case=0 honest-bf16-lmhead-dense-batched osum==recount ok=1 n=16 driver=0.108803058 recount=0.108803062
@@ -1617,7 +1617,7 @@ CHECK name=host case=191 honest-inj-q8-synth-drop-last-k-baseline no write left 
 CHECK name=host case=191 honest-inj-q8-synth-drop-last-k-baseline BAND inside the derived band ok=1 n=16 worst=0.000 x band outside=0 
 CHECK name=host case=191 honest-inj-q8-synth-drop-last-k-baseline declared class is legal and matches the derivation ok=1 n=1 plan=BAND derived=BAND
 POPULATION host BAND=61 EXACT=54 FIRES=43 IMMUNE=24 BYTES=9 INSIDE=1 inj=77
-INJECTIONS host judged=78 fired=49 immune=25 immune-held=24
+INJECTIONS host judged=76 fired=51 immune=25 immune-held=25
 INJECTION arm=inj-bf16-lmhead-half-accum fired=1
 INJECTION arm=inj-bf16-lmhead-drop-last-k fired=1
 INJECTION arm=inj-bf16-lmhead-drop-last-k fired=1
@@ -1626,7 +1626,7 @@ INJECTION arm=inj-bf16-lmhead-row-stride-head-dim fired=1
 INJECTION arm=inj-bf16-lmhead-batch-slot-stride fired=1
 INJECTION arm=inj-bf16-lmhead-batch-reloops fired=1
 INJECTION arm=inj-bf16-lmhead-tied-alias fired=1
-INJECTION arm=inj-bf16-lmhead-cross-table-read fired=0
+INJECTION arm=inj-bf16-lmhead-cross-table-read fired=1
 INJECTION arm=inj-bf16-lmhead-gather-row-off-1 fired=1
 INJECTION arm=inj-q8-lmhead-half-accum fired=1
 INJECTION arm=inj-q8-lmhead-half-accum fired=1
@@ -1638,7 +1638,7 @@ INJECTION arm=inj-q8-lmhead-row-stride-head-dim fired=1
 INJECTION arm=inj-q8-lmhead-batch-slot-stride fired=1
 INJECTION arm=inj-q8-lmhead-batch-reloops fired=1
 INJECTION arm=inj-q8-lmhead-tied-alias fired=1
-INJECTION arm=inj-q8-lmhead-cross-table-read fired=0
+INJECTION arm=inj-q8-lmhead-cross-table-read fired=1
 INJECTION arm=inj-q8-lmhead-gather-row-off-1 fired=1
 INJECTION arm=inj-q8-lmhead-q8-drop-scale fired=1
 INJECTION arm=inj-bf16-embd-half-accum fired=1
@@ -1650,7 +1650,7 @@ INJECTION arm=inj-bf16-embd-row-stride-head-dim fired=1
 INJECTION arm=inj-bf16-embd-batch-slot-stride fired=1
 INJECTION arm=inj-bf16-embd-batch-reloops fired=1
 INJECTION arm=inj-bf16-embd-tied-alias fired=1
-INJECTION arm=inj-bf16-embd-cross-table-read fired=0
+INJECTION arm=inj-bf16-embd-cross-table-read fired=1
 INJECTION arm=inj-bf16-embd-gather-row-off-1 fired=1
 INJECTION arm=inj-q8-embd-half-accum fired=1
 INJECTION arm=inj-q8-embd-half-accum fired=1
@@ -1662,12 +1662,10 @@ INJECTION arm=inj-q8-embd-row-stride-head-dim fired=1
 INJECTION arm=inj-q8-embd-batch-slot-stride fired=1
 INJECTION arm=inj-q8-embd-batch-reloops fired=1
 INJECTION arm=inj-q8-embd-tied-alias fired=1
-INJECTION arm=inj-q8-embd-cross-table-read fired=0
+INJECTION arm=inj-q8-embd-cross-table-read fired=1
 INJECTION arm=inj-q8-embd-gather-row-off-1 fired=1
 INJECTION arm=inj-q8-embd-q8-drop-scale fired=1
 INJECTION arm=inj-bf16-lmhead-gather-row-off-1 fired=1
-INJECTION arm=inj-bf16-lmhead-gather-row-off-1 fired=1
-INJECTION arm=inj-q8-lmhead-gather-row-off-1 fired=1
 INJECTION arm=inj-q8-lmhead-gather-row-off-1 fired=1
 INJECTION arm=inj-bf16-synth-gather-row-off-1 fired=1
 INJECTION arm=inj-q8-synth-half-accum fired=1
@@ -1690,18 +1688,18 @@ IMMUNITY arm=inj-q8-embd-drop-last-k held=1
 IMMUNITY arm=inj-q8-embd-batch-slot-stride held=1
 IMMUNITY arm=inj-q8-embd-batch-reloops held=1
 IMMUNITY arm=inj-bf16-tied-a-tied-alias held=1
-IMMUNITY arm=inj-bf16-tied-a-cross-table-read held=0
+IMMUNITY arm=inj-bf16-tied-a-cross-table-read held=1
 IMMUNITY arm=inj-bf16-synth-gather-row-off-1 held=1
 IMMUNITY arm=inj-q8-synth-gather-row-off-1 held=1
 IMMUNITY arm=inj-bf16-synth-half-accum held=1
 IMMUNITY arm=inj-bf16-synth-drop-last-k held=1
 IMMUNITY arm=inj-q8-synth-drop-last-k held=1
 SUBBAND arm=inj-bf16-lmhead-half-accum inside=1
-CHECK name=host injection denominator matches the plan ok=0 n=77 plan=77 judged=79 (fired=53 immune=25 inside=1)
+CHECK name=host injection denominator matches the plan ok=1 n=77 plan=77 judged=77 (fired=51 immune=25 inside=1) never_judged=[] judged_but_not_injection=[]
 CHECK name=host every arm judged INSIDE the band really moved and really stayed inside ok=1 n=1 wrong: none
-CHECK name=host every injection that must fire fired ok=0 n=53 did not fire: inj-bf16-lmhead-cross-table-read,inj-q8-lmhead-cross-table-read,inj-bf16-embd-cross-table-read,inj-q8-embd-cross-table-read
-CHECK name=host every derived-immune case really is immune ok=0 n=25 moved anyway: inj-bf16-tied-a-cross-table-read
-ALTREACH modes_with_injections=9 immune-somewhere=6 fireable-somewhere=8 immune-only=none
+CHECK name=host every injection that must fire fired ok=1 n=51 did not fire: none
+CHECK name=host every derived-immune case really is immune ok=1 n=25 moved anyway: none
+ALTREACH modes_with_injections=9 immune-somewhere=6 fireable-somewhere=9 immune-only=none
 CHECK name=host every mode that is immune somewhere is fireable somewhere ok=1 n=9 immune-only modes: none
 AMORTISE tag=host group=0 rows=4 bcount=4 batched_bytes=16384 perrow_bytes_sum=65536 ratio=4.00 geometry=16384
 AMORTISE tag=host group=9 rows=4 bcount=4 batched_bytes=16384 perrow_bytes_sum=65536 ratio=4.00 geometry=16384
@@ -1720,9 +1718,16 @@ AMORTISE tag=host shape=table1/rows0+n4 bytes=16384 constant across bcounts [1, 
 AMORTISE tag=host shape=table2/rows0+n4 bytes=8704 constant across bcounts [1, 4]
 AMORTISE tag=host shape=table3/rows0+n4 bytes=8704 constant across bcounts [1, 4]
 CHECK name=host addressed bytes are independent of bcount for the same row set ok=1 n=5 flat
-CHECK name=host no case reads outside its own table unless its mode says it must ok=0 n=192 case 32 honest-bf16-tied-a-dense-batched peer_hits=4 without a foreign-reading mode; case 33 honest-bf16-tied-a-perrow0 peer_hits=4 without a foreign-reading mode; case 34 honest-bf16-tied-a-perrow1 peer_hits=4 without a foreign-reading mode; case 35 honest-bf16-tied-a-perrow2 peer_hits=4 without a foreign-reading mode
+AMORTISE tag=host reloops case=118 bcount=4 bytes=34816 twin_bytes=8704 ratio=4 words_identical=1 xorb_unchanged=1 vsum_unchanged=1
+AMORTISE tag=host reloops case=143 bcount=4 bytes=65536 twin_bytes=16384 ratio=4 words_identical=1 xorb_unchanged=1 vsum_unchanged=1
+AMORTISE tag=host reloops case=167 bcount=4 bytes=34816 twin_bytes=8704 ratio=4 words_identical=1 xorb_unchanged=1 vsum_unchanged=1
+CHECK name=host the re-looping batched kernel is caught on bytes alone (words bit-identical) ok=0 n=4 witnessed=3/4; case 95 inj-bf16-lmhead-batch-reloops: 1 words differ from the twin, so this is not a bytes-only catch
+CHECK name=host no untied case reads outside its own table unless its mode says it must ok=1 n=192 no stray reads
+DISJOINT tag=host witness untied_cases=175 tied_cases=17 tied_peer_nonzero=17 tied_cross_max=0 untied_cross_arms=4 arms_with_cross>0=4
+CHECK name=host the tied control's peer read is witnessed non-zero (peer_hits is not vacuous) ok=1 n=17 tied cases=17 with peer_hits>0=17
+CHECK name=host the cross-table-read witness moves `cross` on every untied arm ok=1 n=4 arms=[(97, 4, 4), (120, 4, 4), (145, 4, 4), (169, 4, 4)]
 DISJOINT tag=host real_tables=5 overlaps=0 lmhead_files=['model-00026-of-00026.safetensors'] embd_files=['model-00001-of-00026.safetensors'] same_file=0
 CHECK name=host the real tables occupy disjoint slab ranges ok=1 n=5 disjoint
 CHECK name=host lm_head and the embeddings come from DIFFERENT shard files (the untiedness) ok=1 n=2 lm_head=['/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/models/qwen36-src/model-00026-of-00026.safetensors'] embeddings=['/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/models/qwen36-src/model-00001-of-00026.safetensors']
-CHECKS ran=1510 failed=10 host case=0 honest-bf16-lmhead-dense-batched oxor==recount,host case=1 honest-bf16-lmhead-perrow0 EXACT vs cmp_off=0 batch=0,host case=5 honest-bf16-lmhead-gather EXACT vs cmp_off=0 batch=0,host case=61 honest-bf16-lmhead-dense-batched-b2 EXACT vs cmp_off=0 batch=0,host case=95 inj-bf16-lmhead-batch-reloops BYTES: output still equals its twin,host case=97 inj-bf16-lmhead-cross-table-read BYTES: output still equals its twin,host injection denominator matches the plan,host every injection that must fire fired
-RESULT FAIL lm_head host-only checks=1510 findings=10
+CHECKS ran=1513 failed=7 host case=0 honest-bf16-lmhead-dense-batched oxor==recount,host case=1 honest-bf16-lmhead-perrow0 EXACT vs cmp_off=0 batch=0,host case=5 honest-bf16-lmhead-gather EXACT vs cmp_off=0 batch=0,host case=61 honest-bf16-lmhead-dense-batched-b2 EXACT vs cmp_off=0 batch=0,host case=95 inj-bf16-lmhead-batch-reloops BYTES: output still equals its twin,host case=97 inj-bf16-lmhead-cross-table-read BYTES: output still equals its twin,host the re-looping batched kernel is caught on bytes alone (words bit-identical)
+RESULT FAIL lm_head host-only checks=1513 findings=7

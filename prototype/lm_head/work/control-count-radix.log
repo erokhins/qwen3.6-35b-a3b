@@ -5,7 +5,7 @@ ARTIFACTWIDTH q6_k_tensors=4 first=['blk.34.ffn_down_exps.weight'] note=Q6_K ker
 CHECK name=the stored width of the two tables this lane gates is read from the artifact, not assumed ok=1 n=733 output.weight=Q6_K token_embd.weight=Q8_0
 CHECK name=no Q8_0 table is sourced from the published GGUF (Q6_K would be read as Q8_0) ok=1 n=2 Q8_0 sources=['model-00001-of-00026.safetensors', 'model-00026-of-00026.safetensors']
 ORACLECONTRACT fields P=10 T=10 C=20 modes=10 exp=5 q8=34B/32 elts
-ORACLEPLAN file=work/plan.tsv records=201 p=1 tables=8 cases=192 h=2048 head_dim=256 vocab=248320 n_hidden=68 ids=11 out_floats=27488 slab_bytes=557568
+ORACLEPLAN file=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/plan.tsv records=201 p=1 tables=8 cases=192 h=2048 head_dim=256 vocab=248320 n_hidden=68 ids=11 out_floats=27488 slab_bytes=557568
 ARTIFACTWIDTH tensor=output.weight stored=Q6_K policy_a=Q8_0 note=D-10-deviation
 ARTIFACTWIDTH tensor=token_embd.weight stored=Q8_0 policy_a=Q8_0 note=D-10-deviation
 ARTIFACTFILE file=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf declared_tensors=733 parsed_rows=733
@@ -114,16 +114,16 @@ RESULT PASS oracle arm filled=1884/27488 words slab=557568 B hidden=68
 CHECK name=the oracle filled exactly the honest cases' words ok=1 n=1884 oracle=1884/1884 total=27488 expected=1884 band_nonpositive=0
 CHECK name=the oracle and the gate agree on the artifact widths (parsed == printed) ok=1 n=2 oracle=['Q6_K', 'Q8_0'] gate=['Q6_K', 'Q8_0']
 CHECK name=deriving the classes changed the expect column and nothing else ok=1 n=33 33 records differ, unexpected columns=[]
-PLAN file=work/plan.tsv p_records=1 tables_parsed=8 cases_parsed=192 h=2048 head_dim=256 vocab=248320 n_hidden=68 ids=11 out_floats=27488 slab_bytes=557568
+PLAN file=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/plan.tsv p_records=1 tables_parsed=8 cases_parsed=192 h=2048 head_dim=256 vocab=248320 n_hidden=68 ids=11 out_floats=27488 slab_bytes=557568
 RUN arm=host cases=192 skipped=0 items=1186 out_floats=27488
-OUT file=work/host_out.f32 floats=27488 bytes=109952
-REPORT file=work/host_report.tsv rows=192 cases=192 arm=host
+OUT file=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/host_out.f32 floats=27488 bytes=109952
+REPORT file=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/host_report.tsv rows=192 cases=192 arm=host
 RESULT PASS host arm cases=192 items=1186
 CHECK name=host arm parsed the plan exactly ok=1 n=192 p=1 tables=8 cases=192
 CHECK name=host arm ran every case (nothing skipped) ok=1 n=192 cases=192 skipped=0 items=1186
 CONTROL count-radix file=host_report.tsv case=0 field=loads value=0x00000004 re-spelled in the other radix as '0x00000004': the parser MUST refuse it by name, not compare a plausible number
-REFUSE work/host_report.tsv: case 0 field 'loads' is '0x00000004', which is not the canonical dec form the writer declares in lmh_r_fmt[] (a digest spelled in the wrong radix is a finding, not a plausible number to be compared)
-FAIL work/host_report.tsv: case 0 field 'loads' is '0x00000004', which is not the canonical dec form the writer declares in lmh_r_fmt[] (a digest spelled in the wrong radix is a finding, not a plausible number to be compared)
-CHECK name=the run reached its adjudication ok=0 n=1 refusal=work/host_report.tsv: case 0 field 'loads' is '0x00000004', which is not the canonical dec form the writer declares in lmh_r_fmt[] (a digest spelled in the wrong radix is a finding, not a plausible nu
-CHECKS ran=8 failed=1 the run refused: work/host_report.tsv: case 0 field 'loads' is '0x00000004', which is not the canonical dec form the writer declares in l
+REFUSE /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/host_report.tsv: case 0 field 'loads' is '0x00000004', which is not the canonical dec form the writer declares in lmh_r_fmt[] (a digest spelled in the wrong radix is a finding, not a plausible number to be compared)
+FAIL /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/host_report.tsv: case 0 field 'loads' is '0x00000004', which is not the canonical dec form the writer declares in lmh_r_fmt[] (a digest spelled in the wrong radix is a finding, not a plausible number to be compared)
+CHECK name=the run reached its adjudication ok=0 n=1 refusal=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/host_report.tsv: case 0 field 'loads' is '0x00000004', which is not the canonical dec form the writer declares in lmh_r_fmt[] (a
+CHECKS ran=8 failed=1 the run refused: /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/host_report.tsv: case 0 field 'loads' is '0x0000
 RESULT FAIL lm_head (refused) checks=8 findings=1

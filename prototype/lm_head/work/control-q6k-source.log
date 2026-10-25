@@ -5,7 +5,7 @@ ARTIFACTWIDTH q6_k_tensors=4 first=['blk.34.ffn_down_exps.weight'] note=Q6_K ker
 CHECK name=the stored width of the two tables this lane gates is read from the artifact, not assumed ok=1 n=733 output.weight=Q6_K token_embd.weight=Q8_0
 CHECK name=no Q8_0 table is sourced from the published GGUF (Q6_K would be read as Q8_0) ok=1 n=2 Q8_0 sources=['model-00001-of-00026.safetensors', 'model-00026-of-00026.safetensors']
 ORACLECONTRACT fields P=10 T=10 C=20 modes=10 exp=5 q8=34B/32 elts
-ORACLEPLAN file=work/plan.tsv records=201 p=1 tables=8 cases=192 h=2048 head_dim=256 vocab=248320 n_hidden=68 ids=11 out_floats=27488 slab_bytes=557568
+ORACLEPLAN file=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/plan.tsv records=201 p=1 tables=8 cases=192 h=2048 head_dim=256 vocab=248320 n_hidden=68 ids=11 out_floats=27488 slab_bytes=557568
 ARTIFACTWIDTH tensor=output.weight stored=Q6_K policy_a=Q8_0 note=D-10-deviation
 ARTIFACTWIDTH tensor=token_embd.weight stored=Q8_0 policy_a=Q8_0 note=D-10-deviation
 ARTIFACTFILE file=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf declared_tensors=733 parsed_rows=733
@@ -15,6 +15,10 @@ TABLE idx=0 kind=real enc=BF16 tensor=lm_head.weight shard=model-00026-of-00026.
 SHARDHDR file=model-00001-of-00026.safetensors header_len=2848 data_bytes=3996196864 tensors=22 identity=header_plus_data_eq_filesize
 TABLE idx=1 kind=real enc=BF16 tensor=model.language_model.embed_tokens.weight shard=model-00001-of-00026.safetensors rows=32 bytes=131072 base=131072 stored_dtype=BF16
 REFUSE table 2: sources.tsv points a Q8_0 table at /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/models/unsloth-q4km/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf, which stores output.weight as Q6_K (artifact widths printed above). Q6_K is not a Q8_0 source; refusing to read it as one.
-CHECK name=a Q6_K source tensor is refused rather than read as Q8_0 ok=1 n=1 rc=1 refusal=['REFUSE_CONTROL injecting Q6_K tensor output.weight as the source of a Q8_0 table']
-CHECKS ran=3 failed=0 
-RESULT PASS lm_head host-only checks=3 findings=0
+CHECK name=the q6k-source injection reaches the reader (an announcement is not a refusal) ok=1 n=1 announced=1 setup_cannot_fire=0
+CHECK name=a Q6_K source tensor is refused rather than read as Q8_0 ok=1 n=1 rc=1 reader_refusal=['REFUSE table 2: sources.tsv points a Q8_0 table at /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/models/unsloth-q4km/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf, which stores output.weight as Q6_K (artifact widths printed above). Q6_K is not a Q8_0 source; refusing to read it as one.']
+CONTROL q6k-source rc=1 reader_refusals=1 announced=1 setup_blocked=0
+FAIL CONTROL q6k-source refused as designed (the reader printed 1 refusal line(s)); a control that achieved its refusal still exits non-zero
+CHECK name=the run reached its adjudication ok=0 n=1 refusal=CONTROL q6k-source refused as designed (the reader printed 1 refusal line(s)); a control that achieved its refusal still exits non-zero
+CHECKS ran=5 failed=1 the run refused: CONTROL q6k-source refused as designed (the reader printed 1 refusal line(s)); a control that achieved its refusal still
+RESULT FAIL lm_head (refused) checks=5 findings=1
