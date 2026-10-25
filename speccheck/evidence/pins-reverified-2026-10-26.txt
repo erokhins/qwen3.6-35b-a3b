@@ -1,0 +1,77 @@
+# speccheck/evidence/pins-reverified-2026-10-26.txt
+# Provenance. Captured by the speccheck results pass (this lane), box clock 2026-10-25T12:00Z,
+# repo convention date 2026-10-26. Why: the only against-dumps capture in this directory
+# (speccheck/evidence/selftest-against-dumps-2026-10-26.txt) is RED and was produced by an
+# intermediate, never-committed revision of `check_against_dumps` — its failure lines print
+# identical shapes and dtypes on both sides, which is the comparison's bug, not the dumps'.
+# `speccheck/results.md` would otherwise have had to report "the oracle does not reproduce its
+# own pins" on the strength of a stale capture. Both commands below are committed instruments,
+# run with the committed interpreter pin, and both are PASS/FAIL only.
+# Interpreter: /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python
+#              python 3.12.3, torch 2.14.1+cpu, transformers 5.19.0 (manifest.interpreter).
+# CPU only: no device allocation, no clock read anywhere: no timing taken.
+
+=== capture 1: every pinned dump file re-hashed against the manifest ===
+$ /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python tools/dump_reference.py \
+      --verify --out data/dumps/2026-10-26 \
+      --manifest checkpoints/dump-manifest-2026-10-26.json
+exit=0
+# verify: 104 manifest records, 104 verified, 0 bad, expected count 104
+VERIFY PASS
+
+=== capture 2: the oracle recomputed from scratch against those dumps ===
+$ /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python speccheck/selftest_moe.py --against-dumps
+exit=0
+
+# selftest_moe — torch 2.14.1+cpu CPU threads=8 seed=20261026
+# geometry from /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/checkpoints/Qwen3.6-35B-A3B.config.json: E=256 top_k=8 I=512 shared_I=512 H=2048 layers=40 +mtp=1 => 41 MoE blocks in the text path
+# blocks available in the acquired shards: 4 of 41 (layer0, layer1, layer39, mtp0) — coverage stated, not implied
+# derived cases per block: 15; total 60
+#   section cast_after_multiply: 1 case(s) per block (derived)
+#   section renorm_omitted: 1 case(s) per block (derived)
+#   section router_softmax_bf16: 1 case(s) per block (derived)
+#   section swapped_gate_up_half: 1 case(s) per block (derived)
+#   section swapped_shared_gate_up: 1 case(s) per block (derived)
+#   section transposed_expert_stack: 1 case(s) per block (derived)
+#   section wrong_expert_index: 9 case(s) per block (derived)
+# derived stage population per section, per block (AFFECTED / CONDITIONAL_AFFECTED x the case list):
+#   section                  cases stages/case stages/blk  conditional (licensed by a topk_ids flip)
+#   wrong_expert_index           9           3         27  -
+#   swapped_gate_up_half         1           3          3  -
+#   swapped_shared_gate_up       1           3          3  -
+#   transposed_expert_stack      1           3          3  -
+#   renorm_omitted               1           3          3  -
+#   cast_after_multiply          1           3          3  -
+#   router_softmax_bf16          1           4          4  +2 expert_raw,topk_ids
+#   unconditional total         15                     46
+# derived (case x allowed-stage) pairs, unconditional: 184 (= 46 per block x 4 blocks); the conditional pairs are derived after the arms, from the flip facts
+
+## arm=dumps: 40/40 pinned ref tensors reproduced bit-exactly from the oracle
+
+SELFTEST PASS (against-dumps only). no timing taken
+
+what capture 2 does and does not adjudicate:
+  - it recomputes `speccheck/moe_ref.py`'s `arm=ref` forward for all four blocks and requires
+    `torch.equal` against the 40 ref-arm dump files (3,442,816 elements). 40/40 bit-exact.
+  - it is NOT the independent witness. `tools/dump_reference.py` writes the ref arm out of
+    `moe_ref.py` itself (it imports `speccheck/moe_ref.py` and `speccheck/cross_check_hf.py`), so
+    this section adjudicates determinism, file integrity and drift-since-pinning; the independence
+    is in `speccheck/cross_check_hf.py` and in `manifest.agreement_at_write_time`. See
+    `speccheck/results.md` §Limits for what follows from that.
+
+=== capture 3: the fixture's prefix property (one expression, no tool of its own) ===
+$ /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python -c "import sys; \
+  sys.path.insert(0,'speccheck'); import moe_ref as R, torch; g=R.load_geometry(); \
+  print(torch.equal(R.make_input(32,g,20261026), R.make_input(256,g,20261026)[:32]))"
+True
+
+Why it is recorded: `tools/moe_stats.py --near-tie` measures the 8th/9th selection margin over
+256 generated tokens, while the pinned rows are 32. `make_input` draws `torch.randn(T, H)` from a
+private seeded generator and rescales each row's RMS, so the T=32 fixture is exactly the first 32
+rows of the T=256 fixture. That is what makes the near-tie population a statement *about the pinned
+rows* rather than about a different input; see `speccheck/results.md` §Near-tie and utilisation.
+
+supersedes:
+  speccheck/evidence/selftest-against-dumps-2026-10-26.txt  (RED, pre-fix comparison code, kept as
+  history per `pitfalls/60-docs-and-citations.md` §"Moving or pruning a document is two jobs" — the
+  superseded artifact is named here, not deleted).
