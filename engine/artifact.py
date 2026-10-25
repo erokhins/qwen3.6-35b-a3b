@@ -121,7 +121,16 @@ class ArtifactError(Exception):
 
     `tag` names the check that fired, so `engine/gate.py` can require an injection to fire a *specific*
     check rather than merely to produce a failure — a control that accepts any exception cannot tell a
-    caught bug from a crash."""
+    caught bug from a crash.
+
+    The attribute used to be only a promise: the class body documented `tag` and never set it, so every
+    refusal unwrapped to a two-tuple and a gate could not name the check that fired. Three lines make
+    the documented contract true."""
+
+    def __init__(self, tag, message):
+        super().__init__("[%s] %s" % (tag, message))
+        self.tag = tag
+        self.message = message
 
 
 # -----------------------------------------------------------------------------------------------
@@ -750,9 +759,15 @@ def open_artifact(**kw):
     return Artifact(**kw)
 
 
-def main():
-    argv = sys.argv[1:]
-    a = open_artifact(verify_sha256="--sha256" in argv)
+def main(argv):
+    faults = [f for f in (argv[argv.index("--fault") + 1].split(",") if "--fault" in argv else []) if f]
+    try:
+        a = open_artifact(verify_sha256="--sha256" in argv, faults=faults)
+    except ArtifactError as ex:
+        # The refusal prints the check that fired and the tensor or field it fired on, then exits 1:
+        # engine/gate.py requires a *named* check per injection, so "it raised" is not enough.
+        print("ARTIFACT REFUSED tag=%s fault=%s\n%s" % (ex.tag, ",".join(faults) or "-", ex.message))
+        return 1
     print("artifact      %s" % os.path.relpath(a.path, REPO))
     print("size          %d B (pin %s)" % (a.size, a.pin.get("bytes_on_disk")))
     print("header        version=%d header_end=%d data_start=%d alignment=%d"
@@ -781,8 +796,10 @@ def main():
              os.path.relpath(RB.MTP_PATH, REPO)))
     print("bytes read    %d B (header only; the data section is opened only by loader.py, on request)"
           % a.header_bytes_read)
+    print("ARTIFACT checks=%d/%d faults=%d" % (len(a.checks_run), len(a.CHECKS) - (0 if a.sha256 else 1),
+                                               len(faults)))
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1:]))

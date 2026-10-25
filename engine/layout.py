@@ -64,10 +64,26 @@ POLICY_A_RB = "A (DECIDED)"                      # residency_budget's own key fo
 # tools/residency_budget.py, which reads them off devices/measured-facts.md §"Device-visible
 # memory" and §"Residency above the pool".
 # -----------------------------------------------------------------------------------------------
+# Each budget carries THREE separate things and collapsing any pair of them is the defect this
+# structure exists to prevent:
+#   bound      — the number,
+#   evidence   — how that number was obtained: "measured" (read off allocation probes) or
+#                "unmeasured" (an inference nobody has probed yet),
+#   verdict    — a function of the total AND this budget, never a shared three-way ruler.
+# `verdict=None` on deployment is not laziness: D-11 says the >=55.5 GiB bound is "still an inference
+# from D-02's allocation probes, not an observation", so a fit claim against it is unadjudicable and
+# `verdict()` prints the sentinel instead of a verdict. The gate check `no-verdict-for-unmeasured`
+# requires exactly that, and `deployment_bound_claimed_measured` is the injection that proves it awake.
 BUDGETS = {
     "development": dict(
-        lo=RB.CO_LO, hi=RB.CO_HI,
+        lo=RB.CO_LO, hi=RB.CO_HI, bound_measured=True, verdict_fn=None,   # filled below, after the
+        # function it names is defined — dict literals cannot forward-reference a def in scope order.
         label="development, co-resident with the local serving container (halogen up)",
+        evidence="measured",
+        evidence_note="pool 55.5 granted / 57.5 refused (devices/measured-facts.md "
+                      "\u00a7\"Residency above the pool\") minus flash_serve's measured 22.62-23.66 GiB "
+                      "(\u00a7\"The footprint has two readings\"); the bracket is arithmetic on two "
+                      "measurements, not a guess",
         citation="tools/residency_budget.py CO_LO/CO_HI <- devices/measured-facts.md "
                  "§Device-visible memory + §Residency above the pool (pool 55.5-56.5 GiB minus "
                  "halogen's 22.62-23.66 GiB footprint). DECISIONS.md D-11: development on this box "
@@ -76,8 +92,12 @@ BUDGETS = {
              "determinate answer today and must be treated as NOT fitting "
              "(quantization/residency-layout.md §1)."),
     "deployment": dict(
-        lo=RB.DEDICATED_LO, hi=None,
+        lo=RB.DEDICATED_LO, hi=None, bound_measured=False, verdict_fn=None,
         label="deployment, with the serving container stopped (D-11: the engine owns the box)",
+        evidence="unmeasured",
+        evidence_note="\u226555.5 GiB is an inference from D-02's co-resident probes, never observed "
+                      "with halogen stopped; the 48 GiB single-hipMalloc probe is still queued "
+                      "(quantization/residency-layout.md \u00a77 item 1)",
         citation="tools/residency_budget.py DEDICATED_LO <- devices/measured-facts.md "
                  "§Device-visible memory; DECISIONS.md D-11 (user, 2026-10-26: \"I propose to stop "
                  "halogen when we will be running our engine\").",
@@ -85,6 +105,38 @@ BUDGETS = {
              "48 GiB single-hipMalloc probe is still queued (quantization/residency-layout.md §7 "
              "item 1). Say \"expected\", never \"measured\", for this budget."),
 }
+
+# The verdict a budget with an unmeasured bound is allowed to print. It is a state, not a fit claim.
+NOT_ADJUDICABLE = "NOT-ADJUDICABLE (this budget's bound is unmeasured, so no fit claim is lawful)"
+
+
+def verdict_development(total_gib):
+    """The development budget's own three states — and it never borrows deployment's vocabulary.
+
+    `tools/residency_budget.py`'s `verdict()` answers "FITS only with halogen down" for a total above
+    the co-resident bracket, which smuggles a *deployment* conclusion into a *development* verdict:
+    the box-wide pool and what one process gets while halogen is resident are different questions and
+    one may not answer the other (D-11). So this budget's ladder stops at its own ceiling.
+    """
+    if total_gib <= RB.CO_LO:
+        return "FITS co-resident (<= the pessimistic bound)"
+    if total_gib <= RB.CO_HI:
+        return "FITS ONLY IN THE LUCKY HALF OF THE BRACKET (treat as not fitting)"
+    return "DOES NOT FIT the development budget"
+
+
+def verdict_deployment(total_gib):
+    """Deployment's own verdict — defined so the conflation can be INJECTED, unreachable in normal
+    operation because `bound_measured` is False while D-11's >=55.5 GiB is still an inference.
+    `verdict()` only calls a budget's verdict_fn when that budget's bound was measured.
+    """
+    if total_gib <= RB.DEDICATED_LO:
+        return "FITS with the serving container stopped (bound is an inference, see bound-basis)"
+    return "DOES NOT FIT the deployment budget"
+
+
+BUDGETS["development"]["verdict_fn"] = verdict_development
+BUDGETS["deployment"]["verdict_fn"] = verdict_deployment
 
 # The measured footprint of an engine running this artifact, and what it implies about the
 # non-weight half of residency. Quoted, cited, and NOT produced here.
@@ -579,14 +631,20 @@ class ResidencyLayout:
         bd = BUDGETS[budget]
         allowance = BASES[basis](self, ctx=ctx, nseq=nseq)
         total = resident_gib + allowance["extra_gib"]
-        lines = ["budget=%s (%s)" % (budget, bd["label"]),
+        bound = ("%.2f GiB (pessimistic end of a %.2f-%.2f bracket)" % (bd["lo"], bd["lo"], bd["hi"])
+                 if bd["hi"] else "\u2265%.2f GiB" % bd["lo"])
+        # The verdict is THIS budget's, and only a budget whose bound was measured is allowed one.
+        v = NOT_ADJUDICABLE if not bd["bound_measured"] else bd["verdict_fn"](total)
+        lines = ["budget=%s" % budget,
+                 "budget-label=%s" % bd["label"],
                  "basis=%s" % basis,
                  "resident=%.4f GiB + allowance=%.4f GiB = %.4f GiB" % (resident_gib,
                                                                        allowance["extra_gib"], total),
-                 "budget bound=%s GiB" % ("%.2f (pessimistic; bracket to %.2f)" % (bd["lo"], bd["hi"])
-                                          if bd["hi"] else ">=%.2f GiB, UNMEASURED (D-02 probes)"
-                                          % bd["lo"]),
-                 "verdict=%s" % RB.verdict(total)]
+                 "budget-bound=%s" % bound,
+                 "budget-bound-evidence=%s" % bd["evidence"],
+                 "budget-bound-basis=%s" % bd["evidence_note"],
+                 "budget-rule=%s" % bd["rule"],
+                 "verdict=%s" % v]
         for k, v in sorted(allowance["detail"].items()):
             lines.append("  %s=%s" % (k, v))
         return total, lines
@@ -626,22 +684,27 @@ class ResidencyLayout:
         print("  => non-weight footprint (KV at n_ctx, compute buffers, scratch) >= %.2f GiB; the "
               "modelled weight figure omits it entirely and is that much optimistic."
               % MEASURED_NON_WEIGHT_FLOOR_GIB)
-        print("\nfit claims — every line names its budget and its basis:")
+        print("\nfit claims — every line names its budget and its basis, and each group announces how")
+        print("many key=value lines it is about to print, so a reader can catch a parser that drops one:")
         printed = 0
         for view in ("as-stored", "policy-A"):
             for budget in ("development", "deployment"):
-                _, lines = self.verdict(self.weights_total_bytes(view) / GiB, budget,
-                                        basis="weights-only", ctx=ctx, nseq=nseq)
+                basis = "weights-only"
+                _, lines = self.verdict(self.weights_total_bytes(view) / GiB, budget, basis=basis,
+                                        ctx=ctx, nseq=nseq)
+                print("  CLAIM view=%s budget=%s basis=%s keys=%d" % (view, budget, basis, len(lines)))
                 for ln in lines:
                     print("  [%s] %s" % (view, ln))
                     printed += 1
         modelled = RB.Budget(RB.Sources(), policy=POLICY_A_RB)
         row = modelled.row(ctx, nseq)
         for budget in ("development", "deployment"):
-            _, lines = self.verdict(row["total"] / GiB, budget, basis="weights-plus-modelled-state",
-                                    ctx=ctx, nseq=nseq)
+            basis = "weights-plus-modelled-state"
+            _, lines = self.verdict(row["total"] / GiB, budget, basis=basis, ctx=ctx, nseq=nseq)
+            view = "modelled @%d tok x %d lane(s)" % (ctx, nseq)
+            print("  CLAIM view=%s budget=%s basis=%s keys=%d" % (view, budget, basis, len(lines)))
             for ln in lines:
-                print("  [modelled @%d tok x %d lane(s)] %s" % (ctx, nseq, ln))
+                print("  [%s] %s" % (view, ln))
                 printed += 1
         return printed
 
@@ -665,9 +728,14 @@ def _allowance_modelled_state(layout, ctx=4096, nseq=1):
     b = RB.Budget(RB.Sources(), policy=POLICY_A_RB)
     row = b.row(ctx, nseq)
     fixed = (row["main"] + row["draft"]) / GiB
+    # `Budget.row()` folds the draft's own KV rows into `kv`, so the two halves are asked for
+    # separately here; reading a `draft_kv` key that row() never returns raised KeyError out of
+    # `report()` and made this module's own selftest exit 1.
+    kv = b.kv_bytes(ctx) * nseq
+    dkv = b.draft_kv_bytes(ctx) * nseq
     return dict(extra_gib=(row["total"] / GiB) - fixed,
-                detail={"kv_gib": "%.4f" % (row["kv"] / GiB),
-                        "draft_kv_gib": "%.4f" % (row["draft_kv"] / GiB),
+                detail={"kv_gib": "%.4f" % (kv / GiB),
+                        "draft_kv_gib": "%.4f" % (dkv / GiB),
                         "gdn_state_gib": "%.4f" % (row["state"] / GiB),
                         "other_gib": "%.4f" % (row["other"] / GiB),
                         "source": "tools/residency_budget.py @ ctx=%d seqs=%d" % (ctx, nseq)})
@@ -739,6 +807,13 @@ def _f_policy_width_swap(l):
             p.policy_row = GBG.row_bytes(p.rec.n_elts, "Q8_0")
 
 
+def _f_deployment_bound_claimed_measured(l):
+    """The D-11 conflation, re-injected: the deployment budget's bound is flipped to "measured" while
+    every citation still says the 48 GiB probe is queued. `no-verdict-for-unmeasured` in
+    engine/gate.py is the check that catches a fit claim printed against an unmeasured bound."""
+    BUDGETS["deployment"]["bound_measured"] = True
+
+
 FAULTS = {
     "drop_a_slab_tensor": _f_drop_a_slab_tensor,
     "slab_overlap": _f_overlap,
@@ -747,6 +822,7 @@ FAULTS = {
     "read_class_mis_tag": _f_read_class_mis_tag,
     "expert_stride_fused": _f_expert_stride_fused,
     "policy_width_swap": _f_policy_width_swap,
+    "deployment_bound_claimed_measured": _f_deployment_bound_claimed_measured,
 }
 
 
@@ -754,19 +830,36 @@ def build(**kw):
     return ResidencyLayout(**kw)
 
 
-def main():
-    lay = ResidencyLayout()
-    res = lay.run_closures()
-    print("closures — every one must close at 0 bytes, and a non-closure aborts this run:")
+def main(argv):
+    faults = [f for f in (argv[argv.index("--fault") + 1].split(",") if "--fault" in argv else []) if f]
+    align = int(argv[argv.index("--align") + 1]) if "--align" in argv else None
+    kw = {"faults": faults}
+    if align:
+        kw["align"] = align
+    lay = ResidencyLayout(**kw)
+    res = lay.closures()
+    red = [r for r in res if not r[1]]
+    print("closures — every one must close at 0 bytes, and a non-closure aborts this run%s:"
+          % (" [faults: %s]" % ",".join(faults) if faults else ""))
     for name, ok, n, detail in res:
         print("  [%s] %-34s n=%-4d %s" % ("PASS" if ok else "FAIL", name, n, detail))
+    if red:
+        # A non-closure still aborts the run (non-zero exit, no residency table printed over bytes
+        # that do not close), but it prints WHICH closures went red first: a gate that has to read a
+        # traceback to learn that cannot require a *named* closure to have fired.
+        print("\nLAYOUT ABORTED: %d closure(s) did not close: %s"
+              % (len(red), ",".join(r[0] for r in red)))
+        print("LAYOUT closures=%d red=%d faults=%d" % (len(res), len(red), len(faults)))
+        return 1
+    lay.closure_results = res
     print()
     printed = lay.report()
     print("\nprinted residency claim lines: %d (re-parsed by engine/gate.py, which requires the "
           "count to match)" % printed)
     print("closures run: %d/%d" % (lay.check_list_matches(), len(ResidencyLayout.CLOSURES)))
+    print("LAYOUT closures=%d red=0 faults=%d" % (len(res), len(faults)))
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1:]))
