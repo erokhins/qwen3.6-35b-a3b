@@ -643,6 +643,24 @@
    ]
   }
  ],
+ "derived_route_pin": {
+  "expected_case_count": 2,
+  "expected_element_count": 64,
+  "expected_elements_per_case": 32,
+  "expected_names": [
+   "blk.0.ssm_a",
+   "blk.1.ssm_a"
+  ],
+  "findings": [],
+  "names_judged": [
+   "blk.0.ssm_a",
+   "blk.1.ssm_a"
+  ],
+  "names_refused": [],
+  "observed_case_count": 2,
+  "observed_element_count": 64
+ },
+ "derived_route_pin_verdict": "PASS",
  "fails": [],
  "gdn_v_order": {
   "blk.0.ssm_a": "V-reorder",
@@ -972,7 +990,7 @@
    "verdict": "PASS-with-finding"
   }
  ],
- "utc": "2026-10-25T03:43:54Z",
+ "utc": "2026-10-25T11:13:56Z",
  "verdict": "PASS-with-finding",
  "zero_tolerance_fails": [
   "blk.1.ssm_a"

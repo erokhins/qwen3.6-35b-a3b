@@ -105,6 +105,9 @@ A derived table nobody has seen refuse anything is a hand-typed table with extra
 | 1.4a zero-tolerance failures | 0 |
 | zero-tolerance verdict on the whole set (kept, not replaced) | FAIL — blk.1.ssm_a |
 | route-predicate totals | 63 elements bit-exact, 1 within-route, 0 outside, 0 reference disagreements |
+| 1.4b population pin (`DERIVED_ROUTE_NAMES`, D-14 narrow reading) | PASS — expected 2 cases / 64 elements, judged 2 / 64: `blk.0.ssm_a`, `blk.1.ssm_a` |
+
+The one-step allowance in the row above is authorised for exactly those tensors and for nothing else (`DECISIONS.md` §D-14 §"Ratification 2026-10-26 — the user's words"): the population is a literal in `tools/audit_published_quant.py` (`DERIVED_ROUTE_NAMES`), the expected counts come from geometry (sampled GDN layers x `linear_num_value_heads`), and `--selftest` injects a widened population, a shrunken one and a copied family walked into the route, each of which must fire. The 25 copied families keep zero tolerance.
 
 The GDN tensors carry the **tiled (converter-reordered)** order of the V heads (10 tensors) — the question the reorder exists to answer, because a runtime that assumes the other order reads the wrong heads (`conversion/qwen.py §_LinearAttentionVReorderBase`).
 

@@ -179,3 +179,39 @@
 2026-10-25T03:43:53Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
 2026-10-25T03:43:54Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=exact
 2026-10-25T03:43:54Z | tool | E3: FIRST TENSOR-DATA READ — first tensor-data read (exactness pass): blk.0.attn_norm.weight. bytes now reachable: header data_start=10990048.
+2026-10-25T10:20:34Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=ssm_a ulp bound exploration
+2026-10-25T10:27:42Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=scratch
+2026-10-25T10:37:47Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=ulp witness
+2026-10-25T10:38:33Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=scratch
+2026-10-25T10:38:48Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=scratch
+2026-10-25T10:40:03Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=scratch
+2026-10-25T10:52:41Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T10:52:41Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=exact
+2026-10-25T10:52:41Z | tool | E3: FIRST TENSOR-DATA READ — first tensor-data read (exactness pass): blk.0.attn_norm.weight. bytes now reachable: header data_start=10990048.
+2026-10-25T10:52:42Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=injections
+2026-10-25T10:52:44Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=summary
+2026-10-25T11:02:05Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T11:09:26Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T11:10:17Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=exact
+2026-10-25T11:10:17Z | tool | E3: FIRST TENSOR-DATA READ — first tensor-data read (exactness pass): blk.0.attn_norm.weight. bytes now reachable: header data_start=10990048.
+2026-10-25T11:10:18Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=floor_probe
+2026-10-25T11:10:22Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=dequant
+2026-10-25T11:10:24Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=injections
+2026-10-25T11:10:26Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=shared
+2026-10-25T11:10:26Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=selfcheck_widths
+2026-10-25T11:10:27Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=summary
+2026-10-25T11:11:22Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T11:11:22Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=exact
+2026-10-25T11:11:22Z | tool | E3: FIRST TENSOR-DATA READ — first tensor-data read (exactness pass): blk.0.attn_norm.weight. bytes now reachable: header data_start=10990048.
+2026-10-25T11:11:22Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=injections
+2026-10-25T11:11:24Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=summary
+2026-10-25T11:13:07Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.
+2026-10-25T11:13:55Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=exact
+2026-10-25T11:13:55Z | tool | E3: FIRST TENSOR-DATA READ — first tensor-data read (exactness pass): blk.0.attn_norm.weight. bytes now reachable: header data_start=10990048.
+2026-10-25T11:13:56Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=floor_probe
+2026-10-25T11:13:59Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=dequant
+2026-10-25T11:14:01Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=injections
+2026-10-25T11:14:03Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=shared
+2026-10-25T11:14:03Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=selfcheck_widths
+2026-10-25T11:14:04Z | tool | E2: selftest marker accepted (2026-10-25T01:31:24Z); tensor-data reads allowed from here. section=summary
+2026-10-25T11:16:42Z | tool | E1: SELFTEST PASS (first pass 2026-10-25T01:31:24Z) — command: python3 tools/audit_published_quant.py --selftest. No tensor-data byte had been read before the first such line.

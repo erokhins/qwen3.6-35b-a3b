@@ -814,6 +814,136 @@ DERIVED_ROUTE = {"neg_exp": ("f32", "crl")}
 DERIVED_ROUTE_LABEL = {"f32": "double exp, then round to f32",
                        "crl": "correctly-rounded exp (60 digits, one rounding)"}
 
+# The route predicate is authorised for these tensors and for nothing else. DECISIONS.md §D-14
+# §"Ratification 2026-10-26 — the user's words" records the user's "it is fine to allow such small
+# difference during the checks -- it is just one step difference" with the NARROW reading: the
+# allowance is this one derived-transcendental route — the 2 `ssm_a` cases — and is not a general
+# 1-ulp allowance; the 25 copied families keep zero tolerance and no band anywhere else inherits a
+# slack from that sentence. Until now the narrow reading lived only in that paragraph, which is a
+# note and not a forcing (`pitfalls/40-gates-and-admissions.md` §"A requirement written after the
+# object it constrains is a note, not a forcing"). It is a literal here, so admitting a tensor to the
+# route means editing this line and re-running the route injections; it is deliberately not a flag and
+# not an environment variable, because a pin an operator can widen at the command line is not a pin.
+# Widening THIS literal does not widen what is admitted either — `check_derived_route_population` also
+# demands that the geometry supports the name, so a hand-widened set reads FAIL.
+DERIVED_ROUTE_NAMES = frozenset({"blk.0.ssm_a", "blk.1.ssm_a"})
+DERIVED_ROUTE_TRANSFORM = "neg_exp"      # the only value_transform() the 1.4b path may judge
+
+
+def derived_route_expectation(geo):
+    """What the 1.4b population has to be, derived from geometry rather than from what a run found.
+
+    One `ssm_a` per sampled layer that is actually a GDN layer: `linear_attn.A_log` exists only where
+    `layer_types[L] == "linear_attention"`, so SAMPLE_LAYERS = [0, 1, 39] contributes layers 0 and 1
+    and nothing from 39 (every `full_attention_interval`-th layer is the attention one). Each carries
+    `linear_num_value_heads` elements — `Geo.hf_shape_of` §"linear_attn.A_log": [nv]. Hence 2 cases x
+    32 elements = 64 for the pinned sample, which is the figure D-14 quotes.
+    """
+    names = frozenset("blk.%d.ssm_a" % L for L in SAMPLE_LAYERS if geo.is_linear(L))
+    return {"names": names, "cases": len(names), "elts_per_case": geo.nv,
+            "elements": len(names) * geo.nv}
+
+
+def derived_route_admission(name):
+    """The one gate a tensor walks through before `judge_derived_route` is allowed to run on it.
+
+    Returns None when `name` is authorised for the route predicate, else the reason it is not. A
+    copied family reaching the predicate is a FINDING to report, never a case to judge: the one-step
+    allowance was ratified for the derived transcendental only (DECISIONS.md §D-14), so the answer to
+    "a norm arrived here" is FAIL — running the predicate on it and reporting what it said would
+    silently grant the allowance to a family that was never in the decision.
+    """
+    vtr = value_transform(name)
+    if vtr != DERIVED_ROUTE_TRANSFORM:
+        return ("%s: value_transform() reports %r, not %r — this family is a copy of something HF "
+                "stores, so it belongs in 1.4a at zero tolerance (DECISIONS.md §D-14)"
+                % (name, vtr, DERIVED_ROUTE_TRANSFORM))
+    if name not in DERIVED_ROUTE_NAMES:
+        return ("%s: not in the pinned 1.4b population %s — a tensor joins the transcendental route by "
+                "being ratified into that literal, not by reaching this code path"
+                % (name, sorted(DERIVED_ROUTE_NAMES)))
+    return None
+
+
+def check_derived_route_population(cases, geo):
+    """The machine check behind the narrow reading of D-14: 1.4b judged exactly its pinned population.
+
+    `cases` is what actually reached the 1.4b path, as plain `{"name", "transform", "elts"}` records
+    (plus `refused`, the refusal reason when the admission guard declined to judge it), so the selftest
+    can inject into a population without opening the artifact. Everything that ENTERED the path is
+    counted, refused entries included — dropping them is how a stray tensor would slip through by being
+    turned away politely. Both directions are then checked, because the direction people forget is the
+    shrinking one: an extra tensor is a widened allowance, and a missing one (a case list that got
+    shorter, a family that stopped being collected, a section that parsed nothing) turns the verdict
+    into a claim about fewer tensors than the decision authorised. Returns (ok, findings, numbers); the
+    numbers are what the evidence JSON stores, so a reader can audit what was admitted without trusting
+    a verdict string.
+    """
+    exp = derived_route_expectation(geo)
+    findings, seen = [], []
+    for c in cases:
+        nm = c["name"]
+        if c.get("refused"):
+            findings.append({"kind": "refused_entry", "tensor": nm,
+                             "detail": "%s reached the 1.4b path and was declined by the admission "
+                                       "guard: %s" % (nm, c["refused"])})
+        if nm in seen:
+            findings.append({"kind": "duplicate_case", "tensor": nm,
+                             "detail": "%s was judged twice: a duplicate pads the counts and can hide "
+                                       "a missing expected tensor" % nm})
+        seen.append(nm)
+        # The transform is re-derived from the NAME and never taken from the record, so a case that
+        # declares itself neg_exp while its name is a norm still cannot walk in.
+        vtr = value_transform(nm)
+        if vtr != DERIVED_ROUTE_TRANSFORM:
+            findings.append({"kind": "not_derived_transform", "tensor": nm,
+                             "detail": derived_route_admission(nm)})
+        elif c.get("transform") != vtr:
+            findings.append({"kind": "declared_transform_mismatch", "tensor": nm,
+                             "detail": "%s: the pass believed transform %r, value_transform() says %r"
+                                       % (nm, c.get("transform"), vtr)})
+        if nm not in exp["names"]:
+            findings.append({"kind": "unexpected_tensor", "tensor": nm,
+                             "detail": "%s reached the 1.4b path and is not in the pinned population %s"
+                                       % (nm, sorted(DERIVED_ROUTE_NAMES))})
+        elif int(c["elts"]) != exp["elts_per_case"]:
+            findings.append({"kind": "element_count", "tensor": nm,
+                             "detail": "%s judged %s elements; geometry says every ssm_a is %d "
+                                       "(linear_num_value_heads)"
+                                       % (nm, nines(int(c["elts"])), exp["elts_per_case"])})
+    for nm in sorted(exp["names"] - set(seen)):
+        findings.append({"kind": "missing_tensor", "tensor": nm,
+                         "detail": "%s is authorised for the route predicate and was not judged — a "
+                                   "shrunk case list is not a smaller allowance, it is a smaller audit"
+                                   % nm})
+    n_cases, n_elts = len(cases), sum(int(c["elts"]) for c in cases)
+    if n_cases != exp["cases"]:
+        findings.append({"kind": "case_count", "tensor": "-",
+                         "detail": "%d cases reached 1.4b; geometry and the pin say %d"
+                                   % (n_cases, exp["cases"])})
+    if n_elts != exp["elements"]:
+        findings.append({"kind": "element_total", "tensor": "-",
+                         "detail": "%d elements reached the 1.4b path, %d expected (%d cases x %d "
+                                   "elements — the denominator comes from geometry, never from what "
+                                   "this run produced)"
+                                   % (n_elts, exp["elements"], exp["cases"], exp["elts_per_case"])})
+    if DERIVED_ROUTE_NAMES != exp["names"]:
+        findings.append({"kind": "pin_disagrees_with_geometry", "tensor": "-",
+                         "detail": "the pinned population %s is not the population the geometry "
+                                   "supports, %s: the pin may only name a real ssm_a of a sampled GDN "
+                                   "layer, so widening it is a DECISIONS.md §D-14 change and not an "
+                                   "edit to this file" % (sorted(DERIVED_ROUTE_NAMES),
+                                                          sorted(exp["names"]))})
+    nums = {"expected_names": sorted(exp["names"]),
+            "names_judged": sorted({c["name"] for c in cases if not c.get("refused")}),
+            "names_refused": sorted({c["name"] for c in cases if c.get("refused")}),
+            "expected_case_count": exp["cases"], "observed_case_count": n_cases,
+            "expected_element_count": exp["elements"], "observed_element_count": n_elts,
+            "expected_elements_per_case": exp["elts_per_case"],
+            "findings": findings}
+    # A 1.4b section that judged nothing must never be able to print PASS, whatever else lines up.
+    return bool(cases) and not findings, findings, nums
+
 
 def judge_derived_route(file_vals, refs):
     """Apply the 1.4b predicate. `refs` is {route_name: [values]}, exactly one list per DERIVED_ROUTE.
@@ -1091,6 +1221,7 @@ def selftest(args):
     floor_ok, floor_rows = selftest_floor_probe_honest(geo)
     auth_ok, auth_row = selftest_authority_widening()
     route_ok, route_rows = selftest_route_predicate()
+    pin_ok, pin_rows = selftest_derived_route_pin(geo)
 
     print("SELFTEST — reader decodes per the ggml-quants.c dequant loops; the packers encode per")
     print("the quantize_row_*_ref packing loops; the oracle uses the affine definition only.")
@@ -1139,8 +1270,26 @@ def selftest(args):
                  "" if r["must_fire"] == r["fired"] else "MIS-SCHEDULED"))
     print("  two routes disagreeing fails the case even when the file is bit-exact:   %s"
           % ("OK" if route_rows["reference_disagreement_fires"] else "BROKEN"))
+    # The 1.4b population pin (DECISIONS.md §D-14's narrow reading, machine-checked). Each injected
+    # population must FIRE, and must fire for the reason named in its own column.
+    print("1.4b population-pin injections (which tensors the one-step allowance may be applied to):")
+    for r in pin_rows:
+        print("  %-28s %-9s %-6s %-52s cases %d/%d  elements %d/%d  %s"
+              % (r["arm"], "FIRE" if r["must_fire"] else "clean",
+                 "FIRE" if r["fired"] else "admit", ",".join(r["findings"]) or "-",
+                 r["expected_case_count"], r["observed_case_count"],
+                 r["expected_element_count"], r["observed_element_count"], r["result"]))
+    for r in pin_rows:
+        print("    %-28s %s" % (r["arm"], r["what"]))
+    pin_silent = [r["arm"] for r in pin_rows if r["must_fire"] and not r["fired"]]
+    pin_wrong = [r["arm"] for r in pin_rows if r["result"] != "ok"]
+    print("pin injections that had to fire: %d, fired %d, SILENT %d%s; clean arm admitted: %s"
+          % (sum(1 for r in pin_rows if r["must_fire"]),
+             sum(1 for r in pin_rows if r["must_fire"] and r["fired"]), len(pin_silent),
+             "" if not pin_silent else " (%s)" % ", ".join(pin_silent),
+             "YES" if all(r["fired"] is False for r in pin_rows if not r["must_fire"]) else "NO"))
     ok = (not clean_fail and not inj_bad and gate_ok and perm_ok and tr_ok and floor_ok and auth_ok
-          and route_ok
+          and route_ok and pin_ok
           and len(results) == len(shapes) * len(SELF_TYPES))
     print("\nSELFTEST %s" % ("PASS" if ok else "FAIL"))
     if ok:
@@ -1166,6 +1315,12 @@ def selftest(args):
                                             "expert_transpose": tr_ok},
             "authority_widening": auth_row,
             "route_predicate": route_rows,
+            "derived_route_pin": {"arms": pin_rows,
+                                  "must_fire": sum(1 for r in pin_rows if r["must_fire"]),
+                                  "fired": sum(1 for r in pin_rows if r["must_fire"] and r["fired"]),
+                                  "silent": pin_silent,
+                                  "not_ok": pin_wrong,
+                                  "verdict": "PASS" if pin_ok else "FAIL"},
             "injections": sorted(list(READER_INJS) + ["gate_up_swap", "expert_stack_transpose"]),
             "python": sys.version.split()[0],
         })
@@ -1179,6 +1334,9 @@ def selftest(args):
         if inj_bad:
             print("  mis-scheduled injections: %s" % [(r["injection"], r["type"], r["expected"])
                                                       for r in inj_bad])
+        if pin_wrong:
+            print("  population-pin arms that did not behave: %s"
+                  % [(r["arm"], r["result"]) for r in pin_rows if r["result"] != "ok"])
     return 0 if ok else 1
 
 
@@ -1259,6 +1417,84 @@ def selftest_route_predicate():
         "reference_disagreement_fires": disagree_ok,
         "reference_disagreement_note": "file bit-exact against route f32 while crl disagrees: still "
                                        "FAILS, because the gate may not absorb its own references"}
+
+
+def selftest_derived_route_pin(geo):
+    """Negative controls for the 1.4b population pin — the machine check behind DECISIONS.md §D-14.
+
+    A pin that has never been seen to reject anything is decoration
+    (`pitfalls/40-gates-and-admissions.md` §"A negative control with an empty must-catch set is not a
+    control"), so each injected population below must FIRE, and must fire for the named reason: an
+    injection that turns the check red for some unrelated reason would let a dead name/transform check
+    hide behind a live count check. The clean arm is an arm too — it witnesses that the un-injected
+    population is admitted at the geometry counts, so the reds cannot all be "the check is always red".
+    Nothing here touches the artifact: the population is plain records, which is why the checker takes
+    data rather than tensors.
+    """
+    exp = derived_route_expectation(geo)
+
+    def cs(name, elts=None, transform=None):
+        return {"name": name,
+                "transform": value_transform(name) if transform is None else transform,
+                "elts": exp["elts_per_case"] if elts is None else elts}
+
+    clean = [cs(n) for n in sorted(exp["names"])]
+    # A real ssm_a name the pin does NOT authorise: the first GDN layer outside the sampled pair, so
+    # the injected case is the same family, the same transform and the same width as a legal one — the
+    # only thing wrong with it is that D-14 does not cover it.
+    extra = "blk.%d.ssm_a" % next(L for L in range(geo.L)
+                                  if geo.is_linear(L) and ("blk.%d.ssm_a" % L) not in exp["names"])
+    copied = "blk.0.attn_norm.weight"     # a 1.4a family: value_transform -> norm+1, zero tolerance
+    dropped = sorted(exp["names"])[-1]
+    arms = [
+        {"arm": "a_third_ssm_a", "must_fire": True, "must_name": extra,
+         "what": "a third ssm_a-shaped case (%s) pushed into the 1.4b population" % extra,
+         "cases": clean + [cs(extra)], "expect_kinds": ["unexpected_tensor"]},
+        {"arm": "b_case_removed", "must_fire": True, "must_name": dropped,
+         "what": "expected case %s removed (the vacuity direction: fewer cases judged)" % dropped,
+         "cases": clean[:-1], "expect_kinds": ["missing_tensor"]},
+        {"arm": "c_copied_family_in", "must_fire": True, "must_name": copied,
+         "what": "copied family %s (a norm, so 1.4a's) routed into the 1.4b path" % copied,
+         "cases": clean + [cs(copied, elts=geo.H)], "expect_kinds": ["not_derived_transform"]},
+        {"arm": "c2_copied_family_replaces", "must_fire": True, "must_name": copied,
+         "what": "%s replaces an expected case, declaring itself neg_exp with the element count faked "
+                 "to match: the counts stay right, so only the name/transform checks can catch it "
+                 "(this is what proves arm c is not a count check in disguise)" % copied,
+         "cases": [clean[0], cs(copied, transform="neg_exp")],
+         "expect_kinds": ["not_derived_transform", "unexpected_tensor"],
+         "forbid_kinds": ["case_count", "element_total", "element_count"]},
+        {"arm": "d_clean", "must_fire": False, "must_name": None,
+         "what": "the un-injected population, which must be admitted at the geometry counts",
+         "cases": clean, "expect_kinds": []},
+    ]
+    rows = []
+    for a in arms:
+        ok, findings, nums = check_derived_route_population(a["cases"], geo)
+        kinds = sorted({f["kind"] for f in findings})
+        named = sorted({f["tensor"] for f in findings})
+        fired = not ok
+        why = []
+        if a["must_fire"] and not fired:
+            why.append("SILENT — the injection was admitted, so the pin cannot catch it")
+        if not a["must_fire"] and fired:
+            why.append("the clean population was rejected: %s" % kinds)
+        for k in a["expect_kinds"]:
+            if k not in kinds:
+                why.append("expected finding kind %r did not fire" % k)
+        if a["must_name"] and a["must_name"] not in named:
+            why.append("no finding names the injected tensor %s" % a["must_name"])
+        for k in a.get("forbid_kinds", []):
+            if k in kinds:
+                why.append("count check %r fired, so this arm proves nothing about the name check" % k)
+        rows.append({"arm": a["arm"], "what": a["what"], "must_fire": a["must_fire"],
+                     "fired": fired, "findings": kinds, "tensors_named": named,
+                     "expected_case_count": nums["expected_case_count"],
+                     "observed_case_count": nums["observed_case_count"],
+                     "expected_element_count": nums["expected_element_count"],
+                     "observed_element_count": nums["observed_element_count"],
+                     "names_judged": nums["names_judged"],
+                     "result": "ok" if not why else "; ".join(why)})
+    return bool(rows) and all(r["result"] == "ok" for r in rows), rows
 
 
 def selftest_gate_up_split(geo):
@@ -1721,6 +1957,12 @@ def sec_exact(args):
          Authorised as a route-derived predicate rather than a tolerance by the supervisor on
          2026-10-26, surfaced to the user for ratification. The zero-tolerance answer is still
          computed, still printed, and still stored beside the new verdict.
+
+         Its population is PINNED, not merely filtered: `DERIVED_ROUTE_NAMES` is the set the ratified
+         one-step allowance covers (DECISIONS.md §D-14 §"Ratification 2026-10-26"), and
+         `check_derived_route_population` fails this section in both directions — a tensor that joined
+         the path, or an expected one that stopped being collected — against counts derived from
+         geometry. A tensor the pin refuses is reported, never judged.
     """
     print("1.4 — exactness pass, split:")
     print("      1.4a COPIED families (routers, norms, dt_bias, alpha, beta, conv1d, order/reorder)")
@@ -1804,6 +2046,25 @@ def sec_exact(args):
         t, hf_name, tr, extra = tg["t"], tg["hf"], tg["tr"], tg["extra"]
         vtr = value_transform(t.name)
         n = t.n_elts
+        refused = derived_route_admission(t.name)
+        if refused:
+            # Not judged. "The predicate says it is within route" is not an answer to "why is a copied
+            # family in here" (DECISIONS.md §D-14): the finding is the verdict, and it counts toward
+            # the population the pin below checks.
+            print("  %-40s %-24s %9d elts  REFUSED by the 1.4b population pin — %s"
+                  % (t.name, gguf_family(t.name), n, refused))
+            derived_cases.append({"name": t.name, "hf": hf_name, "route": vtr or "-", "order": "-",
+                                  "verdict": "FAIL", "refused": refused, "routes": [], "elts": n,
+                                  "elements_bit_exact": 0, "elements_within_route": 0,
+                                  "elements_outside_route": 0, "reference_disagreements": 0,
+                                  "max_steps_from_agreed": 0, "within_route_elements": [],
+                                  "outside_route_elements": [], "reference_disagreement_elements": [],
+                                  "every_element": []})
+            rows.append({"name": t.name, "family": gguf_family(t.name), "hf": hf_name, "elts": n,
+                         "mapping": "-+%s" % (vtr or "none"),
+                         "matched_under": "NOT JUDGED (outside the pin)",
+                         "verdict": "FAIL", "pass": "1.4b"})
+            continue
         orders = [("as stored", False)] if tr is None else [("HF order", False),
                                                             ("V-reorder", True)]
         trials, ref_disagree_total = [], 0
@@ -1900,6 +2161,26 @@ def sec_exact(args):
              sum(c["elements_bit_exact"] for c in derived_cases), n_within,
              sum(c["elements_outside_route"] for c in derived_cases),
              sum(c["reference_disagreements"] for c in derived_cases)))
+    # The population the route predicate was allowed to judge, checked against the pinned set rather
+    # than against what this run happened to collect. See DERIVED_ROUTE_NAMES for why this exists.
+    pin_ok, pin_findings, pin_nums = check_derived_route_population(
+        [{"name": c["name"], "transform": c["route"], "elts": c["elts"], "refused": c.get("refused")}
+         for c in derived_cases], geo)
+    print("1.4b population pin (DECISIONS.md §D-14 narrow reading: the one-step allowance belongs to "
+          "these tensors and only these): %s" % ("OK" if pin_ok else "BROKEN"))
+    print("      expected %d cases / %d elements (sampled GDN layers x linear_num_value_heads=%d); "
+          "judged %d cases / %d elements"
+          % (pin_nums["expected_case_count"], pin_nums["expected_element_count"],
+             pin_nums["expected_elements_per_case"], pin_nums["observed_case_count"],
+             pin_nums["observed_element_count"]))
+    print("      names judged: %s"
+          % (", ".join(pin_nums["names_judged"]) or "(none — a 1.4b section that judges nothing "
+             "cannot print PASS)"))
+    if pin_nums["names_refused"]:
+        print("      names REFUSED the predicate (present but not judged): %s"
+              % ", ".join(pin_nums["names_refused"]))
+    for f in pin_findings:
+        print("      PIN FINDING [%s] %s: %s" % (f["kind"], f["tensor"], f["detail"]))
     print("cases judged: %d = %d bit-exact + %d within-route%s"
           % (len(rows), n_bitexact_cases, n_route_cases,
              "" if not n_route_cases else " (a within-route case is NOT a bit-exact case)"))
@@ -1927,14 +2208,17 @@ def sec_exact(args):
               % ", ".join("%s[%s]" % (a, b) for a, b in permuted_notes))
     ok_copied = bool(copied_targets) and not fails and n_router > 0
     ok_derived = all(c["verdict"] != "FAIL" for c in derived_cases)
-    ok = ok_copied and ok_derived
+    ok = ok_copied and ok_derived and pin_ok
     verdict = ("PASS-with-finding" if ok and (n_within or derived_cases) else
                "PASS" if ok else "FAIL")
-    print("\n1.4 %s   (zero-tolerance view, kept for the record: %s on %s)"
+    print("\n1.4 %s   (zero-tolerance view, kept for the record: %s on %s)%s"
           % (verdict, "FAIL" if zero_tol_fails else "PASS",
-             ", ".join(zero_tol_fails) if zero_tol_fails else "nothing"))
+             ", ".join(zero_tol_fails) if zero_tol_fails else "nothing",
+             "" if pin_ok else " — and the 1.4b POPULATION PIN is broken, see the PIN FINDINGS above"))
     write_json(EXACT_JSON, {"utc": now(), "cases": len(rows), "router_cases": n_router,
                             "copied_cases": len(copied_targets), "derived_cases": len(derived_cases),
+                            "derived_route_pin": pin_nums,
+                            "derived_route_pin_verdict": "PASS" if pin_ok else "FAIL",
                             "routes_matched": routes_seen,
                             "gdn_v_order": v_order,
                             "permuted_only": ["%s: %s" % (a, b) for a, b in permuted_notes],
@@ -2045,6 +2329,12 @@ def derived_route_inputs(gg, geo, auth, tg, documented_order=True, why=""):
     """
     t, hf_name, tr, extra = tg["t"], tg["hf"], tg["tr"], tg["extra"]
     vtr = value_transform(t.name)
+    if vtr != DERIVED_ROUTE_TRANSFORM:
+        # Belt for the callers (1.4b above, and 1.5c's route injections): reference values for a copied
+        # family must not even be built, let alone handed to the route predicate, which would return a
+        # plausible verdict for a tensor the allowance was never ratified to cover (DECISIONS.md §D-14).
+        raise AssertionError("1.4b route predicate refuses %s: value_transform() reports %r, not %r"
+                             % (t.name, vtr, DERIVED_ROUTE_TRANSFORM))
     n = t.n_elts
     gbytes = gg.read(SELFTEST_TOKEN, gg.data_start + t.offset, t.row, why=why or "route pass on %s" % t.name)
     gvals = struct.unpack("<%df" % n, gbytes)
@@ -2262,6 +2552,12 @@ def sec_injections(args):
     # cases must NOT fire and the ±2-step, sign-flip, permutation and wrong-order cases MUST.
     d_targets = [tg for tg in build_targets(gg, geo, auth, kinds=("exact",))
                  if tg["t"].type_name == "F32" and value_transform(tg["t"].name) in DERIVED_ROUTE]
+    # The same population check 1.4b runs, here too: these are the tensors the route predicate is
+    # exercised on, so a copied family reaching this matrix would "witness" the allowance against a
+    # tensor it was never ratified for (DECISIONS.md §D-14).
+    d_pin_ok, d_pin_findings, d_pin_nums = check_derived_route_population(
+        [{"name": tg["t"].name, "transform": value_transform(tg["t"].name), "elts": tg["t"].n_elts,
+          "refused": derived_route_admission(tg["t"].name)} for tg in d_targets], geo)
     dmat = []
     for inj in sorted(DERIVED_INJS):
         want, how = DERIVED_INJS[inj]
@@ -2321,10 +2617,19 @@ def sec_injections(args):
     print("\ncases: %d band injections (%d x %d tensors) + %d route injections (%d x %d tensors); "
           "wrong: %d" % (len(mat), len(INJ_EXPECT), len(targets), len(dmat), len(DERIVED_INJS),
                          len(d_targets), len(bad)))
-    ok = bool(mat) and bool(d_targets) and not bad
+    print("route-population pin (DECISIONS.md §D-14 narrow reading): %s — expected %d cases / %d "
+          "elements, present %d / %d, names judged %s"
+          % ("OK" if d_pin_ok else "BROKEN", d_pin_nums["expected_case_count"],
+             d_pin_nums["expected_element_count"], d_pin_nums["observed_case_count"],
+             d_pin_nums["observed_element_count"], ", ".join(d_pin_nums["names_judged"]) or "(none)"))
+    for f in d_pin_findings:
+        print("      PIN FINDING [%s] %s: %s" % (f["kind"], f["tensor"], f["detail"]))
+    ok = bool(mat) and bool(d_targets) and not bad and d_pin_ok
     print("1.5c %s" % ("PASS" if ok else "FAIL"))
     write_json(INJ_JSON, {"utc": now(), "matrix": mat, "per_injection": per_inj,
                           "route_matrix": dmat, "route_per_injection": d_per,
+                          "route_population_pin": d_pin_nums,
+                          "route_population_pin_verdict": "PASS" if d_pin_ok else "FAIL",
                           "cases": len(mat) + len(dmat),
                           "cases_band": len(mat), "cases_route": len(dmat),
                           "wrong": ["%s on %s" % (r["injection"], r["tensor"]) for r in bad],
@@ -2831,7 +3136,28 @@ def sec_summary(args):
              sum(c["elements_within_route"] for c in ex.get("derived_route", [])),
              sum(c["elements_outside_route"] for c in ex.get("derived_route", [])),
              sum(c["reference_disagreements"] for c in ex.get("derived_route", []))))
+        pin = ex.get("derived_route_pin") or {}
+        A("| 1.4b population pin (`DERIVED_ROUTE_NAMES`, D-14 narrow reading) | %s — expected %s "
+          "cases / %s elements, judged %s / %s: %s |"
+          % (ex.get("derived_route_pin_verdict", "MISSING"),
+             pin.get("expected_case_count", "-"), pin.get("expected_element_count", "-"),
+             pin.get("observed_case_count", "-"), pin.get("observed_element_count", "-"),
+             ", ".join("`%s`" % n for n in pin.get("names_judged", [])) or "nothing"))
         A("")
+        if pin:
+            A("The one-step allowance in the row above is authorised for exactly those tensors and for "
+              "nothing else (`DECISIONS.md` §D-14 §\"Ratification 2026-10-26 — the user's words\"): the "
+              "population is a literal in `tools/audit_published_quant.py` "
+              "(`DERIVED_ROUTE_NAMES`), the expected counts come from geometry (sampled GDN layers x "
+              "`linear_num_value_heads`), and `--selftest` injects a widened population, a shrunken one "
+              "and a copied family walked into the route, each of which must fire. The %d copied "
+              "families keep zero tolerance."
+              % ex.get("copied_cases", 0))
+            A("")
+        if pin.get("findings"):
+            for f in pin["findings"]:
+                A("**PIN FINDING** [%s] `%s` — %s" % (f["kind"], f["tensor"], f["detail"]))
+            A("")
         if ex.get("gdn_v_order"):
             orders = {}
             for nm, o in ex["gdn_v_order"].items():

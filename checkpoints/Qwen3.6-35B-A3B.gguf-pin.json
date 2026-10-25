@@ -15,7 +15,7 @@
     "shared expert": 1.0003765891534158
    },
    "sample_elts": 131072,
-   "utc": "2026-10-25T03:32:21Z",
+   "utc": "2026-10-25T11:14:01Z",
    "verdict": "PASS"
   },
   "audit-exactness-2026-10-26.json": {
@@ -67,7 +67,7 @@
     "output_norm.weight: as stored + norm+1(f32)"
    ],
    "router_cases": 3,
-   "utc": "2026-10-25T03:32:16Z",
+   "utc": "2026-10-25T11:13:56Z",
    "verdict": "PASS-with-finding",
    "zero_tolerance_fails": [
     "blk.1.ssm_a"
@@ -134,7 +134,7 @@
    },
    "rms_margin": 1.5,
    "sample_elts": 131072,
-   "utc": "2026-10-25T03:32:19Z",
+   "utc": "2026-10-25T11:13:59Z",
    "verdict": "RUN"
   },
   "audit-hash-2026-10-26.json": {
@@ -151,7 +151,7 @@
    "sha256_pass1": "ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61",
    "sha256_pass2": "ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61",
    "size_reconciles": true,
-   "utc": "2026-10-25T03:31:29Z",
+   "utc": "2026-10-25T11:13:07Z",
    "verdict": "PASS",
    "weight_bytes": 22123538944
   },
@@ -159,7 +159,7 @@
    "cases": 164,
    "cases_band": 150,
    "cases_route": 14,
-   "utc": "2026-10-25T03:32:23Z",
+   "utc": "2026-10-25T11:14:03Z",
    "verdict": "PASS"
   },
   "audit-shards-2026-10-26.json": {
@@ -174,12 +174,12 @@
     "plan_claim_verdict": "REFUTED",
     "present": 19
    },
-   "utc": "2026-10-25T03:32:06Z"
+   "utc": "2026-10-25T11:13:44Z"
   },
   "audit-structure-2026-10-26.json": {
    "n_tensors": 733,
    "size_reconciles": true,
-   "utc": "2026-10-25T03:32:15Z",
+   "utc": "2026-10-25T11:13:55Z",
    "verdict": "PASS"
   }
  },
@@ -205,7 +205,7 @@
   "n_tensors": 733
  },
  "note": "written by tools/audit_published_quant.py --shared; add a row for this file to checkpoints/README.md when committing",
- "recorded_utc": "2026-10-25T03:32:23Z",
+ "recorded_utc": "2026-10-25T11:14:03Z",
  "revision": "a483e9e6cbd595906af30beda3187c2663a1118c",
  "sha256": "ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61",
  "source_repo": "unsloth/Qwen3.6-35B-A3B-GGUF"

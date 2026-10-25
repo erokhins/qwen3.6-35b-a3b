@@ -5,7 +5,131 @@
   "route": "gr.bf16_to_floats vs per-element bit mask"
  },
  "cases": 40,
- "gate_sha256": "2561d174fee93bda7d7e61c3d817eabc536911c9de09fa65097a79d854419b31",
+ "derived_route_pin": {
+  "arms": [
+   {
+    "arm": "a_third_ssm_a",
+    "expected_case_count": 2,
+    "expected_element_count": 64,
+    "findings": [
+     "case_count",
+     "element_total",
+     "unexpected_tensor"
+    ],
+    "fired": true,
+    "must_fire": true,
+    "names_judged": [
+     "blk.0.ssm_a",
+     "blk.1.ssm_a",
+     "blk.2.ssm_a"
+    ],
+    "observed_case_count": 3,
+    "observed_element_count": 96,
+    "result": "ok",
+    "tensors_named": [
+     "-",
+     "blk.2.ssm_a"
+    ],
+    "what": "a third ssm_a-shaped case (blk.2.ssm_a) pushed into the 1.4b population"
+   },
+   {
+    "arm": "b_case_removed",
+    "expected_case_count": 2,
+    "expected_element_count": 64,
+    "findings": [
+     "case_count",
+     "element_total",
+     "missing_tensor"
+    ],
+    "fired": true,
+    "must_fire": true,
+    "names_judged": [
+     "blk.0.ssm_a"
+    ],
+    "observed_case_count": 1,
+    "observed_element_count": 32,
+    "result": "ok",
+    "tensors_named": [
+     "-",
+     "blk.1.ssm_a"
+    ],
+    "what": "expected case blk.1.ssm_a removed (the vacuity direction: fewer cases judged)"
+   },
+   {
+    "arm": "c_copied_family_in",
+    "expected_case_count": 2,
+    "expected_element_count": 64,
+    "findings": [
+     "case_count",
+     "element_total",
+     "not_derived_transform",
+     "unexpected_tensor"
+    ],
+    "fired": true,
+    "must_fire": true,
+    "names_judged": [
+     "blk.0.attn_norm.weight",
+     "blk.0.ssm_a",
+     "blk.1.ssm_a"
+    ],
+    "observed_case_count": 3,
+    "observed_element_count": 2112,
+    "result": "ok",
+    "tensors_named": [
+     "-",
+     "blk.0.attn_norm.weight"
+    ],
+    "what": "copied family blk.0.attn_norm.weight (a norm, so 1.4a's) routed into the 1.4b path"
+   },
+   {
+    "arm": "c2_copied_family_replaces",
+    "expected_case_count": 2,
+    "expected_element_count": 64,
+    "findings": [
+     "missing_tensor",
+     "not_derived_transform",
+     "unexpected_tensor"
+    ],
+    "fired": true,
+    "must_fire": true,
+    "names_judged": [
+     "blk.0.attn_norm.weight",
+     "blk.0.ssm_a"
+    ],
+    "observed_case_count": 2,
+    "observed_element_count": 64,
+    "result": "ok",
+    "tensors_named": [
+     "blk.0.attn_norm.weight",
+     "blk.1.ssm_a"
+    ],
+    "what": "blk.0.attn_norm.weight replaces an expected case, declaring itself neg_exp with the element count faked to match: the counts stay right, so only the name/transform checks can catch it (this is what proves arm c is not a count check in disguise)"
+   },
+   {
+    "arm": "d_clean",
+    "expected_case_count": 2,
+    "expected_element_count": 64,
+    "findings": [],
+    "fired": false,
+    "must_fire": false,
+    "names_judged": [
+     "blk.0.ssm_a",
+     "blk.1.ssm_a"
+    ],
+    "observed_case_count": 2,
+    "observed_element_count": 64,
+    "result": "ok",
+    "tensors_named": [],
+    "what": "the un-injected population, which must be admitted at the geometry counts"
+   }
+  ],
+  "fired": 4,
+  "must_fire": 4,
+  "not_ok": [],
+  "silent": [],
+  "verdict": "PASS"
+ },
+ "gate_sha256": "1b5c1f2c3b2e03477661fafc05d2b324d24a02917d1b9a423e029354d0cdaa0b",
  "index_injections_structural": {
   "expert_transpose": true,
   "gate_up_split": true,
@@ -168,6 +292,6 @@
   "Q6_K"
  ],
  "utc_first_selftest_pass": "2026-10-25T01:31:24Z",
- "utc_latest_selftest_pass": "2026-10-25T03:43:53Z",
+ "utc_latest_selftest_pass": "2026-10-25T11:16:42Z",
  "wrongly_fired": 0
 }
