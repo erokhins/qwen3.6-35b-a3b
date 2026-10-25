@@ -204,3 +204,50 @@ that is what lets `tools/halogen_gate.sh admit` refuse a down-window while a hal
 this file or in any worker report from this phase. Every device number in this project is taken by the
 main agent, with zero workers active, `gpu_lock` held and halogen down, in one batched window
 (`AGENTS.md` §"Two endpoints, three classes of work", `pitfalls/00-measurement.md`).
+
+## The 74-vs-232 MiB dispute, settled by a tool rather than by memory
+
+W1 reported ~232 MiB of Q5_K drift; my witness said 74.0 MiB. Same identity, so one of us had slipped,
+and the number was heading into a committed evidence file. It also arrived at the wrong moment: W1's
+run logged **one auto-compaction failure** (`"Auto-compaction failed: Summarization failed: generation
+hit the token cap and the summary is incomplete"`) — the only lane with one, and unsurprisingly: it is
+a ~2 h, 691k-token, 226-tool conversation I had revived, the largest context in the fleet. The other
+three lanes logged zero.
+
+So the ruling was neither "trust the worker" nor "trust me" — it was **make the number come from a
+tool**. `tools/gguf_width_table.py` (new, committed) derives every printed byte from the file's own
+length (`sum(row_bytes) + data_start == file size`), re-derives the K-quant block sizes from
+`ggml-common.h`'s own `static_assert` expressions instead of trusting a transcription, and refuses to
+print on an unmapped type, a partial record count, or an empty table. Its `--selftest` **injects** wrong
+block sizes and requires the identity to go False — a witness that has never fired is not a witness —
+and it checks that each injected type actually occurs in the file, so a fault injected into an absent
+type cannot count as a pass.
+
+```
+python3 tools/gguf_width_table.py --selftest     # 3/3 injected byte-table faults FIRED (Q5_K, Q4_K, Q8_0), each type present
+python3 tools/gguf_width_table.py models/unsloth-q4km/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf --check-header
+  ok: Q4_K = 144 B/256 = 4.5000 bpw  from `2*sizeof(ggml_half) + K_SCALE_SIZE + QK_K/2`
+  ok: Q5_K = 176 B/256 = 5.5000 bpw  from `2*sizeof(ggml_half) + K_SCALE_SIZE + QK_K/2 + QK_K/8`
+  ok: Q6_K = 210 B/256 = 6.5625 bpw  from `sizeof(ggml_half) + QK_K / 16 + 3*QK_K/4`
+  WITNESS  sum(row_bytes) + data_start == file size : True      (22,134,528,992 B)
+```
+
+**Adjudicated: 74.0 MiB, not 232 MiB.** The 37 Q5_K tensors hold 6,828,326,912 B at 176 B/256 and
+would hold 6,905,921,536 B at 178 B/256 — a difference of 77,594,624 B = **74.0 MiB**, and setting Q5_K
+to 178 flips the witness to False. Three independent routes agree (the file-size identity, the header's
+own `static_assert`, the arithmetic), so the evidence file carries 74.0 MiB unless W1 produces a working
+that beats all three — invited, not forbidden.
+
+Two things worth keeping from making it. My first `--check-header` matched nothing because of a
+`%`-precedence slip (`block_4_kK`), and its message was *"cannot verify, refusing to assume"* — which
+reads like rigour while actually being a checker that had stopped checking. A no-output branch that
+prints something plausible is the same trap as an empty parse reporting PASS, which is why the fixed
+version also asserts it read the block constants at all (`{K_SCALE_SIZE: 12, QK8_0: 32, QK_K: 256}`)
+and calls the derivation vacuous otherwise.
+
+And the lane was **not** idle when it looked idle. `halogen_gate.sh status` read `in_flight: 1`,
+`requests_proc: 1`, `busy_for_s: 26.2`, and `tensorfold` read `connections: 3` — all four workers
+streaming, exactly at the D-13 ceiling. A "no activity for 300 s" nudge into a live stream adds a
+second stream to a server that advertises five slots and that I hand four on purpose, so the counters,
+not the silence, decided it: **no nudge, no interrupt**. A worker that is thinking is not a worker that
+is stuck, and the difference is observable rather than guessable.
