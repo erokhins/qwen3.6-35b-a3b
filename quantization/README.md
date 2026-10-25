@@ -74,30 +74,30 @@ this box actually delivered in the 2026-10-26 window, not the ledger's 237.
 
 | policy | resident GiB | GiB/token | ceiling @237 | @210 | @190 |
 |---|---|---|---|---|---|
-| bf16 | 66.13 ✗ | 5.61 | 39 ⚠ | 35 ⚠ | 31 ⚠ |
-| **A — DECIDED** experts Q4_K, everything else Q8_0 | **19.7848** | **2.5252** (2.4653 target-only) | **87** | 77 | 70 |
-| B experts Q4_K, everything else bf16 | 21.52 ⚠ | 3.813 ⚠ | 58 ⚠ | 51 ⚠ | 46 ⚠ |
-| C experts MXFP4, rest Q8_0 | 18.63 ⚠ | 2.301 ⚠ | 96 ⚠ | 85 ⚠ | 77 ⚠ |
-| D experts IQ4_XS, rest Q8_0 | 18.63 ⚠ | 2.301 ⚠ | 96 ⚠ | 85 ⚠ | 77 ⚠ |
-| E experts Q4_K, **attention Q4_K too** | 18.81 ⚠ | 1.663 ⚠ | **133** ⚠ | 118 ⚠ | 106 ⚠ |
-| F Q8_0 throughout | 35.16 ✗ co-resident, ✓ if dedicated | 2.811 ⚠ | 79 ⚠ | 70 ⚠ | 63 ⚠ |
-| G (not taken, D-10) experts Q4_K, attention Q8_0, `lm_head` Q6_K | 19.36 ⚠ | 2.216 ⚠ | 100 ⚠ | 88 ⚠ | 80 ⚠ |
+| bf16 | 66.13 ✗ | 5.6083 | 39 | 35 | 32 |
+| **A — DECIDED** experts Q4_K, everything else Q8_0 | **19.78** | **2.5252** (2.4653 target-only) | **87** | 77 | 70 |
+| B experts Q4_K, everything else bf16 | 21.93 | 4.2269 (4.1405 tgt) | 52 | 46 | 42 |
+| C experts MXFP4, rest Q8_0 | 18.82 | 2.4952 (2.4360 tgt) | 88 | 78 | 71 |
+| D experts IQ4_XS, rest Q8_0 | 18.82 | 2.4952 (2.4360 tgt) | 88 | 78 | 71 |
+| E experts Q4_K, **attention Q4_K too** | 18.88 | 1.7397 (1.6940 tgt) | **127** | 112 | 102 |
+| F Q8_0 throughout | 35.16 ✗ co-resident, ✓ if dedicated | 3.0057 (2.9340 tgt) | 73 | 65 | 59 |
+| G (not taken, D-10) experts Q4_K, attention Q8_0, `lm_head` Q6_K | 19.56 | 2.4105 (2.3506 tgt) | 92 | 81 | 73 |
 
-> **Staleness note (2026-10-26), and it is load-bearing.** This table was priced from
-> `tools/quant_scenarios.py`'s census, which the adjudication showed to carry four wrong terms. Only
-> the rows marked without ⚠ have been re-derived against the corrected census — policy A (resident
-> 19.59 → 19.7848, per-token 2.331 → 2.5252, and its rate prediction 95/84/76 → 87/77/70) and policy
-> F's resident figure (34.97 → 35.16). **Every ⚠ cell is the pre-correction number and is expected to
-> move by roughly +1 % resident and +6–8 % per-token**, because the omitted `ssm_out` is read in full
-> every token. Do not cite a ⚠ cell as current, and do not hand-derive replacements: re-print the
-> table from the repaired `tools/quant_scenarios.py`, so the docs and the tool cannot drift apart.
-> What the corrections do *not* change: the ordering of the policies, policy A's fit in either budget,
-> or any user width decision (D-01/D-01a/D-10) — those rest on relative bytes and on a KLD study, not
-> on this arithmetic.
+> **Provenance (2026-10-26).** Re-printed verbatim from the repaired `tools/quant_scenarios.py --read
+> 237 210 190`, which derives every byte from the pinned artifact's tensor records plus the draft
+> block's shapes, with widths from `tools/ggml_block_geom.py` — no bpw literal prices anything, and its
+> `--selftest` requires 8 injected faults to fire at their own magnitude, including a
+> *required-figure* check that actively rejects the pre-correction 2.331 GiB/token. Before this
+> reprint, rows B, C, D, E, G and most rate cells carried the broken census's numbers (C/D read 18.63 /
+> 2.301 / 96; E read 18.81 / 1.663 / 133; G read 19.36 / 2.216 / 100) — the whole table moved by
+> roughly +1 % resident and +6–8 % per-token once the omitted `ssm_out` was counted, because it is read
+> in full every token. Re-print rather than hand-derive: if the docs and the tool can drift, they will.
 >
-> The bf16 rate cells are supervisor arithmetic — 5.61 GiB/token (adjudicated) against the
-> 237/210/190 GB/s ladder from `devices/measured-facts.md`, using the same GiB→GB conversion the old
-> 42/38/34 row implied. They are not a tool print, which is why they carry ⚠.
+> **These are predictions, not measurements.** They are bytes divided by the already-measured
+> 237-240 / 210 / 190 GB/s of `devices/measured-facts.md` §Memory bandwidth; no timing was taken here,
+> and the sibling engine's observed ~60 %-of-own-ceiling discount still applies on top. What the
+> correction did *not* change: the ordering of the policies, policy A's fit in either budget, or any
+> user width decision (D-01/D-01a/D-10) — those rest on relative bytes and on a KLD study.
 
 ## The attention question (**DECIDED 2026-10-26: Q8_0** — the reasoning that got us there)
 

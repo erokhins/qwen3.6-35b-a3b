@@ -192,19 +192,18 @@ shape of it:
 
 | configuration | resident | GiB read per token | ceiling @237 GB/s |
 |---|---|---|---|
-| bf16 text weights | 66.1337 GiB ✗ above both budgets | 5.61 | ~39 tok/s ⚠ |
-| Q8_0 throughout | 35.16 GiB — above the co-resident budget (~32), **fits if the engine owns the pool (~55)** | 2.811 ⚠ | ~79 tok/s ⚠ |
-| experts Q4_K + rest Q8_0 (policy A, **decided**) | 19.7848 GiB ✓ fits either budget | 2.5252 (2.4653 target-only) | ~87 tok/s |
-| experts Q4_K + attn Q8_0 + `lm_head` Q6_K (policy G) | 19.36 GiB ⚠ | 2.216 ⚠ | ~100 tok/s ⚠ |
-| experts + attention both Q4_K (policy E) | 18.81 GiB ⚠ | 1.663 ⚠ | ~133 tok/s ⚠ |
+| bf16 text weights | 66.1337 GiB ✗ above both budgets | 5.6083 | ~39 tok/s |
+| Q8_0 throughout | 35.16 GiB — above the co-resident budget (~32), **fits if the engine owns the pool (~55)** | 3.0057 | ~73 tok/s |
+| experts Q4_K + rest Q8_0 (policy A, **decided**) | 19.78 GiB ✓ fits either budget | 2.5252 (2.4653 target-only) | ~87 tok/s |
+| experts Q4_K + attn Q8_0 + `lm_head` Q6_K (policy G) | 19.56 GiB ✓ | 2.4105 (2.3506 tgt) | ~92 tok/s |
+| experts + attention both Q4_K (policy E) | 18.88 GiB ✓ | 1.7397 (1.6940 tgt) | ~127 tok/s |
 
-⚠ **rows are pre-census-correction and expected to move** (~+1 % resident, +6–8 % per-token, since the
-omitted `ssm_out` is read in full every token). Only policy A's resident and per-token figures and
-policy F's resident figure have been re-derived against the corrected census
-(`quantization/evidence/bf16-census-adjudication-2026-10-26.md`); the bf16 rate row is supervisor
-arithmetic from 5.61 GiB/token against the 237/210/190 ladder, not a tool print. Re-print the whole
-table from the repaired `tools/quant_scenarios.py` rather than hand-deriving cells. Every rate in this
-table is a **prediction** against the measured copy rate, never a measurement.
+Every row above is re-printed verbatim from the repaired `tools/quant_scenarios.py --read 237 210 190`
+(2026-10-26), which derives bytes from the pinned artifact's own tensor records plus the draft block's
+shapes and takes widths from `tools/ggml_block_geom.py`. Before that reprint, policy F read 2.811 /
+~79, G read 19.36 / 2.216 / ~100 and E read 18.81 / 1.663 / ~133 — all priced from the census the
+adjudication disproved. Every rate here is a **prediction** against the copy rates measured in
+§Memory bandwidth, never a measurement, and the ~60 %-of-own-ceiling engine discount applies on top.
 
 Two qualifications. Ceilings are ceilings: the sibling 0.8B engine reached ~60 % of its own, and the
 bandwidth actually delivered in the 2026-10-26 window was 190–225 GB/s, so quote the 190 column as

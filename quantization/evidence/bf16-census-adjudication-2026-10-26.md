@@ -455,3 +455,23 @@ rule exists alongside the half-shape rule rather than instead of it.
 To distrust this file productively: `python3 tools/bf16_census.py` reprints every population, family
 delta and closure from the four source files, and the `--selftest` fails if any of its checks has been
 made unable to fail.
+
+---
+
+## Corrigendum (added 2026-10-26 by the supervisor, after W11's review)
+
+Three GiB values in the §3/§4 conversion column were printed wrong. **The element arithmetic — which is
+what this file's own rule makes load-bearing ("elements first, GiB last, so nothing is hidden by
+rounding") — is correct, and no conclusion moves.** Recorded here rather than silently patched, because
+a reader who already cited 0.46852 should be able to see it was replaced and why:
+
+| quantity | elts | printed | correct | check |
+|---|---|---|---|---|
+| GDN `out_proj` omitted | 251,658,240 | 0.46852 GiB | **0.46875 GiB** | 503,316,480 B ÷ 2³⁰ |
+| phantom `+2*h`×30 | 122,880 | 0.00046 GiB | **0.00023 GiB** | 245,760 B ÷ 2³⁰ — the printed value is ~2×, the shape a factor-of-two slip leaves behind |
+| total defect | 222,179,328 | 0.41379 GiB | **0.41384 GiB** | 444,358,656 B ÷ 2³⁰ |
+
+The headline −0.4138 GiB is unaffected (it was always the element total converted correctly), and
+`tools/quant_scenarios.py --selftest` now independently reproduces each of these defects by injection
+at its own magnitude — 251,658,240 / 8,388,608 / 37,748,736 / 122,880 / 4,096 elts — so the numbers
+here are no longer the only witness.
