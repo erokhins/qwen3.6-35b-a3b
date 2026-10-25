@@ -85,3 +85,16 @@ coordinate does that), anything outside `*.md` (gates and kernel headers carry c
 inside the commit being checked if the checker's baseline is `HEAD`. Hence the manual guard above: `wc -l`
 before and after editing a cited file, plus a direct read of each cited coordinate against the previous
 revision.
+
+## A plan may name a file that does not exist yet — say so, in the exact words the checker reads
+
+`PLAN.md` step 1.0 promises `tools/audit_published_quant.py` (planned), which is not written until the step runs, and
+a plan must be writable before its own artifacts exist. `tools/doc_ref_check.py` therefore accepts such a
+forward cite **only** when `(planned)` follows the cite immediately, and counts it into the info line so the
+population is visible; unlabelled it stays `MISSING`. The label is deliberately narrow and deliberately not
+a directory-wide exemption: a doc advertising a tool that does not exist is the same class of defect as a
+gate that reports PASS over an empty list, and the escape hatch has to cost a word. Witnessed both colours
+rather than trusted — `python3 tools/doc_ref_check.py --root /tmp/planwitness --min-files 1` over a scratch
+file prints `MISSING` for the unlabelled cite and for a mislabelled `(plannedish)`, and accepts only the
+labelled one (`labelled-planned forward refs: 1`). A checker exemption that was never seen to discriminate
+is a hole with a name on it.

@@ -60,7 +60,7 @@ def main():
         return 1
 
     problems = []
-    n_line = n_cross = n_sect = 0
+    n_line = n_cross = n_sect = n_planned = 0
     for p in files:
         rel = os.path.relpath(p, root)
         lines = open(p, encoding="utf-8").read().splitlines()
@@ -79,6 +79,13 @@ def main():
                      if f.startswith(leaf + "-")]
             if len(cands) == 1:
                 continue
+            # A **planned** path - one a plan says will be written - is not a broken cite, but it must be
+            # *labelled* `(planned)` right after the cite. Unlabelled, it stays MISSING: a doc that
+            # advertises a tool which does not exist is exactly the "check that cannot fail" failure
+            # this file exists to catch, so the escape hatch is opt-in and visible in the count below.
+            if body[m.end():m.end() + 14].lstrip(" `").startswith("(planned)"):
+                n_planned += 1
+                continue
             problems.append("MISSING  %-40s cites %s%s" % (rel, t,
                             "" if not cands else " (ambiguous: %s)" % ", ".join(sorted(cands))))
         for i, l in enumerate(lines, 1):
@@ -92,7 +99,9 @@ def main():
     print("walked %d markdown files under %s (provenance blockquotes exempt from path checks)"
           % (len(files), root))
     print("info: %d line-form `path:NNN` cites (each is a claim about a line count), "
-          "%d cross-repo `../qwen…` mentions, %d bare `§N` cites" % (n_line, n_cross, n_sect))
+          "%d cross-repo `../qwen…` mentions, %d bare `§N` cites, "
+          "%d labelled-planned forward refs (paths a plan promises to write)"
+          % (n_line, n_cross, n_sect, n_planned))
     for x in problems:
         print(x)
     print("findings: %d" % len(problems))
