@@ -1,6 +1,6 @@
 LOCKREF gate.py must reference the lock tool 0 times: 0
-LOCK acquired tag=q36 shared_expert device gate status=HELD: 2026-10-25T21:02:37Z	q36 shared_expert device gate	pid=586819
-UTIL_BEFORE gpu use: 9%
+LOCK acquired tag=q36 shared_expert device gate status=HELD: 2026-10-25T22:03:18Z	q36 shared_expert device gate	pid=614930
+UTIL_BEFORE gpu use: 10%
 CMD /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/shared_expert/gate.py --device 
 CENSUSEXP format=f32 field=sigmoid(f32) judged=34194 identical=33130 differing=1064 categories[equal=33130 finite_step=1064] ulp_histogram[1:605 2:459] max_ulp=2 subnormal_diverging=1 probe=c-vs-numpy-over-every-bf16-input
 CENSUSEXP format=f32 field=silu(f32) judged=34194 identical=33153 differing=1041 categories[equal=33153 finite_step=1041] ulp_histogram[1:624 2:417] max_ulp=2 subnormal_diverging=0 probe=c-vs-numpy-over-every-bf16-input
@@ -8,7 +8,7 @@ FLOOREXP_NP max_ulp_f32=2 (the widest f32 divergence the two libms produce on an
 FLOOREXP_NP rows=34194 exp_diff_f32=3157 sigmoid_diff_f32=1064 sigmoid_diff_after_bf16_store=0
 FLOOREXP_NP verdict=stored-prob-field-exact: the bf16 store is coarser than every libm-vs-numpy disagreement
 CHECK exp floor probe: the bf16 store hides every libm disagreement    want=0          got=0          f32 disagreements=1064 over 34194 bf16 inputs; this is why the bf16-carrying fields stay exact
-CHECK exp floor probe: an f32-carrying transcendental field is measured, not assumed want=>=1        got=2          the band on f32-carrying expf fields is 2 ULP from this probe
+CHECK exp floor probe: an f32-carrying transcendental field is measured, not assumed want=>=1        got=2          the band on a bf16-fed f32-carrying expf field is 2 ULP from this probe (domain: every bf16 input pattern)
 CHECK host selftest ran all three arms                                 want=3          got=3          PASS selftest arms=3
 CHECK host honest arm is clean                                         want=0          got=0/0        checks=26 equals=20 differs=6
 CHECK host STUB arm goes red on exactly the differing checks           want=6          got=6          a comparator that always answers equal must break exactly 6 checks
@@ -79,7 +79,26 @@ CHECK parsed==printed on the case list                                 want=43  
 CHECK host arm parsed==printed for W                                   want=12         got=12         
 CHECK host arm parsed==printed for A                                   want=32         got=32         
 CHECK host arm parsed==printed for C                                   want=43         got=43         
-WIDTH WIDTH tensor=<type-derived:Q8_0> ggml_type=Q8_0(id=?) bpw=8.5000 bpw_independent=8.5000 q8_or_above=1 rule=bpw>=8.0 source=pinned ggml-common.h
+FLOOREXP_ACT_C pairs_read=22016 pairs_emitted=22016 malformed=0 nonfinite_skipped=0 hull_gate=C08F5D21..40437671 hull_gate_min=-4.48011827 hull_gate_max=3.05410409
+route=se_swiglu(gate,up,f32_act=1) from shared_expert_kernels.h contract=off anchor=f64-route-rounded-to-f32-once
+CENSUSACT format=f32 field=c-vs-anchor judged=22016 identical=12436 differing=9580 categories[equal=12436 finite_step=9580] ulp_histogram[1:9019 2:558 3:3] max_ulp=3 subnormal_diverging=0 probe=act-over-the-fixture-f32-dot-domain
+CENSUSACT format=f32 field=numpy-vs-anchor judged=22016 identical=11715 differing=10301 categories[equal=11715 finite_step=10301] ulp_histogram[1:9453 2:832 3:16] max_ulp=3 subnormal_diverging=0 probe=act-over-the-fixture-f32-dot-domain
+CENSUSACT format=f32 field=c-vs-numpy judged=22016 identical=18907 differing=3109 categories[equal=18907 finite_step=3109] ulp_histogram[1:2005 2:984 3:114 4:6] max_ulp=4 subnormal_diverging=0 probe=act-over-the-fixture-f32-dot-domain
+CENSUSACT format=f32 field=c-vs-anchor[judged_subset] judged=512 identical=305 differing=207 categories[equal=305 finite_step=207] ulp_histogram[1:194 2:13] max_ulp=2 subnormal_diverging=0 probe=act-over-the-f32_act-field-pairs
+CENSUSACT format=f32 field=numpy-vs-anchor[judged_subset] judged=512 identical=272 differing=240 categories[equal=272 finite_step=240] ulp_histogram[1:218 2:22] max_ulp=2 subnormal_diverging=0 probe=act-over-the-f32_act-field-pairs
+CENSUSACT format=f32 field=c-vs-numpy[judged_subset] judged=512 identical=432 differing=80 categories[equal=432 finite_step=80] ulp_histogram[1:54 2:24 3:2] max_ulp=3 subnormal_diverging=0 probe=act-over-the-f32_act-field-pairs
+FLOOREXP_ACT_POP cases_probed=43 pairs=22016 judged_pairs=512 arm_words_identical_to_oracle=22016 distinct_gate=18425 distinct_up=18431
+FLOOREXP_ACT_DERIVE derivation=triangle-inequality-on-floor-probe leg_c_all=3 leg_np_all=3 band_all=6 leg_c_field=2 leg_np_field=2 band_field=4 licensed=band_field
+FLOOREXP_ACT_TRI rows=22016 per_row_violations=0 direct_max=4 band_all=6 direct_field=3 band_field=4
+FLOOREXP_ACT max_ulp_f32=4 legs=2+2 domain=every f32 (gate,up) dot pair the fixture carries (22016 pairs, 512 of them the f32_act field itself); the band on an f32-carrying act field is this number, derived here and not chosen
+FLOOREXP_ACT verdict=domain-covered: the probe population is every value the judged field carries, on both sides
+CHECK act floor probe: the band is the sum of two measured legs, not a typed factor want=2+2        got=4          derivation=triangle-inequality-on-floor-probe leg_c=2 leg_np=2 (whole-fixture domain: 3+3=6)
+CHECK act floor probe covers every word of the counted act field       want=512        got=512        one (gate,up) pair per act word of every f32-act case, read out of the oracle's own dump
+CHECK act floor probe: its population is the arm's own words, not a look-alike grid want=22016/22016 words identical got=22016/22016 EVERY gate/up word of every case compared bit-for-bit against the oracle before a distance was taken; the predicate used to be >0, which would pass on one identical word out of 22016 while the other 22015 came from a look-alike grid (host arm)
+CHECK act floor probe: no row breaks the triangle the band is derived from want=0 violations got=0 violations, direct 3/4 the ruler's distance is an |order_key difference|, so the triangle is arithmetic; a violation means the table or the fold is wrong
+CHECK act floor probe: the census it reports on the field's pairs IS the field's census want=judged=512 differing=80 max=3 got=judged=512 differing=80 max=3 the band and the field are measured on one population, which is what closes the `UNVERIFIED by probe domain` finding
+BAND domain=f32_dot band=4 probe=work/floor_probe_act_np.py covers=every f32 (gate,up) dot pair the fixture carries (22016 pairs, 512 of them the f32_act field itself)
+WIDTH WIDTH tensor=<type-derived:Q8_0> ggml_type=Q8_0(id=?) bpw=8.5000 bpw_independent=8.5000 q8_or_above=1 rule=bpw>=8.0 source=pinned ggml-common.h arm=arm=host
 CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -102,14 +121,14 @@ CENSUS format=bf16 field=raw[cast_after] judged=2048 identical=2048 differing=0 
 POLICY field=raw[cast_after] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[cast_after] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[cast_after] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
-CENSUS format=f32 field=prob judged=1 identical=0 differing=1 categories[finite_step=1] ulp_histogram[2:1] max_ulp=2 subnormal_diverging=0 case=1 label=cast_after width=f32 counted=1 band=2
-POLICYLINE case=1 field=prob verdict=counted-and-attributed attribution=expf route, numpy side of the oracle; floor probe measured 2 ULP over the whole bf16 grid, observed max=2 over 1/1 isolation=not-defined-for-a-1-element-field(band_judges_it)
+CENSUS format=f32 field=prob judged=1 identical=0 differing=1 categories[finite_step=1] ulp_histogram[2:1] max_ulp=2 subnormal_diverging=0 case=1 label=cast_after width=f32 counted=1 band=2 domain=bf16_input arm=host
+POLICYLINE case=1 field=prob verdict=counted-and-attributed attribution=expf route, numpy side of the oracle; domain=bf16_input; exp probe domain=every bf16 input pattern, which is what sigmoid(bf16(t)) can hand the transcendental; observed max=2 over 1/1 isolation=not-defined-for-1-element-field(band_judges_it)
 CENSUS format=f32 field=gate[f32_act] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=gate[f32_act] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=f32 field=up[f32_act] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=up[f32_act] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=f32 field=act judged=512 identical=432 differing=80 categories[equal=432 finite_step=80] ulp_histogram[1:54 2:24 3:2] max_ulp=3 subnormal_diverging=0 case=2 label=f32_act width=f32 counted=1 band=2
-POLICYLINE case=2 field=act verdict=REFUSED attribution=expf route, numpy side of the oracle; floor probe measured 2 ULP over the whole bf16 grid, observed max=3 over 80/512
+CENSUS format=f32 field=act judged=512 identical=432 differing=80 categories[equal=432 finite_step=80] ulp_histogram[1:54 2:24 3:2] max_ulp=3 subnormal_diverging=0 case=2 label=f32_act width=f32 counted=1 band=4 domain=f32_dot arm=host
+POLICYLINE case=2 field=act verdict=counted-and-attributed attribution=expf route, numpy side of the oracle; domain=f32_dot; probe=work/floor_probe_act_np.py domain=the fixture's own f32 (gate,up) dot pairs; legs c=2 numpy=2 band=4 (whole-fixture dot domain 3+3=6); measured c-vs-numpy on the field's own 512 pairs: max=3 over 80/512; observed max=3 over 80/512
 CENSUS format=bf16 field=raw[f32_act] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=raw[f32_act] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[f32_act] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -597,7 +616,7 @@ POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 iden
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
 CHECK every declared-exact field is bit-identical to the oracle        want=0          got=0          256 fields / 241706 words exact
-CHECK every counted field stays inside the band the floor probe measured want=0          got=1          case 2 field act: 3 ULP exceeds the probe's 2
+CHECK every counted field stays inside the band the floor probe measured want=0          got=0          2 counted fields, 81 of 513 words diverging, all inside their own domain's band
 CHECK every counted divergence is isolated, not a systematic shift     want=0          got=0          none
 SUMMARY exact_fields=256 exact_words=241706 counted_fields=2 counted_words=513 counted_diverging=81
 CHECK weight-read counters equal the geometry-derived counts on every case want=43         got=43         all cases
@@ -607,12 +626,7 @@ CHECK each arm's own bad-counter equals the driver's counted-field divergence fo
 CHECK every injection fires against the honest words                   want=11         got=11         families=11 cast_after,cols_half,down_half,f32_act,layout_pair_swap,layout_row_inter,layout_up_first,perchan_gate,row_shift1,tail_drop,wide_misread
 CHECK the declared blindness holds: pair_swap is invisible in gate/up and visible in act want=pair_swap invisible in the two dots got=ok         case 6 gate=0 up=0 act=507
 CHECK up_first is NOT blind in act (the sibling row swap changes which half gets silu) want=>=1 case   got=1          case 4 act=507
-CHECK grouped and per-case launches produce the same words (launch split is inert) want=0          got=0          launches grouped=4 per_case=172 (word identity, not timing)
-CHECK launch counts are what the plan says                             want=4 and 172  got=4 and 172  blocks per launch differ as well: 172,680,731 vs 4,16,17
-CHECK device arm parsed==printed for W                                 want=12         got=12         
-CHECK device arm parsed==printed for A                                 want=32         got=32         
-CHECK device arm parsed==printed for C                                 want=43         got=43         
-WIDTH WIDTH tensor=<type-derived:Q8_0> ggml_type=Q8_0(id=?) bpw=8.5000 bpw_independent=8.5000 q8_or_above=1 rule=bpw>=8.0 source=pinned ggml-common.h
+WIDTH WIDTH tensor=<type-derived:Q8_0> ggml_type=Q8_0(id=?) bpw=8.5000 bpw_independent=8.5000 q8_or_above=1 rule=bpw>=8.0 source=pinned ggml-common.h arm=CONTROL each-field-gets-the-other-probe-band
 CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -635,14 +649,14 @@ CENSUS format=bf16 field=raw[cast_after] judged=2048 identical=2048 differing=0 
 POLICY field=raw[cast_after] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[cast_after] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=out[cast_after] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
-CENSUS format=f32 field=prob judged=1 identical=0 differing=1 categories[finite_step=1] ulp_histogram[2:1] max_ulp=2 subnormal_diverging=0 case=1 label=cast_after width=f32 counted=1 band=2
-POLICYLINE case=1 field=prob verdict=counted-and-attributed attribution=expf route, numpy side of the oracle; floor probe measured 2 ULP over the whole bf16 grid, observed max=2 over 1/1 isolation=not-defined-for-a-1-element-field(band_judges_it)
+CENSUS format=f32 field=prob judged=1 identical=0 differing=1 categories[finite_step=1] ulp_histogram[2:1] max_ulp=2 subnormal_diverging=0 case=1 label=cast_after width=f32 counted=1 band=4 domain=bf16_input CONTROL each-field-gets-the-other-probe-band
+POLICYLINE case=1 field=prob verdict=counted-and-attributed attribution=expf route, numpy side of the oracle; domain=bf16_input; probe=work/floor_probe_act_np.py domain=the fixture's own f32 (gate,up) dot pairs; legs c=2 numpy=2 band=4 (whole-fixture dot domain 3+3=6); measured c-vs-numpy on the field's own 512 pairs: max=3 over 80/512; observed max=2 over 1/1 isolation=not-defined-for-1-element-field(band_judges_it)
 CENSUS format=f32 field=gate[f32_act] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=gate[f32_act] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
 CENSUS format=f32 field=up[f32_act] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=up[f32_act] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
-CENSUS format=f32 field=act judged=512 identical=432 differing=80 categories[equal=432 finite_step=80] ulp_histogram[1:53 2:25 3:2] max_ulp=3 subnormal_diverging=0 case=2 label=f32_act width=f32 counted=1 band=2
-POLICYLINE case=2 field=act verdict=REFUSED attribution=expf route, numpy side of the oracle; floor probe measured 2 ULP over the whole bf16 grid, observed max=3 over 80/512
+CENSUS format=f32 field=act judged=512 identical=432 differing=80 categories[equal=432 finite_step=80] ulp_histogram[1:54 2:24 3:2] max_ulp=3 subnormal_diverging=0 case=2 label=f32_act width=f32 counted=1 band=2 domain=f32_dot CONTROL each-field-gets-the-other-probe-band
+POLICYLINE case=2 field=act verdict=REFUSED attribution=expf route, numpy side of the oracle; domain=f32_dot; exp probe domain=every bf16 input pattern, which is what sigmoid(bf16(t)) can hand the transcendental; observed max=3 over 80/512
 CENSUS format=bf16 field=raw[f32_act] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=raw[f32_act] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
 CENSUS format=bf16 field=out[f32_act] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
@@ -1130,7 +1144,548 @@ POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 iden
 CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
 POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
 CHECK every declared-exact field is bit-identical to the oracle        want=0          got=0          256 fields / 241706 words exact
-CHECK every counted field stays inside the band the floor probe measured want=0          got=1          case 2 field act: 3 ULP exceeds the probe's 2
+CHECK every counted field stays inside the band the floor probe measured want=0          got=1          case 2 field act: 3 ULP exceeds the probe's 2 (exp probe domain=every bf16 input pattern, which is what sigmoid(bf16(t)) can hand the transcendental)
+CHECK every counted divergence is isolated, not a systematic shift     want=0          got=0          none
+BANDCONTROL wrong_domain_refused=1 arm_refused=0 scratch_red=1 verdict_rows_moved=0
+CHECK the band refusal still fires when each counted field is judged by the probe that does not cover its domain want=counted fields refused under the wrong ruler, none refused in the arm got=1 refused, 0 refused in the arm case 2 act
+CHECK the wrong-domain control is red on its own scratch board and leaves the verdict alone want=scratch red, verdict rows unmoved got=scratch=1 rows_moved=0 failed_moved=0 a control that quietly adds checks to the run, or cannot make its own board red, is a control that measures nothing
+CHECK host write-ownership probe printed every violation it counted, per stage and in total want=0          got=0 lines, 0 violations 1_gateup: 0/0; 2_down: 0/0; 3_prob: 0/0; 4_out: 0/0
+CHECK host write-ownership probe compared every word of every case in every stage want=4 x 242219 words got=968876 (cases=43) a stage that watched less than the whole record could not see a write across a boundary
+CHECK host write-ownership table tiles one case record exactly         want=ok         got=ok         the four owned spans must cover gate|up|act|raw|out|prob with no gap and no overlap, or a field could be owned by nobody and the probe would still print 0
+CHECK host write-ownership probe ran on a launch split it can attribute want=attributable=yes mode=grouped got=attributable=yes mode=grouped in per-case mode stage 1 of the next case runs after stage 4 of this one, so a zero there would be an unusable instrument reporting success
+CHECK no stage writes a word outside the field its stage owns          want=0          got=0          every stage stayed inside its region
+OWNERSHIPCONTROLSEEN OWNERSHIP stage=1 group=1_gateup case=0 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+CHECK the stage-1 (1_gateup) ownership control fires the probe with a named violation want=43 cases each leak one word, rc=0 got=43 lines, 43 cases, rc=0, verdict=probe-caught-it OWNERSHIP stage=1 group=1_gateup case=0 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIPCONTROLSEEN OWNERSHIP stage=2 group=2_down case=0 field=act idx=1024 before=0xBC3A0000 after=0x4C45414B
+CHECK the stage-2 (2_down) ownership control fires the probe with a named violation want=43 cases each leak one word, rc=0 got=43 lines, 43 cases, rc=0, verdict=probe-caught-it OWNERSHIP stage=2 group=2_down case=0 field=act idx=1024 before=0xBC3A0000 after=0x4C45414B
+OWNERSHIPCONTROLSEEN OWNERSHIP stage=3 group=3_prob case=0 field=raw idx=1536 before=0x3D760000 after=0x4C45414B
+CHECK the stage-3 (3_prob) ownership control fires the probe with a named violation want=43 cases each leak one word, rc=0 got=43 lines, 43 cases, rc=0, verdict=probe-caught-it OWNERSHIP stage=3 group=3_prob case=0 field=raw idx=1536 before=0x3D760000 after=0x4C45414B
+OWNERSHIPCONTROLSEEN OWNERSHIP stage=4 group=4_out case=0 field=raw idx=3583 before=0x3C930000 after=0x4C45414B
+CHECK the stage-4 (4_out) ownership control fires the probe with a named violation want=43 cases each leak one word, rc=0 got=43 lines, 43 cases, rc=0, verdict=probe-caught-it OWNERSHIP stage=4 group=4_out case=0 field=raw idx=3583 before=0x3C930000 after=0x4C45414B
+CHECK grouped and per-case launches produce the same words (launch split is inert) want=0          got=0          launches grouped=4 per_case=172 (word identity, not timing)
+CHECK launch counts are what the plan says                             want=4 and 172  got=4 and 172  blocks per launch differ as well: 172,680,731 vs 4,16,17
+CHECK device arm parsed==printed for W                                 want=12         got=12         
+CHECK device arm parsed==printed for A                                 want=32         got=32         
+CHECK device arm parsed==printed for C                                 want=43         got=43         
+WIDTH WIDTH tensor=<type-derived:Q8_0> ggml_type=Q8_0(id=?) bpw=8.5000 bpw_independent=8.5000 q8_or_above=1 rule=bpw>=8.0 source=pinned ggml-common.h arm=arm=device
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[cast_after] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[cast_after] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[cast_after] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[cast_after] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[cast_after] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[cast_after] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[cast_after] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[cast_after] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[cast_after] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[cast_after] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=prob judged=1 identical=0 differing=1 categories[finite_step=1] ulp_histogram[2:1] max_ulp=2 subnormal_diverging=0 case=1 label=cast_after width=f32 counted=1 band=2 domain=bf16_input arm=device
+POLICYLINE case=1 field=prob verdict=counted-and-attributed attribution=expf route, numpy side of the oracle; domain=bf16_input; exp probe domain=every bf16 input pattern, which is what sigmoid(bf16(t)) can hand the transcendental; observed max=2 over 1/1 isolation=not-defined-for-1-element-field(band_judges_it)
+CENSUS format=f32 field=gate[f32_act] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[f32_act] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[f32_act] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[f32_act] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=act judged=512 identical=432 differing=80 categories[equal=432 finite_step=80] ulp_histogram[1:53 2:25 3:2] max_ulp=3 subnormal_diverging=0 case=2 label=f32_act width=f32 counted=1 band=4 domain=f32_dot arm=device
+POLICYLINE case=2 field=act verdict=counted-and-attributed attribution=expf route, numpy side of the oracle; domain=f32_dot; probe=work/floor_probe_act_np.py domain=the fixture's own f32 (gate,up) dot pairs; legs c=2 numpy=2 band=4 (whole-fixture dot domain 3+3=6); measured c-vs-numpy on the field's own 512 pairs: max=3 over 80/512; observed max=3 over 80/512
+CENSUS format=bf16 field=raw[f32_act] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[f32_act] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[f32_act] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[f32_act] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[f32_act] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[f32_act] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[perchan_gate] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[perchan_gate] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[perchan_gate] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[perchan_gate] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[perchan_gate] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[perchan_gate] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[perchan_gate] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[perchan_gate] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[perchan_gate] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[perchan_gate] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[perchan_gate] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[perchan_gate] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[layout_up_first] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[layout_up_first] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[layout_up_first] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[layout_up_first] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[layout_up_first] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[layout_up_first] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[layout_up_first] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[layout_up_first] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[layout_up_first] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[layout_up_first] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[layout_up_first] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[layout_up_first] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[layout_row_inter] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[layout_row_inter] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[layout_row_inter] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[layout_row_inter] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[layout_row_inter] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[layout_row_inter] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[layout_row_inter] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[layout_row_inter] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[layout_row_inter] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[layout_row_inter] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[layout_row_inter] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[layout_row_inter] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[layout_pair_swap] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[layout_pair_swap] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[layout_pair_swap] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[layout_pair_swap] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[layout_pair_swap] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[layout_pair_swap] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[layout_pair_swap] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[layout_pair_swap] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[layout_pair_swap] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[layout_pair_swap] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[layout_pair_swap] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[layout_pair_swap] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[row_shift1] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[row_shift1] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[row_shift1] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[row_shift1] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[row_shift1] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[row_shift1] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[row_shift1] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[row_shift1] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[row_shift1] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[row_shift1] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[row_shift1] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[row_shift1] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[tail_drop] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[tail_drop] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[tail_drop] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[tail_drop] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[tail_drop] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[tail_drop] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[tail_drop] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[tail_drop] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[tail_drop] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[tail_drop] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[tail_drop] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[tail_drop] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[cols_half] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[cols_half] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[cols_half] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[cols_half] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[cols_half] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[cols_half] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[cols_half] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[cols_half] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[cols_half] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[cols_half] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[cols_half] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[cols_half] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[down_half] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[down_half] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[down_half] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[down_half] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[down_half] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[down_half] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[down_half] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[down_half] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[down_half] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[down_half] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[down_half] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[down_half] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[wide_misread] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[wide_misread] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[wide_misread] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[wide_misread] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[wide_misread] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[wide_misread] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[wide_misread] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[wide_misread] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[wide_misread] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[wide_misread] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[wide_misread] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[wide_misread] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=gate[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=gate[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=f32 field=up[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=up[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=act[honest] judged=512 identical=512 differing=0 categories[equal=512] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=act[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 512/512 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=raw[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=raw[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=out[honest] judged=2048 identical=2048 differing=0 categories[equal=2048] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=out[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 2048/2048 identical, no acceptance was needed] attribution=none
+CENSUS format=bf16 field=prob[honest] judged=1 identical=1 differing=0 categories[equal=1] ulp_histogram[none] max_ulp=0 subnormal_diverging=0
+POLICY field=prob[honest] width=Q8_0 verdict=ACCEPT reasons[exact: 1/1 identical, no acceptance was needed] attribution=none
+CHECK every declared-exact field is bit-identical to the oracle        want=0          got=0          256 fields / 241706 words exact
+CHECK every counted field stays inside the band the floor probe measured want=0          got=0          2 counted fields, 81 of 513 words diverging, all inside their own domain's band
 CHECK every counted divergence is isolated, not a systematic shift     want=0          got=0          none
 SUMMARY exact_fields=256 exact_words=241706 counted_fields=2 counted_words=513 counted_diverging=81
 CHECK weight-read counters equal the geometry-derived counts on every case want=43         got=43         all cases
@@ -1143,9 +1698,19 @@ CHECK up_first is NOT blind in act (the sibling row swap changes which half gets
 CHECK host and device agree bit-for-bit in every declared-exact field  want=0          got=0          2 counted fields exempt
 CROSSARM whole_buffer differing_words=8 of 242219 (reported, not asserted: the assertion is per declared field)
 CHECK the device's own launch counter equals the launches issued       want=4          got=4          
-CHECK the write-ownership probe printed every violation it counted     want=0          got=0          driver counted 0, printed 0 lines, this parser recounted 0
-CHECK the write-ownership probe compared every word stage 3 does not own want=154112     got=154112     43 cases x floats before `out` (gate|up|act|raw)
-CHECK no stage writes a word outside the field its stage owns          want=0          got=0          every stage stayed inside its declared spans
+CHECK device write-ownership probe printed every violation it counted, per stage and in total want=0          got=0 lines, 0 violations 1_gateup: 0/0; 2_down: 0/0; 3_prob: 0/0; 4_out: 0/0
+CHECK device write-ownership probe compared every word of every case in every stage want=4 x 242219 words got=968876 (cases=43) a stage that watched less than the whole record could not see a write across a boundary
+CHECK device write-ownership table tiles one case record exactly       want=ok         got=ok         the four owned spans must cover gate|up|act|raw|out|prob with no gap and no overlap, or a field could be owned by nobody and the probe would still print 0
+CHECK device write-ownership probe ran on a launch split it can attribute want=attributable=yes mode=grouped got=attributable=yes mode=grouped in per-case mode stage 1 of the next case runs after stage 4 of this one, so a zero there would be an unusable instrument reporting success
+CHECK no stage writes a word outside the field its stage owns          want=0          got=0          every stage stayed inside its region
+OWNERSHIPCONTROLSEEN OWNERSHIP stage=1 group=1_gateup case=0 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+CHECK the stage-1 (1_gateup) ownership control fires the probe with a named violation want=43 cases each leak one word, rc=0 got=43 lines, 43 cases, rc=0, verdict=probe-caught-it OWNERSHIP stage=1 group=1_gateup case=0 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIPCONTROLSEEN OWNERSHIP stage=2 group=2_down case=0 field=act idx=1024 before=0xBC3A0000 after=0x4C45414B
+CHECK the stage-2 (2_down) ownership control fires the probe with a named violation want=43 cases each leak one word, rc=0 got=43 lines, 43 cases, rc=0, verdict=probe-caught-it OWNERSHIP stage=2 group=2_down case=0 field=act idx=1024 before=0xBC3A0000 after=0x4C45414B
+OWNERSHIPCONTROLSEEN OWNERSHIP stage=3 group=3_prob case=0 field=raw idx=1536 before=0x3D760000 after=0x4C45414B
+CHECK the stage-3 (3_prob) ownership control fires the probe with a named violation want=43 cases each leak one word, rc=0 got=43 lines, 43 cases, rc=0, verdict=probe-caught-it OWNERSHIP stage=3 group=3_prob case=0 field=raw idx=1536 before=0x3D760000 after=0x4C45414B
+OWNERSHIPCONTROLSEEN OWNERSHIP stage=4 group=4_out case=0 field=raw idx=3583 before=0x3C930000 after=0x4C45414B
+CHECK the stage-4 (4_out) ownership control fires the probe with a named violation want=43 cases each leak one word, rc=0 got=43 lines, 43 cases, rc=0, verdict=probe-caught-it OWNERSHIP stage=4 group=4_out case=0 field=raw idx=3583 before=0x3C930000 after=0x4C45414B
 OCCUPANCYDEV cu_hipreported=20 lds_per_cu=65536 warp_size=32
 OCCUPANCY kernel=se_canary_empty blocks_per_cu=16 threads=128 wavefronts_per_cu=64 canary=1
 OCCUPANCY kernel=se_canary_full_lds blocks_per_cu=1 threads=128 wavefronts_per_cu=4 canary=1
@@ -1165,13 +1730,11 @@ LAUNCHBILL merge_denied=gateup->down reason=every down row needs all 512 act val
 CHECK census slicer is witnessed (empty stub < 8-multiply stub < 16-multiply stub) want=ok         got=ok         empty=0 eight=17 sixteen=33
 CHECK the census prices the machine KFD reports, not the one HIP reports want=40         got=40         hipDeviceAttributeMultiprocessorCount says 20 here (pitfalls/20)
 CHECK every kernel's slot bill is printed beside its occupancy         want=>=6        got=9          blocks_per_cu and wavefronts_per_simd on the same line
-SUMMARY device gate checks=79 failed=2
-FAILED every counted field stays inside the band the floor probe measured
-FAILED every counted field stays inside the band the floor probe measured
+SUMMARY device gate checks=101 failed=0
 no timing taken
-RESULT FAIL (device gate): 2 of 79 checks failed: every counted field stays inside the band the floor probe measured; every counted field stays inside the band the floor probe measured
-UTIL_AFTER gpu use: 7%
-WALL started=2026-10-25T21:02:37Z finished=2026-10-25T21:02:46Z  (lock record only; no timing taken)
+RESULT PASS (device gate): 101 checks, three arms exercised, no timing taken
+UTIL_AFTER gpu use: 12%
+WALL started=2026-10-25T22:03:18Z finished=2026-10-25T22:03:28Z  (lock record only; no timing taken)
 no timing taken
 LOG /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/shared_expert/evidence/shared-expert-device-2026-10-26.log
 LOCK releasing

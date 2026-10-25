@@ -1,0 +1,53 @@
+OWNERSHIP stage=1 group=1_gateup case=0 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=1 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=2 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=3 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=4 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=5 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=6 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=7 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=8 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=9 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=10 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=11 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=12 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=13 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=14 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=15 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=16 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=17 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=18 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=19 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=20 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=21 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=22 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=23 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=24 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=25 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=26 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=27 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=28 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=29 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=30 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=31 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=32 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=33 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=34 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=35 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=36 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=37 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=38 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=39 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=40 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=41 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIP stage=1 group=1_gateup case=42 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B
+OWNERSHIPSTAGE stage=1 group=1_gateup owns=gate|up|act compared=242219 violations=43 lines=43
+OWNERSHIPSTAGE stage=2 group=2_down owns=raw compared=242219 violations=0 lines=0
+OWNERSHIPSTAGE stage=3 group=3_prob owns=prob compared=242219 violations=0 lines=0
+OWNERSHIPSTAGE stage=4 group=4_out owns=out compared=242219 violations=0 lines=0
+OWNERSHIPSUMMARY stages=4 cases=43 compared=968876 violations=43 lines=43 partition=ok attributable=yes mode=grouped inject=1
+OWNERSHIPCONTROL stage=1 group=1_gateup expected_cases=43 fired=43 verdict=probe-caught-it
+PLAN W=12/12 A=32/32 C=43/43 slab=13533184 expect=242219 out=242219
+LAUNCHES mode=grouped issued=4 device_counted=4 blocks_stage1=215 stage2=680 stage3=731 threads=128 wg_per_launch_grouped=215,680,731 wg_per_launch_per_case=4,16,17
+ARM host compiled=gpp
+no timing taken

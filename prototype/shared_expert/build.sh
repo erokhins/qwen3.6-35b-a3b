@@ -50,5 +50,10 @@ mkdir -p "$HERE/work/isa"
 "$CXX" -O2 -std=c++11 -Wall -Wextra -ffp-contract=off -I"$HERE" \
       -c "$HERE/host_probe.cpp" -o "$BUILD/host_probe.o"
 "$CXX" -O2 $RPATH "$BUILD/host_probe.o" -o "$PROBE"
-echo "BUILD ok binaries=$BIN $PROBE"
+# The act floor probe is part of the build, not an ad-hoc compile: it evaluates the SAME
+# `se_swiglu` the kernel runs, so it must be built with the same contraction flags or its "leg" is a
+# different route. gate.py also builds it on demand if the binary is absent (a missing probe must
+# fail loudly, never default a band).
+"$CXX" -O2 -std=c++11 -ffp-contract=off -I"$HERE" "$HERE/work/floor_probe_act.c" -o "$HERE/work/floor_probe_act" -lm
+echo "BUILD ok binaries=$BIN $PROBE probe=$HERE/work/floor_probe_act"
 echo "BUILD note compile only; no device was touched and no timing taken"

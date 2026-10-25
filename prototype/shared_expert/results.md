@@ -8,22 +8,34 @@ wrapper's `WALL started=… finished=… (lock record only; no timing taken)` li
 
 ```
 host witnesses:  RESULT PASS (host witnesses only): 12 checks, three arms exercised, no timing taken
-device gate:     RESULT FAIL (device gate): 7 of 76 checks failed: every counted field stays inside
-                 the band the floor probe measured; every declared-exact field is bit-identical to the
-                 oracle; every counted field stays inside the band the floor probe measured;
-                 weight-read counters equal the geometry-derived counts on every case; poison holes
-                 are counted, not skipped, and match the expectation; each arm's own bad-counter
-                 equals the driver's counted-field divergence for that case
+host gate:       RESULT PASS (host gate): 67 checks, three arms exercised, no timing taken
+device gate:     RESULT PASS (device gate): 101 checks, three arms exercised, no timing taken
+
+device gate BEFORE this task, from evidence/shared-expert-device-2026-10-26-before-band-and-ownership:
+device gate:     RESULT FAIL (device gate): 2 of 79 checks failed: every counted field stays inside
+                 the band the floor probe measured; every counted field stays inside the band the
+                 floor probe measured
 ```
 
-76 checks, 7 failing. Every one of the 7 is a **device-arm** finding or a floor-probe scope finding;
-the host arm is green except the counted-act band, which fails identically in both arms and is
-attributed below (`UNVERIFIED by probe domain`, not tolerance). Full per-check table with want/got
-per arm: `evidence/check-enumeration-2026-10-26.tsv` (76 parsed = 76 printed, derived by
-`work/enumerate_checks.py`; the driver printed 7 `FAILED` lines and the table derives 7).
+101 checks, 0 failing. The device gate was **2 of 79 red** before this task — both failures the same
+item, `case 2 field act: 3 ULP exceeds the probe's 2`, the one honest `UNVERIFIED by probe domain` item
+recorded below — and the 22 checks this task added are all green with their controls shown firing. The
+band that moved did so because a probe now measures the domain the field lives in (act probe section
+below); nothing was widened by hand, and the refusal that moved is exercised on every run by two named
+controls (`the band refusal still fires …`, `the stage-N (…) ownership control fires …`). The new checks
+are: 6 from the act probe (band derivation, coverage, population identity, triangle, census identity,
+build), 8 per-stage ownership controls, 8 per-arm ownership coverage checks (4 per arm) and 2
+band-refusal control checks. Full per-check table for the older 76-check run: `evidence/check-
+enumeration-2026-10-26.tsv` (derived by `work/enumerate_checks.py`; the total has moved twice since —
+the tail fix and this task — so that table is a snapshot of the run it names, not a live total).
 
 Transcripts: `evidence/shared-expert-device-2026-10-26.log` (the device run, tee'd, includes the width
-anchor), `evidence/shared-expert-host-2026-10-26.log` (host witnesses, no device, no lock).
+anchor and every control), `evidence/shared-expert-host-2026-10-26.log` (host witnesses, no device, no
+lock), `evidence/floor-probe-act-2026-10-26.log` (the act floor probe's own output),
+`evidence/device-ownership-stages-2026-10-26.log` (the four per-stage lines the device arm printed),
+`evidence/control-ownership-{device,host}-stage{1,2,3,4}-2026-10-26.log` (each stage's leaked-write
+control, shown firing 43 times), `evidence/shared-expert-device-2026-10-26-before-band-and-ownership.log`
+(the 2-of-79 transcript this task replaced).
 
 ## What the lane had to fix before the device arm could run at all
 
@@ -133,33 +145,68 @@ The comparator separates them: for case 1 every field is bit-identical to the ho
 `work/dbg_case_fields.py`. So the claim is not "both spellings look the same": the field layout makes
 the spelling visible, and the census prints it.
 
-### (d) host ↔ device divergence — attributed, with one item explicitly UNVERIFIED
+### (d) host ↔ device divergence — attributed, with the transcendental band now measured in its own domain
 
-1. **`raw[2047]` / `out[2047]` — the last output column, on the device only. Attributed to a device
-   tail defect, not tolerance.** All 48 host↔device differing words are at index **2047** of `raw` and
-   `out` (`evidence/device-tail-column-divergence-2026-10-26.log`, produced by
-   `work/dbg_device_word_diff.py`), i.e. `h = H-1` of the down stage, and they are **not** adjacent
-   bf16 values (honest `raw[2047]=0x3C93`=0.017944 vs device `0xBBD9`=-0.006622 — different values,
-   not a rounding step). The count of differing words also changed between two identical-code device
-   runs: 73, then 56, then 48. A number that moves between runs is not a rounding rule; it points at
-   the last column being read or written outside what the down stage initialises. NOT root-caused
-   further here (fixing the kernel is out of this task's scope). The `poison holes … case 10 down_half
-   report=2047 file=2047 expect=2048` failure is the same tail boundary: one hole the oracle leaves
-   NaN is filled on the device.
+1. **`raw[2047]` / `out[2047]` — the last output column, on the device only. CLOSED by the committed
+   tail fix (`980fac7`), recorded here because this file predates it.** That revision root-caused the
+   moving divergence count as a leaked sentinel item — a thread computing column `-1` — and its
+   before/after prediction logs are `evidence/tail-ownership-prediction-{prefix,postfix}-2026-10-26.log`.
+   In the current transcript the device arm is bit-identical to the oracle in every declared field
+   (`256 fields / 241706 words exact`), host and device agree bit-for-bit with only the two counted f32
+   fields exempt, and the whole-buffer cross-arm difference is 8 words — all of them inside the counted
+   fields. The leaked-sentinel defect class is now a standing probe, not a fixed-and-forgotten bug: see
+   “Write ownership, per stage”.
 2. **`reads_sg = 34816` where geometry says 2048 — attributed by construction.** The prob stage
    launches `1 + H/THREADS = 17` blocks per case and every one of them counts the full `sg` row, so
    the device reads the 2048-element shared-expert-gate row 17 times per case. The counter is telling
    the truth; the stage is doing redundant work. That is a real per-token cost finding for whoever
    prices the block, not a counter bug.
-3. **`f32_act` `act` field at 3 ULP against a 2-ULP band — `UNVERIFIED by probe domain`.** The band
-   comes from `work/floor_probe_exp.c` + `work/floor_probe_exp_np.py`, which measure `expf`/`sigmoid`
+3. **`f32_act` `act` field at 3 ULP — CLOSED by measurement, not by widening.** The band used to come
+   from `work/floor_probe_exp.c` + `work/floor_probe_exp_np.py`, which measure `expf`/`sigmoid`
    disagreement between glibc and numpy over **every bf16 input** (34194 values, `max_ulp=2`,
-   `sigmoid_diff_after_bf16_store=0`). The field that fails carries `silu(gate)·up` over **f32 dot
-   products**, a domain the probe does not cover. The census is honest about it:
-   `field=act judged=512 identical=432 differing=80 ulp_histogram[1:53 2:25 3:2] max_ulp=3 … band=2`,
-   and the policy line says `verdict=REFUSED`. The band was **not** widened. To close it the floor probe
-   must be re-run over the actual `gate` value range of the fixture, and until then this field is
-   UNVERIFIED, not accepted.
+   `sigmoid_diff_after_bf16_store=0`). That domain does not contain this field: `act` carries
+   `silu(gate)·up`, so the transcendental sees an **f32 dot product**, not a bf16 value. The band was
+   therefore re-measured where the field lives, in its own probe `work/floor_probe_act.c` +
+   `work/floor_probe_act_np.py`, and the driver now maps each counted field to the probe that covers it
+   (domain `bf16_input` → the exp probe, domain `f32_dot` → the act probe; the header declares the
+   domain, there is no fallback).
+
+   *Input domain, and how it was derived*: the population is **every f32 `(gate, up)` dot pair the
+   fixture carries** — 43 cases × 512 columns = 22016 pairs, of which the 512 pairs belonging to the
+   `f32_act` case are the judged subset. Those pairs are the exact f32 products the field is built from,
+   taken from the oracle's own expect dump, and the probe refuses to measure anything until its emitted
+   table is asserted bit-identical to the arm's words: `FLOOREXP_ACT_C pairs_read=22016 pairs_emitted=
+   22016 malformed=0 hull_gate=C08F5D21..40437671` (−4.48011827 .. 3.05410409) and `FLOOREXP_ACT_POP
+   cases_probed=43 pairs=22016 judged_pairs=512 arm_words_identical_to_oracle=22016 distinct_gate=18425
+   distinct_up=18431`. It is exhaustive over the field, not over the bf16 grid: the continuum inside the
+   gate×up hull is ~10⁹ patterns, so the claim is “every value this fixture actually carries”, and the
+   driver re-derives the field's census independently and requires the probe's numbers to be it
+   (`the census it reports on the field's pairs IS the field's census`, judged=512 differing=80 max=3).
+
+   *Factor, derived and printed* (the same shape the GDN band derivation uses: two probe legs to one
+   anchor, licensed divergence is their **sum**, because the two legs' worst cases need not coincide —
+   that is the triangle-inequality slack, and it is stated instead of hidden):
+   ```
+   FLOOREXP_ACT_DERIVE derivation=triangle-inequality-on-floor-probe leg_c_all=3 leg_np_all=3 band_all=6
+                                              leg_c_field=2 leg_np_field=2 band_field=4 licensed=band_field
+   FLOOREXP_ACT_TRI rows=22016 per_row_violations=0 direct_max=4 band_all=6 direct_field=3 band_field=4
+   FLOOREXP_ACT max_ulp_f32=4 legs=2+2 domain=every f32 (gate,up) dot pair the fixture carries
+   ```
+   leg 1 is the shipping C kernel against an anchor (the f64 exact value rounded to f32): max 3 over the
+   domain, **2 over the field's own pairs**. leg 2 is the oracle's **own** `silu_f32` (`oracle_arm.py`,
+   imported, not re-implemented) against the same anchor: max 3, **2** over the field. The band is
+   2+2=**4** for the judged field; the whole-fixture figures (3+3=6) are printed but only the judged
+   field's band is licensed, and a probe whose population did not contain the judged field refuses. No
+   typed factor exists anywhere, and the driver re-derives each counted band from the legs the probe
+   prints — a hand-edited band that does not equal its legs is a red check.
+
+   The measured field then sits inside it: `field=act judged=512 identical=432 differing=80
+   ulp_histogram[1:54 2:24 3:2] max_ulp=3 … band=4 domain=f32_dot` → `POLICYLINE case=2 field=act
+   verdict=counted-and-attributed`. The refusal machinery is intact and shown firing every run: the
+   `each-field-gets-the-other-probe-band` control judges `act` by the bf16 probe and the same line
+   prints `verdict=REFUSED` — `BANDCONTROL wrong_domain_refused=1 arm_refused=0 scratch_red=1
+   verdict_rows_moved=0`, with two named checks requiring that refusal to appear and requiring the
+   control's own board to go red while the verdict table stays unmoved.
 4. **The `cast_after` `prob` word at 2 ULP — counted and attributed**: same expf route (C `expf` vs
    numpy), at the probe's measured ceiling, on a 1-element field where the band is the only possible
    ruler (`isolation=not-defined-for-a-1-element-field(band_judges_it)`).
@@ -171,12 +218,57 @@ the spelling visible, and the census prints it.
 | claim | status | what the digest provably detects |
 |---|---|---|
 | gate, up (f32 dots) vs oracle | **bit-exact** (256 exact fields / 241706 words, host arm) | any change of dot order, of Q8 scale rule, or of row map: 1 of 2048 words differing is reported |
-| `raw`, `out` (bf16) host arm vs oracle | **bit-exact** on host; **device FAILS at h=2047** (48 words) — attributed to the tail defect above, not tolerance | same, plus the poison-hole count |
+| `raw`, `out` (bf16) host arm vs oracle | **bit-exact** on host **and** device (the device `h=2047` failure is closed by `980fac7`, see (d)(1)) | same, plus the poison-hole count |
 | `prob` (bf16, reference cast order) | **bit-exact** | the cast-order claim itself: `cast_after` moves it 1/1 |
-| `act` of the `f32_act` case | **counted-and-reported**, band 2 from the floor probe; observed 3 → **REFUSED / UNVERIFIED by probe domain** | an expf/silu libm disagreement, and the probe's own coverage gap |
+| `act` of the `f32_act` case | **counted-and-attributed**, band 4 measured on the fixture's own f32 dot pairs (legs 2+2); observed 3 | an expf/silu libm disagreement, now priced in the domain the field actually carries |
 | `prob` of the `cast_after` case | **counted-and-attributed** at 2 ULP | the same, at the ceiling |
 | Q8_0 width of the fixture bytes | **bit-exact rule against the published tensor's rule** (relL2 0.00612 vs 0.00613), clamp rate inside the geometric bound | any other scale divisor: 52.6 % clamp rate, relL2 0.59, refused |
-| device output as a whole | **NOT established** — see (d)(1) | |
+| device output as a whole | **bit-exact to the oracle in every declared field** (256 fields / 241706 words); host↔device differ in 8 words, all of them in the two counted f32 fields | any write outside the stage that owns a span — the per-stage ownership probe, shown firing on all 43 cases per stage | |
+
+## Write ownership, per stage (was: stage 3 only)
+
+The launch set is split into **four attributable groups** — `1_gateup` (gate|up|act), `2_down` (raw),
+`3_prob` (prob), `4_out` (out) — and the whole output buffer is snapshotted immediately before and after
+each group, on **both** binaries. The ownership table lives in `shared_expert_ownership.h`, included by
+the device driver and the host probe so the two cannot drift into two self-consistent layouts, and the
+driver re-checks that table against the case layout every run (`partition=ok`): if two stages owned the
+same span, or a field were owned by nobody, the probe would still print a tidy 0 and nothing else would
+notice. `compared` is the whole record span × the number of stages — not the owned span — because a stage
+that watched only its own field could not see a write across a boundary, and all 43 records are poisoned
+with a sentinel before any launch so an untouched hole is a wrong value rather than a plausible zero.
+
+```
+OWNERSHIPSTAGE stage=1 group=1_gateup owns=gate|up|act compared=242219 violations=0 lines=0
+OWNERSHIPSTAGE stage=2 group=2_down owns=raw compared=242219 violations=0 lines=0
+OWNERSHIPSTAGE stage=3 group=3_prob owns=prob compared=242219 violations=0 lines=0
+OWNERSHIPSTAGE stage=4 group=4_out owns=out compared=242219 violations=0 lines=0
+OWNERSHIPSUMMARY stages=4 cases=43 compared=968876 violations=0 lines=0 partition=ok attributable=yes mode=grouped inject=0
+```
+
+(device arm, `evidence/device-ownership-stages-2026-10-26.log`; the host arm prints the same four lines
+with `mode=grouped`; the per-case launch mode prints `attributable=no mode=per-case` and the driver
+refuses to accept it as evidence, because there stage 1 of case *n+1* runs after stage 4 of case *n*.)
+
+Every stage was then **shown able to fire** by reintroducing the leaked-sentinel defect at its own launch
+boundary: one extra item per case whose `dst_off` is `-1` (or `n_floats`), so exactly one thread writes
+the LEAK sentinel `0x4C45414B` into a field another stage owns. All four fire on all 43 cases, on both
+arms, naming case, field, index and both bit patterns — and the control is self-checking: a probe that
+misses an injection exits 4 with `verdict=PROBE-IS-DEAD` rather than printing a clean stage line.
+
+```
+OWNERSHIP stage=1 group=1_gateup case=0 field=raw idx=1536 before=0x7FC00000 after=0x4C45414B    ×43 cases
+OWNERSHIP stage=2 group=2_down  case=0 field=act idx=1024 before=0xBC3A0000 after=0x4C45414B    ×43 cases
+OWNERSHIP stage=3 group=3_prob  case=0 field=raw idx=1536 before=0x3D760000 after=0x4C45414B    ×43 cases
+OWNERSHIP stage=4 group=4_out   case=0 field=raw idx=3583 before=0x3C930000 after=0x4C45414B    ×43 cases
+OWNERSHIPCONTROL stage=N group=… expected_cases=43 fired=43 verdict=probe-caught-it
+```
+
+Stage 2's injection is the `980fac7` defect class reproduced on demand — a thread computing column `-1`
+carrying its poison default into stage 1's `act` field — and stage 4's is the same leak at the top edge
+of the record (`idx=3583`, the last `raw` word). The expected case count comes from the case list and the
+fired count is counted, never inferred. Full logs: `evidence/control-ownership-{device,host}-stage{1..4}
+-2026-10-26.log`. The honest run's own output is unchanged by all of this: the host probe's `work/host_out.f32`
+and `work/host_report.tsv` are `cmp`-identical to the pre-change files.
 
 ## Census (correctness-only arithmetic, no time)
 
@@ -221,12 +313,18 @@ runs.
 
 ## NOT ESTABLISHED
 
-* **`NOT ESTABLISHED:` the device arm produces a correct last output column.** All device-vs-reference
-  divergence is at `h=2047` of `raw`/`out`, non-adjacent in bf16, and its count varies between identical
-  device runs (73, 56, 48). Root cause not found in this task; it is a kernel bug, not a gate problem.
-* **`NOT ESTABLISHED:` the `f32_act` `act` field is within a defensible band.** The observed 3 ULP
-  exceeds the probe's 2 ULP because the probe measures the bf16 input grid and the field carries f32
-  dot products. Closing it means re-running the floor probe over the fixture's gate range.
+* **`NOT ESTABLISHED:` the act band licenses a *device* libm as well as a host one.** The probe's two
+  legs are glibc `expf` (the C leg, built by `build.sh`) and numpy's `exp` (the oracle leg). The device
+  arm is held to the same band by the same field check — and passes it, 3 ≤ 4 — but its own ROCm libm was
+  never the subject of a probe leg, so “the device transcendental is within 2 ULP of the anchor” is a
+  licensed borrowing from the C leg, not a measured device fact.
+* **`NOT ESTABLISHED:` the act probe's population is the live decode domain.** It is exhaustive over the
+  dot pairs this fixture carries (gate hull −4.48011827 .. 3.05410409, 22016 pairs), not over the f32
+  continuum: a gate dot outside that hull in real traffic is outside the measurement, and the probe says
+  so on its own line rather than pretending to be the bf16 grid probe’s exhaustive-by-bit-pattern case.
+* **`NOT ESTABLISHED:` write ownership in per-case launch mode.** The probe prints `attributable=no
+  mode=per-case` there and the driver refuses it as evidence; the per-case kernels are unchanged, so the
+  per-case numbers stay what they were, but their writes are not attributed to stages by anything.
 * **`NOT ESTABLISHED:` the device's `sg` re-read count (17× per case) is intended.** The counter is
   right; whether the stage should be 17 blocks was not decided here.
 * **`NOT ESTABLISHED:` any MTP-block behaviour.** `WIDTH mtp_tensors_in_file=0` — the published GGUF

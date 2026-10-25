@@ -1,0 +1,53 @@
+OWNERSHIPSTAGE stage=1 group=1_gateup owns=gate|up|act compared=242219 violations=0 lines=0
+OWNERSHIPSTAGE stage=2 group=2_down owns=raw compared=242219 violations=0 lines=0
+OWNERSHIP stage=3 group=3_prob case=0 field=raw idx=1536 before=0x3D760000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=1 field=raw idx=1536 before=0x3D760000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=2 field=raw idx=1536 before=0x3D750000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=3 field=raw idx=1536 before=0x3D760000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=4 field=raw idx=1536 before=0x3D810000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=5 field=raw idx=1536 before=0x3D120000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=6 field=raw idx=1536 before=0x3D810000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=7 field=raw idx=1536 before=0xBDD30000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=8 field=raw idx=1536 before=0x3D420000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=9 field=raw idx=1536 before=0xBB1E0000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=10 field=raw idx=1536 before=0x3D760000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=11 field=raw idx=1536 before=0x00000000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=12 field=raw idx=1536 before=0x3D6A0000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=13 field=raw idx=1536 before=0xBD140000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=14 field=raw idx=1536 before=0xBDC10000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=15 field=raw idx=1536 before=0xBCA60000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=16 field=raw idx=1536 before=0x3D2A0000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=17 field=raw idx=1536 before=0x3BC40000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=18 field=raw idx=1536 before=0x3D9E0000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=19 field=raw idx=1536 before=0x3CA60000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=20 field=raw idx=1536 before=0x3DB10000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=21 field=raw idx=1536 before=0xBCC10000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=22 field=raw idx=1536 before=0xBD780000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=23 field=raw idx=1536 before=0xBC860000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=24 field=raw idx=1536 before=0xBD690000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=25 field=raw idx=1536 before=0x3CEF0000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=26 field=raw idx=1536 before=0xBD6A0000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=27 field=raw idx=1536 before=0xBBA20000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=28 field=raw idx=1536 before=0x3BB90000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=29 field=raw idx=1536 before=0xBD0D0000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=30 field=raw idx=1536 before=0xBCAD0000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=31 field=raw idx=1536 before=0x3C640000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=32 field=raw idx=1536 before=0x3D290000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=33 field=raw idx=1536 before=0xBC200000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=34 field=raw idx=1536 before=0xBB730000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=35 field=raw idx=1536 before=0xBC3E0000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=36 field=raw idx=1536 before=0xBCD30000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=37 field=raw idx=1536 before=0xBCBC0000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=38 field=raw idx=1536 before=0x3CCF0000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=39 field=raw idx=1536 before=0xBCC90000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=40 field=raw idx=1536 before=0xBD160000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=41 field=raw idx=1536 before=0x3CCB0000 after=0x4C45414B
+OWNERSHIP stage=3 group=3_prob case=42 field=raw idx=1536 before=0xBCF90000 after=0x4C45414B
+OWNERSHIPSTAGE stage=3 group=3_prob owns=prob compared=242219 violations=43 lines=43
+OWNERSHIPSTAGE stage=4 group=4_out owns=out compared=242219 violations=0 lines=0
+OWNERSHIPSUMMARY stages=4 cases=43 compared=968876 violations=43 lines=43 partition=ok attributable=yes mode=grouped inject=3
+OWNERSHIPCONTROL stage=3 group=3_prob expected_cases=43 fired=43 verdict=probe-caught-it
+PLAN W=12/12 A=32/32 C=43/43 slab=13533184 expect=242219 out=242219
+LAUNCHES mode=grouped issued=4 device_counted=4 blocks_stage1=172 stage2=680 stage3=774 threads=128
+ARM device arch=gfx1151
+no timing taken

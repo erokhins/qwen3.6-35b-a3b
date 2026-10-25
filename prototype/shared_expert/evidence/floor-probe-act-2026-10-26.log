@@ -1,0 +1,15 @@
+FLOOREXP_ACT_C pairs_read=22016 pairs_emitted=22016 malformed=0 nonfinite_skipped=0 hull_gate=C08F5D21..40437671 hull_gate_min=-4.48011827 hull_gate_max=3.05410409
+route=se_swiglu(gate,up,f32_act=1) from shared_expert_kernels.h contract=off anchor=f64-route-rounded-to-f32-once
+no timing taken
+CENSUSACT format=f32 field=c-vs-anchor judged=22016 identical=12436 differing=9580 categories[equal=12436 finite_step=9580] ulp_histogram[1:9019 2:558 3:3] max_ulp=3 subnormal_diverging=0 probe=act-over-the-fixture-f32-dot-domain
+CENSUSACT format=f32 field=numpy-vs-anchor judged=22016 identical=11715 differing=10301 categories[equal=11715 finite_step=10301] ulp_histogram[1:9453 2:832 3:16] max_ulp=3 subnormal_diverging=0 probe=act-over-the-fixture-f32-dot-domain
+CENSUSACT format=f32 field=c-vs-numpy judged=22016 identical=18907 differing=3109 categories[equal=18907 finite_step=3109] ulp_histogram[1:2005 2:984 3:114 4:6] max_ulp=4 subnormal_diverging=0 probe=act-over-the-fixture-f32-dot-domain
+CENSUSACT format=f32 field=c-vs-anchor[judged_subset] judged=512 identical=305 differing=207 categories[equal=305 finite_step=207] ulp_histogram[1:194 2:13] max_ulp=2 subnormal_diverging=0 probe=act-over-the-f32_act-field-pairs
+CENSUSACT format=f32 field=numpy-vs-anchor[judged_subset] judged=512 identical=272 differing=240 categories[equal=272 finite_step=240] ulp_histogram[1:218 2:22] max_ulp=2 subnormal_diverging=0 probe=act-over-the-f32_act-field-pairs
+CENSUSACT format=f32 field=c-vs-numpy[judged_subset] judged=512 identical=432 differing=80 categories[equal=432 finite_step=80] ulp_histogram[1:54 2:24 3:2] max_ulp=3 subnormal_diverging=0 probe=act-over-the-f32_act-field-pairs
+FLOOREXP_ACT_POP cases_probed=43 pairs=22016 judged_pairs=512 arm_words_identical_to_oracle=22016 distinct_gate=18425 distinct_up=18431
+FLOOREXP_ACT_DERIVE derivation=triangle-inequality-on-floor-probe leg_c_all=3 leg_np_all=3 band_all=6 leg_c_field=2 leg_np_field=2 band_field=4 licensed=band_field
+FLOOREXP_ACT_TRI rows=22016 per_row_violations=0 direct_max=4 band_all=6 direct_field=3 band_field=4
+FLOOREXP_ACT max_ulp_f32=4 legs=2+2 domain=every f32 (gate,up) dot pair the fixture carries (22016 pairs, 512 of them the f32_act field itself); the band on an f32-carrying act field is this number, derived here and not chosen
+FLOOREXP_ACT verdict=domain-covered: the probe population is every value the judged field carries, on both sides
+no timing taken

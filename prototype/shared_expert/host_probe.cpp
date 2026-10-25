@@ -16,12 +16,14 @@
 #include <string.h>
 
 #include "shared_expert_kernels.h"
+#include "shared_expert_ownership.h"
 #include "shared_expert_selftest.h"
 
 typedef struct {
     const char *plan_path, *slab_path, *expect_path, *out_path, *report_path;
     int want_w, want_a, want_c, out_floats, expect_floats;
     int per_case;
+    int inject;                       /* 0 = honest run; 1..4 = ownership control on that stage */
 } Args;
 
 static int arg_int(const char *s, const char *why) {
@@ -45,10 +47,15 @@ static void parse(int argc, char **argv, Args *a) {
     a->plan_path = a->slab_path = a->expect_path = a->out_path = a->report_path = 0;
     a->want_w = a->want_a = a->want_c = a->out_floats = a->expect_floats = 0;
     a->per_case = 0;
+    a->inject = 0;
     for (int i = 1; i < argc; ++i) {
         const char *k = argv[i];
         const char *v = (i + 1 < argc) ? argv[i + 1] : 0;
         if (!strcmp(k, "--per-case")) { a->per_case = 1; continue; }
+        if (!strcmp(k, "--inject-ownership")) {
+            if (!v) { fprintf(stderr, "%s needs a value\n", k); exit(2); }
+            a->inject = arg_int(v, k); ++i; continue;
+        }
         if (!v) { fprintf(stderr, "%s needs a value\n", k); exit(2); }
         if (!strcmp(k, "--plan")) a->plan_path = v;
         else if (!strcmp(k, "--slab")) a->slab_path = v;
@@ -69,6 +76,15 @@ static void parse(int argc, char **argv, Args *a) {
                         "are all required\n");
         exit(2);
     }
+    if (a->inject < 0 || a->inject > 4) {
+        fprintf(stderr, "--inject-ownership takes 1..4 (the stage whose write is leaked)\n");
+        exit(2);
+    }
+    if (a->inject && a->per_case) {
+        fprintf(stderr, "--inject-ownership is defined for the grouped launch set; refusing a control "
+                        "whose write no snapshot could attribute\n");
+        exit(2);
+    }
 }
 
 /* The work decomposition, built ONCE and used by the host loops and (as a device buffer) by the
@@ -79,16 +95,17 @@ typedef struct { SeItem *s1, *s2, *s3; int n1, n2, n3; } SeWork;
 
 static int rows_of_mode(int mode) { return mode == SE_MODE_DOWN_HALF ? SE_H / 2 : SE_H; }
 
-static void work_build(const SePlan *p, SeWork *w) {
+static void work_build(const SePlan *p, SeWork *w, int inject) {
     int n1 = 0, n2 = 0, n3 = 0;
     for (int i = 0; i < p->n_c; ++i) {
         n1 += SE_I / SE_THREADS;
         n2 += rows_of_mode(p->c[i].mode) / SE_THREADS;
         n3 += 1 + SE_H / SE_THREADS;      /* one prob block, then the channel blocks */
     }
-    w->s1 = (SeItem *)malloc(sizeof(SeItem) * n1);
-    w->s2 = (SeItem *)malloc(sizeof(SeItem) * n2);
-    w->s3 = (SeItem *)malloc(sizeof(SeItem) * n3);
+    /* room for one CONTROL item per case in every list, which is what a leaked sentinel is */
+    w->s1 = (SeItem *)malloc(sizeof(SeItem) * (n1 + p->n_c));
+    w->s2 = (SeItem *)malloc(sizeof(SeItem) * (n2 + p->n_c));
+    w->s3 = (SeItem *)malloc(sizeof(SeItem) * (n3 + p->n_c));
     w->n1 = w->n2 = w->n3 = 0;
     int b1 = 0, b2 = 0, b3 = 0;
     for (int i = 0; i < p->n_c; ++i) {
@@ -107,6 +124,15 @@ static void work_build(const SePlan *p, SeWork *w) {
     /* The counts are the filled ones. Setting them to zero before the fill and never back was the
      * first version's bug, and it was invisible except that every output word stayed poison. */
     w->n1 = b1; w->n2 = b2; w->n3 = b3;
+    /* CONTROL: hand one stage a foreign item (a second sentinel for the stages that have none, a
+     * channel item for the prob stage) so that stage's half of the write-ownership probe is witnessed
+     * firing. Appended at the end of the stage's own list, exactly as the device arm does. */
+    if (inject == 1) { for (int i = 0; i < p->n_c; ++i) { w->s1[w->n1].case_idx = i;
+                                                       w->s1[w->n1].base = -1; ++w->n1; } }
+    if (inject == 2) { for (int i = 0; i < p->n_c; ++i) { w->s2[w->n2].case_idx = i;
+                                                       w->s2[w->n2].base = -1; ++w->n2; } }
+    if (inject == 3) { for (int i = 0; i < p->n_c; ++i) { w->s3[w->n3].case_idx = i;
+                                                       w->s3[w->n3].base = 0; ++w->n3; } }
 }
 
 int main(int argc, char **argv) {
@@ -155,7 +181,7 @@ int main(int argc, char **argv) {
     for (int i = 0; i < a.out_floats; ++i) out[i] = se_float_of(SE_NAN_BITS);
 
     SeWork w;
-    work_build(&p, &w);
+    work_build(&p, &w, a.inject);
     /* Launch bookkeeping. The grouped arm issues four launches for the whole plan; the per-case arm
      * issues four per case. The two arms differ in workgroups-per-launch as well as in launch count,
      * which `pitfalls/20` §"read workgroups per launch on both sides of an A/B" names as a confound -
@@ -164,26 +190,53 @@ int main(int argc, char **argv) {
     const int launches = a.per_case ? 4 * p.n_c : 4;
     int counted = launches;
 
-    for (int stage = 1; stage <= 3; ++stage) {
-        const SeItem *items = stage == 1 ? w.s1 : (stage == 2 ? w.s2 : w.s3);
-        const int n = stage == 1 ? w.n1 : (stage == 2 ? w.n2 : w.n3);
+    /* Four launch groups, each followed by a snapshot, so a changed word is attributable to exactly one
+     * stage and the write-ownership probe can name it. The host twin is the same stage functions in the
+     * same order, so the probe is the SAME instrument on both arms (shared_expert_ownership.h) and a
+     * control witnessed here is a control witnessed on the device.
+     */
+    const size_t obytes = sizeof(float) * (size_t)a.out_floats;
+    float *snap_a = (float *)malloc(obytes), *snap_b = (float *)malloc(obytes);
+    memcpy(snap_a, out, obytes);              /* the poison pre-fill: what stage 1 starts from */
+    SeOwnTally own_t[SE_OWN_STAGES];
+    int own_violations = 0, own_lines = 0;
+    long own_compared = 0;
+    for (int s = 0; s < SE_OWN_STAGES; ++s) {
+        own_t[s].violations = 0; own_t[s].printed = 0; own_t[s].compared = 0;
+    }
+
+    for (int grp = 0; grp < SE_OWN_STAGES; ++grp) {
+        const SeItem *items = grp == 0 ? w.s1 : (grp == 1 ? w.s2 : w.s3);
+        const int n = grp == 0 ? w.n1 : (grp == 1 ? w.n2 : w.n3);
         for (int blk = 0; blk < n; ++blk) {
             const SeCase *c = &p.c[items[blk].case_idx];
             const int base = items[blk].base;
-            if (stage == 1) {
+            if (grp == 0) {
+                if (base < 0) {                 /* not this stage's item; control sees it through */
+                    if (a.inject == 1) se_own_leak(c, out, 0);
+                    continue;
+                }
                 for (int t = 0; t < SE_THREADS; ++t) {
                     const int j = base + t;
                     int reads = 0;
                     se_stage_gateup(&p, c, out, j, &reads);
                     p.c[items[blk].case_idx].reads_fused += reads;
                 }
-            } else if (stage == 2) {
+            } else if (grp == 1) {
+                if (base < 0) {
+                    if (a.inject == 2) se_own_leak(c, out, 1);
+                    continue;
+                }
                 for (int t = 0; t < SE_THREADS; ++t) {
                     int reads = 0;
                     se_stage_down(&p, c, out, base + t, &reads);
                     p.c[items[blk].case_idx].reads_down += reads;
                 }
-            } else if (base < 0) {
+            } else if (grp == 2) {
+                if (base >= 0) {                /* a channel item is not the probability's */
+                    if (a.inject == 3) se_own_leak(c, out, 2);
+                    continue;
+                }
                 if (c->sgate_form == SE_SGATE_SCALAR) {
                     int reads = 0;
                     const float prob = se_stage_prob(&p, c, &reads);
@@ -191,6 +244,10 @@ int main(int argc, char **argv) {
                     p.c[items[blk].case_idx].reads_sg += reads;
                 }
             } else {
+                if (base < 0) {                 /* the historical leak: the sentinel is not a row */
+                    if (a.inject == 4) se_own_leak(c, out, 3);
+                    continue;
+                }
                 const float prob = out[c->dst_off + SE_OFF_PROB];
                 for (int t = 0; t < SE_THREADS; ++t) {
                     int reads = 0;
@@ -203,7 +260,33 @@ int main(int argc, char **argv) {
                 }
             }
         }
+        if (!a.per_case) {
+            memcpy(snap_b, out, obytes);
+            se_own_diff(&own_t[grp], grp, p.c, p.n_c, snap_a, snap_b, stdout);
+            se_own_stage_line(grp, &own_t[grp], stdout);
+            memcpy(snap_a, snap_b, obytes);
+        }
     }
+    if (!a.per_case) {
+        for (int s = 0; s < SE_OWN_STAGES; ++s) {
+            own_violations += own_t[s].violations; own_lines += own_t[s].printed;
+            own_compared += own_t[s].compared;
+        }
+        printf("OWNERSHIPSUMMARY stages=%d cases=%d compared=%ld violations=%d lines=%d partition=%s "
+               "attributable=yes mode=grouped inject=%d\n", SE_OWN_STAGES, p.n_c, own_compared,
+               own_violations, own_lines, se_own_partition_ok() ? "ok" : "BROKEN", a.inject);
+    } else {
+        printf("OWNERSHIPSUMMARY stages=%d cases=%d compared=0 violations=0 lines=0 partition=%s "
+               "attributable=no mode=per-case reason=stage-groups-not-separable\n",
+               SE_OWN_STAGES, p.n_c, se_own_partition_ok() ? "ok" : "BROKEN");
+    }
+    if (a.inject) {
+        printf("OWNERSHIPCONTROL stage=%d group=%s expected_cases=%d fired=%d verdict=%s\n",
+               a.inject, se_own_stage[a.inject - 1], p.n_c, own_t[a.inject - 1].violations,
+               own_t[a.inject - 1].violations > 0 ? "probe-caught-it" : "PROBE-IS-DEAD");
+    }
+    fflush(stdout);
+    free(snap_a); free(snap_b);
 
     /* per-case counters: bad/nan/census/digest, all over the case's own span */
     for (int i = 0; i < p.n_c; ++i) {
@@ -257,5 +340,5 @@ int main(int argc, char **argv) {
 #endif
            );
     printf("no timing taken\n");
-    return 0;
+    return (a.inject && own_t[a.inject - 1].violations == 0) ? 4 : 0;
 }

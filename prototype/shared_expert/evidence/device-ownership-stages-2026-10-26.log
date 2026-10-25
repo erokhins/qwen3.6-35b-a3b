@@ -1,0 +1,9 @@
+OWNERSHIPSTAGE stage=1 group=1_gateup owns=gate|up|act compared=242219 violations=0 lines=0
+OWNERSHIPSTAGE stage=2 group=2_down owns=raw compared=242219 violations=0 lines=0
+OWNERSHIPSTAGE stage=3 group=3_prob owns=prob compared=242219 violations=0 lines=0
+OWNERSHIPSTAGE stage=4 group=4_out owns=out compared=242219 violations=0 lines=0
+OWNERSHIPSUMMARY stages=4 cases=43 compared=968876 violations=0 lines=0 partition=ok attributable=yes mode=grouped inject=0
+PLAN W=12/12 A=32/32 C=43/43 slab=13533184 expect=242219 out=242219
+LAUNCHES mode=grouped issued=4 device_counted=4 blocks_stage1=172 stage2=680 stage3=731 threads=128
+ARM device arch=gfx1151
+no timing taken

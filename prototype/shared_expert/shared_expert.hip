@@ -21,6 +21,7 @@
 #include <string.h>
 
 #include "shared_expert_kernels.h"
+#include "shared_expert_ownership.h"
 #include "shared_expert_selftest.h"
 
 #define SE_HIP(x)                                                                     \
@@ -47,13 +48,20 @@ enum { SE_RD_FUSED = 0, SE_RD_DOWN = 1, SE_RD_SG = 2, SE_RD_COUNT = 3 };
 extern "C" __global__ void se_k_gateup(const SeItem *items, int item_base, const SeCase *cases,
                                        const SeWeight *weights, int n_w, const SeAct *acts, int n_a,
                                        const uint8_t *slab, float *out, unsigned long long *launches,
-                                       unsigned int *reads_dev) {
+                                       unsigned int *reads_dev, int inject) {
     const SeItem it = items[item_base + blockIdx.x];
     if (blockIdx.x == 0 && threadIdx.x == 0) atomicAdd(launches, 1ull);
     SePlan p;
     p.w = (SeWeight *)weights; p.n_w = n_w; p.a = (SeAct *)acts; p.n_a = n_a;
     p.slab = slab; p.slab_bytes = 0; p.expect = 0; p.n_expect = 0;
     const SeCase *c = &cases[it.case_pos];
+    /* A sentinel item is not this stage's work. The control below is what proves the write-ownership
+     * probe can see a stage that ignores that: it processes the foreign item and writes one word into
+     * `raw`, which stage 1 does not own. */
+    if (it.base < 0) {
+        if (inject == 1 && threadIdx.x == 0) se_own_leak(c, out, 0);
+        return;
+    }
     const int j = it.base + (int)threadIdx.x;
     int reads = 0;
     se_stage_gateup(&p, c, out, j, &reads);
@@ -63,13 +71,17 @@ extern "C" __global__ void se_k_gateup(const SeItem *items, int item_base, const
 extern "C" __global__ void se_k_down(const SeItem *items, int item_base, const SeCase *cases,
                                      const SeWeight *weights, int n_w, const SeAct *acts, int n_a,
                                      const uint8_t *slab, float *out, unsigned long long *launches,
-                                     unsigned int *reads_dev) {
+                                     unsigned int *reads_dev, int inject) {
     const SeItem it = items[item_base + blockIdx.x];
     if (blockIdx.x == 0 && threadIdx.x == 0) atomicAdd(launches, 1ull);
     SePlan p;
     p.w = (SeWeight *)weights; p.n_w = n_w; p.a = (SeAct *)acts; p.n_a = n_a;
     p.slab = slab; p.slab_bytes = 0; p.expect = 0; p.n_expect = 0;
     const SeCase *c = &cases[it.case_pos];
+    if (it.base < 0) {                      /* control: see se_k_gateup */
+        if (inject == 2 && threadIdx.x == 0) se_own_leak(c, out, 1);
+        return;
+    }
     const int h = it.base + (int)threadIdx.x;
     int reads = 0;
     se_stage_down(&p, c, out, h, &reads);
@@ -79,9 +91,10 @@ extern "C" __global__ void se_k_down(const SeItem *items, int item_base, const S
 extern "C" __global__ void se_k_prob(const SeItem *items, int item_base, const SeCase *cases,
                                      const SeWeight *weights, int n_w, const SeAct *acts, int n_a,
                                      const uint8_t *slab, float *out, unsigned long long *launches,
-                                     unsigned int *reads_dev) {
+                                     unsigned int *reads_dev, int inject) {
     const SeItem it = items[item_base + blockIdx.x];
     if (blockIdx.x == 0 && threadIdx.x == 0) atomicAdd(launches, 1ull);
+    const SeCase *c = &cases[it.case_pos];
     /* The stage-3 work list is shared by two kernels and carries ONE sentinel item per case, the one
      * with base = -1, which belongs to the probability; the other 16 items belong to the output
      * channels. This kernel owns the sentinel and nothing else, and `host_probe.cpp` stage 3 filters
@@ -89,12 +102,16 @@ extern "C" __global__ void se_k_prob(const SeItem *items, int item_base, const S
      * whole 2048-term gate dot: measured on the device, the sg read counter was 34816 = 17 * 2048
      * against a geometry of 2048, and `weight-read counters equal the geometry-derived counts` said
      * so. Redundant and wrong in the same direction is still wrong. */
-    if (it.base >= 0) return;
+    if (it.base >= 0) {
+        /* control: a channel item is not this stage's work. Processing one makes the stage write a
+         * word of `raw`, which `prob` does not own. */
+        if (inject == 3 && threadIdx.x == 0) se_own_leak(c, out, 2);
+        return;
+    }
     if ((int)threadIdx.x != 0) return;
     SePlan p;
     p.w = (SeWeight *)weights; p.n_w = n_w; p.a = (SeAct *)acts; p.n_a = n_a;
     p.slab = slab; p.slab_bytes = 0; p.expect = 0; p.n_expect = 0;
-    const SeCase *c = &cases[it.case_pos];
     if (c->sgate_form != SE_SGATE_SCALAR) return;      /* per-channel: the field stays POISON */
     int reads = 0;
     out[c->dst_off + SE_OFF_PROB] = se_stage_prob(&p, c, &reads);
@@ -104,9 +121,10 @@ extern "C" __global__ void se_k_prob(const SeItem *items, int item_base, const S
 extern "C" __global__ void se_k_out(const SeItem *items, int item_base, const SeCase *cases,
                                     const SeWeight *weights, int n_w, const SeAct *acts, int n_a,
                                     const uint8_t *slab, float *out, unsigned long long *launches,
-                                    unsigned int *reads_dev) {
+                                    unsigned int *reads_dev, int inject) {
     const SeItem it = items[item_base + blockIdx.x];
     if (blockIdx.x == 0 && threadIdx.x == 0) atomicAdd(launches, 1ull);
+    const SeCase *c = &cases[it.case_pos];
     /* The sentinel item is the probability's, NOT one more row of channels: `host_probe.cpp` stage 3
      * routes it to `se_stage_prob` and never runs the channel body for it (`else if (base < 0)`).
      * Letting it through here made threadIdx.x == 0 compute h = -1, which
@@ -118,12 +136,15 @@ extern "C" __global__ void se_k_out(const SeItem *items, int item_base, const Se
      * 0..3 here and 5 in the run that prompted this; 43+30/13/5 = the 73/56/48 of the earlier logs).
      * The guard must stay BELOW the launch counter: in both launch modes block 0 IS the sentinel
      * item, so a guard above it would drop device_counted from 4 to 3 and break the launch check.
+     * The control (inject == 4) is that historical defect on purpose, so the probe is witnessed firing.
      */
-    if (it.base < 0) return;
+    if (it.base < 0) {
+        if (inject == 4 && threadIdx.x == 0) se_own_leak(c, out, 3);
+        return;
+    }
     SePlan p;
     p.w = (SeWeight *)weights; p.n_w = n_w; p.a = (SeAct *)acts; p.n_a = n_a;
     p.slab = slab; p.slab_bytes = 0; p.expect = 0; p.n_expect = 0;
-    const SeCase *c = &cases[it.case_pos];
     const int h = it.base + (int)threadIdx.x;
     const float prob = out[c->dst_off + SE_OFF_PROB];
     int reads = 0;
@@ -213,6 +234,7 @@ static int occupancy_report(void) {
 typedef struct {
     const char *plan_path, *slab_path, *expect_path, *out_path, *report_path;
     int want_w, want_a, want_c, out_floats, expect_floats, per_case;
+    int inject;                       /* 0 = honest run; 1..4 = ownership control on that stage */
 } Args;
 
 static int arg_int(const char *s, const char *why) {
@@ -238,6 +260,10 @@ static void parse(int argc, char **argv, Args *a) {
         const char *k = argv[i];
         const char *v = (i + 1 < argc) ? argv[i + 1] : 0;
         if (!strcmp(k, "--per-case")) { a->per_case = 1; continue; }
+        if (!strcmp(k, "--inject-ownership")) {
+            if (!v) { fprintf(stderr, "%s needs a value\n", k); exit(2); }
+            a->inject = arg_int(v, k); ++i; continue;
+        }
         if (!v) { fprintf(stderr, "%s needs a value\n", k); exit(2); }
         if (!strcmp(k, "--plan")) a->plan_path = v;
         else if (!strcmp(k, "--slab")) a->slab_path = v;
@@ -256,6 +282,17 @@ static void parse(int argc, char **argv, Args *a) {
         || a->out_floats <= 0 || a->want_c <= 0) {
         fprintf(stderr, "--plan --slab --expect --out --report --out-floats --expect-cases are "
                         "all required\n");
+        exit(2);
+    }
+    if (a->inject < 0 || a->inject > 4) {
+        fprintf(stderr, "--inject-ownership takes 1..4 (the stage whose write is leaked), not %d\n",
+                a->inject);
+        exit(2);
+    }
+    if (a->inject && a->per_case) {
+        fprintf(stderr, "--inject-ownership is defined for the grouped launch set, which is the only "
+                        "split whose writes one snapshot can attribute; refusing to run a control that "
+                        "could not be blamed on a stage\n");
         exit(2);
     }
 }
@@ -313,9 +350,9 @@ int main(int argc, char **argv) {
         n2 += rows_of_mode(p.c[i].mode) / SE_THREADS;
         n3 += 1 + SE_H / SE_THREADS;
     }
-    SeItem *it1 = (SeItem *)malloc(sizeof(SeItem) * n1);
-    SeItem *it2 = (SeItem *)malloc(sizeof(SeItem) * n2);
-    SeItem *it3 = (SeItem *)malloc(sizeof(SeItem) * n3);
+    SeItem *it1 = (SeItem *)malloc(sizeof(SeItem) * (n1 + p.n_c));
+    SeItem *it2 = (SeItem *)malloc(sizeof(SeItem) * (n2 + p.n_c));
+    SeItem *it3 = (SeItem *)malloc(sizeof(SeItem) * (n3 + p.n_c));
     int32_t lo1 = 0, lo2 = 0, lo3 = 0;
     /* Each of these is TWO arrays of n_c int32s in one allocation: `bhiN = bloN + n_c`. Written as
      * `calloc(p.n_c, 4)` it allocated n_c int32s and then wrote the second array past the end of the
@@ -333,12 +370,22 @@ int main(int argc, char **argv) {
         for (int b = 0; b < SE_H / SE_THREADS; ++b) { it3[lo3].case_pos = i; it3[lo3].base = b * SE_THREADS; ++lo3; } bhi3[i] = lo3;
     }
 
+    /* CONTROL: hand one stage a foreign item — the same class of mistake the fixed bug was — so its
+     * half of the write-ownership probe can be witnessed firing. Stage 4 needs no extra item: the
+     * sentinel it must refuse is already in its list. Appended at the END of the stage's own array, so
+     * block 0 stays a real item and the launch counter is unaffected.
+     */
+    if (a.inject == 1) { for (int i = 0; i < p.n_c; ++i) { it1[n1].case_pos = i; it1[n1].base = -1; ++n1; } }
+    if (a.inject == 2) { for (int i = 0; i < p.n_c; ++i) { it2[n2].case_pos = i; it2[n2].base = -1; ++n2; } }
+    if (a.inject == 3) { for (int i = 0; i < p.n_c; ++i) { it3[n3].case_pos = i; it3[n3].base = 0; ++n3; } }
+
     float *out = (float *)malloc(sizeof(float) * a.out_floats);
     /* The poison pre-fill is a SENTINEL, not a zero: `hipMemset(d_out, ...)` would make "never
      * computed" and "computed exactly zero" read the same, which is the trap the gather lane removed
      * a memset for. Stage 3's write-ownership probe (below) needs the same property, so the pre-fill
      * stays and the probe reads the buffer between launch groups rather than trusting a zeroed one. */
-    float *out_a = (float *)malloc(sizeof(float) * a.out_floats);
+    float *snap_a = (float *)malloc(sizeof(float) * a.out_floats);
+    float *snap_b = (float *)malloc(sizeof(float) * a.out_floats);
     for (int i = 0; i < a.out_floats; ++i) out[i] = se_float_of(SE_NAN_BITS);
 
     uint8_t *d_slab = 0; float *d_out = 0; SeCase *d_cases = 0; SeWeight *d_w = 0; SeAct *d_a = 0;
@@ -365,50 +412,75 @@ int main(int argc, char **argv) {
     SE_HIP(hipMalloc((void **)&d_reads, sizeof(unsigned int) * SE_RD_COUNT * p.n_c));
     SE_HIP(hipMemset(d_reads, 0, sizeof(unsigned int) * SE_RD_COUNT * p.n_c));
 
-    /* The launch set is split in two — stages 1,2 then stages 3a,3b — solely so the write-ownership
-     * probe below can snapshot what stages 1 and 2 produced. Every stage still launches exactly once
-     * and `issued` counts what it always counted; the split adds one host readback, no work. */
-    int issued = 0;
+    /* The launch set is split into FOUR groups — gateup, down, prob, out — and the buffer is read back
+     * after every one, so every changed word belongs to exactly one stage and the write-ownership probe
+     * can name it. Each group still launches exactly once and `issued` counts what it always counted; the
+     * split adds host readbacks, no work, and no timing is taken from them.
+     */
+    const size_t obytes = sizeof(float) * (size_t)a.out_floats;
+    SeOwnTally own_t[SE_OWN_STAGES];
+    for (int s = 0; s < SE_OWN_STAGES; ++s) { own_t[s].violations = 0; own_t[s].printed = 0;
+                                              own_t[s].compared = 0; }
+    int own_violations = 0, own_lines = 0, issued = 0;
+    long own_compared = 0;
+    memcpy(snap_a, out, obytes);            /* what the device buffer held before stage 1: the poison */
     if (!a.per_case) {
-        se_k_gateup<<<n1, SE_THREADS>>>(d_i1, 0, d_cases, d_w, p.n_w, d_a, p.n_a, d_slab, d_out,
-                                       d_launch, d_reads);
-        se_k_down<<<n2, SE_THREADS>>>(d_i2, 0, d_cases, d_w, p.n_w, d_a, p.n_a, d_slab, d_out,
-                                     d_launch, d_reads);
-        issued = 2;
+        for (int stage = 0; stage < SE_OWN_STAGES; ++stage) {
+            if (stage == 0) {
+                se_k_gateup<<<n1, SE_THREADS>>>(d_i1, 0, d_cases, d_w, p.n_w, d_a, p.n_a, d_slab,
+                                                d_out, d_launch, d_reads, a.inject);
+            } else if (stage == 1) {
+                se_k_down<<<n2, SE_THREADS>>>(d_i2, 0, d_cases, d_w, p.n_w, d_a, p.n_a, d_slab,
+                                              d_out, d_launch, d_reads, a.inject);
+            } else if (stage == 2) {
+                se_k_prob<<<n3, SE_THREADS>>>(d_i3, 0, d_cases, d_w, p.n_w, d_a, p.n_a, d_slab,
+                                              d_out, d_launch, d_reads, a.inject);
+            } else {
+                se_k_out<<<n3, SE_THREADS>>>(d_i3, 0, d_cases, d_w, p.n_w, d_a, p.n_a, d_slab,
+                                             d_out, d_launch, d_reads, a.inject);
+            }
+            SE_HIP(hipGetLastError());
+            SE_HIP(hipDeviceSynchronize());
+            /* the last group's snapshot is the final state, which the rest of the driver needs anyway */
+            float *snap_c = (stage == SE_OWN_STAGES - 1) ? out : snap_b;
+            SE_HIP(hipMemcpy(snap_c, d_out, obytes, hipMemcpyDeviceToHost));
+            se_own_diff(&own_t[stage], stage, p.c, p.n_c, snap_a, snap_c, stdout);
+            se_own_stage_line(stage, &own_t[stage], stdout);
+            if (stage != SE_OWN_STAGES - 1) memcpy(snap_a, snap_b, obytes);
+            ++issued;
+        }
+        for (int s = 0; s < SE_OWN_STAGES; ++s) {
+            own_violations += own_t[s].violations; own_lines += own_t[s].printed;
+            own_compared += own_t[s].compared;
+        }
+        fflush(stdout);
     } else {
+        /* In per-case mode stage 1 of the next case runs after stage 4 of this one, so no snapshot
+         * separates the stages and the probe has no honest claim to make. It says so instead of
+         * printing a tidy zero: an unusable instrument must announce that it is unusable.
+         */
         for (int i = 0; i < p.n_c; ++i) {
             se_k_gateup<<<bhi1[i] - blo1[i], SE_THREADS>>>(d_i1, blo1[i], d_cases, d_w, p.n_w, d_a,
-                                                          p.n_a, d_slab, d_out, d_launch, d_reads);
+                                                          p.n_a, d_slab, d_out, d_launch, d_reads, 0);
             se_k_down<<<bhi2[i] - blo2[i], SE_THREADS>>>(d_i2, blo2[i], d_cases, d_w, p.n_w, d_a,
-                                                        p.n_a, d_slab, d_out, d_launch, d_reads);
-            issued += 2;
-        }
-    }
-    SE_HIP(hipGetLastError());
-    SE_HIP(hipDeviceSynchronize());
-    SE_HIP(hipMemcpy(out_a, d_out, sizeof(float) * a.out_floats, hipMemcpyDeviceToHost));
-    if (!a.per_case) {
-        se_k_prob<<<n3, SE_THREADS>>>(d_i3, 0, d_cases, d_w, p.n_w, d_a, p.n_a, d_slab, d_out,
-                                     d_launch, d_reads);
-        se_k_out<<<n3, SE_THREADS>>>(d_i3, 0, d_cases, d_w, p.n_w, d_a, p.n_a, d_slab, d_out,
-                                    d_launch, d_reads);
-        issued += 2;
-    } else {
-        for (int i = 0; i < p.n_c; ++i) {
+                                                        p.n_a, d_slab, d_out, d_launch, d_reads, 0);
             se_k_prob<<<bhi3[i] - blo3[i], SE_THREADS>>>(d_i3, blo3[i], d_cases, d_w, p.n_w, d_a,
-                                                        p.n_a, d_slab, d_out, d_launch, d_reads);
+                                                        p.n_a, d_slab, d_out, d_launch, d_reads, 0);
             se_k_out<<<bhi3[i] - blo3[i], SE_THREADS>>>(d_i3, blo3[i], d_cases, d_w, p.n_w, d_a,
-                                                       p.n_a, d_slab, d_out, d_launch, d_reads);
-            issued += 2;
+                                                       p.n_a, d_slab, d_out, d_launch, d_reads, 0);
+            issued += 4;
         }
+        printf("OWNERSHIPSUMMARY stages=%d cases=%d compared=0 violations=0 lines=0 partition=%s "
+               "attributable=no mode=per-case reason=stage-groups-not-separable\n",
+               SE_OWN_STAGES, p.n_c, se_own_partition_ok() ? "ok" : "BROKEN");
+        fflush(stdout);
     }
-    SE_HIP(hipGetLastError());
-    SE_HIP(hipDeviceSynchronize());
     unsigned long long counted = 0;
     SE_HIP(hipMemcpy(&counted, d_launch, sizeof(unsigned long long), hipMemcpyDeviceToHost));
     unsigned int *rd = (unsigned int *)calloc(SE_RD_COUNT * (size_t)p.n_c, sizeof(unsigned int));
     SE_HIP(hipMemcpy(rd, d_reads, sizeof(unsigned int) * SE_RD_COUNT * p.n_c, hipMemcpyDeviceToHost));
-    SE_HIP(hipMemcpy(out, d_out, sizeof(float) * a.out_floats, hipMemcpyDeviceToHost));
+    if (a.per_case)
+        SE_HIP(hipMemcpy(out, d_out, obytes, hipMemcpyDeviceToHost));
     for (int i = 0; i < p.n_c; ++i) {
         p.c[i].reads_fused = (int)rd[i * SE_RD_COUNT + SE_RD_FUSED];
         p.c[i].reads_down = (int)rd[i * SE_RD_COUNT + SE_RD_DOWN];
@@ -452,42 +524,28 @@ int main(int argc, char **argv) {
                 c->xor_sig, c->sum_bits, c->n_digest);
     }
     fclose(fh);
-    /* ---- stage-3 write-ownership probe --------------------------------------------------------
-     * "The last column is wrong" is not a diagnosis; "a stage wrote a word it does not own" is. The
-     * sentinel pre-fill can only say SOMEONE wrote a slot. Here stages 1 and 2 (gate/up/act, then
-     * raw) have run and been read back into `out_a`, and stages 3a/3b (prob, then out) have run and
-     * been read back into `out`. Every float before SE_OFF_OUT belongs to stages 1 or 2, so any of
-     * them that CHANGED across stage 3 is a word stage 3 wrote although it does not own it.
-     * Witnessed, not assumed: with the `base = -1` sentinel item filtered out of se_k_out this prints
-     * violations=0; with it unfiltered, se_k_out's thread at h = -1 writes
-     * out[dst + SE_OFF_OUT - 1] == raw[2047] and this prints one line per case, deterministically
-     * (unlike the value itself, which is why the raw/out 2047 divergence COUNT moves between runs).
-     * A check that prints nothing cannot fail, so `lines` must equal `violations` and `compared` must
-     * be the whole non-stage-3 span; gate.py re-derives both and refuses a vacuous pass.
+    /* ---- the write-ownership verdict -----------------------------------------------------------
+     * Every OWNERSHIPSTAGE line above belongs to one launch group; this is the total the driver
+     * re-derives, plus the control's own verdict. `lines` is counted, never inferred from `violations`,
+     * and `compared` is the whole record span times the number of stages — a probe that compared nothing
+     * would otherwise print a tidy zero. `partition` is the ownership table checked against the layout.
      */
-    {
-        static const int own_off[4] = {SE_OFF_GATE, SE_OFF_UP, SE_OFF_ACT, SE_OFF_RAW};
-        static const char *own_name[4] = {"gate", "up", "act", "raw"};
-        int violations = 0, printed = 0;
-        long compared = 0;
-        for (int i = 0; i < p.n_c; ++i) {
-            const int d = p.c[i].dst_off;
-            for (int k = 0; k < SE_OFF_OUT; ++k) {
-                const uint32_t ba = se_bits_of(out_a[d + k]);
-                const uint32_t bb = se_bits_of(out[d + k]);
-                ++compared;
-                if (ba == bb) continue;
-                int q = 0;
-                for (int s = 1; s < 4; ++s) if (k >= own_off[s]) q = s;
-                printf("OWNERSHIP case=%d field=%s idx=%d after_stages_1_2=0x%08X after_stage_3=0x%08X\n",
-                       p.c[i].index, own_name[q], k - own_off[q], ba, bb);
-                ++violations; ++printed;
-            }
-        }
-        printf("OWNERSHIPSUMMARY cases=%d compared=%ld violations=%d lines=%d\n",
-               p.n_c, compared, violations, printed);
+    if (!a.per_case) {
+        printf("OWNERSHIPSUMMARY stages=%d cases=%d compared=%ld violations=%d lines=%d partition=%s "
+               "attributable=yes mode=grouped inject=%d\n", SE_OWN_STAGES, p.n_c, own_compared,
+               own_violations, own_lines, se_own_partition_ok() ? "ok" : "BROKEN", a.inject);
         fflush(stdout);
-        free(out_a);
+    }
+    if (a.inject) {
+        /* The control is self-checking: if the probe did not catch the leak this program was told to
+         * inject, it exits non-zero and says its instrument is dead. A control whose only evidence is a
+         * printed line a later reader may ignore is not a control.
+         */
+        const int caught = own_t[a.inject - 1].violations;
+        printf("OWNERSHIPCONTROL stage=%d group=%s expected_cases=%d fired=%d verdict=%s\n",
+               a.inject, se_own_stage[a.inject - 1], p.n_c, caught,
+               caught > 0 ? "probe-caught-it" : "PROBE-IS-DEAD");
+        fflush(stdout);
     }
 
     printf("PLAN W=%d/%d A=%d/%d C=%d/%d slab=%zu expect=%d out=%d\n", p.n_w, a.want_w, p.n_a,
@@ -500,6 +558,7 @@ int main(int argc, char **argv) {
     (void)hipFree(d_a); (void)hipFree(d_i1); (void)hipFree(d_i2); (void)hipFree(d_i3);
     (void)hipFree(d_launch); (void)hipFree(d_reads);
     free(rd);
+    free(out); free(snap_a); free(snap_b);
     free(it1); free(it2); free(it3); free(blo1); free(blo2); free(blo3);
-    return 0;
+    return (a.inject && own_t[a.inject - 1].violations == 0) ? 4 : 0;
 }
