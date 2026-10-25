@@ -98,3 +98,25 @@ rather than trusted — `python3 tools/doc_ref_check.py --root /tmp/planwitness 
 file prints `MISSING` for the unlabelled cite and for a mislabelled `(plannedish)`, and accepts only the
 labelled one (`labelled-planned forward refs: 1`). A checker exemption that was never seen to discriminate
 is a hole with a name on it.
+
+## An edit that reports success is not evidence the content reached a commit
+
+**Discovered 2026-10-26 in this repo, in my own work, not a worker's.** A `DECISIONS.md` D-15 amendment was
+written, the edit tool reported `Successfully replaced 1 block(s)`, I reported the amendment to the user, and
+four commits later the block was **absent from the file and absent from every commit** (`git log -S
+"Lone-worker refinement" -- DECISIONS.md` returns nothing, and it was not in the working tree either). The
+substantive rule survived only because I had independently written it into `AGENTS.md`, which is what workers
+actually read — so the failure was invisible except at the moment I went to append to the missing block.
+
+**The rule: for a doc edit that carries a decision, the verification is `git show <commit>:<path> | grep -c
+"<phrase>"`, not the edit tool's return value.** Three corollaries this repo already believed about gates, applied
+to documentation:
+
+- **A claim about a file is a claim about a commit.** "I recorded it in D-15" is a claim about `HEAD`; check it
+  the way a gate checks a build.
+- **Redundancy is what caught it.** The rule lived in two files, so losing one was survivable. A decision that
+  lives in exactly one place has no witness, and `doc_ref_check.py` cannot help — the reference resolves fine,
+  the *content* is what vanished.
+- **Report what you verified, not what you did.** I told the user the amendment was recorded after making the
+  edit; the honest sentence was "edited, pending commit". This is the same failure as a worker reporting a gate
+  it never ran, one level up.
