@@ -56,7 +56,13 @@ prototype/q4k_dequant/host_probe
 prototype/q4k_dequant/work/
 prototype/moe_router/moe_router
 prototype/moe_router/host_probe
-prototype/moe_router/work/
+# Scratch, except the files results.md cites as evidence: an ignored directory means a fresh clone has
+# the conclusion and not the proof, which is what bit the prediction-3 corrigendum (2026-10-26). Un-ignore
+# the directory with /* so individual exceptions work, then re-admit exactly the cited probes.
+prototype/moe_router/work/*
+!prototype/moe_router/work/probe9.py
+!prototype/moe_router/work/probe15.py
+!prototype/moe_router/work/verify_p3_offset.py
 # prototype/moe_gather compiled artefacts -- exact paths only, never the directory: the directory
 # must stay visible so an empty evidence/ cannot hide a lane that produced nothing (2026-10-26).
 prototype/moe_gather/moe_gather

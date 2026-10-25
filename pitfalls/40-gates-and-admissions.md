@@ -100,6 +100,35 @@ A gate that fails for **every** configuration catches nothing, and a reader will
 ms column anyway. That happened when a read checksum was silently 1/256 of the bytes read: every warm row
 failed while its bandwidth looked entirely believable.
 
+## A check whose predicate is `True` is a comment wearing a counter
+
+The worst variant of a check that cannot fail, because it *counts*. `gate.py` in `prototype/moe_router/`
+carried, at the moment the lane was certified at 40 checks / findings 0, the line
+`v.check("prediction3-fused-layout-unresolved-is-reported", True, len(p3), …)`. It appears in the check
+total, it appears in the JSON, it prints like every other check — and no state of the world can turn it
+red. It was the **only** check holding the lane's prediction-3 verdict: the real check beside it
+(`best_right < best_wrong`) sat unreachable in a branch that the probe's shifted safetensors read had made
+unreachable, so a bug in the probe (a missing 8-byte safetensors header prefix — see
+`prototype/moe_router/results.md` §Corrigendum) propagated straight into a recorded conclusion while
+everything still printed PASS.
+
+Three rules follow, and all three are cheap:
+
+- **A verdict-bearing check's predicate must be an expression over data.** If what you want to record is
+  "we reported this as unresolved", that is a `note`, printed as such and kept out of the check count. If
+  you insist on counting it, the predicate must be something a bug could break — e.g. *the unresolved
+  branch was taken because every candidate exceeded a cited orthogonality bound, and the bound is read from
+  a file* — not `True`.
+- **Grep your own gate for literal-constant predicates** before believing a total: a scan for
+  `check(`-lines whose second argument is `True`/`False` costs seconds and found one on the first try here.
+- **Count reachability, not just checks.** If a section's records can be empty, or a branch that holds the
+  real assertion is never taken, the total is a count of printed lines, not of tests run — the same rule as
+  §A driver whose parser matches nothing, applied to branches instead of parses.
+
+The scoring rule that comes out of this: a green suite is credited by **what it would have caught**, and a
+check whose predicate is a constant would have caught nothing under any mutation. Crediting it is how
+40 checks became 39 checks and a decoration.
+
 ## Provenance and attribution rules for reports
 
 - **A corpus-level read-back is not a per-file attribution.** A digest reported "routes read back: [hand,

@@ -174,3 +174,89 @@ wrong on ~30% of the synthetic elements.
 - **P3 needs `expert_raw`'s definition** from the dump tooling, as above.
 - **A-03 needs the user's word.** This gate exercises ties and states which side it picks; it does not
   claim the choice is correct.
+
+---
+
+## Corrigendum, 2026-10-26 — the prediction-3 "no candidate reproduces" premise was void
+
+Appended, not patched into the text above: this file is the historical record of what was witnessed on
+2026-10-26, and the sections above still show what the lane believed when it landed. What follows is the
+supervisor's correction, found while briefing a later lane, witnessed by
+`prototype/moe_router/work/verify_p3_offset.py` (CPU, `no timing taken`), and it changes one conclusion
+and one checker — **not** the lane's device or host verdicts.
+
+### Root cause: a safetensors data region begins at `8 + header_json_len`, not `header_json_len`
+
+`moe_ref.read_header` §Header-first read returns the **JSON header length** (`struct.unpack("<Q", …read(8))`),
+which is the length *of the header*, not the offset of the data region. The three sites that memmapped
+expert weights added that length to a tensor's `data_offsets[0]` and omitted the 8-byte prefix field, so
+every value they read was shifted by 8 bytes — four bf16 elements:
+
+| site | form used |
+|---|---|
+| `prototype/moe_router/work/probe15.py` §15 | `offset=gu_hn+gu_h[gu_n]["data_offsets"][0]` |
+| `prototype/moe_router/work/probe9.py` §22 | `gu_off = guhn + guh[gu_n]["data_offsets"][0]` |
+| `prototype/moe_router/oracle_arm.py` §P3 block | `offset=gu_hn + gu_lo` — **the committed driver, not just scratch** |
+
+Nothing else in the lane reads raw shard bytes: `grep -rn data_offsets prototype/moe_router/` returns only
+these three files, and every dump comparison in the lane goes through `oracle_arm.read_arr` §read_arr or
+`moe_ref.load_tensor`, both of which are offset-free. That is why the correction is narrow.
+
+**A second defect this surfaced is the one that would have survived the fix.** `prototype/moe_router/work/`
+was gitignored, so `probe9.py` and `probe15.py` — both cited by name in this very file — were never in git:
+a fresh clone got the conclusion and not the proof, and nothing in `doc_ref_check` can see that, because the
+path exists right here. `.gitignore` now un-ignores the directory with `/*` and re-admits exactly those two
+probes plus `verify_p3_offset.py`, so the cited evidence is version-controlled and the scratch stays scratch.
+Two rules fall out: **a `§`- or `path:`-cite into a scratch directory is a citation to one machine** — check
+it with `git check-ignore -v <path>`, which costs nothing; and **preserve a buggy artefact verbatim** rather
+than annotating a copy, since the point of an artefact is that it is the thing that was wrong. Do not run
+`probe9.py` / `probe15.py`: their `os.chdir('../..')` assumes `cwd=work/`, and their offsets are the wrong
+ones. `verify_p3_offset.py` reproduces every figure below, so no claim here depends on them.
+
+### What the shifted read produced, and why it looked like a finding
+
+`work/oracle_p3.tsv` records `one_minus_cos` ≈ **1.0 and `ndiff` 2048/2048 for every candidate** —
+`chunk2` 1.005, `halves_swapped` 0.9749, `stack_transposed` 1.040. Orthogonal vectors, all of them.
+That is not evidence about layout; it is the signature of reading the wrong bytes. The recorded claim
+"`layer0/token0/slot0` peaked at cos 0.065 (`work/probe15.py`), `expert_raw` is not
+`down(silu(gate*x)*up*x)` for any expert" is therefore **withdrawn**.
+
+### The witness, four arms, layer0, 32 tokens × 8 slots × 2048 = 524,288 elements, bf16 bit images
+
+| arm | path | differing | rows bad |
+|---|---|---|---|
+| 3 | `load_block_weights` + `moe_block(form="ref")` — the sanctioned reader | **0** | **0** |
+| 2 | probe15's shifted offset (control) | 523,841 | 256 |
+| 4 | sanctioned reader, `Form(batching="per_slot")` | 130 | 4 |
+| 1 | hand-rolled memmap at the correct offset, per-row bf16 | 143 | 7 |
+| 1b | hand-rolled, f32 compute then round | 308,076 | 256 |
+
+So **the dump does carry the layout**: `layer0.expert_raw` reproduces bit-exactly through the reference
+implementation. Arms 1 and 4 agree with each other and not with arm 3, which attributes their drift to
+reduction **association** (grouped vs per-slot), not to a wrong offset or a wrong dtype — and arm 1b kills
+the tempting wrong fix: computing in f32 and rounding once differs in 308,076 elements, so f32-then-round
+is not the reference's arithmetic.
+
+### The checker defect this exposed, which is the more transferable one
+
+`gate.py` §report_predictions carries the unresolved case as
+`v.check("prediction3-fused-layout-unresolved-is-reported", True, len(p3), …)` — **a predicate that is the
+literal `True`**, counted in the lane's check total and unable to fail. Recording that something was
+*reported* is a note, not an assertion; see `pitfalls/40-gates-and-admissions.md` §A check whose predicate
+is `True`. The sibling check on the line above it (`prediction3-fused-layout`, `best_right < best_wrong`)
+is real, and under the shifted read it was unreachable because the unresolved branch was taken instead —
+so the lane's P3 verdict rested entirely on the unfailable one.
+
+### What stands, and what changes
+
+- **Stands:** every router-stage verdict (logits, softmax, top-k ids, weights, tie behaviour), the host and
+  device PASSes, and the combine claim — `routed_sum` reproducing from `expert_raw` on every real row goes
+  through `read_arr`, not through the shifted memmaps. The sentence "the router verdicts do not rest on it
+  (no expert GEMM in this lane)" remains correct.
+- **Changes:** prediction 3 is no longer blocked by "nothing reproduces" — it is **decidable**, and blocked
+  only on showing that the candidate readings are *distinguished* from one another, not merely that one
+  reproduces. `moe_ref.moe_block` already exposes `swap_halves`, `transpose_stack` and `Form`, so the probe
+  is cheap. Assigned to `prototype/moe_gather/` (`HANDOFF.md` §8 item 1); witness exists for **layer0 only**,
+  `layer1`/`layer39`/`mtp0` are locally available and unprobed, `layer2` is not available.
+- **Do not re-run** `probe9.py` / `probe15.py`, and do not reuse the P3 block in `oracle_arm.py`, until their
+  offsets carry the 8-byte prefix. `work/verify_p3_offset.py` is the corrected reading to copy from.

@@ -559,3 +559,56 @@ window was exclusive because of zero workers and a stopped server, **not** becau
 so it printed `0.00 GiB` — a dramatic result that was just arithmetic. Both went into
 `pitfalls/00-measurement.md`, the second under the same rule I hold workers to: a counter at exactly its own
 initial value is unproven until witnessed non-zero.
+
+## Beat — post-maintenance: the router lane's prediction 3 was an artefact of its own probe
+
+W17 (ports), W18 (gather) and W19 (bound) all reported; W16's `speccheck/results.md` and W19's bound are
+committed, and the gather lane is paused as a draft (`13040de`) with a handoff that names its own defects.
+The item that mattered came out of the handoff's §9 rather than out of any gate: the router lane's
+`prediction 3 UNRESOLVED` — "no candidate reading of the safetensors reproduces the pinned `expert_raw`"
+— rested on a **missing 8-byte prefix**. `moe_ref.read_header` returns the header *length*; the data region
+begins at `8 + length`. Three sites memmapped at `length + data_offsets[0]`, one of them the committed
+driver `oracle_arm.py` §P3 block, not just scratch probes.
+
+I verified both halves myself rather than inheriting the claim, with a witness I wrote from the file's own
+first 8 bytes (`prototype/moe_router/work/verify_p3_offset.py`, CPU, four arms, `no timing taken`, exit 0):
+
+- **bug confirmed** — probe15's shifted read differs in **523,841 / 524,288** elements and corrupts all 256
+  rows; the recorded `one_minus_cos ≈ 1.0, ndiff 2048/2048` for *every* candidate was orthogonal garbage, not
+  a layout finding, so the cos-0.065 claim in `results.md` is withdrawn;
+- **the dump does carry the layout** — through the sanctioned reader, `layer0.expert_raw` reproduces
+  **bit-exactly, 0 of 524,288**;
+- **and the two tempting wrong answers got priced instead of guessed** — `Form(batching="per_slot")` drifts
+  130 elements and a hand-rolled per-row bf16 read drifts 143 (same order ⇒ association, not a bug), while
+  computing in f32 and rounding once drifts **308,076** — so f32-then-round is not the reference's arithmetic
+  and a kernel that does it must not have its mismatch waved through as a tolerance.
+
+The transferable part is the checker, not the numerics: the only thing holding that verdict up was
+`v.check("prediction3-fused-layout-unresolved-is-reported", True, …)` — a predicate that is the literal `True`,
+counted in the lane's certified 40 checks, unreachable-by-construction sibling and all. I certified that
+lane. The real check sat in a branch the shifted read made unreachable, and I read the total instead of the
+predicates. Now in `pitfalls/40` §A check whose predicate is `True`, with the grep to run against your own
+gate before believing a total, and the scoring rule stated plainly: a check that would have caught nothing
+under any mutation is a decoration, not a test.
+
+What stands and what moved: every router-stage verdict stands (dump comparisons go through `read_arr` /
+`load_tensor`, and `grep -rn data_offsets prototype/moe_router/` proves nothing else touches raw shard
+bytes), so no device or host PASS is re-opened. Prediction 3 becomes *decidable* — `moe_ref.moe_block`
+already takes `swap_halves`, `transpose_stack` and `Form` — and is assigned to the gather lane, which is
+briefed with these numbers and told to print `UNRESOLVED` rather than guess. Witness exists for layer0 only;
+`layer1`/`layer39`/`mtp0` are unprobed and `layer2` does not exist locally.
+
+And a rot that only a fresh clone would have found: `prototype/moe_router/work/` was gitignored, so
+`probe9.py` and `probe15.py` — cited by name in `results.md` — were never in git. The conclusion was
+version-controlled and its evidence was not, and `doc_ref_check` cannot see this because the path resolves
+fine on the one machine that has it. `.gitignore` now un-ignores that directory with `/*` and re-admits
+exactly those two probes plus the witness, so the cited proof travels with the claim. Rule for any cite into
+scratch: `git check-ignore -v <path>`, which costs nothing and answers whether a clone would have the file.
+
+One honest blemish in this beat, recorded rather than hidden: my first attempt at the ignore fix copied the
+witness into a new `probes/` directory, and the `rm -rf` that cleaned the copy up deleted the only copy that
+ever existed — it had never been committed, and its `tmp/` original was already gone. Nothing was lost in
+substance, because I rewrote it from the same derivation and it reproduced every figure above bit for bit on
+the first run (0 / 523,841 / 130 / 143 / 308,076). But the near-miss is the same class as everything else in
+this file: an artefact that exists once, in an ignored directory, is an artefact that does not exist. Commit
+the witness, then cite it.
