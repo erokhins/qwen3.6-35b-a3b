@@ -1,0 +1,988 @@
+# command: speccheck/gdn_ref.py --selftest
+# selftest — torch 2.14.1+cpu CPU threads=8 blocks=layer0,layer1 fixtures=prefill_2chunk_padded,prefill_2chunk_exact,prefill_3chunk_padded,prefill_1chunk_padded,prefill_3chunk_dirty_pad,decode_3step
+# geometry: h_k=16 h_v=32 d_k=128 d_v=128 k_conv=4 C=64 conv_dim=8192 linear layers=30 (gdn tensors in the index: 270)
+# fault fields in Faults: 29; derived cases: 144 per block, 288 total
+# derived population per section (cases_for vs populations, two derivations):
+#   fault                    cases_for populations  applies / note
+#   qkv_split_interleaved            6           6  both
+#   silu_before_conv                 6           6  both
+#   conv_tap_rotate                 18          18  both
+#   conv_state_is_outputs            1           1  decode
+#   conv_tap_reverse                 6           6  both
+#   beta_no_sigmoid                  6           6  both
+#   softplus_on_a_only               6           6  both
+#   a_log_used_directly              6           6  both
+#   decay_sign_flip                  6           6  both
+#   l2norm_eps_outside               6           6  both
+#   l2norm_uses_mean                 6           6  both
+#   q_scale_omitted                  6           6  both
+#   q_scaled_by_dv                   0           0  both — DEGENERATE for this geometry, excluded (see geometry.degeneracies)
+#   head_pairing_tiled               6           6  both
+#   v_head_order_tiled               6           6  both
+#   read_pre_update_state            1           1  decode
+#   decay_after_write                1           1  decode
+#   scan_in_bf16                     0           0  both — unreachable: the CPU backend needs a bf16 triangular solve for the chunked form; probed result is printed with the case list
+#   norm_plus_one                    6           6  both
+#   norm_gate_first                  6           6  both
+#   norm_weight_f32                  6           6  both
+#   norm_variance_flat               6           6  both
+#   chunk_decay_off_by_one           3           3  prefill
+#   pairwise_mask_after_exp          4           4  prefill
+#   unitriangular_dropped            5           5  prefill
+#   beta_on_v_not_k                  5           5  prefill
+#   q_decayed_twice                  4           4  prefill
+#   state_stored_transposed          5           5  both
+#   pad_beta_ones                    1           1  prefill
+#   skipped (unreachable, printed not dropped): q_scaled_by_dv on prefill_2chunk_padded: d_k != d_v: otherwise 1/sqrt(d_v) IS 1/sqrt(d_k)
+#   skipped (unreachable, printed not dropped): q_scaled_by_dv on prefill_2chunk_exact: d_k != d_v: otherwise 1/sqrt(d_v) IS 1/sqrt(d_k)
+#   skipped (unreachable, printed not dropped): q_scaled_by_dv on prefill_3chunk_padded: d_k != d_v: otherwise 1/sqrt(d_v) IS 1/sqrt(d_k)
+#   skipped (unreachable, printed not dropped): q_scaled_by_dv on prefill_1chunk_padded: d_k != d_v: otherwise 1/sqrt(d_v) IS 1/sqrt(d_k)
+#   skipped (unreachable, printed not dropped): q_scaled_by_dv on prefill_3chunk_dirty_pad: d_k != d_v: otherwise 1/sqrt(d_v) IS 1/sqrt(d_k)
+#   skipped (unreachable, printed not dropped): q_scaled_by_dv on decode_3step: d_k != d_v: otherwise 1/sqrt(d_v) IS 1/sqrt(d_k)
+#   skipped (unreachable, printed not dropped): scan_in_bf16 on prefill_2chunk_padded: the CPU backend needs a bf16 triangular solve for the chunked form; probed result is printed with the case list [probed, not assumed: bf16 solve_triangular supported=False; NotImplementedError: "triangular_solve_cpu" not implemented for 'BFloat16']
+#   skipped (unreachable, printed not dropped): scan_in_bf16 on prefill_2chunk_exact: the CPU backend needs a bf16 triangular solve for the chunked form; probed result is printed with the case list [probed, not assumed: bf16 solve_triangular supported=False; NotImplementedError: "triangular_solve_cpu" not implemented for 'BFloat16']
+#   skipped (unreachable, printed not dropped): scan_in_bf16 on prefill_3chunk_padded: the CPU backend needs a bf16 triangular solve for the chunked form; probed result is printed with the case list [probed, not assumed: bf16 solve_triangular supported=False; NotImplementedError: "triangular_solve_cpu" not implemented for 'BFloat16']
+#   skipped (unreachable, printed not dropped): scan_in_bf16 on prefill_1chunk_padded: the CPU backend needs a bf16 triangular solve for the chunked form; probed result is printed with the case list [probed, not assumed: bf16 solve_triangular supported=False; NotImplementedError: "triangular_solve_cpu" not implemented for 'BFloat16']
+#   skipped (unreachable, printed not dropped): scan_in_bf16 on prefill_3chunk_dirty_pad: the CPU backend needs a bf16 triangular solve for the chunked form; probed result is printed with the case list [probed, not assumed: bf16 solve_triangular supported=False; NotImplementedError: "triangular_solve_cpu" not implemented for 'BFloat16']
+#   skipped (unreachable, printed not dropped): scan_in_bf16 on decode_3step: the CPU backend needs a bf16 triangular solve for the chunked form; probed result is printed with the case list [probed, not assumed: bf16 solve_triangular supported=False; NotImplementedError: "triangular_solve_cpu" not implemented for 'BFloat16']
+#   skipped (unreachable, printed not dropped): chunk_decay_off_by_one on prefill_2chunk_padded: either a final chunk whose last two columns are real tokens (the state can see the off-by-one) or three chunks (an output can). Otherwise it is a no-op on this fixture, as measured — see CONDITIONAL_AFFECTED and tmp/w20_chunkdecay.py
+#   skipped (unreachable, printed not dropped): chunk_decay_off_by_one on prefill_1chunk_padded: either a final chunk whose last two columns are real tokens (the state can see the off-by-one) or three chunks (an output can). Otherwise it is a no-op on this fixture, as measured — see CONDITIONAL_AFFECTED and tmp/w20_chunkdecay.py
+#   skipped (unreachable, printed not dropped): pairwise_mask_after_exp on prefill_1chunk_padded: n_tokens >= chunk_width: only real-token columns carry a nonzero g, so the masked triangle has to overflow before the two spellings differ, and a 4-token fixture cannot make it do so on every block (witnessed: 617 inf entries at T=4 on layer0, none on layer1) — see tmp/w20_primitives.py
+#   skipped (unreachable, printed not dropped): q_decayed_twice on prefill_1chunk_padded: n_chunks >= 2: inside the chunked form q is used twice — undecayed in `intra_attn`, decayed against the carried state — and with one chunk that state is the zero matrix, so the second decay cannot be seen (§04b.4)
+#   skipped (unreachable, printed not dropped): state_stored_transposed on prefill_1chunk_padded: n_chunks >= 2: the transposed layout is only read by the inter-chunk state read; one chunk reads the zero state
+#   skipped (unreachable, printed not dropped): pad_beta_ones on prefill_2chunk_padded: n_pad > 0 and a fixture whose padding columns are non-zero: with q/k/v zero-padded (§04b.2) a pad row's write is k_pad^T @ 0 for any beta, so the injection is provably inert there — measured on all three zero-padded fixtures
+#   skipped (unreachable, printed not dropped): pad_beta_ones on prefill_2chunk_exact: n_pad > 0 and a fixture whose padding columns are non-zero: with q/k/v zero-padded (§04b.2) a pad row's write is k_pad^T @ 0 for any beta, so the injection is provably inert there — measured on all three zero-padded fixtures
+#   skipped (unreachable, printed not dropped): pad_beta_ones on prefill_3chunk_padded: n_pad > 0 and a fixture whose padding columns are non-zero: with q/k/v zero-padded (§04b.2) a pad row's write is k_pad^T @ 0 for any beta, so the injection is provably inert there — measured on all three zero-padded fixtures
+#   skipped (unreachable, printed not dropped): pad_beta_ones on prefill_1chunk_padded: n_pad > 0 and a fixture whose padding columns are non-zero: with q/k/v zero-padded (§04b.2) a pad row's write is k_pad^T @ 0 for any beta, so the injection is provably inert there — measured on all three zero-padded fixtures
+# skipped cases: 21 of 165 built
+# derived (case x allowed-stage) population, unconditional half — printed before any comparison runs:
+#   988 per block x 2 blocks = 1976; the conditional half is licensed by fixture geometry (CONDITIONAL_AFFECTED) and printed with its denominator after the arms
+
+## firing table — arm=honest (the comparison is bit-level; no band is involved)
+  block   fault                    param fixture                  T moved stages                                               viol maxabs breach                 licensed
+  layer0  qkv_split_interleaved     None prefill_2chunk_padded   96 core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 2.46e+01                                
+  layer0  qkv_split_interleaved     None prefill_2chunk_exact   128 core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 2.46e+01                                
+  layer0  qkv_split_interleaved     None prefill_3chunk_padded  160 core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 2.46e+01                                
+  layer0  qkv_split_interleaved     None prefill_1chunk_padded    4 core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 1.18e+01                                
+  layer0  qkv_split_interleaved     None prefill_3chunk_dirty_pad  160 core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 2.46e+01                                
+  layer0  qkv_split_interleaved     None decode_3step            96 core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 6.25e+00                                
+  layer0  silu_before_conv          None prefill_2chunk_padded   96 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 2.52e+01                                
+  layer0  silu_before_conv          None prefill_2chunk_exact   128 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 2.52e+01                                
+  layer0  silu_before_conv          None prefill_3chunk_padded  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 2.52e+01                                
+  layer0  silu_before_conv          None prefill_1chunk_padded    4 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 6.47e+00                                
+  layer0  silu_before_conv          None prefill_3chunk_dirty_pad  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 2.52e+01                                
+  layer0  silu_before_conv          None decode_3step            96 conv_out,conv_pre,conv_window,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 6.14e+00                        conv_window
+  layer0  conv_tap_rotate              1 prefill_2chunk_padded   96 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 2.28e+01                                
+  layer0  conv_tap_rotate              2 prefill_2chunk_padded   96 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 2.79e+01                                
+  layer0  conv_tap_rotate              3 prefill_2chunk_padded   96 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 4.18e+01                                
+  layer0  conv_tap_rotate              1 prefill_2chunk_exact   128 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 2.54e+01                                
+  layer0  conv_tap_rotate              2 prefill_2chunk_exact   128 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 3.15e+01                                
+  layer0  conv_tap_rotate              3 prefill_2chunk_exact   128 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 4.18e+01                                
+  layer0  conv_tap_rotate              1 prefill_3chunk_padded  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 2.54e+01                                
+  layer0  conv_tap_rotate              2 prefill_3chunk_padded  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 3.15e+01                                
+  layer0  conv_tap_rotate              3 prefill_3chunk_padded  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 4.18e+01                                
+  layer0  conv_tap_rotate              1 prefill_1chunk_padded    4 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 7.81e+00                                
+  layer0  conv_tap_rotate              2 prefill_1chunk_padded    4 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 6.92e+00                                
+  layer0  conv_tap_rotate              3 prefill_1chunk_padded    4 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 6.19e+00                                
+  layer0  conv_tap_rotate              1 prefill_3chunk_dirty_pad  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 2.54e+01                                
+  layer0  conv_tap_rotate              2 prefill_3chunk_dirty_pad  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 3.15e+01                                
+  layer0  conv_tap_rotate              3 prefill_3chunk_dirty_pad  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 4.18e+01                                
+  layer0  conv_tap_rotate              1 decode_3step            96 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 1.86e+00                                
+  layer0  conv_tap_rotate              2 decode_3step            96 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 3.45e+00                                
+  layer0  conv_tap_rotate              3 decode_3step            96 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 2.18e+00                                
+  layer0  conv_state_is_outputs     None decode_3step            96 conv_out,conv_pre,conv_window,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 6.90e+00                                
+  layer0  conv_tap_reverse          None prefill_2chunk_padded   96 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 5.61e+01                                
+  layer0  conv_tap_reverse          None prefill_2chunk_exact   128 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 5.61e+01                                
+  layer0  conv_tap_reverse          None prefill_3chunk_padded  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 5.61e+01                                
+  layer0  conv_tap_reverse          None prefill_1chunk_padded    4 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 3.12e+00                                
+  layer0  conv_tap_reverse          None prefill_3chunk_dirty_pad  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 5.61e+01                                
+  layer0  conv_tap_reverse          None decode_3step            96 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 1.97e+00                                
+  layer0  beta_no_sigmoid           None prefill_2chunk_padded   96 beta,core_attn,normed,scan_out,state,y                        0 4.26e+01                                
+  layer0  beta_no_sigmoid           None prefill_2chunk_exact   128 beta,core_attn,normed,scan_out,state,y                        0 4.26e+01                                
+  layer0  beta_no_sigmoid           None prefill_3chunk_padded  160 beta,core_attn,normed,scan_out,state,y                        0 4.26e+01                                
+  layer0  beta_no_sigmoid           None prefill_1chunk_padded    4 beta,core_attn,normed,scan_out,state,y                        0 4.89e+00                                
+  layer0  beta_no_sigmoid           None prefill_3chunk_dirty_pad  160 beta,core_attn,normed,scan_out,state,y                        0 4.26e+01                                
+  layer0  beta_no_sigmoid           None decode_3step            96 beta,core_attn,normed,scan_out,state,y                        0 1.26e+00                                
+  layer0  softplus_on_a_only        None prefill_2chunk_padded   96 core_attn,g_decay,normed,scan_out,state,y                     0 4.45e+01                                
+  layer0  softplus_on_a_only        None prefill_2chunk_exact   128 core_attn,g_decay,normed,scan_out,state,y                     0 4.45e+01                                
+  layer0  softplus_on_a_only        None prefill_3chunk_padded  160 core_attn,g_decay,normed,scan_out,state,y                     0 4.45e+01                                
+  layer0  softplus_on_a_only        None prefill_1chunk_padded    4 core_attn,g_decay,normed,scan_out,state,y                     0 4.45e+01                                
+  layer0  softplus_on_a_only        None prefill_3chunk_dirty_pad  160 core_attn,g_decay,normed,scan_out,state,y                     0 4.45e+01                                
+  layer0  softplus_on_a_only        None decode_3step            96 core_attn,g_decay,normed,scan_out,state,y                     0 4.45e+01                                
+  layer0  a_log_used_directly       None prefill_2chunk_padded   96 core_attn,g_decay,normed,scan_out,state,y                     0 8.59e+01                                
+  layer0  a_log_used_directly       None prefill_2chunk_exact   128 core_attn,g_decay,normed,scan_out,state,y                     0 8.59e+01                                
+  layer0  a_log_used_directly       None prefill_3chunk_padded  160 core_attn,g_decay,normed,scan_out,state,y                     0 8.59e+01                                
+  layer0  a_log_used_directly       None prefill_1chunk_padded    4 core_attn,g_decay,normed,scan_out,state,y                     0 8.59e+01                                
+  layer0  a_log_used_directly       None prefill_3chunk_dirty_pad  160 core_attn,g_decay,normed,scan_out,state,y                     0 8.59e+01                                
+  layer0  a_log_used_directly       None decode_3step            96 core_attn,g_decay,normed,scan_out,state,y                     0 8.59e+01                                
+  layer0  decay_sign_flip           None prefill_2chunk_padded   96 core_attn,g_decay,normed,scan_out,state,y                     0 1.83e+02                                
+  layer0  decay_sign_flip           None prefill_2chunk_exact   128 core_attn,g_decay,normed,scan_out,state,y                     0 1.83e+02                                
+  layer0  decay_sign_flip           None prefill_3chunk_padded  160 core_attn,g_decay,normed,scan_out,state,y                     0 1.83e+02                                
+  layer0  decay_sign_flip           None prefill_1chunk_padded    4 core_attn,g_decay,normed,scan_out,state,y                     0 1.83e+02                                
+  layer0  decay_sign_flip           None prefill_3chunk_dirty_pad  160 core_attn,g_decay,normed,scan_out,state,y                     0 1.83e+02                                
+  layer0  decay_sign_flip           None decode_3step            96 core_attn,g_decay,normed,scan_out,state,y                     0 1.83e+02                                
+  layer0  l2norm_eps_outside        None prefill_2chunk_padded   96 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 3.12e-02                                
+  layer0  l2norm_eps_outside        None prefill_2chunk_exact   128 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 3.12e-02                                
+  layer0  l2norm_eps_outside        None prefill_3chunk_padded  160 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 3.12e-02                                
+  layer0  l2norm_eps_outside        None prefill_1chunk_padded    4 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 3.12e-02                                
+  layer0  l2norm_eps_outside        None prefill_3chunk_dirty_pad  160 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 3.12e-02                                
+  layer0  l2norm_eps_outside        None decode_3step            96 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 4.88e-04                                
+  layer0  l2norm_uses_mean          None prefill_2chunk_padded   96 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 9.99e+00                                
+  layer0  l2norm_uses_mean          None prefill_2chunk_exact   128 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 9.99e+00                                
+  layer0  l2norm_uses_mean          None prefill_3chunk_padded  160 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 9.99e+00                                
+  layer0  l2norm_uses_mean          None prefill_1chunk_padded    4 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 5.46e+03                                
+  layer0  l2norm_uses_mean          None prefill_3chunk_dirty_pad  160 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 9.99e+00                                
+  layer0  l2norm_uses_mean          None decode_3step            96 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 1.27e+03                                
+  layer0  q_scale_omitted           None prefill_2chunk_padded   96 core_attn,normed,q_hat,scan_out,y                             0 2.42e+01                                
+  layer0  q_scale_omitted           None prefill_2chunk_exact   128 core_attn,normed,q_hat,scan_out,y                             0 2.42e+01                                
+  layer0  q_scale_omitted           None prefill_3chunk_padded  160 core_attn,normed,q_hat,scan_out,y                             0 2.42e+01                                
+  layer0  q_scale_omitted           None prefill_1chunk_padded    4 core_attn,normed,q_hat,scan_out,y                             0 1.60e+01                                
+  layer0  q_scale_omitted           None prefill_3chunk_dirty_pad  160 core_attn,normed,q_hat,scan_out,y                             0 2.42e+01                                
+  layer0  q_scale_omitted           None decode_3step            96 core_attn,normed,q_hat,scan_out,y                             0 1.68e+00                                
+  layer0  head_pairing_tiled        None prefill_2chunk_padded   96 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 2.22e+01                                
+  layer0  head_pairing_tiled        None prefill_2chunk_exact   128 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 2.22e+01                                
+  layer0  head_pairing_tiled        None prefill_3chunk_padded  160 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 2.22e+01                                
+  layer0  head_pairing_tiled        None prefill_1chunk_padded    4 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 3.05e+00                                
+  layer0  head_pairing_tiled        None prefill_3chunk_dirty_pad  160 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 2.22e+01                                
+  layer0  head_pairing_tiled        None decode_3step            96 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 4.52e+00                                
+  layer0  v_head_order_tiled        None prefill_2chunk_padded   96 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,mixed_qkv,normed,scan_out,state,v_pre,y,z    0 9.14e+01                                
+  layer0  v_head_order_tiled        None prefill_2chunk_exact   128 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,mixed_qkv,normed,scan_out,state,v_pre,y,z    0 9.14e+01                                
+  layer0  v_head_order_tiled        None prefill_3chunk_padded  160 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,mixed_qkv,normed,scan_out,state,v_pre,y,z    0 9.14e+01                                
+  layer0  v_head_order_tiled        None prefill_1chunk_padded    4 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,mixed_qkv,normed,scan_out,state,v_pre,y,z    0 9.13e+01                                
+  layer0  v_head_order_tiled        None prefill_3chunk_dirty_pad  160 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,mixed_qkv,normed,scan_out,state,v_pre,y,z    0 9.14e+01                                
+  layer0  v_head_order_tiled        None decode_3step            96 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,mixed_qkv,normed,scan_out,state,v_pre,y,z    0 9.13e+01                                
+  layer0  read_pre_update_state     None decode_3step            96 core_attn,normed,scan_out,y                                   0 5.90e-01                                
+  layer0  decay_after_write         None decode_3step            96 core_attn,normed,scan_out,state,y                             0 5.90e-01                                
+  layer0  norm_plus_one             None prefill_2chunk_padded   96 normed,y                                                      0 3.64e+01                                
+  layer0  norm_plus_one             None prefill_2chunk_exact   128 normed,y                                                      0 3.64e+01                                
+  layer0  norm_plus_one             None prefill_3chunk_padded  160 normed,y                                                      0 3.64e+01                                
+  layer0  norm_plus_one             None prefill_1chunk_padded    4 normed,y                                                      0 9.00e+00                                
+  layer0  norm_plus_one             None prefill_3chunk_dirty_pad  160 normed,y                                                      0 3.64e+01                                
+  layer0  norm_plus_one             None decode_3step            96 normed,y                                                      0 2.52e+00                                
+  layer0  norm_gate_first           None prefill_2chunk_padded   96 normed,y                                                      0 1.68e+01                                
+  layer0  norm_gate_first           None prefill_2chunk_exact   128 normed,y                                                      0 1.68e+01                                
+  layer0  norm_gate_first           None prefill_3chunk_padded  160 normed,y                                                      0 1.68e+01                                
+  layer0  norm_gate_first           None prefill_1chunk_padded    4 normed,y                                                      0 1.00e+01                                
+  layer0  norm_gate_first           None prefill_3chunk_dirty_pad  160 normed,y                                                      0 1.68e+01                                
+  layer0  norm_gate_first           None decode_3step            96 normed,y                                                      0 8.33e+00                                
+  layer0  norm_weight_f32           None prefill_2chunk_padded   96 normed,y                                                      0 1.25e-01                                
+  layer0  norm_weight_f32           None prefill_2chunk_exact   128 normed,y                                                      0 1.25e-01                                
+  layer0  norm_weight_f32           None prefill_3chunk_padded  160 normed,y                                                      0 1.25e-01                                
+  layer0  norm_weight_f32           None prefill_1chunk_padded    4 normed,y                                                      0 1.56e-02                                
+  layer0  norm_weight_f32           None prefill_3chunk_dirty_pad  160 normed,y                                                      0 1.25e-01                                
+  layer0  norm_weight_f32           None decode_3step            96 normed,y                                                      0 1.56e-02                                
+  layer0  norm_variance_flat        None prefill_2chunk_padded   96 normed,y                                                      0 1.20e+01                                
+  layer0  norm_variance_flat        None prefill_2chunk_exact   128 normed,y                                                      0 1.22e+01                                
+  layer0  norm_variance_flat        None prefill_3chunk_padded  160 normed,y                                                      0 1.78e+01                                
+  layer0  norm_variance_flat        None prefill_1chunk_padded    4 normed,y                                                      0 4.69e-01                                
+  layer0  norm_variance_flat        None prefill_3chunk_dirty_pad  160 normed,y                                                      0 1.78e+01                                
+  layer0  norm_variance_flat        None decode_3step            96 normed,y                                                      0 1.22e+00                                
+  layer0  chunk_decay_off_by_one    None prefill_2chunk_exact   128 state                                                         0 7.05e-03                        state   
+  layer0  chunk_decay_off_by_one    None prefill_3chunk_padded  160 core_attn,normed,scan_out,state,y                             0 6.25e-02                        state,scan_out,core_attn,normed,y
+  layer0  chunk_decay_off_by_one    None prefill_3chunk_dirty_pad  160 core_attn,normed,scan_out,state,y                             0 6.25e-02                        state,scan_out,core_attn,normed,y
+  layer0  pairwise_mask_after_exp   None prefill_2chunk_padded   96 core_attn,normed,scan_out,y                                   0 0.00e+00                                
+  layer0  pairwise_mask_after_exp   None prefill_2chunk_exact   128 core_attn,normed,scan_out,y                                   0 0.00e+00                                
+  layer0  pairwise_mask_after_exp   None prefill_3chunk_padded  160 core_attn,normed,scan_out,y                                   0 0.00e+00                                
+  layer0  pairwise_mask_after_exp   None prefill_3chunk_dirty_pad  160 core_attn,normed,scan_out,y                                   0 0.00e+00                                
+  layer0  unitriangular_dropped     None prefill_2chunk_padded   96 core_attn,normed,scan_out,state,y                             0 0.00e+00                                
+  layer0  unitriangular_dropped     None prefill_2chunk_exact   128 core_attn,normed,scan_out,state,y                             0 1.20e+01                                
+  layer0  unitriangular_dropped     None prefill_3chunk_padded  160 core_attn,normed,scan_out,state,y                             0 0.00e+00                                
+  layer0  unitriangular_dropped     None prefill_1chunk_padded    4 core_attn,normed,scan_out,state,y                             0 0.00e+00                                
+  layer0  unitriangular_dropped     None prefill_3chunk_dirty_pad  160 core_attn,normed,scan_out,state,y                             0 0.00e+00                                
+  layer0  beta_on_v_not_k           None prefill_2chunk_padded   96 core_attn,normed,scan_out,state,y                             0 6.86e+00                                
+  layer0  beta_on_v_not_k           None prefill_2chunk_exact   128 core_attn,normed,scan_out,state,y                             0 9.19e+00                                
+  layer0  beta_on_v_not_k           None prefill_3chunk_padded  160 core_attn,normed,scan_out,state,y                             0 9.19e+00                                
+  layer0  beta_on_v_not_k           None prefill_1chunk_padded    4 core_attn,normed,scan_out,state,y                             0 4.45e-01                                
+  layer0  beta_on_v_not_k           None prefill_3chunk_dirty_pad  160 core_attn,normed,scan_out,state,y                             0 5.45e+29                                
+  layer0  q_decayed_twice           None prefill_2chunk_padded   96 core_attn,normed,scan_out,y                                   0 5.62e-01                                
+  layer0  q_decayed_twice           None prefill_2chunk_exact   128 core_attn,normed,scan_out,y                                   0 1.06e+00                                
+  layer0  q_decayed_twice           None prefill_3chunk_padded  160 core_attn,normed,scan_out,y                                   0 1.29e+00                                
+  layer0  q_decayed_twice           None prefill_3chunk_dirty_pad  160 core_attn,normed,scan_out,y                                   0 1.29e+00                                
+  layer0  state_stored_transposed   None prefill_2chunk_padded   96 core_attn,normed,scan_out,state,y                             0 1.67e+01                                
+  layer0  state_stored_transposed   None prefill_2chunk_exact   128 core_attn,normed,scan_out,state,y                             0 2.07e+01                                
+  layer0  state_stored_transposed   None prefill_3chunk_padded  160 core_attn,normed,scan_out,state,y                             0 2.07e+01                                
+  layer0  state_stored_transposed   None prefill_3chunk_dirty_pad  160 core_attn,normed,scan_out,state,y                             0 2.07e+01                                
+  layer0  state_stored_transposed   None decode_3step            96 core_attn,normed,scan_out,state,y                             0 2.36e+00                                
+  layer0  pad_beta_ones             None prefill_3chunk_dirty_pad  160 state                                                         0 2.11e+30                                
+  layer1  qkv_split_interleaved     None prefill_2chunk_padded   96 core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 7.83e+00                                
+  layer1  qkv_split_interleaved     None prefill_2chunk_exact   128 core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 7.83e+00                                
+  layer1  qkv_split_interleaved     None prefill_3chunk_padded  160 core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 7.83e+00                                
+  layer1  qkv_split_interleaved     None prefill_1chunk_padded    4 core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 3.02e+00                                
+  layer1  qkv_split_interleaved     None prefill_3chunk_dirty_pad  160 core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 7.83e+00                                
+  layer1  qkv_split_interleaved     None decode_3step            96 core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 3.64e+00                                
+  layer1  silu_before_conv          None prefill_2chunk_padded   96 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 6.16e+00                                
+  layer1  silu_before_conv          None prefill_2chunk_exact   128 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 6.16e+00                                
+  layer1  silu_before_conv          None prefill_3chunk_padded  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 6.78e+00                                
+  layer1  silu_before_conv          None prefill_1chunk_padded    4 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 2.42e+00                                
+  layer1  silu_before_conv          None prefill_3chunk_dirty_pad  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 6.78e+00                                
+  layer1  silu_before_conv          None decode_3step            96 conv_out,conv_pre,conv_window,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 9.31e+00                        conv_window
+  layer1  conv_tap_rotate              1 prefill_2chunk_padded   96 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 1.03e+01                                
+  layer1  conv_tap_rotate              2 prefill_2chunk_padded   96 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 1.20e+01                                
+  layer1  conv_tap_rotate              3 prefill_2chunk_padded   96 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 1.10e+01                                
+  layer1  conv_tap_rotate              1 prefill_2chunk_exact   128 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 1.37e+01                                
+  layer1  conv_tap_rotate              2 prefill_2chunk_exact   128 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 1.34e+01                                
+  layer1  conv_tap_rotate              3 prefill_2chunk_exact   128 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 1.11e+01                                
+  layer1  conv_tap_rotate              1 prefill_3chunk_padded  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 1.37e+01                                
+  layer1  conv_tap_rotate              2 prefill_3chunk_padded  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 1.34e+01                                
+  layer1  conv_tap_rotate              3 prefill_3chunk_padded  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 1.11e+01                                
+  layer1  conv_tap_rotate              1 prefill_1chunk_padded    4 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 3.95e+00                                
+  layer1  conv_tap_rotate              2 prefill_1chunk_padded    4 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 2.48e+00                                
+  layer1  conv_tap_rotate              3 prefill_1chunk_padded    4 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 2.86e+00                                
+  layer1  conv_tap_rotate              1 prefill_3chunk_dirty_pad  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 1.37e+01                                
+  layer1  conv_tap_rotate              2 prefill_3chunk_dirty_pad  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 1.34e+01                                
+  layer1  conv_tap_rotate              3 prefill_3chunk_dirty_pad  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 1.11e+01                                
+  layer1  conv_tap_rotate              1 decode_3step            96 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 1.86e+00                                
+  layer1  conv_tap_rotate              2 decode_3step            96 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 1.64e+00                                
+  layer1  conv_tap_rotate              3 decode_3step            96 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 2.44e+00                                
+  layer1  conv_state_is_outputs     None decode_3step            96 conv_out,conv_pre,conv_window,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 9.04e+00                                
+  layer1  conv_tap_reverse          None prefill_2chunk_padded   96 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 1.45e+01                                
+  layer1  conv_tap_reverse          None prefill_2chunk_exact   128 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 1.45e+01                                
+  layer1  conv_tap_reverse          None prefill_3chunk_padded  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 1.45e+01                                
+  layer1  conv_tap_reverse          None prefill_1chunk_padded    4 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 2.80e+00                                
+  layer1  conv_tap_reverse          None prefill_3chunk_dirty_pad  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 1.45e+01                                
+  layer1  conv_tap_reverse          None decode_3step            96 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    0 2.53e+00                                
+  layer1  beta_no_sigmoid           None prefill_2chunk_padded   96 beta,core_attn,normed,scan_out,state,y                        0 1.57e+01                                
+  layer1  beta_no_sigmoid           None prefill_2chunk_exact   128 beta,core_attn,normed,scan_out,state,y                        0 1.57e+01                                
+  layer1  beta_no_sigmoid           None prefill_3chunk_padded  160 beta,core_attn,normed,scan_out,state,y                        0 2.35e+01                                
+  layer1  beta_no_sigmoid           None prefill_1chunk_padded    4 beta,core_attn,normed,scan_out,state,y                        0 2.56e+00                                
+  layer1  beta_no_sigmoid           None prefill_3chunk_dirty_pad  160 beta,core_attn,normed,scan_out,state,y                        0 2.35e+01                                
+  layer1  beta_no_sigmoid           None decode_3step            96 beta,core_attn,normed,scan_out,state,y                        0 2.33e+00                                
+  layer1  softplus_on_a_only        None prefill_2chunk_padded   96 core_attn,g_decay,normed,scan_out,state,y                     0 4.53e+01                                
+  layer1  softplus_on_a_only        None prefill_2chunk_exact   128 core_attn,g_decay,normed,scan_out,state,y                     0 4.53e+01                                
+  layer1  softplus_on_a_only        None prefill_3chunk_padded  160 core_attn,g_decay,normed,scan_out,state,y                     0 4.53e+01                                
+  layer1  softplus_on_a_only        None prefill_1chunk_padded    4 core_attn,g_decay,normed,scan_out,state,y                     0 2.51e+01                                
+  layer1  softplus_on_a_only        None prefill_3chunk_dirty_pad  160 core_attn,g_decay,normed,scan_out,state,y                     0 4.53e+01                                
+  layer1  softplus_on_a_only        None decode_3step            96 core_attn,g_decay,normed,scan_out,state,y                     0 2.40e+01                                
+  layer1  a_log_used_directly       None prefill_2chunk_padded   96 core_attn,g_decay,normed,scan_out,state,y                     0 7.00e+00                                
+  layer1  a_log_used_directly       None prefill_2chunk_exact   128 core_attn,g_decay,normed,scan_out,state,y                     0 7.00e+00                                
+  layer1  a_log_used_directly       None prefill_3chunk_padded  160 core_attn,g_decay,normed,scan_out,state,y                     0 7.00e+00                                
+  layer1  a_log_used_directly       None prefill_1chunk_padded    4 core_attn,g_decay,normed,scan_out,state,y                     0 7.18e+00                                
+  layer1  a_log_used_directly       None prefill_3chunk_dirty_pad  160 core_attn,g_decay,normed,scan_out,state,y                     0 7.00e+00                                
+  layer1  a_log_used_directly       None decode_3step            96 core_attn,g_decay,normed,scan_out,state,y                     0 1.86e+01                                
+  layer1  decay_sign_flip           None prefill_2chunk_padded   96 core_attn,g_decay,normed,scan_out,state,y                     0 1.94e+01                                
+  layer1  decay_sign_flip           None prefill_2chunk_exact   128 core_attn,g_decay,normed,scan_out,state,y                     0 1.94e+01                                
+  layer1  decay_sign_flip           None prefill_3chunk_padded  160 core_attn,g_decay,normed,scan_out,state,y                     0 2.08e+01                                
+  layer1  decay_sign_flip           None prefill_1chunk_padded    4 core_attn,g_decay,normed,scan_out,state,y                     0 5.91e+02                                
+  layer1  decay_sign_flip           None prefill_3chunk_dirty_pad  160 core_attn,g_decay,normed,scan_out,state,y                     0 2.08e+01                                
+  layer1  decay_sign_flip           None decode_3step            96 core_attn,g_decay,normed,scan_out,state,y                     0 2.89e+03                                
+  layer1  l2norm_eps_outside        None prefill_2chunk_padded   96 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 7.81e-03                                
+  layer1  l2norm_eps_outside        None prefill_2chunk_exact   128 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 6.25e-02                                
+  layer1  l2norm_eps_outside        None prefill_3chunk_padded  160 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 6.25e-02                                
+  layer1  l2norm_eps_outside        None prefill_1chunk_padded    4 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 7.81e-03                                
+  layer1  l2norm_eps_outside        None prefill_3chunk_dirty_pad  160 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 6.25e-02                                
+  layer1  l2norm_eps_outside        None decode_3step            96 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 9.77e-04                                
+  layer1  l2norm_uses_mean          None prefill_2chunk_padded   96 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 1.02e+01                                
+  layer1  l2norm_uses_mean          None prefill_2chunk_exact   128 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 1.02e+01                                
+  layer1  l2norm_uses_mean          None prefill_3chunk_padded  160 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 1.02e+01                                
+  layer1  l2norm_uses_mean          None prefill_1chunk_padded    4 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 2.64e+03                                
+  layer1  l2norm_uses_mean          None prefill_3chunk_dirty_pad  160 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 1.02e+01                                
+  layer1  l2norm_uses_mean          None decode_3step            96 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 6.95e+02                                
+  layer1  q_scale_omitted           None prefill_2chunk_padded   96 core_attn,normed,q_hat,scan_out,y                             0 1.21e+01                                
+  layer1  q_scale_omitted           None prefill_2chunk_exact   128 core_attn,normed,q_hat,scan_out,y                             0 1.62e+01                                
+  layer1  q_scale_omitted           None prefill_3chunk_padded  160 core_attn,normed,q_hat,scan_out,y                             0 1.62e+01                                
+  layer1  q_scale_omitted           None prefill_1chunk_padded    4 core_attn,normed,q_hat,scan_out,y                             0 6.42e+00                                
+  layer1  q_scale_omitted           None prefill_3chunk_dirty_pad  160 core_attn,normed,q_hat,scan_out,y                             0 1.62e+01                                
+  layer1  q_scale_omitted           None decode_3step            96 core_attn,normed,q_hat,scan_out,y                             0 2.32e+00                                
+  layer1  head_pairing_tiled        None prefill_2chunk_padded   96 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 1.39e+01                                
+  layer1  head_pairing_tiled        None prefill_2chunk_exact   128 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 1.44e+01                                
+  layer1  head_pairing_tiled        None prefill_3chunk_padded  160 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 1.44e+01                                
+  layer1  head_pairing_tiled        None prefill_1chunk_padded    4 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 3.70e+00                                
+  layer1  head_pairing_tiled        None prefill_3chunk_dirty_pad  160 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 1.44e+01                                
+  layer1  head_pairing_tiled        None decode_3step            96 core_attn,k_hat,normed,q_hat,scan_out,state,y                 0 3.81e+00                                
+  layer1  v_head_order_tiled        None prefill_2chunk_padded   96 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,mixed_qkv,normed,scan_out,state,v_pre,y,z    0 1.32e+01                                
+  layer1  v_head_order_tiled        None prefill_2chunk_exact   128 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,mixed_qkv,normed,scan_out,state,v_pre,y,z    0 1.32e+01                                
+  layer1  v_head_order_tiled        None prefill_3chunk_padded  160 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,mixed_qkv,normed,scan_out,state,v_pre,y,z    0 1.32e+01                                
+  layer1  v_head_order_tiled        None prefill_1chunk_padded    4 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,mixed_qkv,normed,scan_out,state,v_pre,y,z    0 7.68e+00                                
+  layer1  v_head_order_tiled        None prefill_3chunk_dirty_pad  160 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,mixed_qkv,normed,scan_out,state,v_pre,y,z    0 1.32e+01                                
+  layer1  v_head_order_tiled        None decode_3step            96 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,mixed_qkv,normed,scan_out,state,v_pre,y,z    0 1.02e+01                                
+  layer1  read_pre_update_state     None decode_3step            96 core_attn,normed,scan_out,y                                   0 3.17e-01                                
+  layer1  decay_after_write         None decode_3step            96 core_attn,normed,scan_out,state,y                             0 1.67e-01                                
+  layer1  norm_plus_one             None prefill_2chunk_padded   96 normed,y                                                      0 7.53e+00                                
+  layer1  norm_plus_one             None prefill_2chunk_exact   128 normed,y                                                      0 7.53e+00                                
+  layer1  norm_plus_one             None prefill_3chunk_padded  160 normed,y                                                      0 7.53e+00                                
+  layer1  norm_plus_one             None prefill_1chunk_padded    4 normed,y                                                      0 5.47e+00                                
+  layer1  norm_plus_one             None prefill_3chunk_dirty_pad  160 normed,y                                                      0 7.53e+00                                
+  layer1  norm_plus_one             None decode_3step            96 normed,y                                                      0 1.42e+00                                
+  layer1  norm_gate_first           None prefill_2chunk_padded   96 normed,y                                                      0 1.40e+01                                
+  layer1  norm_gate_first           None prefill_2chunk_exact   128 normed,y                                                      0 2.18e+01                                
+  layer1  norm_gate_first           None prefill_3chunk_padded  160 normed,y                                                      0 2.18e+01                                
+  layer1  norm_gate_first           None prefill_1chunk_padded    4 normed,y                                                      0 9.27e+00                                
+  layer1  norm_gate_first           None prefill_3chunk_dirty_pad  160 normed,y                                                      0 2.18e+01                                
+  layer1  norm_gate_first           None decode_3step            96 normed,y                                                      0 8.52e+00                                
+  layer1  norm_weight_f32           None prefill_2chunk_padded   96 normed,y                                                      0 3.12e-02                                
+  layer1  norm_weight_f32           None prefill_2chunk_exact   128 normed,y                                                      0 3.12e-02                                
+  layer1  norm_weight_f32           None prefill_3chunk_padded  160 normed,y                                                      0 3.12e-02                                
+  layer1  norm_weight_f32           None prefill_1chunk_padded    4 normed,y                                                      0 1.56e-02                                
+  layer1  norm_weight_f32           None prefill_3chunk_dirty_pad  160 normed,y                                                      0 3.12e-02                                
+  layer1  norm_weight_f32           None decode_3step            96 normed,y                                                      0 3.91e-03                                
+  layer1  norm_variance_flat        None prefill_2chunk_padded   96 normed,y                                                      0 2.98e+00                                
+  layer1  norm_variance_flat        None prefill_2chunk_exact   128 normed,y                                                      0 5.06e+00                                
+  layer1  norm_variance_flat        None prefill_3chunk_padded  160 normed,y                                                      0 5.06e+00                                
+  layer1  norm_variance_flat        None prefill_1chunk_padded    4 normed,y                                                      0 2.34e-01                                
+  layer1  norm_variance_flat        None prefill_3chunk_dirty_pad  160 normed,y                                                      0 5.06e+00                                
+  layer1  norm_variance_flat        None decode_3step            96 normed,y                                                      0 7.66e-01                                
+  layer1  chunk_decay_off_by_one    None prefill_2chunk_exact   128 state                                                         0 1.65e-02                        state   
+  layer1  chunk_decay_off_by_one    None prefill_3chunk_padded  160 core_attn,normed,scan_out,state,y                             0 1.05e-01                        state,scan_out,core_attn,normed,y
+  layer1  chunk_decay_off_by_one    None prefill_3chunk_dirty_pad  160 core_attn,normed,scan_out,state,y                             0 1.05e-01                        state,scan_out,core_attn,normed,y
+  layer1  pairwise_mask_after_exp   None prefill_2chunk_padded   96 core_attn,normed,scan_out,y                                   0 0.00e+00                                
+  layer1  pairwise_mask_after_exp   None prefill_2chunk_exact   128 core_attn,normed,scan_out,y                                   0 0.00e+00                                
+  layer1  pairwise_mask_after_exp   None prefill_3chunk_padded  160 core_attn,normed,scan_out,y                                   0 0.00e+00                                
+  layer1  pairwise_mask_after_exp   None prefill_3chunk_dirty_pad  160 core_attn,normed,scan_out,y                                   0 0.00e+00                                
+  layer1  unitriangular_dropped     None prefill_2chunk_padded   96 core_attn,normed,scan_out,state,y                             0 0.00e+00                                
+  layer1  unitriangular_dropped     None prefill_2chunk_exact   128 core_attn,normed,scan_out,state,y                             0 6.03e+00                                
+  layer1  unitriangular_dropped     None prefill_3chunk_padded  160 core_attn,normed,scan_out,state,y                             0 0.00e+00                                
+  layer1  unitriangular_dropped     None prefill_1chunk_padded    4 core_attn,normed,scan_out,state,y                             0 0.00e+00                                
+  layer1  unitriangular_dropped     None prefill_3chunk_dirty_pad  160 core_attn,normed,scan_out,state,y                             0 0.00e+00                                
+  layer1  beta_on_v_not_k           None prefill_2chunk_padded   96 core_attn,normed,scan_out,state,y                             0 3.17e+00                                
+  layer1  beta_on_v_not_k           None prefill_2chunk_exact   128 core_attn,normed,scan_out,state,y                             0 3.17e+00                                
+  layer1  beta_on_v_not_k           None prefill_3chunk_padded  160 core_attn,normed,scan_out,state,y                             0 3.17e+00                                
+  layer1  beta_on_v_not_k           None prefill_1chunk_padded    4 core_attn,normed,scan_out,state,y                             0 1.72e-01                                
+  layer1  beta_on_v_not_k           None prefill_3chunk_dirty_pad  160 core_attn,normed,scan_out,state,y                             0 1.09e+29                                
+  layer1  q_decayed_twice           None prefill_2chunk_padded   96 core_attn,normed,scan_out,y                                   0 3.75e-01                                
+  layer1  q_decayed_twice           None prefill_2chunk_exact   128 core_attn,normed,scan_out,y                                   0 5.94e-01                                
+  layer1  q_decayed_twice           None prefill_3chunk_padded  160 core_attn,normed,scan_out,y                                   0 5.94e-01                                
+  layer1  q_decayed_twice           None prefill_3chunk_dirty_pad  160 core_attn,normed,scan_out,y                                   0 5.94e-01                                
+  layer1  state_stored_transposed   None prefill_2chunk_padded   96 core_attn,normed,scan_out,state,y                             0 8.20e+00                                
+  layer1  state_stored_transposed   None prefill_2chunk_exact   128 core_attn,normed,scan_out,state,y                             0 8.20e+00                                
+  layer1  state_stored_transposed   None prefill_3chunk_padded  160 core_attn,normed,scan_out,state,y                             0 8.20e+00                                
+  layer1  state_stored_transposed   None prefill_3chunk_dirty_pad  160 core_attn,normed,scan_out,state,y                             0 8.20e+00                                
+  layer1  state_stored_transposed   None decode_3step            96 core_attn,normed,scan_out,state,y                             0 2.07e+00                                
+  layer1  pad_beta_ones             None prefill_3chunk_dirty_pad  160 state                                                         0 2.11e+30                                
+
+## tallies — arm=honest
+  honest   cases                        288
+  honest   caught                       288
+  honest   localised                    288
+  honest   stage_diffs                  2000
+  honest   scan_moved_cases             240
+  honest   pre_scan_moved_cases         122
+  honest   must_not_catch_violations    0
+  honest   must_catch_missed            0
+  honest   crossed_breaches_injected    0
+  honest   crossed_alarms_fired         0
+
+## firing table — arm=stub (the comparison is bit-level; no band is involved)
+  block   fault                    param fixture                  T moved stages                                               viol maxabs breach                 licensed
+  layer0  qkv_split_interleaved     None prefill_2chunk_padded   96 (NOTHING MOVED)                                              10 2.46e+01                                
+  layer0  qkv_split_interleaved     None prefill_2chunk_exact   128 (NOTHING MOVED)                                              10 2.46e+01                                
+  layer0  qkv_split_interleaved     None prefill_3chunk_padded  160 (NOTHING MOVED)                                              10 2.46e+01                                
+  layer0  qkv_split_interleaved     None prefill_1chunk_padded    4 (NOTHING MOVED)                                              10 1.18e+01                                
+  layer0  qkv_split_interleaved     None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                              10 2.46e+01                                
+  layer0  qkv_split_interleaved     None decode_3step            96 (NOTHING MOVED)                                              10 6.25e+00                                
+  layer0  silu_before_conv          None prefill_2chunk_padded   96 (NOTHING MOVED)                                              12 2.52e+01                                
+  layer0  silu_before_conv          None prefill_2chunk_exact   128 (NOTHING MOVED)                                              12 2.52e+01                                
+  layer0  silu_before_conv          None prefill_3chunk_padded  160 (NOTHING MOVED)                                              12 2.52e+01                                
+  layer0  silu_before_conv          None prefill_1chunk_padded    4 (NOTHING MOVED)                                              12 6.47e+00                                
+  layer0  silu_before_conv          None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                              12 2.52e+01                                
+  layer0  silu_before_conv          None decode_3step            96 (NOTHING MOVED)                                              13 6.14e+00                        conv_window
+  layer0  conv_tap_rotate              1 prefill_2chunk_padded   96 (NOTHING MOVED)                                              12 2.28e+01                                
+  layer0  conv_tap_rotate              2 prefill_2chunk_padded   96 (NOTHING MOVED)                                              12 2.79e+01                                
+  layer0  conv_tap_rotate              3 prefill_2chunk_padded   96 (NOTHING MOVED)                                              12 4.18e+01                                
+  layer0  conv_tap_rotate              1 prefill_2chunk_exact   128 (NOTHING MOVED)                                              12 2.54e+01                                
+  layer0  conv_tap_rotate              2 prefill_2chunk_exact   128 (NOTHING MOVED)                                              12 3.15e+01                                
+  layer0  conv_tap_rotate              3 prefill_2chunk_exact   128 (NOTHING MOVED)                                              12 4.18e+01                                
+  layer0  conv_tap_rotate              1 prefill_3chunk_padded  160 (NOTHING MOVED)                                              12 2.54e+01                                
+  layer0  conv_tap_rotate              2 prefill_3chunk_padded  160 (NOTHING MOVED)                                              12 3.15e+01                                
+  layer0  conv_tap_rotate              3 prefill_3chunk_padded  160 (NOTHING MOVED)                                              12 4.18e+01                                
+  layer0  conv_tap_rotate              1 prefill_1chunk_padded    4 (NOTHING MOVED)                                              12 7.81e+00                                
+  layer0  conv_tap_rotate              2 prefill_1chunk_padded    4 (NOTHING MOVED)                                              12 6.92e+00                                
+  layer0  conv_tap_rotate              3 prefill_1chunk_padded    4 (NOTHING MOVED)                                              12 6.19e+00                                
+  layer0  conv_tap_rotate              1 prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                              12 2.54e+01                                
+  layer0  conv_tap_rotate              2 prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                              12 3.15e+01                                
+  layer0  conv_tap_rotate              3 prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                              12 4.18e+01                                
+  layer0  conv_tap_rotate              1 decode_3step            96 (NOTHING MOVED)                                              12 1.86e+00                                
+  layer0  conv_tap_rotate              2 decode_3step            96 (NOTHING MOVED)                                              12 3.45e+00                                
+  layer0  conv_tap_rotate              3 decode_3step            96 (NOTHING MOVED)                                              12 2.18e+00                                
+  layer0  conv_state_is_outputs     None decode_3step            96 (NOTHING MOVED)                                              13 6.90e+00                                
+  layer0  conv_tap_reverse          None prefill_2chunk_padded   96 (NOTHING MOVED)                                              12 5.61e+01                                
+  layer0  conv_tap_reverse          None prefill_2chunk_exact   128 (NOTHING MOVED)                                              12 5.61e+01                                
+  layer0  conv_tap_reverse          None prefill_3chunk_padded  160 (NOTHING MOVED)                                              12 5.61e+01                                
+  layer0  conv_tap_reverse          None prefill_1chunk_padded    4 (NOTHING MOVED)                                              12 3.12e+00                                
+  layer0  conv_tap_reverse          None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                              12 5.61e+01                                
+  layer0  conv_tap_reverse          None decode_3step            96 (NOTHING MOVED)                                              12 1.97e+00                                
+  layer0  beta_no_sigmoid           None prefill_2chunk_padded   96 (NOTHING MOVED)                                               6 4.26e+01                                
+  layer0  beta_no_sigmoid           None prefill_2chunk_exact   128 (NOTHING MOVED)                                               6 4.26e+01                                
+  layer0  beta_no_sigmoid           None prefill_3chunk_padded  160 (NOTHING MOVED)                                               6 4.26e+01                                
+  layer0  beta_no_sigmoid           None prefill_1chunk_padded    4 (NOTHING MOVED)                                               6 4.89e+00                                
+  layer0  beta_no_sigmoid           None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               6 4.26e+01                                
+  layer0  beta_no_sigmoid           None decode_3step            96 (NOTHING MOVED)                                               6 1.26e+00                                
+  layer0  softplus_on_a_only        None prefill_2chunk_padded   96 (NOTHING MOVED)                                               6 4.45e+01                                
+  layer0  softplus_on_a_only        None prefill_2chunk_exact   128 (NOTHING MOVED)                                               6 4.45e+01                                
+  layer0  softplus_on_a_only        None prefill_3chunk_padded  160 (NOTHING MOVED)                                               6 4.45e+01                                
+  layer0  softplus_on_a_only        None prefill_1chunk_padded    4 (NOTHING MOVED)                                               6 4.45e+01                                
+  layer0  softplus_on_a_only        None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               6 4.45e+01                                
+  layer0  softplus_on_a_only        None decode_3step            96 (NOTHING MOVED)                                               6 4.45e+01                                
+  layer0  a_log_used_directly       None prefill_2chunk_padded   96 (NOTHING MOVED)                                               6 8.59e+01                                
+  layer0  a_log_used_directly       None prefill_2chunk_exact   128 (NOTHING MOVED)                                               6 8.59e+01                                
+  layer0  a_log_used_directly       None prefill_3chunk_padded  160 (NOTHING MOVED)                                               6 8.59e+01                                
+  layer0  a_log_used_directly       None prefill_1chunk_padded    4 (NOTHING MOVED)                                               6 8.59e+01                                
+  layer0  a_log_used_directly       None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               6 8.59e+01                                
+  layer0  a_log_used_directly       None decode_3step            96 (NOTHING MOVED)                                               6 8.59e+01                                
+  layer0  decay_sign_flip           None prefill_2chunk_padded   96 (NOTHING MOVED)                                               6 1.83e+02                                
+  layer0  decay_sign_flip           None prefill_2chunk_exact   128 (NOTHING MOVED)                                               6 1.83e+02                                
+  layer0  decay_sign_flip           None prefill_3chunk_padded  160 (NOTHING MOVED)                                               6 1.83e+02                                
+  layer0  decay_sign_flip           None prefill_1chunk_padded    4 (NOTHING MOVED)                                               6 1.83e+02                                
+  layer0  decay_sign_flip           None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               6 1.83e+02                                
+  layer0  decay_sign_flip           None decode_3step            96 (NOTHING MOVED)                                               6 1.83e+02                                
+  layer0  l2norm_eps_outside        None prefill_2chunk_padded   96 (NOTHING MOVED)                                               7 3.12e-02                                
+  layer0  l2norm_eps_outside        None prefill_2chunk_exact   128 (NOTHING MOVED)                                               7 3.12e-02                                
+  layer0  l2norm_eps_outside        None prefill_3chunk_padded  160 (NOTHING MOVED)                                               7 3.12e-02                                
+  layer0  l2norm_eps_outside        None prefill_1chunk_padded    4 (NOTHING MOVED)                                               7 3.12e-02                                
+  layer0  l2norm_eps_outside        None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               7 3.12e-02                                
+  layer0  l2norm_eps_outside        None decode_3step            96 (NOTHING MOVED)                                               7 4.88e-04                                
+  layer0  l2norm_uses_mean          None prefill_2chunk_padded   96 (NOTHING MOVED)                                               7 9.99e+00                                
+  layer0  l2norm_uses_mean          None prefill_2chunk_exact   128 (NOTHING MOVED)                                               7 9.99e+00                                
+  layer0  l2norm_uses_mean          None prefill_3chunk_padded  160 (NOTHING MOVED)                                               7 9.99e+00                                
+  layer0  l2norm_uses_mean          None prefill_1chunk_padded    4 (NOTHING MOVED)                                               7 5.46e+03                                
+  layer0  l2norm_uses_mean          None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               7 9.99e+00                                
+  layer0  l2norm_uses_mean          None decode_3step            96 (NOTHING MOVED)                                               7 1.27e+03                                
+  layer0  q_scale_omitted           None prefill_2chunk_padded   96 (NOTHING MOVED)                                               5 2.42e+01                                
+  layer0  q_scale_omitted           None prefill_2chunk_exact   128 (NOTHING MOVED)                                               5 2.42e+01                                
+  layer0  q_scale_omitted           None prefill_3chunk_padded  160 (NOTHING MOVED)                                               5 2.42e+01                                
+  layer0  q_scale_omitted           None prefill_1chunk_padded    4 (NOTHING MOVED)                                               5 1.60e+01                                
+  layer0  q_scale_omitted           None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               5 2.42e+01                                
+  layer0  q_scale_omitted           None decode_3step            96 (NOTHING MOVED)                                               5 1.68e+00                                
+  layer0  head_pairing_tiled        None prefill_2chunk_padded   96 (NOTHING MOVED)                                               7 2.22e+01                                
+  layer0  head_pairing_tiled        None prefill_2chunk_exact   128 (NOTHING MOVED)                                               7 2.22e+01                                
+  layer0  head_pairing_tiled        None prefill_3chunk_padded  160 (NOTHING MOVED)                                               7 2.22e+01                                
+  layer0  head_pairing_tiled        None prefill_1chunk_padded    4 (NOTHING MOVED)                                               7 3.05e+00                                
+  layer0  head_pairing_tiled        None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               7 2.22e+01                                
+  layer0  head_pairing_tiled        None decode_3step            96 (NOTHING MOVED)                                               7 4.52e+00                                
+  layer0  v_head_order_tiled        None prefill_2chunk_padded   96 (NOTHING MOVED)                                              15 9.14e+01                                
+  layer0  v_head_order_tiled        None prefill_2chunk_exact   128 (NOTHING MOVED)                                              15 9.14e+01                                
+  layer0  v_head_order_tiled        None prefill_3chunk_padded  160 (NOTHING MOVED)                                              15 9.14e+01                                
+  layer0  v_head_order_tiled        None prefill_1chunk_padded    4 (NOTHING MOVED)                                              15 9.13e+01                                
+  layer0  v_head_order_tiled        None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                              15 9.14e+01                                
+  layer0  v_head_order_tiled        None decode_3step            96 (NOTHING MOVED)                                              15 9.13e+01                                
+  layer0  read_pre_update_state     None decode_3step            96 (NOTHING MOVED)                                               4 5.90e-01                                
+  layer0  decay_after_write         None decode_3step            96 (NOTHING MOVED)                                               5 5.90e-01                                
+  layer0  norm_plus_one             None prefill_2chunk_padded   96 (NOTHING MOVED)                                               2 3.64e+01                                
+  layer0  norm_plus_one             None prefill_2chunk_exact   128 (NOTHING MOVED)                                               2 3.64e+01                                
+  layer0  norm_plus_one             None prefill_3chunk_padded  160 (NOTHING MOVED)                                               2 3.64e+01                                
+  layer0  norm_plus_one             None prefill_1chunk_padded    4 (NOTHING MOVED)                                               2 9.00e+00                                
+  layer0  norm_plus_one             None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               2 3.64e+01                                
+  layer0  norm_plus_one             None decode_3step            96 (NOTHING MOVED)                                               2 2.52e+00                                
+  layer0  norm_gate_first           None prefill_2chunk_padded   96 (NOTHING MOVED)                                               2 1.68e+01                                
+  layer0  norm_gate_first           None prefill_2chunk_exact   128 (NOTHING MOVED)                                               2 1.68e+01                                
+  layer0  norm_gate_first           None prefill_3chunk_padded  160 (NOTHING MOVED)                                               2 1.68e+01                                
+  layer0  norm_gate_first           None prefill_1chunk_padded    4 (NOTHING MOVED)                                               2 1.00e+01                                
+  layer0  norm_gate_first           None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               2 1.68e+01                                
+  layer0  norm_gate_first           None decode_3step            96 (NOTHING MOVED)                                               2 8.33e+00                                
+  layer0  norm_weight_f32           None prefill_2chunk_padded   96 (NOTHING MOVED)                                               2 1.25e-01                                
+  layer0  norm_weight_f32           None prefill_2chunk_exact   128 (NOTHING MOVED)                                               2 1.25e-01                                
+  layer0  norm_weight_f32           None prefill_3chunk_padded  160 (NOTHING MOVED)                                               2 1.25e-01                                
+  layer0  norm_weight_f32           None prefill_1chunk_padded    4 (NOTHING MOVED)                                               2 1.56e-02                                
+  layer0  norm_weight_f32           None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               2 1.25e-01                                
+  layer0  norm_weight_f32           None decode_3step            96 (NOTHING MOVED)                                               2 1.56e-02                                
+  layer0  norm_variance_flat        None prefill_2chunk_padded   96 (NOTHING MOVED)                                               2 1.20e+01                                
+  layer0  norm_variance_flat        None prefill_2chunk_exact   128 (NOTHING MOVED)                                               2 1.22e+01                                
+  layer0  norm_variance_flat        None prefill_3chunk_padded  160 (NOTHING MOVED)                                               2 1.78e+01                                
+  layer0  norm_variance_flat        None prefill_1chunk_padded    4 (NOTHING MOVED)                                               2 4.69e-01                                
+  layer0  norm_variance_flat        None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               2 1.78e+01                                
+  layer0  norm_variance_flat        None decode_3step            96 (NOTHING MOVED)                                               2 1.22e+00                                
+  layer0  chunk_decay_off_by_one    None prefill_2chunk_exact   128 (NOTHING MOVED)                                               1 7.05e-03                        state   
+  layer0  chunk_decay_off_by_one    None prefill_3chunk_padded  160 (NOTHING MOVED)                                               5 6.25e-02                        state,scan_out,core_attn,normed,y
+  layer0  chunk_decay_off_by_one    None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               5 6.25e-02                        state,scan_out,core_attn,normed,y
+  layer0  pairwise_mask_after_exp   None prefill_2chunk_padded   96 (NOTHING MOVED)                                               4 0.00e+00                                
+  layer0  pairwise_mask_after_exp   None prefill_2chunk_exact   128 (NOTHING MOVED)                                               4 0.00e+00                                
+  layer0  pairwise_mask_after_exp   None prefill_3chunk_padded  160 (NOTHING MOVED)                                               4 0.00e+00                                
+  layer0  pairwise_mask_after_exp   None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               4 0.00e+00                                
+  layer0  unitriangular_dropped     None prefill_2chunk_padded   96 (NOTHING MOVED)                                               5 0.00e+00                                
+  layer0  unitriangular_dropped     None prefill_2chunk_exact   128 (NOTHING MOVED)                                               5 1.20e+01                                
+  layer0  unitriangular_dropped     None prefill_3chunk_padded  160 (NOTHING MOVED)                                               5 0.00e+00                                
+  layer0  unitriangular_dropped     None prefill_1chunk_padded    4 (NOTHING MOVED)                                               5 0.00e+00                                
+  layer0  unitriangular_dropped     None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               5 0.00e+00                                
+  layer0  beta_on_v_not_k           None prefill_2chunk_padded   96 (NOTHING MOVED)                                               5 6.86e+00                                
+  layer0  beta_on_v_not_k           None prefill_2chunk_exact   128 (NOTHING MOVED)                                               5 9.19e+00                                
+  layer0  beta_on_v_not_k           None prefill_3chunk_padded  160 (NOTHING MOVED)                                               5 9.19e+00                                
+  layer0  beta_on_v_not_k           None prefill_1chunk_padded    4 (NOTHING MOVED)                                               5 4.45e-01                                
+  layer0  beta_on_v_not_k           None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               5 5.45e+29                                
+  layer0  q_decayed_twice           None prefill_2chunk_padded   96 (NOTHING MOVED)                                               4 5.62e-01                                
+  layer0  q_decayed_twice           None prefill_2chunk_exact   128 (NOTHING MOVED)                                               4 1.06e+00                                
+  layer0  q_decayed_twice           None prefill_3chunk_padded  160 (NOTHING MOVED)                                               4 1.29e+00                                
+  layer0  q_decayed_twice           None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               4 1.29e+00                                
+  layer0  state_stored_transposed   None prefill_2chunk_padded   96 (NOTHING MOVED)                                               5 1.67e+01                                
+  layer0  state_stored_transposed   None prefill_2chunk_exact   128 (NOTHING MOVED)                                               5 2.07e+01                                
+  layer0  state_stored_transposed   None prefill_3chunk_padded  160 (NOTHING MOVED)                                               5 2.07e+01                                
+  layer0  state_stored_transposed   None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               5 2.07e+01                                
+  layer0  state_stored_transposed   None decode_3step            96 (NOTHING MOVED)                                               5 2.36e+00                                
+  layer0  pad_beta_ones             None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               1 2.11e+30                                
+  layer1  qkv_split_interleaved     None prefill_2chunk_padded   96 (NOTHING MOVED)                                              10 7.83e+00                                
+  layer1  qkv_split_interleaved     None prefill_2chunk_exact   128 (NOTHING MOVED)                                              10 7.83e+00                                
+  layer1  qkv_split_interleaved     None prefill_3chunk_padded  160 (NOTHING MOVED)                                              10 7.83e+00                                
+  layer1  qkv_split_interleaved     None prefill_1chunk_padded    4 (NOTHING MOVED)                                              10 3.02e+00                                
+  layer1  qkv_split_interleaved     None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                              10 7.83e+00                                
+  layer1  qkv_split_interleaved     None decode_3step            96 (NOTHING MOVED)                                              10 3.64e+00                                
+  layer1  silu_before_conv          None prefill_2chunk_padded   96 (NOTHING MOVED)                                              12 6.16e+00                                
+  layer1  silu_before_conv          None prefill_2chunk_exact   128 (NOTHING MOVED)                                              12 6.16e+00                                
+  layer1  silu_before_conv          None prefill_3chunk_padded  160 (NOTHING MOVED)                                              12 6.78e+00                                
+  layer1  silu_before_conv          None prefill_1chunk_padded    4 (NOTHING MOVED)                                              12 2.42e+00                                
+  layer1  silu_before_conv          None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                              12 6.78e+00                                
+  layer1  silu_before_conv          None decode_3step            96 (NOTHING MOVED)                                              13 9.31e+00                        conv_window
+  layer1  conv_tap_rotate              1 prefill_2chunk_padded   96 (NOTHING MOVED)                                              12 1.03e+01                                
+  layer1  conv_tap_rotate              2 prefill_2chunk_padded   96 (NOTHING MOVED)                                              12 1.20e+01                                
+  layer1  conv_tap_rotate              3 prefill_2chunk_padded   96 (NOTHING MOVED)                                              12 1.10e+01                                
+  layer1  conv_tap_rotate              1 prefill_2chunk_exact   128 (NOTHING MOVED)                                              12 1.37e+01                                
+  layer1  conv_tap_rotate              2 prefill_2chunk_exact   128 (NOTHING MOVED)                                              12 1.34e+01                                
+  layer1  conv_tap_rotate              3 prefill_2chunk_exact   128 (NOTHING MOVED)                                              12 1.11e+01                                
+  layer1  conv_tap_rotate              1 prefill_3chunk_padded  160 (NOTHING MOVED)                                              12 1.37e+01                                
+  layer1  conv_tap_rotate              2 prefill_3chunk_padded  160 (NOTHING MOVED)                                              12 1.34e+01                                
+  layer1  conv_tap_rotate              3 prefill_3chunk_padded  160 (NOTHING MOVED)                                              12 1.11e+01                                
+  layer1  conv_tap_rotate              1 prefill_1chunk_padded    4 (NOTHING MOVED)                                              12 3.95e+00                                
+  layer1  conv_tap_rotate              2 prefill_1chunk_padded    4 (NOTHING MOVED)                                              12 2.48e+00                                
+  layer1  conv_tap_rotate              3 prefill_1chunk_padded    4 (NOTHING MOVED)                                              12 2.86e+00                                
+  layer1  conv_tap_rotate              1 prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                              12 1.37e+01                                
+  layer1  conv_tap_rotate              2 prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                              12 1.34e+01                                
+  layer1  conv_tap_rotate              3 prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                              12 1.11e+01                                
+  layer1  conv_tap_rotate              1 decode_3step            96 (NOTHING MOVED)                                              12 1.86e+00                                
+  layer1  conv_tap_rotate              2 decode_3step            96 (NOTHING MOVED)                                              12 1.64e+00                                
+  layer1  conv_tap_rotate              3 decode_3step            96 (NOTHING MOVED)                                              12 2.44e+00                                
+  layer1  conv_state_is_outputs     None decode_3step            96 (NOTHING MOVED)                                              13 9.04e+00                                
+  layer1  conv_tap_reverse          None prefill_2chunk_padded   96 (NOTHING MOVED)                                              12 1.45e+01                                
+  layer1  conv_tap_reverse          None prefill_2chunk_exact   128 (NOTHING MOVED)                                              12 1.45e+01                                
+  layer1  conv_tap_reverse          None prefill_3chunk_padded  160 (NOTHING MOVED)                                              12 1.45e+01                                
+  layer1  conv_tap_reverse          None prefill_1chunk_padded    4 (NOTHING MOVED)                                              12 2.80e+00                                
+  layer1  conv_tap_reverse          None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                              12 1.45e+01                                
+  layer1  conv_tap_reverse          None decode_3step            96 (NOTHING MOVED)                                              12 2.53e+00                                
+  layer1  beta_no_sigmoid           None prefill_2chunk_padded   96 (NOTHING MOVED)                                               6 1.57e+01                                
+  layer1  beta_no_sigmoid           None prefill_2chunk_exact   128 (NOTHING MOVED)                                               6 1.57e+01                                
+  layer1  beta_no_sigmoid           None prefill_3chunk_padded  160 (NOTHING MOVED)                                               6 2.35e+01                                
+  layer1  beta_no_sigmoid           None prefill_1chunk_padded    4 (NOTHING MOVED)                                               6 2.56e+00                                
+  layer1  beta_no_sigmoid           None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               6 2.35e+01                                
+  layer1  beta_no_sigmoid           None decode_3step            96 (NOTHING MOVED)                                               6 2.33e+00                                
+  layer1  softplus_on_a_only        None prefill_2chunk_padded   96 (NOTHING MOVED)                                               6 4.53e+01                                
+  layer1  softplus_on_a_only        None prefill_2chunk_exact   128 (NOTHING MOVED)                                               6 4.53e+01                                
+  layer1  softplus_on_a_only        None prefill_3chunk_padded  160 (NOTHING MOVED)                                               6 4.53e+01                                
+  layer1  softplus_on_a_only        None prefill_1chunk_padded    4 (NOTHING MOVED)                                               6 2.51e+01                                
+  layer1  softplus_on_a_only        None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               6 4.53e+01                                
+  layer1  softplus_on_a_only        None decode_3step            96 (NOTHING MOVED)                                               6 2.40e+01                                
+  layer1  a_log_used_directly       None prefill_2chunk_padded   96 (NOTHING MOVED)                                               6 7.00e+00                                
+  layer1  a_log_used_directly       None prefill_2chunk_exact   128 (NOTHING MOVED)                                               6 7.00e+00                                
+  layer1  a_log_used_directly       None prefill_3chunk_padded  160 (NOTHING MOVED)                                               6 7.00e+00                                
+  layer1  a_log_used_directly       None prefill_1chunk_padded    4 (NOTHING MOVED)                                               6 7.18e+00                                
+  layer1  a_log_used_directly       None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               6 7.00e+00                                
+  layer1  a_log_used_directly       None decode_3step            96 (NOTHING MOVED)                                               6 1.86e+01                                
+  layer1  decay_sign_flip           None prefill_2chunk_padded   96 (NOTHING MOVED)                                               6 1.94e+01                                
+  layer1  decay_sign_flip           None prefill_2chunk_exact   128 (NOTHING MOVED)                                               6 1.94e+01                                
+  layer1  decay_sign_flip           None prefill_3chunk_padded  160 (NOTHING MOVED)                                               6 2.08e+01                                
+  layer1  decay_sign_flip           None prefill_1chunk_padded    4 (NOTHING MOVED)                                               6 5.91e+02                                
+  layer1  decay_sign_flip           None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               6 2.08e+01                                
+  layer1  decay_sign_flip           None decode_3step            96 (NOTHING MOVED)                                               6 2.89e+03                                
+  layer1  l2norm_eps_outside        None prefill_2chunk_padded   96 (NOTHING MOVED)                                               7 7.81e-03                                
+  layer1  l2norm_eps_outside        None prefill_2chunk_exact   128 (NOTHING MOVED)                                               7 6.25e-02                                
+  layer1  l2norm_eps_outside        None prefill_3chunk_padded  160 (NOTHING MOVED)                                               7 6.25e-02                                
+  layer1  l2norm_eps_outside        None prefill_1chunk_padded    4 (NOTHING MOVED)                                               7 7.81e-03                                
+  layer1  l2norm_eps_outside        None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               7 6.25e-02                                
+  layer1  l2norm_eps_outside        None decode_3step            96 (NOTHING MOVED)                                               7 9.77e-04                                
+  layer1  l2norm_uses_mean          None prefill_2chunk_padded   96 (NOTHING MOVED)                                               7 1.02e+01                                
+  layer1  l2norm_uses_mean          None prefill_2chunk_exact   128 (NOTHING MOVED)                                               7 1.02e+01                                
+  layer1  l2norm_uses_mean          None prefill_3chunk_padded  160 (NOTHING MOVED)                                               7 1.02e+01                                
+  layer1  l2norm_uses_mean          None prefill_1chunk_padded    4 (NOTHING MOVED)                                               7 2.64e+03                                
+  layer1  l2norm_uses_mean          None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               7 1.02e+01                                
+  layer1  l2norm_uses_mean          None decode_3step            96 (NOTHING MOVED)                                               7 6.95e+02                                
+  layer1  q_scale_omitted           None prefill_2chunk_padded   96 (NOTHING MOVED)                                               5 1.21e+01                                
+  layer1  q_scale_omitted           None prefill_2chunk_exact   128 (NOTHING MOVED)                                               5 1.62e+01                                
+  layer1  q_scale_omitted           None prefill_3chunk_padded  160 (NOTHING MOVED)                                               5 1.62e+01                                
+  layer1  q_scale_omitted           None prefill_1chunk_padded    4 (NOTHING MOVED)                                               5 6.42e+00                                
+  layer1  q_scale_omitted           None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               5 1.62e+01                                
+  layer1  q_scale_omitted           None decode_3step            96 (NOTHING MOVED)                                               5 2.32e+00                                
+  layer1  head_pairing_tiled        None prefill_2chunk_padded   96 (NOTHING MOVED)                                               7 1.39e+01                                
+  layer1  head_pairing_tiled        None prefill_2chunk_exact   128 (NOTHING MOVED)                                               7 1.44e+01                                
+  layer1  head_pairing_tiled        None prefill_3chunk_padded  160 (NOTHING MOVED)                                               7 1.44e+01                                
+  layer1  head_pairing_tiled        None prefill_1chunk_padded    4 (NOTHING MOVED)                                               7 3.70e+00                                
+  layer1  head_pairing_tiled        None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               7 1.44e+01                                
+  layer1  head_pairing_tiled        None decode_3step            96 (NOTHING MOVED)                                               7 3.81e+00                                
+  layer1  v_head_order_tiled        None prefill_2chunk_padded   96 (NOTHING MOVED)                                              15 1.32e+01                                
+  layer1  v_head_order_tiled        None prefill_2chunk_exact   128 (NOTHING MOVED)                                              15 1.32e+01                                
+  layer1  v_head_order_tiled        None prefill_3chunk_padded  160 (NOTHING MOVED)                                              15 1.32e+01                                
+  layer1  v_head_order_tiled        None prefill_1chunk_padded    4 (NOTHING MOVED)                                              15 7.68e+00                                
+  layer1  v_head_order_tiled        None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                              15 1.32e+01                                
+  layer1  v_head_order_tiled        None decode_3step            96 (NOTHING MOVED)                                              15 1.02e+01                                
+  layer1  read_pre_update_state     None decode_3step            96 (NOTHING MOVED)                                               4 3.17e-01                                
+  layer1  decay_after_write         None decode_3step            96 (NOTHING MOVED)                                               5 1.67e-01                                
+  layer1  norm_plus_one             None prefill_2chunk_padded   96 (NOTHING MOVED)                                               2 7.53e+00                                
+  layer1  norm_plus_one             None prefill_2chunk_exact   128 (NOTHING MOVED)                                               2 7.53e+00                                
+  layer1  norm_plus_one             None prefill_3chunk_padded  160 (NOTHING MOVED)                                               2 7.53e+00                                
+  layer1  norm_plus_one             None prefill_1chunk_padded    4 (NOTHING MOVED)                                               2 5.47e+00                                
+  layer1  norm_plus_one             None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               2 7.53e+00                                
+  layer1  norm_plus_one             None decode_3step            96 (NOTHING MOVED)                                               2 1.42e+00                                
+  layer1  norm_gate_first           None prefill_2chunk_padded   96 (NOTHING MOVED)                                               2 1.40e+01                                
+  layer1  norm_gate_first           None prefill_2chunk_exact   128 (NOTHING MOVED)                                               2 2.18e+01                                
+  layer1  norm_gate_first           None prefill_3chunk_padded  160 (NOTHING MOVED)                                               2 2.18e+01                                
+  layer1  norm_gate_first           None prefill_1chunk_padded    4 (NOTHING MOVED)                                               2 9.27e+00                                
+  layer1  norm_gate_first           None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               2 2.18e+01                                
+  layer1  norm_gate_first           None decode_3step            96 (NOTHING MOVED)                                               2 8.52e+00                                
+  layer1  norm_weight_f32           None prefill_2chunk_padded   96 (NOTHING MOVED)                                               2 3.12e-02                                
+  layer1  norm_weight_f32           None prefill_2chunk_exact   128 (NOTHING MOVED)                                               2 3.12e-02                                
+  layer1  norm_weight_f32           None prefill_3chunk_padded  160 (NOTHING MOVED)                                               2 3.12e-02                                
+  layer1  norm_weight_f32           None prefill_1chunk_padded    4 (NOTHING MOVED)                                               2 1.56e-02                                
+  layer1  norm_weight_f32           None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               2 3.12e-02                                
+  layer1  norm_weight_f32           None decode_3step            96 (NOTHING MOVED)                                               2 3.91e-03                                
+  layer1  norm_variance_flat        None prefill_2chunk_padded   96 (NOTHING MOVED)                                               2 2.98e+00                                
+  layer1  norm_variance_flat        None prefill_2chunk_exact   128 (NOTHING MOVED)                                               2 5.06e+00                                
+  layer1  norm_variance_flat        None prefill_3chunk_padded  160 (NOTHING MOVED)                                               2 5.06e+00                                
+  layer1  norm_variance_flat        None prefill_1chunk_padded    4 (NOTHING MOVED)                                               2 2.34e-01                                
+  layer1  norm_variance_flat        None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               2 5.06e+00                                
+  layer1  norm_variance_flat        None decode_3step            96 (NOTHING MOVED)                                               2 7.66e-01                                
+  layer1  chunk_decay_off_by_one    None prefill_2chunk_exact   128 (NOTHING MOVED)                                               1 1.65e-02                        state   
+  layer1  chunk_decay_off_by_one    None prefill_3chunk_padded  160 (NOTHING MOVED)                                               5 1.05e-01                        state,scan_out,core_attn,normed,y
+  layer1  chunk_decay_off_by_one    None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               5 1.05e-01                        state,scan_out,core_attn,normed,y
+  layer1  pairwise_mask_after_exp   None prefill_2chunk_padded   96 (NOTHING MOVED)                                               4 0.00e+00                                
+  layer1  pairwise_mask_after_exp   None prefill_2chunk_exact   128 (NOTHING MOVED)                                               4 0.00e+00                                
+  layer1  pairwise_mask_after_exp   None prefill_3chunk_padded  160 (NOTHING MOVED)                                               4 0.00e+00                                
+  layer1  pairwise_mask_after_exp   None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               4 0.00e+00                                
+  layer1  unitriangular_dropped     None prefill_2chunk_padded   96 (NOTHING MOVED)                                               5 0.00e+00                                
+  layer1  unitriangular_dropped     None prefill_2chunk_exact   128 (NOTHING MOVED)                                               5 6.03e+00                                
+  layer1  unitriangular_dropped     None prefill_3chunk_padded  160 (NOTHING MOVED)                                               5 0.00e+00                                
+  layer1  unitriangular_dropped     None prefill_1chunk_padded    4 (NOTHING MOVED)                                               5 0.00e+00                                
+  layer1  unitriangular_dropped     None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               5 0.00e+00                                
+  layer1  beta_on_v_not_k           None prefill_2chunk_padded   96 (NOTHING MOVED)                                               5 3.17e+00                                
+  layer1  beta_on_v_not_k           None prefill_2chunk_exact   128 (NOTHING MOVED)                                               5 3.17e+00                                
+  layer1  beta_on_v_not_k           None prefill_3chunk_padded  160 (NOTHING MOVED)                                               5 3.17e+00                                
+  layer1  beta_on_v_not_k           None prefill_1chunk_padded    4 (NOTHING MOVED)                                               5 1.72e-01                                
+  layer1  beta_on_v_not_k           None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               5 1.09e+29                                
+  layer1  q_decayed_twice           None prefill_2chunk_padded   96 (NOTHING MOVED)                                               4 3.75e-01                                
+  layer1  q_decayed_twice           None prefill_2chunk_exact   128 (NOTHING MOVED)                                               4 5.94e-01                                
+  layer1  q_decayed_twice           None prefill_3chunk_padded  160 (NOTHING MOVED)                                               4 5.94e-01                                
+  layer1  q_decayed_twice           None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               4 5.94e-01                                
+  layer1  state_stored_transposed   None prefill_2chunk_padded   96 (NOTHING MOVED)                                               5 8.20e+00                                
+  layer1  state_stored_transposed   None prefill_2chunk_exact   128 (NOTHING MOVED)                                               5 8.20e+00                                
+  layer1  state_stored_transposed   None prefill_3chunk_padded  160 (NOTHING MOVED)                                               5 8.20e+00                                
+  layer1  state_stored_transposed   None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               5 8.20e+00                                
+  layer1  state_stored_transposed   None decode_3step            96 (NOTHING MOVED)                                               5 2.07e+00                                
+  layer1  pad_beta_ones             None prefill_3chunk_dirty_pad  160 (NOTHING MOVED)                                               1 2.11e+30                                
+
+## tallies — arm=stub
+  stub     cases                        288
+  stub     caught                       0
+  stub     localised                    0
+  stub     stage_diffs                  0
+  stub     scan_moved_cases             0
+  stub     pre_scan_moved_cases         0
+  stub     must_not_catch_violations    2000
+  stub     must_catch_missed            2000
+  stub     crossed_breaches_injected    0
+  stub     crossed_alarms_fired         0
+
+## firing table — arm=crossed (the comparison is bit-level; no band is involved)
+  block   fault                    param fixture                  T moved stages                                               viol maxabs breach                 licensed
+  layer0  qkv_split_interleaved     None prefill_2chunk_padded   96 core_attn,k_hat,k_pre,mixed_qkv,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 2.46e+01 mixed_qkv                      
+  layer0  qkv_split_interleaved     None prefill_2chunk_exact   128 core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y,z    1 2.46e+01 z                              
+  layer0  qkv_split_interleaved     None prefill_3chunk_padded  160 b_raw,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 2.46e+01 b_raw                          
+  layer0  qkv_split_interleaved     None prefill_1chunk_padded    4 a_raw,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 1.18e+01 a_raw                          
+  layer0  qkv_split_interleaved     None prefill_3chunk_dirty_pad  160 conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 2.46e+01 conv_pre                       
+  layer0  qkv_split_interleaved     None decode_3step            96 conv_out,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 6.25e+00 conv_out                       
+  layer0  silu_before_conv          None prefill_2chunk_padded   96 conv_out,conv_pre,core_attn,g_decay,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 2.52e+01 g_decay                        
+  layer0  silu_before_conv          None prefill_2chunk_exact   128 conv_out,conv_pre,core_attn,k_hat,k_pre,mixed_qkv,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 2.52e+01 mixed_qkv                      
+  layer0  silu_before_conv          None prefill_3chunk_padded  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y,z    1 2.52e+01 z                              
+  layer0  silu_before_conv          None prefill_1chunk_padded    4 b_raw,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 6.47e+00 b_raw                          
+  layer0  silu_before_conv          None prefill_3chunk_dirty_pad  160 a_raw,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 2.52e+01 a_raw                          
+  layer0  silu_before_conv          None decode_3step            96 conv_out,conv_pre,conv_window,core_attn,g_decay,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 6.14e+00 g_decay                conv_window
+  layer0  conv_tap_rotate              1 prefill_2chunk_padded   96 beta,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 2.28e+01 beta                           
+  layer0  conv_tap_rotate              2 prefill_2chunk_padded   96 conv_out,conv_pre,core_attn,g_decay,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 2.79e+01 g_decay                        
+  layer0  conv_tap_rotate              3 prefill_2chunk_padded   96 conv_out,conv_pre,core_attn,k_hat,k_pre,mixed_qkv,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 4.18e+01 mixed_qkv                      
+  layer0  conv_tap_rotate              1 prefill_2chunk_exact   128 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y,z    1 2.54e+01 z                              
+  layer0  conv_tap_rotate              2 prefill_2chunk_exact   128 b_raw,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 3.15e+01 b_raw                          
+  layer0  conv_tap_rotate              3 prefill_2chunk_exact   128 a_raw,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 4.18e+01 a_raw                          
+  layer0  conv_tap_rotate              1 prefill_3chunk_padded  160 conv_out,conv_pre,conv_window,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 2.54e+01 conv_window                    
+  layer0  conv_tap_rotate              2 prefill_3chunk_padded  160 beta,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 3.15e+01 beta                           
+  layer0  conv_tap_rotate              3 prefill_3chunk_padded  160 conv_out,conv_pre,core_attn,g_decay,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 4.18e+01 g_decay                        
+  layer0  conv_tap_rotate              1 prefill_1chunk_padded    4 conv_out,conv_pre,core_attn,k_hat,k_pre,mixed_qkv,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 7.81e+00 mixed_qkv                      
+  layer0  conv_tap_rotate              2 prefill_1chunk_padded    4 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y,z    1 6.92e+00 z                              
+  layer0  conv_tap_rotate              3 prefill_1chunk_padded    4 b_raw,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 6.19e+00 b_raw                          
+  layer0  conv_tap_rotate              1 prefill_3chunk_dirty_pad  160 a_raw,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 2.54e+01 a_raw                          
+  layer0  conv_tap_rotate              2 prefill_3chunk_dirty_pad  160 conv_out,conv_pre,conv_window,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 3.15e+01 conv_window                    
+  layer0  conv_tap_rotate              3 prefill_3chunk_dirty_pad  160 beta,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 4.18e+01 beta                           
+  layer0  conv_tap_rotate              1 decode_3step            96 conv_out,conv_pre,core_attn,g_decay,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 1.86e+00 g_decay                        
+  layer0  conv_tap_rotate              2 decode_3step            96 conv_out,conv_pre,core_attn,k_hat,k_pre,mixed_qkv,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 3.45e+00 mixed_qkv                      
+  layer0  conv_tap_rotate              3 decode_3step            96 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y,z    1 2.18e+00 z                              
+  layer0  conv_state_is_outputs     None decode_3step            96 conv_out,conv_pre,conv_window,core_attn,k_hat,k_pre,mixed_qkv,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 6.90e+00 mixed_qkv                      
+  layer0  conv_tap_reverse          None prefill_2chunk_padded   96 a_raw,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 5.61e+01 a_raw                          
+  layer0  conv_tap_reverse          None prefill_2chunk_exact   128 conv_out,conv_pre,conv_window,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 5.61e+01 conv_window                    
+  layer0  conv_tap_reverse          None prefill_3chunk_padded  160 beta,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 5.61e+01 beta                           
+  layer0  conv_tap_reverse          None prefill_1chunk_padded    4 conv_out,conv_pre,core_attn,g_decay,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 3.12e+00 g_decay                        
+  layer0  conv_tap_reverse          None prefill_3chunk_dirty_pad  160 conv_out,conv_pre,core_attn,k_hat,k_pre,mixed_qkv,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 5.61e+01 mixed_qkv                      
+  layer0  conv_tap_reverse          None decode_3step            96 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y,z    1 1.97e+00 z                              
+  layer0  beta_no_sigmoid           None prefill_2chunk_padded   96 beta,core_attn,normed,q_hat,scan_out,state,y                  1 4.26e+01 q_hat                          
+  layer0  beta_no_sigmoid           None prefill_2chunk_exact   128 beta,core_attn,k_hat,normed,scan_out,state,y                  1 4.26e+01 k_hat                          
+  layer0  beta_no_sigmoid           None prefill_3chunk_padded  160 beta,core_attn,mixed_qkv,normed,scan_out,state,y              1 4.26e+01 mixed_qkv                      
+  layer0  beta_no_sigmoid           None prefill_1chunk_padded    4 beta,core_attn,normed,scan_out,state,y,z                      1 4.89e+00 z                              
+  layer0  beta_no_sigmoid           None prefill_3chunk_dirty_pad  160 b_raw,beta,core_attn,normed,scan_out,state,y                  1 4.26e+01 b_raw                          
+  layer0  beta_no_sigmoid           None decode_3step            96 a_raw,beta,core_attn,normed,scan_out,state,y                  1 1.26e+00 a_raw                          
+  layer0  softplus_on_a_only        None prefill_2chunk_padded   96 conv_pre,core_attn,g_decay,normed,scan_out,state,y            1 4.45e+01 conv_pre                       
+  layer0  softplus_on_a_only        None prefill_2chunk_exact   128 conv_out,core_attn,g_decay,normed,scan_out,state,y            1 4.45e+01 conv_out                       
+  layer0  softplus_on_a_only        None prefill_3chunk_padded  160 conv_window,core_attn,g_decay,normed,scan_out,state,y         1 4.45e+01 conv_window                    
+  layer0  softplus_on_a_only        None prefill_1chunk_padded    4 core_attn,g_decay,normed,q_pre,scan_out,state,y               1 4.45e+01 q_pre                          
+  layer0  softplus_on_a_only        None prefill_3chunk_dirty_pad  160 core_attn,g_decay,k_pre,normed,scan_out,state,y               1 4.45e+01 k_pre                          
+  layer0  softplus_on_a_only        None decode_3step            96 core_attn,g_decay,normed,scan_out,state,v_pre,y               1 4.45e+01 v_pre                          
+  layer0  a_log_used_directly       None prefill_2chunk_padded   96 beta,core_attn,g_decay,normed,scan_out,state,y                1 8.59e+01 beta                           
+  layer0  a_log_used_directly       None prefill_2chunk_exact   128 core_attn,g_decay,normed,q_hat,scan_out,state,y               1 8.59e+01 q_hat                          
+  layer0  a_log_used_directly       None prefill_3chunk_padded  160 core_attn,g_decay,k_hat,normed,scan_out,state,y               1 8.59e+01 k_hat                          
+  layer0  a_log_used_directly       None prefill_1chunk_padded    4 core_attn,g_decay,mixed_qkv,normed,scan_out,state,y           1 8.59e+01 mixed_qkv                      
+  layer0  a_log_used_directly       None prefill_3chunk_dirty_pad  160 core_attn,g_decay,normed,scan_out,state,y,z                   1 8.59e+01 z                              
+  layer0  a_log_used_directly       None decode_3step            96 b_raw,core_attn,g_decay,normed,scan_out,state,y               1 8.59e+01 b_raw                          
+  layer0  decay_sign_flip           None prefill_2chunk_padded   96 a_raw,core_attn,g_decay,normed,scan_out,state,y               1 1.83e+02 a_raw                          
+  layer0  decay_sign_flip           None prefill_2chunk_exact   128 conv_pre,core_attn,g_decay,normed,scan_out,state,y            1 1.83e+02 conv_pre                       
+  layer0  decay_sign_flip           None prefill_3chunk_padded  160 conv_out,core_attn,g_decay,normed,scan_out,state,y            1 1.83e+02 conv_out                       
+  layer0  decay_sign_flip           None prefill_1chunk_padded    4 conv_window,core_attn,g_decay,normed,scan_out,state,y         1 1.83e+02 conv_window                    
+  layer0  decay_sign_flip           None prefill_3chunk_dirty_pad  160 core_attn,g_decay,normed,q_pre,scan_out,state,y               1 1.83e+02 q_pre                          
+  layer0  decay_sign_flip           None decode_3step            96 core_attn,g_decay,k_pre,normed,scan_out,state,y               1 1.83e+02 k_pre                          
+  layer0  l2norm_eps_outside        None prefill_2chunk_padded   96 core_attn,k_hat,normed,q_hat,scan_out,state,y,z               1 3.91e-02 z                              
+  layer0  l2norm_eps_outside        None prefill_2chunk_exact   128 b_raw,core_attn,k_hat,normed,q_hat,scan_out,state,y           1 3.12e-02 b_raw                          
+  layer0  l2norm_eps_outside        None prefill_3chunk_padded  160 a_raw,core_attn,k_hat,normed,q_hat,scan_out,state,y           1 3.12e-02 a_raw                          
+  layer0  l2norm_eps_outside        None prefill_1chunk_padded    4 conv_pre,core_attn,k_hat,normed,q_hat,scan_out,state,y        1 3.12e-02 conv_pre                       
+  layer0  l2norm_eps_outside        None prefill_3chunk_dirty_pad  160 conv_out,core_attn,k_hat,normed,q_hat,scan_out,state,y        1 3.12e-02 conv_out                       
+  layer0  l2norm_eps_outside        None decode_3step            96 conv_window,core_attn,k_hat,normed,q_hat,scan_out,state,y     1 3.91e-02 conv_window                    
+  layer0  l2norm_uses_mean          None prefill_2chunk_padded   96 core_attn,k_hat,normed,q_hat,q_pre,scan_out,state,y           1 9.99e+00 q_pre                          
+  layer0  l2norm_uses_mean          None prefill_2chunk_exact   128 core_attn,k_hat,k_pre,normed,q_hat,scan_out,state,y           1 9.99e+00 k_pre                          
+  layer0  l2norm_uses_mean          None prefill_3chunk_padded  160 core_attn,k_hat,normed,q_hat,scan_out,state,v_pre,y           1 9.99e+00 v_pre                          
+  layer0  l2norm_uses_mean          None prefill_1chunk_padded    4 beta,core_attn,k_hat,normed,q_hat,scan_out,state,y            1 5.46e+03 beta                           
+  layer0  l2norm_uses_mean          None prefill_3chunk_dirty_pad  160 core_attn,g_decay,k_hat,normed,q_hat,scan_out,state,y         1 9.99e+00 g_decay                        
+  layer0  l2norm_uses_mean          None decode_3step            96 core_attn,k_hat,mixed_qkv,normed,q_hat,scan_out,state,y       1 1.27e+03 mixed_qkv                      
+  layer0  q_scale_omitted           None prefill_2chunk_padded   96 a_raw,core_attn,normed,q_hat,scan_out,y                       1 2.42e+01 a_raw                          
+  layer0  q_scale_omitted           None prefill_2chunk_exact   128 conv_pre,core_attn,normed,q_hat,scan_out,y                    1 2.42e+01 conv_pre                       
+  layer0  q_scale_omitted           None prefill_3chunk_padded  160 conv_out,core_attn,normed,q_hat,scan_out,y                    1 2.42e+01 conv_out                       
+  layer0  q_scale_omitted           None prefill_1chunk_padded    4 conv_window,core_attn,normed,q_hat,scan_out,y                 1 1.60e+01 conv_window                    
+  layer0  q_scale_omitted           None prefill_3chunk_dirty_pad  160 core_attn,normed,q_hat,q_pre,scan_out,y                       1 2.42e+01 q_pre                          
+  layer0  q_scale_omitted           None decode_3step            96 core_attn,k_pre,normed,q_hat,scan_out,y                       1 1.68e+00 k_pre                          
+  layer0  head_pairing_tiled        None prefill_2chunk_padded   96 core_attn,k_hat,normed,q_hat,q_pre,scan_out,state,y           1 2.22e+01 q_pre                          
+  layer0  head_pairing_tiled        None prefill_2chunk_exact   128 core_attn,k_hat,k_pre,normed,q_hat,scan_out,state,y           1 2.22e+01 k_pre                          
+  layer0  head_pairing_tiled        None prefill_3chunk_padded  160 core_attn,k_hat,normed,q_hat,scan_out,state,v_pre,y           1 2.22e+01 v_pre                          
+  layer0  head_pairing_tiled        None prefill_1chunk_padded    4 beta,core_attn,k_hat,normed,q_hat,scan_out,state,y            1 3.05e+00 beta                           
+  layer0  head_pairing_tiled        None prefill_3chunk_dirty_pad  160 core_attn,g_decay,k_hat,normed,q_hat,scan_out,state,y         1 2.22e+01 g_decay                        
+  layer0  head_pairing_tiled        None decode_3step            96 core_attn,k_hat,mixed_qkv,normed,q_hat,scan_out,state,y       1 4.52e+00 mixed_qkv                      
+  layer0  v_head_order_tiled        None prefill_2chunk_padded   96 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,k_pre,mixed_qkv,normed,scan_out,state,v_pre,y,z    1 9.14e+01 k_pre                          
+  layer0  v_head_order_tiled        None prefill_2chunk_exact   128 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,mixed_qkv,normed,q_hat,scan_out,state,v_pre,y,z    1 9.14e+01 q_hat                          
+  layer0  v_head_order_tiled        None prefill_3chunk_padded  160 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,k_hat,mixed_qkv,normed,scan_out,state,v_pre,y,z    1 9.14e+01 k_hat                          
+  layer0  v_head_order_tiled        None prefill_1chunk_padded    4 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,mixed_qkv,normed,q_pre,scan_out,state,v_pre,y,z    1 9.13e+01 q_pre                          
+  layer0  v_head_order_tiled        None prefill_3chunk_dirty_pad  160 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,k_pre,mixed_qkv,normed,scan_out,state,v_pre,y,z    1 9.14e+01 k_pre                          
+  layer0  v_head_order_tiled        None decode_3step            96 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,mixed_qkv,normed,q_hat,scan_out,state,v_pre,y,z    1 9.13e+01 q_hat                          
+  layer0  read_pre_update_state     None decode_3step            96 core_attn,normed,scan_out,y,z                                 1 5.90e-01 z                              
+  layer0  decay_after_write         None decode_3step            96 core_attn,k_pre,normed,scan_out,state,y                       1 5.90e-01 k_pre                          
+  layer0  norm_plus_one             None prefill_2chunk_padded   96 k_pre,normed,y                                                1 3.64e+01 k_pre                          
+  layer0  norm_plus_one             None prefill_2chunk_exact   128 normed,v_pre,y                                                1 3.64e+01 v_pre                          
+  layer0  norm_plus_one             None prefill_3chunk_padded  160 beta,normed,y                                                 1 3.64e+01 beta                           
+  layer0  norm_plus_one             None prefill_1chunk_padded    4 g_decay,normed,y                                              1 9.00e+00 g_decay                        
+  layer0  norm_plus_one             None prefill_3chunk_dirty_pad  160 normed,q_hat,y                                                1 3.64e+01 q_hat                          
+  layer0  norm_plus_one             None decode_3step            96 k_hat,normed,y                                                1 2.52e+00 k_hat                          
+  layer0  norm_gate_first           None prefill_2chunk_padded   96 normed,scan_out,y                                             1 1.68e+01 scan_out                       
+  layer0  norm_gate_first           None prefill_2chunk_exact   128 core_attn,normed,y                                            1 1.68e+01 core_attn                      
+  layer0  norm_gate_first           None prefill_3chunk_padded  160 normed,state,y                                                1 1.68e+01 state                          
+  layer0  norm_gate_first           None prefill_1chunk_padded    4 mixed_qkv,normed,y                                            1 1.00e+01 mixed_qkv                      
+  layer0  norm_gate_first           None prefill_3chunk_dirty_pad  160 normed,y,z                                                    1 1.68e+01 z                              
+  layer0  norm_gate_first           None decode_3step            96 b_raw,normed,y                                                1 8.33e+00 b_raw                          
+  layer0  norm_weight_f32           None prefill_2chunk_padded   96 a_raw,normed,y                                                1 1.25e-01 a_raw                          
+  layer0  norm_weight_f32           None prefill_2chunk_exact   128 conv_pre,normed,y                                             1 1.25e-01 conv_pre                       
+  layer0  norm_weight_f32           None prefill_3chunk_padded  160 conv_out,normed,y                                             1 1.25e-01 conv_out                       
+  layer0  norm_weight_f32           None prefill_1chunk_padded    4 conv_window,normed,y                                          1 3.52e-02 conv_window                    
+  layer0  norm_weight_f32           None prefill_3chunk_dirty_pad  160 normed,q_pre,y                                                1 1.25e-01 q_pre                          
+  layer0  norm_weight_f32           None decode_3step            96 k_pre,normed,y                                                1 1.56e-02 k_pre                          
+  layer0  norm_variance_flat        None prefill_2chunk_padded   96 normed,v_pre,y                                                1 1.20e+01 v_pre                          
+  layer0  norm_variance_flat        None prefill_2chunk_exact   128 beta,normed,y                                                 1 1.22e+01 beta                           
+  layer0  norm_variance_flat        None prefill_3chunk_padded  160 g_decay,normed,y                                              1 1.78e+01 g_decay                        
+  layer0  norm_variance_flat        None prefill_1chunk_padded    4 normed,q_hat,y                                                1 4.69e-01 q_hat                          
+  layer0  norm_variance_flat        None prefill_3chunk_dirty_pad  160 k_hat,normed,y                                                1 1.78e+01 k_hat                          
+  layer0  norm_variance_flat        None decode_3step            96 normed,scan_out,y                                             1 1.22e+00 scan_out                       
+  layer0  chunk_decay_off_by_one    None prefill_2chunk_exact   128 state,v_pre                                                   1 1.95e-02 v_pre                  state   
+  layer0  chunk_decay_off_by_one    None prefill_3chunk_padded  160 conv_window,core_attn,normed,scan_out,state,y                 1 6.25e-02 conv_window            state,scan_out,core_attn,normed,y
+  layer0  chunk_decay_off_by_one    None prefill_3chunk_dirty_pad  160 core_attn,normed,q_pre,scan_out,state,y                       1 6.25e-02 q_pre                  state,scan_out,core_attn,normed,y
+  layer0  pairwise_mask_after_exp   None prefill_2chunk_padded   96 core_attn,mixed_qkv,normed,scan_out,y                         1 7.81e-02 mixed_qkv                      
+  layer0  pairwise_mask_after_exp   None prefill_2chunk_exact   128 core_attn,normed,scan_out,y,z                                 1 3.91e-02 z                              
+  layer0  pairwise_mask_after_exp   None prefill_3chunk_padded  160 b_raw,core_attn,normed,scan_out,y                             1 1.95e-02 b_raw                          
+  layer0  pairwise_mask_after_exp   None prefill_3chunk_dirty_pad  160 a_raw,core_attn,normed,scan_out,y                             1 1.95e-02 a_raw                          
+  layer0  unitriangular_dropped     None prefill_2chunk_padded   96 core_attn,normed,q_hat,scan_out,state,y                       1 4.88e-04 q_hat                          
+  layer0  unitriangular_dropped     None prefill_2chunk_exact   128 core_attn,k_hat,normed,scan_out,state,y                       1 1.20e+01 k_hat                          
+  layer0  unitriangular_dropped     None prefill_3chunk_padded  160 core_attn,mixed_qkv,normed,scan_out,state,y                   1 7.81e-02 mixed_qkv                      
+  layer0  unitriangular_dropped     None prefill_1chunk_padded    4 core_attn,normed,scan_out,state,y,z                           1 1.95e-02 z                              
+  layer0  unitriangular_dropped     None prefill_3chunk_dirty_pad  160 b_raw,core_attn,normed,scan_out,state,y                       1 1.95e-02 b_raw                          
+  layer0  beta_on_v_not_k           None prefill_2chunk_padded   96 a_raw,core_attn,normed,scan_out,state,y                       1 6.86e+00 a_raw                          
+  layer0  beta_on_v_not_k           None prefill_2chunk_exact   128 conv_pre,core_attn,normed,scan_out,state,y                    1 9.19e+00 conv_pre                       
+  layer0  beta_on_v_not_k           None prefill_3chunk_padded  160 conv_out,core_attn,normed,scan_out,state,y                    1 9.19e+00 conv_out                       
+  layer0  beta_on_v_not_k           None prefill_1chunk_padded    4 conv_window,core_attn,normed,scan_out,state,y                 1 4.45e-01 conv_window                    
+  layer0  beta_on_v_not_k           None prefill_3chunk_dirty_pad  160 core_attn,normed,q_pre,scan_out,state,y                       1 5.45e+29 q_pre                          
+  layer0  q_decayed_twice           None prefill_2chunk_padded   96 core_attn,normed,scan_out,state,y                             1 5.62e-01 state                          
+  layer0  q_decayed_twice           None prefill_2chunk_exact   128 core_attn,mixed_qkv,normed,scan_out,y                         1 1.06e+00 mixed_qkv                      
+  layer0  q_decayed_twice           None prefill_3chunk_padded  160 core_attn,normed,scan_out,y,z                                 1 1.29e+00 z                              
+  layer0  q_decayed_twice           None prefill_3chunk_dirty_pad  160 b_raw,core_attn,normed,scan_out,y                             1 1.29e+00 b_raw                          
+  layer0  state_stored_transposed   None prefill_2chunk_padded   96 core_attn,normed,q_hat,scan_out,state,y                       1 1.67e+01 q_hat                          
+  layer0  state_stored_transposed   None prefill_2chunk_exact   128 core_attn,k_hat,normed,scan_out,state,y                       1 2.07e+01 k_hat                          
+  layer0  state_stored_transposed   None prefill_3chunk_padded  160 core_attn,mixed_qkv,normed,scan_out,state,y                   1 2.07e+01 mixed_qkv                      
+  layer0  state_stored_transposed   None prefill_3chunk_dirty_pad  160 core_attn,normed,scan_out,state,y,z                           1 2.07e+01 z                              
+  layer0  state_stored_transposed   None decode_3step            96 b_raw,core_attn,normed,scan_out,state,y                       1 2.36e+00 b_raw                          
+  layer0  pad_beta_ones             None prefill_3chunk_dirty_pad  160 state,y                                                       1 2.11e+30 y                              
+  layer1  qkv_split_interleaved     None prefill_2chunk_padded   96 core_attn,k_hat,k_pre,mixed_qkv,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 7.83e+00 mixed_qkv                      
+  layer1  qkv_split_interleaved     None prefill_2chunk_exact   128 core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y,z    1 7.83e+00 z                              
+  layer1  qkv_split_interleaved     None prefill_3chunk_padded  160 b_raw,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 7.83e+00 b_raw                          
+  layer1  qkv_split_interleaved     None prefill_1chunk_padded    4 a_raw,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 3.02e+00 a_raw                          
+  layer1  qkv_split_interleaved     None prefill_3chunk_dirty_pad  160 conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 7.83e+00 conv_pre                       
+  layer1  qkv_split_interleaved     None decode_3step            96 conv_out,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 3.64e+00 conv_out                       
+  layer1  silu_before_conv          None prefill_2chunk_padded   96 a_raw,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 6.16e+00 a_raw                          
+  layer1  silu_before_conv          None prefill_2chunk_exact   128 conv_out,conv_pre,conv_window,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 6.16e+00 conv_window                    
+  layer1  silu_before_conv          None prefill_3chunk_padded  160 beta,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 6.78e+00 beta                           
+  layer1  silu_before_conv          None prefill_1chunk_padded    4 conv_out,conv_pre,core_attn,g_decay,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 2.42e+00 g_decay                        
+  layer1  silu_before_conv          None prefill_3chunk_dirty_pad  160 conv_out,conv_pre,core_attn,k_hat,k_pre,mixed_qkv,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 6.78e+00 mixed_qkv                      
+  layer1  silu_before_conv          None decode_3step            96 conv_out,conv_pre,conv_window,core_attn,g_decay,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 9.31e+00 g_decay                conv_window
+  layer1  conv_tap_rotate              1 prefill_2chunk_padded   96 b_raw,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 1.03e+01 b_raw                          
+  layer1  conv_tap_rotate              2 prefill_2chunk_padded   96 a_raw,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 1.20e+01 a_raw                          
+  layer1  conv_tap_rotate              3 prefill_2chunk_padded   96 conv_out,conv_pre,conv_window,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 1.10e+01 conv_window                    
+  layer1  conv_tap_rotate              1 prefill_2chunk_exact   128 beta,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 1.37e+01 beta                           
+  layer1  conv_tap_rotate              2 prefill_2chunk_exact   128 conv_out,conv_pre,core_attn,g_decay,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 1.34e+01 g_decay                        
+  layer1  conv_tap_rotate              3 prefill_2chunk_exact   128 conv_out,conv_pre,core_attn,k_hat,k_pre,mixed_qkv,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 1.11e+01 mixed_qkv                      
+  layer1  conv_tap_rotate              1 prefill_3chunk_padded  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y,z    1 1.37e+01 z                              
+  layer1  conv_tap_rotate              2 prefill_3chunk_padded  160 b_raw,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 1.34e+01 b_raw                          
+  layer1  conv_tap_rotate              3 prefill_3chunk_padded  160 a_raw,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 1.11e+01 a_raw                          
+  layer1  conv_tap_rotate              1 prefill_1chunk_padded    4 conv_out,conv_pre,conv_window,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 3.95e+00 conv_window                    
+  layer1  conv_tap_rotate              2 prefill_1chunk_padded    4 beta,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 2.48e+00 beta                           
+  layer1  conv_tap_rotate              3 prefill_1chunk_padded    4 conv_out,conv_pre,core_attn,g_decay,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 2.86e+00 g_decay                        
+  layer1  conv_tap_rotate              1 prefill_3chunk_dirty_pad  160 conv_out,conv_pre,core_attn,k_hat,k_pre,mixed_qkv,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 1.37e+01 mixed_qkv                      
+  layer1  conv_tap_rotate              2 prefill_3chunk_dirty_pad  160 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y,z    1 1.34e+01 z                              
+  layer1  conv_tap_rotate              3 prefill_3chunk_dirty_pad  160 b_raw,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 1.11e+01 b_raw                          
+  layer1  conv_tap_rotate              1 decode_3step            96 a_raw,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 1.86e+00 a_raw                          
+  layer1  conv_tap_rotate              2 decode_3step            96 conv_out,conv_pre,conv_window,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 1.64e+00 conv_window                    
+  layer1  conv_tap_rotate              3 decode_3step            96 beta,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 2.44e+00 beta                           
+  layer1  conv_state_is_outputs     None decode_3step            96 conv_out,conv_pre,conv_window,core_attn,k_hat,k_pre,mixed_qkv,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 9.04e+00 mixed_qkv                      
+  layer1  conv_tap_reverse          None prefill_2chunk_padded   96 conv_out,conv_pre,core_attn,k_hat,k_pre,mixed_qkv,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 1.45e+01 mixed_qkv                      
+  layer1  conv_tap_reverse          None prefill_2chunk_exact   128 conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y,z    1 1.45e+01 z                              
+  layer1  conv_tap_reverse          None prefill_3chunk_padded  160 b_raw,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 1.45e+01 b_raw                          
+  layer1  conv_tap_reverse          None prefill_1chunk_padded    4 a_raw,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 2.80e+00 a_raw                          
+  layer1  conv_tap_reverse          None prefill_3chunk_dirty_pad  160 conv_out,conv_pre,conv_window,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 1.45e+01 conv_window                    
+  layer1  conv_tap_reverse          None decode_3step            96 beta,conv_out,conv_pre,core_attn,k_hat,k_pre,normed,q_hat,q_pre,scan_out,state,v_pre,y    1 2.53e+00 beta                           
+  layer1  beta_no_sigmoid           None prefill_2chunk_padded   96 beta,core_attn,k_hat,normed,scan_out,state,y                  1 1.57e+01 k_hat                          
+  layer1  beta_no_sigmoid           None prefill_2chunk_exact   128 beta,core_attn,mixed_qkv,normed,scan_out,state,y              1 1.57e+01 mixed_qkv                      
+  layer1  beta_no_sigmoid           None prefill_3chunk_padded  160 beta,core_attn,normed,scan_out,state,y,z                      1 2.35e+01 z                              
+  layer1  beta_no_sigmoid           None prefill_1chunk_padded    4 b_raw,beta,core_attn,normed,scan_out,state,y                  1 2.56e+00 b_raw                          
+  layer1  beta_no_sigmoid           None prefill_3chunk_dirty_pad  160 a_raw,beta,core_attn,normed,scan_out,state,y                  1 2.35e+01 a_raw                          
+  layer1  beta_no_sigmoid           None decode_3step            96 beta,conv_pre,core_attn,normed,scan_out,state,y               1 2.33e+00 conv_pre                       
+  layer1  softplus_on_a_only        None prefill_2chunk_padded   96 conv_out,core_attn,g_decay,normed,scan_out,state,y            1 4.53e+01 conv_out                       
+  layer1  softplus_on_a_only        None prefill_2chunk_exact   128 conv_window,core_attn,g_decay,normed,scan_out,state,y         1 4.53e+01 conv_window                    
+  layer1  softplus_on_a_only        None prefill_3chunk_padded  160 core_attn,g_decay,normed,q_pre,scan_out,state,y               1 4.53e+01 q_pre                          
+  layer1  softplus_on_a_only        None prefill_1chunk_padded    4 core_attn,g_decay,k_pre,normed,scan_out,state,y               1 2.51e+01 k_pre                          
+  layer1  softplus_on_a_only        None prefill_3chunk_dirty_pad  160 core_attn,g_decay,normed,scan_out,state,v_pre,y               1 4.53e+01 v_pre                          
+  layer1  softplus_on_a_only        None decode_3step            96 beta,core_attn,g_decay,normed,scan_out,state,y                1 2.40e+01 beta                           
+  layer1  a_log_used_directly       None prefill_2chunk_padded   96 core_attn,g_decay,normed,q_hat,scan_out,state,y               1 7.00e+00 q_hat                          
+  layer1  a_log_used_directly       None prefill_2chunk_exact   128 core_attn,g_decay,k_hat,normed,scan_out,state,y               1 7.00e+00 k_hat                          
+  layer1  a_log_used_directly       None prefill_3chunk_padded  160 core_attn,g_decay,mixed_qkv,normed,scan_out,state,y           1 7.00e+00 mixed_qkv                      
+  layer1  a_log_used_directly       None prefill_1chunk_padded    4 core_attn,g_decay,normed,scan_out,state,y,z                   1 7.18e+00 z                              
+  layer1  a_log_used_directly       None prefill_3chunk_dirty_pad  160 b_raw,core_attn,g_decay,normed,scan_out,state,y               1 7.00e+00 b_raw                          
+  layer1  a_log_used_directly       None decode_3step            96 a_raw,core_attn,g_decay,normed,scan_out,state,y               1 1.86e+01 a_raw                          
+  layer1  decay_sign_flip           None prefill_2chunk_padded   96 conv_pre,core_attn,g_decay,normed,scan_out,state,y            1 1.94e+01 conv_pre                       
+  layer1  decay_sign_flip           None prefill_2chunk_exact   128 conv_out,core_attn,g_decay,normed,scan_out,state,y            1 1.94e+01 conv_out                       
+  layer1  decay_sign_flip           None prefill_3chunk_padded  160 conv_window,core_attn,g_decay,normed,scan_out,state,y         1 2.08e+01 conv_window                    
+  layer1  decay_sign_flip           None prefill_1chunk_padded    4 core_attn,g_decay,normed,q_pre,scan_out,state,y               1 5.91e+02 q_pre                          
+  layer1  decay_sign_flip           None prefill_3chunk_dirty_pad  160 core_attn,g_decay,k_pre,normed,scan_out,state,y               1 2.08e+01 k_pre                          
+  layer1  decay_sign_flip           None decode_3step            96 core_attn,g_decay,normed,scan_out,state,v_pre,y               1 2.89e+03 v_pre                          
+  layer1  l2norm_eps_outside        None prefill_2chunk_padded   96 core_attn,k_hat,normed,q_hat,scan_out,state,y,z               1 3.91e-02 z                              
+  layer1  l2norm_eps_outside        None prefill_2chunk_exact   128 b_raw,core_attn,k_hat,normed,q_hat,scan_out,state,y           1 6.25e-02 b_raw                          
+  layer1  l2norm_eps_outside        None prefill_3chunk_padded  160 a_raw,core_attn,k_hat,normed,q_hat,scan_out,state,y           1 6.25e-02 a_raw                          
+  layer1  l2norm_eps_outside        None prefill_1chunk_padded    4 conv_pre,core_attn,k_hat,normed,q_hat,scan_out,state,y        1 1.95e-02 conv_pre                       
+  layer1  l2norm_eps_outside        None prefill_3chunk_dirty_pad  160 conv_out,core_attn,k_hat,normed,q_hat,scan_out,state,y        1 6.25e-02 conv_out                       
+  layer1  l2norm_eps_outside        None decode_3step            96 conv_window,core_attn,k_hat,normed,q_hat,scan_out,state,y     1 7.03e-02 conv_window                    
+  layer1  l2norm_uses_mean          None prefill_2chunk_padded   96 core_attn,k_hat,normed,q_hat,q_pre,scan_out,state,y           1 1.02e+01 q_pre                          
+  layer1  l2norm_uses_mean          None prefill_2chunk_exact   128 core_attn,k_hat,k_pre,normed,q_hat,scan_out,state,y           1 1.02e+01 k_pre                          
+  layer1  l2norm_uses_mean          None prefill_3chunk_padded  160 core_attn,k_hat,normed,q_hat,scan_out,state,v_pre,y           1 1.02e+01 v_pre                          
+  layer1  l2norm_uses_mean          None prefill_1chunk_padded    4 beta,core_attn,k_hat,normed,q_hat,scan_out,state,y            1 2.64e+03 beta                           
+  layer1  l2norm_uses_mean          None prefill_3chunk_dirty_pad  160 core_attn,g_decay,k_hat,normed,q_hat,scan_out,state,y         1 1.02e+01 g_decay                        
+  layer1  l2norm_uses_mean          None decode_3step            96 core_attn,k_hat,mixed_qkv,normed,q_hat,scan_out,state,y       1 6.95e+02 mixed_qkv                      
+  layer1  q_scale_omitted           None prefill_2chunk_padded   96 core_attn,normed,q_hat,q_pre,scan_out,y                       1 1.21e+01 q_pre                          
+  layer1  q_scale_omitted           None prefill_2chunk_exact   128 core_attn,k_pre,normed,q_hat,scan_out,y                       1 1.62e+01 k_pre                          
+  layer1  q_scale_omitted           None prefill_3chunk_padded  160 core_attn,normed,q_hat,scan_out,v_pre,y                       1 1.62e+01 v_pre                          
+  layer1  q_scale_omitted           None prefill_1chunk_padded    4 beta,core_attn,normed,q_hat,scan_out,y                        1 6.42e+00 beta                           
+  layer1  q_scale_omitted           None prefill_3chunk_dirty_pad  160 core_attn,g_decay,normed,q_hat,scan_out,y                     1 1.62e+01 g_decay                        
+  layer1  q_scale_omitted           None decode_3step            96 core_attn,k_hat,normed,q_hat,scan_out,y                       1 2.32e+00 k_hat                          
+  layer1  head_pairing_tiled        None prefill_2chunk_padded   96 core_attn,k_hat,normed,q_hat,q_pre,scan_out,state,y           1 1.39e+01 q_pre                          
+  layer1  head_pairing_tiled        None prefill_2chunk_exact   128 core_attn,k_hat,k_pre,normed,q_hat,scan_out,state,y           1 1.44e+01 k_pre                          
+  layer1  head_pairing_tiled        None prefill_3chunk_padded  160 core_attn,k_hat,normed,q_hat,scan_out,state,v_pre,y           1 1.44e+01 v_pre                          
+  layer1  head_pairing_tiled        None prefill_1chunk_padded    4 beta,core_attn,k_hat,normed,q_hat,scan_out,state,y            1 3.70e+00 beta                           
+  layer1  head_pairing_tiled        None prefill_3chunk_dirty_pad  160 core_attn,g_decay,k_hat,normed,q_hat,scan_out,state,y         1 1.44e+01 g_decay                        
+  layer1  head_pairing_tiled        None decode_3step            96 core_attn,k_hat,mixed_qkv,normed,q_hat,scan_out,state,y       1 3.81e+00 mixed_qkv                      
+  layer1  v_head_order_tiled        None prefill_2chunk_padded   96 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,k_pre,mixed_qkv,normed,scan_out,state,v_pre,y,z    1 1.32e+01 k_pre                          
+  layer1  v_head_order_tiled        None prefill_2chunk_exact   128 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,mixed_qkv,normed,q_hat,scan_out,state,v_pre,y,z    1 1.32e+01 q_hat                          
+  layer1  v_head_order_tiled        None prefill_3chunk_padded  160 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,k_hat,mixed_qkv,normed,scan_out,state,v_pre,y,z    1 1.32e+01 k_hat                          
+  layer1  v_head_order_tiled        None prefill_1chunk_padded    4 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,mixed_qkv,normed,q_pre,scan_out,state,v_pre,y,z    1 7.68e+00 q_pre                          
+  layer1  v_head_order_tiled        None prefill_3chunk_dirty_pad  160 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,k_pre,mixed_qkv,normed,scan_out,state,v_pre,y,z    1 1.32e+01 k_pre                          
+  layer1  v_head_order_tiled        None decode_3step            96 a_raw,b_raw,beta,conv_out,conv_pre,conv_window,core_attn,g_decay,mixed_qkv,normed,q_hat,scan_out,state,v_pre,y,z    1 1.02e+01 q_hat                          
+  layer1  read_pre_update_state     None decode_3step            96 beta,core_attn,normed,scan_out,y                              1 3.17e-01 beta                           
+  layer1  decay_after_write         None decode_3step            96 core_attn,normed,q_hat,scan_out,state,y                       1 1.67e-01 q_hat                          
+  layer1  norm_plus_one             None prefill_2chunk_padded   96 normed,state,y                                                1 7.53e+00 state                          
+  layer1  norm_plus_one             None prefill_2chunk_exact   128 mixed_qkv,normed,y                                            1 7.53e+00 mixed_qkv                      
+  layer1  norm_plus_one             None prefill_3chunk_padded  160 normed,y,z                                                    1 7.53e+00 z                              
+  layer1  norm_plus_one             None prefill_1chunk_padded    4 b_raw,normed,y                                                1 5.47e+00 b_raw                          
+  layer1  norm_plus_one             None prefill_3chunk_dirty_pad  160 a_raw,normed,y                                                1 7.53e+00 a_raw                          
+  layer1  norm_plus_one             None decode_3step            96 conv_pre,normed,y                                             1 1.42e+00 conv_pre                       
+  layer1  norm_gate_first           None prefill_2chunk_padded   96 conv_out,normed,y                                             1 1.40e+01 conv_out                       
+  layer1  norm_gate_first           None prefill_2chunk_exact   128 conv_window,normed,y                                          1 2.18e+01 conv_window                    
+  layer1  norm_gate_first           None prefill_3chunk_padded  160 normed,q_pre,y                                                1 2.18e+01 q_pre                          
+  layer1  norm_gate_first           None prefill_1chunk_padded    4 k_pre,normed,y                                                1 9.27e+00 k_pre                          
+  layer1  norm_gate_first           None prefill_3chunk_dirty_pad  160 normed,v_pre,y                                                1 2.18e+01 v_pre                          
+  layer1  norm_gate_first           None decode_3step            96 beta,normed,y                                                 1 8.52e+00 beta                           
+  layer1  norm_weight_f32           None prefill_2chunk_padded   96 g_decay,normed,y                                              1 6.25e-02 g_decay                        
+  layer1  norm_weight_f32           None prefill_2chunk_exact   128 normed,q_hat,y                                                1 3.12e-02 q_hat                          
+  layer1  norm_weight_f32           None prefill_3chunk_padded  160 k_hat,normed,y                                                1 3.12e-02 k_hat                          
+  layer1  norm_weight_f32           None prefill_1chunk_padded    4 normed,scan_out,y                                             1 1.56e-02 scan_out                       
+  layer1  norm_weight_f32           None prefill_3chunk_dirty_pad  160 core_attn,normed,y                                            1 3.12e-02 core_attn                      
+  layer1  norm_weight_f32           None decode_3step            96 normed,state,y                                                1 3.91e-03 state                          
+  layer1  norm_variance_flat        None prefill_2chunk_padded   96 mixed_qkv,normed,y                                            1 2.98e+00 mixed_qkv                      
+  layer1  norm_variance_flat        None prefill_2chunk_exact   128 normed,y,z                                                    1 5.06e+00 z                              
+  layer1  norm_variance_flat        None prefill_3chunk_padded  160 b_raw,normed,y                                                1 5.06e+00 b_raw                          
+  layer1  norm_variance_flat        None prefill_1chunk_padded    4 a_raw,normed,y                                                1 2.34e-01 a_raw                          
+  layer1  norm_variance_flat        None prefill_3chunk_dirty_pad  160 conv_pre,normed,y                                             1 5.06e+00 conv_pre                       
+  layer1  norm_variance_flat        None decode_3step            96 conv_out,normed,y                                             1 7.66e-01 conv_out                       
+  layer1  chunk_decay_off_by_one    None prefill_2chunk_exact   128 state,v_pre                                                   1 1.76e-02 v_pre                  state   
+  layer1  chunk_decay_off_by_one    None prefill_3chunk_padded  160 beta,core_attn,normed,scan_out,state,y                        1 1.05e-01 beta                   state,scan_out,core_attn,normed,y
+  layer1  chunk_decay_off_by_one    None prefill_3chunk_dirty_pad  160 core_attn,g_decay,normed,scan_out,state,y                     1 1.05e-01 g_decay                state,scan_out,core_attn,normed,y
+  layer1  pairwise_mask_after_exp   None prefill_2chunk_padded   96 core_attn,normed,scan_out,v_pre,y                             1 1.76e-02 v_pre                          
+  layer1  pairwise_mask_after_exp   None prefill_2chunk_exact   128 beta,core_attn,normed,scan_out,y                              1 4.88e-03 beta                           
+  layer1  pairwise_mask_after_exp   None prefill_3chunk_padded  160 core_attn,g_decay,normed,scan_out,y                           1 6.25e-02 g_decay                        
+  layer1  pairwise_mask_after_exp   None prefill_3chunk_dirty_pad  160 core_attn,normed,q_hat,scan_out,y                             1 4.88e-04 q_hat                          
+  layer1  unitriangular_dropped     None prefill_2chunk_padded   96 b_raw,core_attn,normed,scan_out,state,y                       1 1.95e-02 b_raw                          
+  layer1  unitriangular_dropped     None prefill_2chunk_exact   128 a_raw,core_attn,normed,scan_out,state,y                       1 6.03e+00 a_raw                          
+  layer1  unitriangular_dropped     None prefill_3chunk_padded  160 conv_pre,core_attn,normed,scan_out,state,y                    1 3.52e-02 conv_pre                       
+  layer1  unitriangular_dropped     None prefill_1chunk_padded    4 conv_out,core_attn,normed,scan_out,state,y                    1 8.79e-03 conv_out                       
+  layer1  unitriangular_dropped     None prefill_3chunk_dirty_pad  160 conv_window,core_attn,normed,scan_out,state,y                 1 3.91e-02 conv_window                    
+  layer1  beta_on_v_not_k           None prefill_2chunk_padded   96 core_attn,normed,q_pre,scan_out,state,y                       1 3.17e+00 q_pre                          
+  layer1  beta_on_v_not_k           None prefill_2chunk_exact   128 core_attn,k_pre,normed,scan_out,state,y                       1 3.17e+00 k_pre                          
+  layer1  beta_on_v_not_k           None prefill_3chunk_padded  160 core_attn,normed,scan_out,state,v_pre,y                       1 3.17e+00 v_pre                          
+  layer1  beta_on_v_not_k           None prefill_1chunk_padded    4 beta,core_attn,normed,scan_out,state,y                        1 1.72e-01 beta                           
+  layer1  beta_on_v_not_k           None prefill_3chunk_dirty_pad  160 core_attn,g_decay,normed,scan_out,state,y                     1 1.09e+29 g_decay                        
+  layer1  q_decayed_twice           None prefill_2chunk_padded   96 core_attn,k_pre,normed,scan_out,y                             1 3.75e-01 k_pre                          
+  layer1  q_decayed_twice           None prefill_2chunk_exact   128 core_attn,normed,scan_out,v_pre,y                             1 5.94e-01 v_pre                          
+  layer1  q_decayed_twice           None prefill_3chunk_padded  160 beta,core_attn,normed,scan_out,y                              1 5.94e-01 beta                           
+  layer1  q_decayed_twice           None prefill_3chunk_dirty_pad  160 core_attn,g_decay,normed,scan_out,y                           1 5.94e-01 g_decay                        
+  layer1  state_stored_transposed   None prefill_2chunk_padded   96 b_raw,core_attn,normed,scan_out,state,y                       1 8.20e+00 b_raw                          
+  layer1  state_stored_transposed   None prefill_2chunk_exact   128 a_raw,core_attn,normed,scan_out,state,y                       1 8.20e+00 a_raw                          
+  layer1  state_stored_transposed   None prefill_3chunk_padded  160 conv_pre,core_attn,normed,scan_out,state,y                    1 8.20e+00 conv_pre                       
+  layer1  state_stored_transposed   None prefill_3chunk_dirty_pad  160 conv_out,core_attn,normed,scan_out,state,y                    1 8.20e+00 conv_out                       
+  layer1  state_stored_transposed   None decode_3step            96 conv_window,core_attn,normed,scan_out,state,y                 1 2.07e+00 conv_window                    
+  layer1  pad_beta_ones             None prefill_3chunk_dirty_pad  160 state,y                                                       1 2.11e+30 y                              
+
+## tallies — arm=crossed
+  crossed  cases                        288
+  crossed  caught                       288
+  crossed  localised                    0
+  crossed  stage_diffs                  2288
+  crossed  scan_moved_cases             248
+  crossed  pre_scan_moved_cases         182
+  crossed  must_not_catch_violations    288
+  crossed  must_catch_missed            0
+  crossed  crossed_breaches_injected    288
+  crossed  crossed_alarms_fired         288
+
+## derived (case x allowed-stage) population — the arm=stub expectation
+  unconditional   1976   |AFFECTED[fault]| x derived cases x 2 blocks
+  conditional     1 stage(s) conv_window licensed by geometry on silu_before_conv/decode_3step
+  conditional     1 stage(s) state licensed by geometry on chunk_decay_off_by_one/prefill_2chunk_exact
+  conditional     1 stage(s) state licensed by geometry on chunk_decay_off_by_one/prefill_3chunk_padded
+  conditional     4 stage(s) scan_out,core_attn,normed,y licensed by geometry on chunk_decay_off_by_one/prefill_3chunk_padded
+  conditional     1 stage(s) state licensed by geometry on chunk_decay_off_by_one/prefill_3chunk_dirty_pad
+  conditional     4 stage(s) scan_out,core_attn,normed,y licensed by geometry on chunk_decay_off_by_one/prefill_3chunk_dirty_pad
+  conditional total   24
+  derived total     2000   the blinded differ must miss exactly this many allowed stages, no more and no fewer
+
+## what each witness is evidence for
+  arm=honest   scan_moved_cases / pre_scan_moved_cases == counts derived from the case list — the two sides that must be able to fire
+  arm=honest   must_not_catch_violations==0 and localised==cases — localisation
+  arm=stub     caught==0, stage_diffs==0, must_catch_missed==derived>0 — the gate reads the differ, not a constant
+  facts        `state` untouched and the deferred conv-state fire are asserted outright from torch.equal, and agreed across all three arms
+  arm=crossed  crossed_alarms_fired==cases — the must-not-catch side can fail, so its 0 in arm=honest is earned
+
+SELFTEST PASS — three arms over the derived matrix; no timing taken
