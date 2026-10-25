@@ -680,9 +680,24 @@ sitting idle while a worker runs 35 t/s across the LAN is not free.
 **Applied retroactively? No.** W14 and W15 were both started under the old rule while two workers were
 live, which is the correct placement for a two-worker board anyway. D-15 binds from the next launch.
 
-## D-16 — Does a whole-buffer cross-arm check inherit the lane's declared field rule? — **OPEN (asked 2026-10-26, user's to set)**
+## D-16 — Does a whole-buffer cross-arm check inherit the lane's declared field rule? — **DECIDED 2026-10-26 by the user: A**
 
-**Question.** `prototype/moe_gather/` declares `field_exact=gate_up` for 18 cases: the gate and up fields are
+**User's words (2026-10-26):** *“A seems to be fine + maybe we can somehow detect that this is rounding
+error? We had cases like that in the past, where the numbers are +-1 from each other. I'm a bit tired of
+approving cases like that — maybe we can just have common machinery that will always accept +-1 from the
+target (only in Q8 and above coding! for Q4 that could be fatal!)”*. The first clause decides this entry; the
+rest is **D-17**.
+
+**What A commits to.** `prototype/moe_gather/`'s cross-arm check compares declared-exact fields for bit-equality
+(`gate`, `up`) and, for the 18 `field_exact=gate_up` cases, counts-and-reports rather than asserts on `s` and
+`raw`. Three conditions ride on it, and they are why this is A-with-teeth rather than a blanket pass:
+
+1. the differing-word census stays **printed** on every run — acceptance is visible, never silent;
+2. outside the declared fields and cases, exactness is still required and the count must stay **zero**;
+3. accepted divergences must be **attributed**, not merely small — the `expf` glibc-vs-libdevice attribution in
+   `work/diag_armdiff.py` is the template. "Small and unexplained" is not a category this lane may hold.
+
+**Original question, kept for the record.** `prototype/moe_gather/` declares `field_exact=gate_up` for 18 cases: the gate and up fields are
 held to bit-exactness, `s` and `raw` are not, because they carry an `expf` that this lane declares
 counted-and-never-banded (glibc on the host, ROCm libdevice on the device). The lane's cross-arm check —
 *host arm and device arm agree word for word* — is written over the **whole** output buffer, ignoring that
@@ -708,3 +723,43 @@ cases was ruled acceptable, scoped narrowly to those cases — the scoping is th
 and must-catch sets are never moved to fit what the current build produces. The lane stays committed at
 `3f1b977` with `RESULT FAIL … findings=1` until this is answered. Nothing was papered over, and the red is the
 evidence that the check still has teeth.
+
+## D-17 — May a shared comparator accept ±1 ULP automatically, above some width? — **PRINCIPLE APPROVED by the user 2026-10-26; the guardrails are engineering and are recorded here**
+
+**User's request.** Stop escalating isolated last-bit disagreements for approval: have one piece of machinery
+that accepts ±1 from the target — **but only at Q8 and above; for Q4 it could be fatal**. The width veto is the
+user's and is structural, not a tunable.
+
+**Why it cannot be written before this is settled.** "±1" is not one concept, and this repo already contains
+**two incompatible rulers**:
+
+| where | what it calls one ULP | weakness |
+|---|---|---|
+| `speccheck/moe_ref.py` §ulp_of | `2^(exp−7)` — a float quantum at `\|v\|`, with the bf16 mantissa width **typed** as 8 bits | edge cases at exact powers of two, subnormals and ±0; and a typed width is exactly the class of error `tools/ggml_block_geom.py` was written to kill |
+| `prototype/moe_router/gate.py` §ulpdist_bits | **adjacency in the bit image** — integers differ by 1 after sign-magnitude ordering | sound, but only if the sign transform is right: see `pitfalls/30-numerics.md` §A BF16 ULP comparator written on a `uint16` view has a dead branch, where `np.where(x < 0, …)` is never true on an unsigned array and the gate passes **vacuously** |
+
+Five files carry their own ULP logic (`tools/audit_published_quant.py`, `tools/moe_stats.py`,
+`speccheck/moe_ref.py`, `speccheck/selftest_moe.py`, `prototype/moe_router/gate.py`). Checked today: none
+currently has the dead-branch bug, but three of the five do no sign-magnitude comparison at all. One ruler,
+derived from a file, is therefore the first thing to build; the acceptance rule is the second.
+
+**The rule as built** — the guardrails are mine, and each is enforced by a sabotage that was watched to fire:
+
+1. **Isolated, not systematic.** Accept only a small number of elements at *exactly* 1 ULP, with **zero**
+   elements at ≥ 2 ULP. A wrong rounding mode or an off-by-one in a reduction produces ±1 on **every** element,
+   which is a different function and not rounding noise. The systematic-shift fixture must be **rejected**; that
+   arm is what makes "accept ±1" safe, so it is mandatory rather than optional.
+2. **The width veto comes from the artifact, not from a string.** ≥ Q8 is evaluated from the tensor's own ggml
+   type in the pinned file (`ggml_block_geom.py` derives geometry, `gguf_width_table.py` is the independent
+   ruler). Q4_K/Q5_K/Q6_K are refused **even at 1 ULP**, with a test of the refusal itself — because "which
+   quantization is this" is the one thing a policy like this must never take on trust.
+3. **Fields are declared per lane and reviewed.** Nothing benefits unless the lane names it; the gather lane's
+   18 `field_exact=gate_up` cases are the first users.
+4. **NaN is never within 1 ULP of a finite value**, with explicit arms for subnormals, ±0 and infinities. A
+   comparator that calls NaN-vs-3.7 a rounding difference is worse than no comparator.
+5. **Accepted ≠ uncounted.** Every acceptance prints a census — element counts, fields, the ULP histogram — and
+   the run still fails if anything outside the declared set moves at all.
+
+**What this replaces, and what it does not.** It replaces the practice of escalating individual ±1 findings for
+approval (the D-14 pattern). D-14 is **not** retroactively widened: its ratification stays scoped to the two
+`ssm_a` cases it named. The machinery covers future cases of its own kind; it does not enlarge past decisions.
