@@ -113,11 +113,14 @@ second structure:
 
 ```
 README.md                  this file: target facts and sizing
+PLAN.md                    the funded queue: step 1 = published quant + MTP + audit (APPROVED, NOT STARTED)
 AGENTS.md                  rules, GPU policy, the self-containment rule
 reference-implementation.md  reading list for the 0.8B engine's *code shape* (not a fact store)
-DECISIONS.md               the decision log (decided: D-01/D-01a/D-09/D-10 widths ⇒ policy A, D-02
-                           residency, D-04, D-05 MTP, D-06, D-07, D-08 4-bit format = Q4_K; open:
-                           D-03 weight acquisition, D-11 pool ownership)
+DECISIONS.md               the decision log (decided: D-03 weight acquisition ⇒ published quant + MTP +
+                           audit, D-01/D-01a/D-09/D-10 widths ⇒ policy A (our preference; the shipped
+                           published file differs — see D-03), D-02 residency, D-04, D-05 MTP, D-06,
+                           D-07, D-08 4-bit format = Q4_K, D-13 endpoint policy; open: D-11 pool
+                           ownership)
 pitfalls/                  the trap library, copied in so nothing cites another repo
 devices/measured-facts.md  this box's measured ceilings, residency budget and the roofline arithmetic
 devices/evidence/          raw output of the device probes behind those numbers
@@ -132,12 +135,33 @@ prototype/<op>/            one dir per op: standalone kernel + reference dump + 
 progress/<YYYY-MM-DD>/     dated journals
 ```
 
-## Download
+## Download (D-03 decided ⇒ this is `PLAN.md` step 1, and it has **not** been run)
+
+The approved acquisition is **not** the whole checkpoint. It is the published shipping artifact, the
+MTP block the published artifact lacks, and four shards to audit the first two against — ≈31 GiB, none
+of which touches the iGPU:
 
 ```sh
-mkdir -p models && hf download Qwen/Qwen3.6-35B-A3B --local-dir models/Qwen3.6-35B-A3B
+# 1. the shipping artifact (20.7 GiB of weights; carries tokenizer, chat template and rope keys)
+mkdir -p models && hf download unsloth/Qwen3.6-35B-A3B-GGUF Qwen3.6-35B-A3B-UD-Q4_K_M.gguf \
+    --local-dir models/unsloth-q4km
+
+# 2. MTP + the sampled audit input (19 mtp.* tensors + layers 0, 1, 39)
+mkdir -p models/qwen36-src && hf download Qwen/Qwen3.6-35B-A3B \
+    model-00001-of-00026.safetensors model-00002-of-00026.safetensors \
+    model-00025-of-00026.safetensors model-00026-of-00026.safetensors \
+    --local-dir models/qwen36-src
 ```
 
-67 GiB of weights + ~1 GiB of tokenizer. Disk free on this box: check `df -h /home`
-(2.4 TiB available as of 2026-10-26). Do **not** download as a side effect of another task;
-it is a decision with a 30-minute wall cost.
+Which shards, and why those layers: `tools/mtp_shard_cost.py` (`--mtp`, `--layers 0,1,39`). Step 1.0 —
+writing `tools/audit_published_quant.py` (planned) — comes **before** either command, so the gate is
+designed from the spec rather than from the data it judges.
+
+The full checkpoint stays available and **deferred** (D-03's four triggers), not cancelled:
+
+```sh
+hf download Qwen/Qwen3.6-35B-A3B --local-dir models/Qwen3.6-35B-A3B   # 67 GiB — deferred, see D-03
+```
+
+Disk free on this box: check `df -h /home` (2.4 TiB available as of 2026-10-26). Do **not** download as
+a side effect of another task; each of these is a decision with a wall cost.

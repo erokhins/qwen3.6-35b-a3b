@@ -1,9 +1,16 @@
 # Quantization policy — D-01 (experts at 4-bit, and what to do about everything else)
 
-Status: **experts at 4-bit is authorized** (user, 2026-10-26: "experts q4"). **Attention width is
-still the user's call** ("attention — don't know"); this file gives the numbers for it, and §
-"the attention question" is the recommendation. int4/int8 work requires the user's explicit words
-(`AGENTS.md` standing rules) — the decision is recorded in `DECISIONS.md` D-01, not inferred here.
+Status: **experts at 4-bit authorized** (user, 2026-10-26: "experts q4") and **attention/GDN at Q8_0**
+(D-01a), so **policy A is this repo's chosen width assignment** — with one caveat that has to be read
+before any of the tables below are quoted as "what we run": **the shipping artifact is a published
+quant, not an artifact we converted** (D-03, 2026-10-26: published quant + MTP + audit, `PLAN.md` step
+1). Its header map (`quantization/evidence/q4km-published-width-map-2026-10-26.md`) agrees with policy
+A on experts gate/up (Q4_K), all attention/GDN (Q8_0), router/norms/GDN-control (F32, wider than our
+"exact"), shared expert and embeddings (Q8_0), and differs on two families: expert `down_proj` at
+**Q5_K/Q6_K** (D-08 amended by inheritance) and `lm_head` at **Q6_K** (D-10 amended by inheritance).
+So the policy tables below are what we *would* build if we converted from f16; the bytes we actually
+gate against are theirs. int4/int8 work requires the user's explicit words (`AGENTS.md` standing rules)
+— recorded in `DECISIONS.md` D-01/D-08/D-01a/D-10, not inferred here.
 
 ## Why quantization is not optional here
 

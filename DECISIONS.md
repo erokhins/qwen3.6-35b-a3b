@@ -9,14 +9,14 @@ number or failure that forced it.
 | D-01 | quantization to fit | **DECIDED** (experts 4-bit) |
 | D-01a | attention/GDN width — **Q8_0** ⇒ policy A is the shipping shape | **DECIDED** |
 | D-02 | residency above the pool | **DECIDED** by measurement: no — **corrected same day**: the pool is box-wide, not per-process |
-| D-03 | weight acquisition (bf16 oracle vs published GGUF vs both) | **OPEN** — recommendation: staged (GGUF now, bf16 first) |
+| D-03 | weight acquisition (bf16 oracle vs published GGUF vs both) | **DECIDED** (2026-10-26, user): **published quant + MTP shards + sampled audit**, bf16 deferred — `PLAN.md` step 1, approved, **not started** |
 | D-04 | Flash-Next-only subsystems | **DECIDED**: out of scope |
 | D-05 | MTP in scope? | **DECIDED**: yes |
 | D-06 | which 35B-A3B checkpoint | **DECIDED**: `Qwen/Qwen3.6-35B-A3B` |
 | D-07 | does MoE work transfer to Flash-Next | **DECIDED**: the block, not its surroundings |
-| D-08 | which 4-bit format | **DECIDED**: Q4_K |
+| D-08 | which 4-bit format | **DECIDED**: Q4_K — **note**: the shipped published file carries expert `down_proj` at Q5_K/Q6_K, see D-03 |
 | D-09 | is the MTP expert block quantized the same way | **DECIDED**: uniform with the stack it drafts for |
-| D-10 | `lm_head`/embed width | **DECIDED**: Q8_0 |
+| D-10 | `lm_head`/embed width | **DECIDED**: Q8_0 — **note**: the shipped published file carries `lm_head` at Q6_K, see D-03 |
 | D-11 | does the engine own the pool, or share it with halogen | **OPEN** (operational) — **2026-10-26: the test is finally reachable**, D-13 |
 | D-12 | llama.cpp as an oracle (cross-check vs accuracy oracle) | **ADOPTED** as cross-check; accuracy oracle stays bf16 |
 | D-13 | how agents and tests share the two model endpoints | **DECIDED** (2026-10-26, user): ≤4 workers = ≤3 `tensorfold` + ≤1 `halogen`, main on `tensorfold`, 4 of 5 slots; halogen down for every measurement |
@@ -96,7 +96,27 @@ pinned layout is bandwidth-viable but spends the pool rather than extending it; 
 endgame (≈58 GiB even at 4-bit main weights) needs a bigger pool or real streaming, not a mapping
 trick. What the correction changes is only the size of the ceiling and who else pays it (D-11).
 
-## D-03 — Weight acquisition: bf16 67 GiB, a published GGUF, both, or neither yet? — **OPEN, recommendation: staged (GGUF now, bf16 before the first numerics gate)**
+## D-03 — Weight acquisition: bf16 67 GiB, a published GGUF, both, or neither yet? — **DECIDED 2026-10-26 (user): published quant + MTP shards + sampled audit; the full bf16 download is deferred, not cancelled**
+
+The user's approval, in their words: **"I approve the mtp+published+audit, but don't start it."** So the
+shipping artifact is a **published quant** — `unsloth/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf` — plus the MTP
+block fetched separately (the published file provably has none), plus a **sampled provenance audit** of
+that file against the checkpoint. ≈ **31 GiB** total, no iGPU time. The queue, per-sub-step pass
+conditions and fetch list are in **`PLAN.md` step 1**; nothing there has run.
+
+**This is not what this file recommended**, and the difference is the substance of the decision. The
+reasoning below argued for bf16 as the *measuring instrument* first; the user chose to defer that and
+buy the artifact instead. What that trade actually costs is itemised in `PLAN.md` §"Step 1 does not
+buy" and, in one line each: quantization quality becomes unmeasurable (we inherit the producer's KLD
+claim), **two width decisions are overridden by inheritance** — D-08's experts (their `down_proj` is
+Q5_K) and D-10's `lm_head` (their Q6_K, which D-10 rejected on tail-risk grounds) — value coverage is
+sampled rather than complete, and llama.cpp-plus-file is a closed loop with no third witness. Those
+decisions are **not** re-opened as preferences: they stand as what we would choose if we converted our
+own, and are annotated as amended in the table above so nobody reads policy A as the shipping bytes.
+The deferral carries four named triggers, so the checkpoint is bought by a question rather than by
+taste.
+
+The analysis that produced the recommendation stays below, because it is what the triggers refer to.
 
 The question asked back was the right one: **if we ship a quantized model, why download the bf16
 checkpoint at all?** Three answers, in order of hardness.
@@ -141,7 +161,8 @@ process serving this session. That is an argument for **sequencing** the downloa
    quantized artifact, and is kept as the oracle for every later band.
 
 If the preference is to download exactly one thing, it is **bf16** — the GGUF is a convenience and the
-oracle is not. One word needed: `staged`, `bf16`, `gguf`, or `not yet`.
+oracle is not. *(This line was the recommendation; the user's answer was neither of the offered words —
+see the decision at the head of this section: published + MTP + audit, with the oracle deferred.)*
 
 **Constraint found later the same day, and it is a harder argument than the oracle one.** Header parse
 of `unsloth/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf` (`tools/gguf_header_types.py`; evidence
