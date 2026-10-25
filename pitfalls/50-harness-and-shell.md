@@ -310,3 +310,21 @@ there. `U-n` ids map to `planning/port-inventory-2026-10-26.md` §9.10.
   version has an extra axis (HF name ↔ GGUF name ↔ resident blob, over rank-3 fused expert tensors), and
   `tools/PROVENANCE.md` §`gguf_suffix_census.py` already records what a hand-written name classifier did here:
   it "mislabelled the family entirely while still getting the total right".
+
+## A lane whose remaining work is executing code for the first time gets its own run
+
+Five lanes hit their run deadline on 2026-10-26, and the moments of death had a common shape: the remaining
+work was either "run 2,000 lines that have never been executed" or "assemble the evidence files". Neither is
+slow, both are exactly where the interesting failures appear, and both had been scheduled as the tail of a run
+that already spent its budget building. The fix is scheduling, not faster workers:
+
+- a build-only run ends when the binaries compile warning-free and the driver selftest is green;
+- a run-only run has one deliverable, execute the existing code and fix what breaks, and is forbidden from
+  writing new code, new files, or the wrapper;
+- evidence assembly and the device gate are their own run.
+
+Two corollaries. Commit the checkpoint before relaunching, so a death costs the report and not the work:
+lm_head, gdn and shared_expert were each well ahead of their 113-, 123- and 19-byte final reports, and none of
+that work survives an uncommitted tree. And a killed worker cannot release a lock it was holding, so the main
+agent must verify the holder pid is dead and clear the lock itself -- a stale /tmp/pi_halogen.lock had stayed,
+tools/halogen_gate.sh admit would have refused every measurement window for no reason at all.
