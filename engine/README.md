@@ -39,7 +39,7 @@ prints no rate figures):
 **1. The width veto refuses by name and is never coerced (D-17).**
 `Loader.admit(name, type)` answers a tensor's own ggml type against a floor derived from the family
 widths policy A declares (`quantization/README.md §The policies, priced`) — derived through
-`tools/ggml_block_geom.bpw_of`, never a typed literal, so a future table edit moves the floor and this
+`tools/ggml_block_geom.py §bpw_of`, never a typed literal, so a future table edit moves the floor and this
 check moves with it. D-17 is the reason it refuses rather than adapts: *“The width veto is the user's and
 is structural, not a tunable.”*
 
