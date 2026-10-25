@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+# gate — the device gate for prototype/lm_head.
+#
+# THIS WRAPPER IS THE ONLY FILE IN THIS OP THAT ACQUIRES THE GPU LOCK. gate.py never does: a driver
+# that self-acquires and is called by a caller already holding the lock parks forever with no CPU, no
+# GPU, no message and no exit, and `gpu_lock.sh status` afterwards reads STALE
+# (pitfalls/50-harness-and-shell.md §"Self-locking gate drivers deadlock silently"). The check is
+# printed at run time rather than remembered: `grep -c gpu_lock` over every script this wrapper calls
+# must be 0, and over this script it must be non-zero — a wrapper that had stopped taking the lock
+# would otherwise look identical to one that still does.
+#
+#   ./gate                 full device gate: correctness only, PASS/FAIL, no timing
+#   ./gate --check-only    oracle + host twin + all judgements, no device, no lock (the CI mode)
+#   ./gate --selftest      host witnesses only: the instruments that must be able to fail
+#   ./gate --control NAME  one deliberately broken run; must exit non-zero
+#   ./gate --max-rows N    cut the SAMPLED row count only; no class, mode or assertion moves
+#
+# BACKS OFF, NEVER QUEUES. `status` is read first and acquisition is `acquire-noblock`, so a busy lock
+# is a refusal (exit 3, `RESULT FAIL not-run …`) and not a wait. Queuing is what turns one worker's
+# device run into another worker's contaminated measurement window, and a queue cannot be observed by
+# the holder that is being waited on (AGENTS.md §"GPU execution is serialized").
+#
+# CORRECTNESS ONLY. Nothing here takes a duration. The wall-clock line is the lock record AGENTS.md
+# asks a device run to carry (command line, wall time, `gpu_lock.sh util` before and after, and the
+# literal words "no timing taken"), not a measurement of a kernel — and there is no `ms`, `tok/s` or
+# `GB/s` figure anywhere in the transcript. The device work is one hipMemcpy set plus one launch per
+# on-device case (192 cases, 557 KB of slab, 27488 output floats); the oracle and the host twin are
+# CPU-only and run inside the same hold because the device arm's expectations are derived from them,
+# not because anything is being timed.
+#
+# WHY THE RUN IS BOUNDED. This binary has never executed on the device (five lanes of this prototype
+# were host-only; pitfalls/50 §"A lane whose remaining work is executing code for the first time gets
+# its own run"). Never-run GPU code can hang, and a hang inside this hold would strand the lock with a
+# live pid — unreclaimable by the dead-holder rule, because the pid is alive. `timeout` therefore caps
+# the device arm; 124 is reported as its own verdict rather than laundered into PASS.
+#
+# The transcript is tee'd into evidence/ (git-tracked) because work/*.log is gitignored: without it,
+# nothing on disk records that the device run was correctness-only under the lock. The verdict is
+# tee'd, not piped, and the exit code comes from PIPESTATUS[0], never from tee. The caller must send
+# the run to a file and grep it afterwards — an early-exiting pipe (`| head`) kills the gate, which
+# truncates its own evidence log at startup and so destroys the log it was writing.
+set -uo pipefail
+
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REPO=$(cd "$HERE/../.." && pwd)
+LOCK="$REPO/tools/gpu_lock.sh"
+PY=/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python
+TAG="q36 lm_head device gate"
+DAY=2026-10-26
+DEV_TIMEOUT=${Q36_DEVICE_TIMEOUT:-600}
+LOCKED=0
+
+MODE=device
+for a in "$@"; do
+  case "$a" in
+    --selftest|--check-only|--control|--help) MODE=host ;;
+  esac
+done
+
+EVDIR="$HERE/evidence"
+LOG="$EVDIR/lm-head-$MODE-$DAY.log"
+if mkdir -p "$EVDIR" 2>/dev/null && : > "$LOG" 2>/dev/null; then
+  :
+else
+  LOG=/dev/null          # an unwritable evidence dir must never stop the gate itself
+fi
+
+say() {
+  printf '%s\n' "$*"
+  printf '%s\n' "$*" >> "$LOG"
+}
+
+release() {
+  if [ "$LOCKED" = 1 ]; then
+    LOCKED=0
+    "$LOCK" release "$TAG" || say "gate: WARNING the lock release was refused; check $LOCK status"
+    say "LOCK released tag=$TAG"
+  fi
+}
+trap release EXIT INT TERM
+
+# ---- the self-locking-driver check, at run time, for every script this wrapper calls -------------
+# Anything that must be 0 is a script the wrapper calls while (or before) it holds the lock.
+say "LOCKREF gate.py references to the lock tool must be 0: $(grep -c 'gpu_lock' "$HERE/gate.py")"
+say "LOCKREF build.sh references to the lock tool must be 0: $(grep -c 'gpu_lock' "$HERE/build.sh")"
+say "LOCKREF this wrapper references the lock tool $(grep -c 'gpu_lock' "${BASH_SOURCE[0]}") times (must be > 0)"
+if [ "$(grep -c 'gpu_lock' "$HERE/gate.py")" != "0" ]; then
+  say "RESULT FAIL not-run self-locking-driver"
+  exit 3
+fi
+
+# ---- build is compile-only CPU work: outside the lock, before it ---------------------------------
+# The binaries are the ones under test, so they must not be older than the sources they came from;
+# `find -newer` rather than a remembered timestamp, because lm_head_kernels.h is shared by both arms
+# and an edit to it invalidates host twin and device alike.
+# newer SRC BIN — true when SRC's mtime is after BIN's.
+newer() { [ -n "$(find "$HERE/$1" -newer "$HERE/$2" -print -quit 2>/dev/null)" ]; }
+STALE=""
+# Each pair is (source, binary that includes it). lm_head_kernels.h and lm_head_plan.h are included by
+# BOTH drivers, so an edit there must rebuild both arms — a device run against a host twin built from
+# the other revision would compare two different programs and call the difference a finding.
+for pair in "lm_head.hip:lm_head" "lm_head_kernels.h:lm_head" "lm_head_plan.h:lm_head" \
+            "host_probe.cpp:host_probe" "lm_head_kernels.h:host_probe" "lm_head_plan.h:host_probe"; do
+  src=${pair%%:*}; bin=${pair##*:}
+  if [ ! -x "$HERE/$bin" ] || newer "$src" "$bin"; then
+    case " $STALE " in *" $bin "*) ;; *) STALE="$STALE $bin" ;; esac
+  fi
+done
+STALE=${STALE# }
+if [ -n "$STALE" ]; then
+  say "gate: binaries older than their sources ($STALE), building (compile only, no device, no lock)"
+  "$HERE/build.sh" || { say "RESULT FAIL build"; exit 1; }
+fi
+
+if [ "$MODE" = host ]; then
+  say "NO LOCK reason=host-only ($MODE): no device work, so the lock stays free for the main agent"
+  say "CMD $PY $HERE/gate.py $*"
+  "$PY" "$HERE/gate.py" "$@" 2>&1 | tee -a "$LOG"
+  rc=${PIPESTATUS[0]}
+  say "gate: host-only run complete rc=$rc"
+  say "LOG $LOG"
+  exit $rc
+fi
+
+# ---- back off rather than queue ------------------------------------------------------------------
+ST=$("$LOCK" status)
+case "$ST" in
+  free) ;;
+  HELD*)
+    say "LOCK refused: $ST"
+    say "gate: another holder is live; refusing to queue a device run on top of it. Not run."
+    say "RESULT FAIL not-run lock-held"
+    exit 3
+    ;;
+  STALE*)
+    # A dead holder's lock is not an invitation. `gpu_lock.sh acquire` would reclaim it silently and
+    # `steal` would take it by force; neither belongs to a worker, because only the main agent verifies
+    # that a holder pid is really gone (pitfalls/50 §"A lane whose remaining work is executing code
+    # for the first time gets its own run": a killed worker cannot release a lock it was holding). So
+    # this is a refusal with the reason named — not "unreadable", which would send the next reader
+    # looking for a broken tool instead of a leftover lockdir.
+    say "LOCK refused (stale, holder pid dead): $ST"
+    say "gate: not run. A worker does not reclaim or steal a stale lock; the main agent clears it."
+    say "RESULT FAIL not-run lock-stale"
+    exit 3
+    ;;
+  *)
+    say "LOCK status unreadable: $ST"
+    say "RESULT FAIL not-run lock-status"
+    exit 3
+    ;;
+esac
+
+if ! "$LOCK" acquire-noblock "$TAG"; then
+  say "LOCK refused: raced with another acquirer ($("$LOCK" status))"
+  say "RESULT FAIL not-run lock-race"
+  exit 3
+fi
+LOCKED=1
+say "LOCK acquired tag=$TAG status=$("$LOCK" status)"
+say "UTIL_BEFORE $("$LOCK" util)"
+say "CMD timeout -k 30 $DEV_TIMEOUT $PY $HERE/gate.py --device $*"
+START=$(date -u +%FT%TZ)
+timeout -k 30 "$DEV_TIMEOUT" "$PY" "$HERE/gate.py" --device "$@" 2>&1 | tee -a "$LOG"
+rc=${PIPESTATUS[0]}
+END=$(date -u +%FT%TZ)
+say "UTIL_AFTER $("$LOCK" util)"
+say "WALL started=$START finished=$END  (lock record only; no timing taken)"
+say "no timing taken"
+if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then
+  say "gate: the device arm hit its ${DEV_TIMEOUT}s wall bound (rc=$rc). A hang is not a PASS."
+  say "RESULT FAIL not-complete device-timeout rc=$rc"
+  exit 1
+fi
+say "LOG $LOG"
+say "gate: device run complete rc=$rc"
+say "LOCK releasing"
+exit $rc

@@ -1,0 +1,6 @@
+LOCKREF gate.py references to the lock tool must be 0: 0
+LOCKREF build.sh references to the lock tool must be 0: 0
+LOCKREF this wrapper references the lock tool 8 times (must be > 0)
+LOCK refused: HELD: 2026-10-25T22:08:00Z	q36 shared_expert lane (simulated co-resident holder, back-off demo)	pid=616935
+gate: another holder is live; refusing to queue a device run on top of it. Not run.
+RESULT FAIL not-run lock-held

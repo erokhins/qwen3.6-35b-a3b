@@ -1,0 +1,56 @@
+LOCKREF gate.py references to the lock tool must be 0: 0
+LOCKREF build.sh references to the lock tool must be 0: 0
+LOCKREF this wrapper references the lock tool 9 times (must be > 0)
+NO LOCK reason=host-only (host): no device work, so the lock stays free for the main agent
+CMD /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/gate.py --selftest
+CHECK name=host_probe --selftest exits 0 ok=1 n=66 rc=0
+CHECK name=host_probe selftest has zero failures ok=1 n=66 checks=66 failures=0
+CHECK name=host_probe selftest parsed == printed ok=1 n=66 printed=66 parsed=66
+CHECK name=host_probe roster shows a firing witness for every declared mode ok=1 n=9 no witness for: none
+CHECK name=host_probe carries the measured XOR-blindness witness for the digest ok=1 n=1 found=1 ok=['1']
+CHECK name=host_probe verifies its own report field count against LMH_F_R ok=1 n=1 found=1 ok=['1']
+CHECK name=device --selftest exits 0 ok=1 n=66 rc=0
+CHECK name=device selftest has zero failures ok=1 n=66 checks=66 failures=0
+CHECK name=device selftest parsed == printed ok=1 n=66 printed=66 parsed=66
+CHECK name=device roster shows a firing witness for every declared mode ok=1 n=9 no witness for: none
+CHECK name=device carries the measured XOR-blindness witness for the digest ok=1 n=1 found=1 ok=['1']
+CHECK name=device verifies its own report field count against LMH_F_R ok=1 n=1 found=1 ok=['1']
+CHECK name=both drivers run the identical self-test roster ok=1 n=66 host=66 device=66
+CHECK name=no verdict-bearing check carries a constant predicate ok=1 n=0 offenders=[]
+CONTROL no-fire rc=1 marker='CONTROL no-fire' lines=1 first=CONTROL no-fire neutralising case=190 inj-q8-synth-drop-last-k (mode 6 -> CORRECT): the run MUST go red
+CHECK name=control no-fire is refused or goes red ok=1 n=1 rc=1 marker_lines=1
+CONTROL tampered-out rc=1 marker='CONTROL tampered-out' lines=1 first=CONTROL tampered-out flipped the low bit of word 0 (case 0 honest-bf16-lmhead-dense-batched): the run MUST go red
+CHECK name=control tampered-out is refused or goes red ok=1 n=1 rc=1 marker_lines=1
+CONTROL no-report rc=1 marker='CONTROL no-report' lines=1 first=CONTROL no-report dropped the last report row: parsed != printed MUST go red
+CHECK name=control no-report is refused or goes red ok=1 n=1 rc=1 marker_lines=1
+CONTROL digest-radix rc=1 marker='CONTROL digest-radix' lines=1 first=CONTROL digest-radix file=host_report.tsv case=0 field=oxor value=0x0C0102A4 re-spelled in the other radix as '201392804': the parser MUST refuse it b
+CHECK name=control digest-radix is refused or goes red ok=1 n=1 rc=1 marker_lines=1
+CONTROL count-radix rc=1 marker='CONTROL count-radix' lines=1 first=CONTROL count-radix file=host_report.tsv case=0 field=loads value=0x00000004 re-spelled in the other radix as '0x00000004': the parser MUST refuse it 
+CHECK name=control count-radix is refused or goes red ok=1 n=1 rc=1 marker_lines=1
+CONTROL q6k-geometry rc=1 marker='CONTROLARM-REFUSED' lines=1 first=CONTROLARM-REFUSED host_probe=1 device=1 honest_bytes=69632 q6k_geometry=53760 geom=210 B/256 elts expression=2*sizeof(ggml_half) + QK_K/16 + QK_K/4 +
+CHECK name=control q6k-geometry is refused or goes red ok=1 n=1 rc=1 marker_lines=1
+CONTROL q6k-source rc=1 marker='REFUSE table' lines=1 first=REFUSE table 2: sources.tsv points a Q8_0 table at /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/models/unsloth-q4km/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
+CHECK name=control q6k-source is refused or goes red ok=1 n=1 rc=1 marker_lines=1
+CONTROL scale-q8 rc=1 marker='SCALEDIFF' lines=1 first=SCALEDIFF table=2 blocks=2048 traced_cases=35 vsum_moved=32 xorb_moved=32 xorb_unchanged=3 must_move=31 moved_nonexempt=31 exempt=4 exempt_cases=[119,
+CHECK name=control scale-q8 is refused or goes red ok=1 n=1 rc=1 marker_lines=1
+CONTROLRED no-fire red_checks=1 refusals=0 first=CHECK name=host case=190 inj-q8-synth-drop-last-k declared class is legal and matches the derivation ok=0 n=1 plan=AUTO derived=EXACT
+CHECK name=control no-fire was caught by a named check or an explicit refusal ok=1 n=1 red checks: 1, refusals: 0
+CONTROLRED tampered-out red_checks=7 refusals=0 first=CHECK name=host case=0 honest-bf16-lmhead-dense-batched oxor==recount ok=0 n=16 driver=0x0C0102A4 recount=0x0C0102A5
+CHECK name=control tampered-out was caught by a named check or an explicit refusal ok=1 n=7 red checks: 7, refusals: 0
+CONTROLRED no-report red_checks=1 refusals=1 first=CHECK name=the run reached its adjudication ok=0 n=1 refusal=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/host_re
+CHECK name=control no-report was caught by a named check or an explicit refusal ok=1 n=2 red checks: 1, refusals: 1
+CONTROLRED digest-radix red_checks=1 refusals=1 first=CHECK name=the run reached its adjudication ok=0 n=1 refusal=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/host_re
+CHECK name=control digest-radix was caught by a named check or an explicit refusal ok=1 n=2 red checks: 1, refusals: 1
+CONTROLRED count-radix red_checks=1 refusals=1 first=CHECK name=the run reached its adjudication ok=0 n=1 refusal=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/host_re
+CHECK name=control count-radix was caught by a named check or an explicit refusal ok=1 n=2 red checks: 1, refusals: 1
+CONTROLRED scale-q8 red_checks=104 refusals=1 first=CHECK name=scaled case=16 honest-q8-lmhead-dense-batched read-set == recount ok=0 n=11 mismatch=[('xorb', 117901952, 84347520), ('vsum', 167
+CHECK name=control scale-q8 was caught by a named check or an explicit refusal ok=1 n=105 red checks: 104, refusals: 1
+CONTROLRED q6k-geometry red_checks=1 refusals=1 first=CHECK name=the run reached its adjudication ok=0 n=1 refusal=CONTROL q6k-geometry: both drivers refused the Q6_K-shaped Q8_0 table as design
+CHECK name=control q6k-geometry was caught by a named check or an explicit refusal ok=1 n=2 red checks: 1, refusals: 1
+CONTROLRED q6k-source red_checks=1 refusals=1 first=CHECK name=the run reached its adjudication ok=0 n=1 refusal=CONTROL q6k-source refused as designed (the reader printed 1 refusal line(s)); 
+CHECK name=control q6k-source was caught by a named check or an explicit refusal ok=1 n=2 red checks: 1, refusals: 1
+CHECK name=a plan whose case count disagrees with --expect-cases is refused ok=1 n=1 rc=1
+CHECKS ran=31 failed=0 
+RESULT PASS lm_head host selftest checks=31 findings=0
+gate: host-only run complete rc=0
+LOG /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/evidence/lm-head-host-2026-10-26.log

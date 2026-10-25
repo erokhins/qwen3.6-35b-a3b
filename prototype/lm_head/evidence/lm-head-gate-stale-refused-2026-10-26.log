@@ -1,0 +1,6 @@
+LOCKREF gate.py references to the lock tool must be 0: 0
+LOCKREF build.sh references to the lock tool must be 0: 0
+LOCKREF this wrapper references the lock tool 9 times (must be > 0)
+LOCK refused (stale, holder pid dead): STALE (holder pid dead): 2026-10-25T22:10:28Z	q36 lm_head stale-branch witness 2 (dies after 3s)	pid=617986 — acquire will reclaim it
+gate: not run. A worker does not reclaim or steal a stale lock; the main agent clears it.
+RESULT FAIL not-run lock-stale

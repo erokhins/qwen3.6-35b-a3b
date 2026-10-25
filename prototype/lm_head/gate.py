@@ -1456,16 +1456,44 @@ def three_way(v, p, d, host_rep, dev_rep, hostw, devw, expw, bandw, fc, en):
     written association (every SEQ case, and both arms of every case for the fields that are pure
     addressing), and band-judged where the association is a legal re-association (REV, SPLIT8). Both
     are printed either way, so 'the arms were in fact bit-identical even on REV' is a reported result
-    rather than a relaxed assertion."""
+    rather than a relaxed assertion.
+
+    WHERE A RE-ASSOCIATION'S BOUND COMES FROM. The oracle derives a band only for the words it has an
+    expectation for, i.e. the honest BAND cases (oracle_arm.py fills `band.f64` for those and prints
+    ORACLEFILL words=1884 of 27488). A re-associated INJECTION therefore has no band at its own words,
+    and it is the case this function exists to judge — the bound is taken at its honest twin's
+    corresponding word, which is exactly how adjudicate judges an injection's words today
+    (`bt = twin["out_off"] + b * ts + j`). No new formula and no widened band: the same derived number
+    the same repo already uses for the same (h, w) row. A word with no bound in either place is a
+    refusal, not a skip — measured 2026-10-26, the first version of this function skipped nothing and
+    refused at `case 84 word 1496 has no band`, because eight REV DROP_LAST_K injections (84, 86, 107,
+    109, 131, 133, 155, 157) had never been executed on a device arm before."""
     n_exact = n_banded = 0
+    n_word_self = n_word_twin = 0
     nd_bad, band_bad = [], []
     identical_rev = 0
+    # The family table: device vs host twin per (encoding, association, path). The FMA-contraction
+    # prediction this lane carries is a claim about ONE cell of it — Q8_0 under SEQ — so that cell has
+    # to be readable on its own rather than dissolved into an aggregate. The keys come from the PLAN's
+    # own population (nothing is typed here, so a family cannot be forgotten) and every family the plan
+    # populates prints, which makes "a family stopped being judged" visible as an absent row.
+    enc_name = {en["LMH_ENC_BF16"]: "bf16", en["LMH_ENC_Q8_0"]: "Q8_0"}
+    assoc_name = {en["LMH_ASSOC_SEQ"]: "SEQ", en["LMH_ASSOC_REV"]: "REV",
+                  en["LMH_ASSOC_SPLIT8"]: "SPLIT8"}
+    fam = {}
     for c in p.cases:
         if not c["on_device"]:
             continue                                  # the device never ran it; see adjudicate
         slot = p.slot(c)
         words = [(c["out_off"] + b * slot + j) for b in range(c["bcount"]) for j in range(c["n_out"])]
         nd = sum(1 for at in words if not word_eq(hostw[at], devw[at]))
+        f = fam.setdefault((enc_name[p.tables[c["table"]]["enc"]], assoc_name[c["assoc"]],
+                            "gather" if c["path"] == en["LMH_PATH_GATHER"] else "dense"),
+                           [0, 0, 0, 0])
+        f[0] += 1
+        f[1] += len(words)
+        f[2] += nd
+        f[3] += 1 if nd else 0
         if c["assoc"] == en["LMH_ASSOC_SEQ"]:
             n_exact += 1
             if nd:
@@ -1473,16 +1501,39 @@ def three_way(v, p, d, host_rep, dev_rep, hostw, devw, expw, bandw, fc, en):
         else:
             n_banded += 1
             worst = 0.0
-            for at in words:
-                dd = abs(f32(hostw[at]) - f32(devw[at]))
-                if not bandw[at] > 0.0:
-                    raise Fail("case %d word %d has no band: a re-association cannot be bounded"
-                               % (c["idx"], at))
-                worst = max(worst, dd / bandw[at])
+            twin = None if c["mode"] == en["LMH_MODE_CORRECT"] else p.honest_twin(c)
+            ts = p.slot(twin) if twin is not None else 0
+            for b in range(c["bcount"]):
+                for j in range(c["n_out"]):
+                    at = c["out_off"] + b * slot + j
+                    dd = abs(f32(hostw[at]) - f32(devw[at]))
+                    bt, whence = at, "own"
+                    if not bandw[at] > 0.0 and twin is not None:
+                        bt, whence = twin["out_off"] + b * ts + j, "twin%d" % twin["idx"]
+                    if not bandw[bt] > 0.0:
+                        raise Fail("case %d word %d has no band (looked for it at %s word %d): a "
+                                   "re-association cannot be bounded"
+                                   % (c["idx"], at, whence, bt))
+                    if whence == "own":
+                        n_word_self += 1
+                    else:
+                        n_word_twin += 1
+                    worst = max(worst, dd / bandw[bt])
             if worst > 1.0:
                 band_bad.append("case %d %s: arms apart by %.3g x band" % (c["idx"], c["name"], worst))
             if nd == 0:
                 identical_rev += 1
+    print("THREEWAY reassociated_words=%d bound_at_own_word=%d bound_at_honest_twin=%d"
+          % (n_word_self + n_word_twin, n_word_self, n_word_twin))
+    fam_words = sum(f[1] for f in fam.values())
+    fam_diff = sum(f[2] for f in fam.values())
+    for key in sorted(fam):
+        f = fam[key]
+        print("THREEWAYFAM enc=%s assoc=%s path=%s cases=%d words_compared=%d words_differing=%d "
+              "cases_diverging=%d" % (key[0], key[1], key[2], f[0], f[1], f[2], f[3]))
+    print("THREEWAYFAM families=%d words_compared=%d words_differing=%d (aggregate of the rows above; "
+          "a row count that does not sum to these is a parser bug, not a clean run)"
+          % (len(fam), fam_words, fam_diff))
     print("THREEWAY seq_cases=%d reassociated_cases=%d reassociated_bit_identical=%d "
           "seq_diverging_cases=%d reassociated_outside_band=%d"
           % (n_exact, n_banded, identical_rev, len(nd_bad), len(band_bad)))
@@ -1494,23 +1545,42 @@ def three_way(v, p, d, host_rep, dev_rep, hostw, devw, expw, bandw, fc, en):
            "%d of %d REV/SPLIT8 cases had ZERO words apart between the arms (band judgement was "
            "available but not needed)" % (identical_rev, n_banded))
     # both arms against the oracle, per class: the third side of the triangle
+    def n_outside(c, words):
+        slot = p.slot(c)
+        out = 0
+        for b in range(c["bcount"]):
+            for j in range(c["n_out"]):
+                at = c["out_off"] + b * slot + j
+                if abs(f32(words[at]) - f32(expw[at])) > bandw[at]:
+                    out += 1
+        return out
+
     per_arm = {}
+    excl = [0, 0, 0]                                 # cases, words, would-be-outside words
     for c in p.cases:
         if c["derived"] != "BAND":
             continue
-        slot = p.slot(c)
         for nm, words in (("host", hostw), ("device", devw)):
-            out = 0
-            for b in range(c["bcount"]):
-                for j in range(c["n_out"]):
-                    at = c["out_off"] + b * slot + j
-                    if abs(f32(words[at]) - f32(expw[at])) > bandw[at]:
-                        out += 1
+            # The device is not asked to be inside the band of a value it was told not to compute. The
+            # 14 on_device=0 `--deep-rows` cases are host-only BY PLAN, and their device words are the
+            # zeroed output buffer; judging them here asked the device to reproduce an oracle value it
+            # never wrote, and produced 382 outside-band words out of 382 (measured 2026-10-26, first
+            # device run this function ever executed). The claim that DOES cover those words is
+            # adjudicate's `host-only case was not written by this arm`, which requires every one of
+            # them to be exactly zero — so nothing is let off, and the exclusion is counted and printed
+            # rather than silently dropped.
+            if nm == "device" and not c["on_device"]:
+                excl[0] += 1
+                excl[1] += c["bcount"] * c["n_out"]
+                excl[2] += n_outside(c, words)
+                continue
             e = per_arm.setdefault(nm, [0, 0])
             e[0] += c["bcount"] * c["n_out"]
-            e[1] += out
-    print("THREEWAY oracle words=%s outside_band=%s"
-          % ({k: val[0] for k, val in per_arm.items()}, {k: val[1] for k, val in per_arm.items()}))
+            e[1] += n_outside(c, words)
+    print("THREEWAY oracle words=%s outside_band=%s device_skipped_host_only cases=%d words=%d "
+          "outside_there=%d"
+          % ({k: val[0] for k, val in per_arm.items()}, {k: val[1] for k, val in per_arm.items()},
+             excl[0], excl[1], excl[2]))
     v.check("three-arm: neither arm leaves the derived band against the torch oracle",
             per_arm and all(val[1] == 0 for val in per_arm.values()) and sum(
                 val[0] for val in per_arm.values()) > 0,
@@ -1542,12 +1612,26 @@ def amortisation_and_disjointness(v, p, d, rep, tag, fc, en, results):
             groups[gi]["batched"] = b
     n_groups = 0
     bad = []
+    skipped_host_only = []
     for gi, g in sorted(groups.items()):
         b, per = g["batched"], g["perrow"]
         if b is None:
             bad.append("group %d: no batched honest case to amortise (the control points at %s)"
                        % (gi, "nothing"))
             continue
+        # An amortisation ratio is a claim about a READ SET, so it can only be read off the arm that
+        # produced it. The `--deep-rows` scaling families (groups 62, 67) are on_device=0 BY PLAN, so on
+        # the device arm every one of their counters is the untouched init state — measured 2026-10-26
+        # on the first device run, the device read `batched bytes 0 != geometry 131072` for both of them
+        # and, worse, the bcount-independence witness below would have called two all-zero families
+        # "flat". Excluding them is not a relaxation: the exclusion is counted and printed, the host
+        # arm still judges all ten families, and a family that lost ONE arm to on_device still fails the
+        # completeness test right here (same convention adjudicate and the reloop/disjointness loops use).
+        if tag != "host" and not b["on_device"]:
+            skipped_host_only.append(gi)
+            continue
+        if tag != "host":
+            per = [c for c in per if c["on_device"]]
         if len(per) != b["bcount"]:
             bad.append("group %d: %d per-row controls for bcount=%d" % (gi, len(per), b["bcount"] if b else -1))
             continue
@@ -1569,9 +1653,13 @@ def amortisation_and_disjointness(v, p, d, rep, tag, fc, en, results):
             n_groups > 0 and not bad and not orphans, n_groups,
             "; ".join((bad + orphans)[:4]) or "all groups exact")
     # bytes must not depend on how many hidden vectors share the walk
-    curve = [c for c in p.cases if c["mode"] == en["LMH_MODE_CORRECT"]
-             and c["batching"] == en["LMH_BATCH_BATCHED"] and c["path"] == en["LMH_PATH_DENSE"]
-             and c["n_out"] > 0]
+    curve_all = [c for c in p.cases if c["mode"] == en["LMH_MODE_CORRECT"]
+                 and c["batching"] == en["LMH_BATCH_BATCHED"] and c["path"] == en["LMH_PATH_DENSE"]
+                 and c["n_out"] > 0]
+    curve = [c for c in curve_all if tag == "host" or c["on_device"]]
+    print("AMORTISE tag=%s families_judged=%d families_host_only_excluded=%s "
+          "batched_dense_cases=%d of %d (on_device filter)"
+          % (tag, n_groups, skipped_host_only or "none", len(curve), len(curve_all)))
     by_shape = {}
     for c in curve:
         by_shape.setdefault((c["table"], c["row_lo"], c["nrows"], c["assoc"]), []).append(c)

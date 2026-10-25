@@ -240,7 +240,17 @@ int main(int argc, char **argv) {
     CK(hipMemcpy(d_hid, hidb.data(), hidb.empty() ? 1 : hidb.size(), hipMemcpyHostToDevice));
     CK(hipMemcpy(d_ids, idsb.data(), idsb.empty() ? 1 : idsb.size(), hipMemcpyHostToDevice));
     CK(hipMemset(d_out, 0, sizeof(float) * (size_t)(plan.out_floats > 0 ? plan.out_floats : 1)));
-    CK(hipMemset(d_tr, 0, sizeof(LmhTrace) * (plan.cases.empty() ? 1 : plan.cases.size())));
+    /* The trace buffer is initialised by COPYING the host array lmh_trace_init just filled, not by
+     * hipMemset(0). `min_off` is a min-reduction over the byte offsets this case addressed, and its
+     * identity element is lmh_trace_init's 0xFFFFFFFF sentinel, not 0: memset pins it at 0 and no
+     * unsigned offset is ever below 0, so every device case reports lo=0 whatever it read. Measured
+     * 2026-10-26 on the first device run this binary ever executed: 38 of 178 device cases went red on
+     * `read-set == recount` with mismatch=[('lo', 0, <derived>)] and the two arms agreed on the value
+     * counters (bytes/loads/xorb/vsum/bsum) throughout, which is what localised it to the min's init
+     * rather than to the walk. The arms must share the plan's sentinels — one initialiser, both paths
+     * (same class of bug as the sibling lane's leaked -1 column, commit 2ef6bec). */
+    CK(hipMemcpy(d_tr, traces.data(), sizeof(LmhTrace) * (plan.cases.empty() ? 1 : plan.cases.size()),
+                 hipMemcpyHostToDevice));
 
     LmhCtx ctx;
     memset(&ctx, 0, sizeof(ctx));
