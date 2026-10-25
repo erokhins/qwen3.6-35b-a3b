@@ -57,3 +57,9 @@ prototype/q4k_dequant/work/
 prototype/moe_router/moe_router
 prototype/moe_router/host_probe
 prototype/moe_router/work/
+# prototype/moe_gather compiled artefacts -- exact paths only, never the directory: the directory
+# must stay visible so an empty evidence/ cannot hide a lane that produced nothing (2026-10-26).
+prototype/moe_gather/moe_gather
+prototype/moe_gather/host_probe
+prototype/moe_gather/build/moe_gather.o
+prototype/moe_gather/work/host_probe_selftest
