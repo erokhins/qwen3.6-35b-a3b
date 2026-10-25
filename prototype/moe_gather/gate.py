@@ -87,11 +87,14 @@ def read_cases(path):
             if line.startswith("#") or not line.strip():
                 continue
             f = line.rstrip("\n").split("\t")
+            if len(f) < 17:
+                raise Fail("%s: case row has %d columns, the oracle writes 17 (a missing column must "
+                           "not default its way past the check that needs it)" % (path, len(f)))
             rows.append(dict(case_index=int(f[0]), kind=int(f[1]), mode=int(f[2]), mode_name=f[3],
                              block=int(f[4]), block_index=int(f[5]), row=int(f[6]), slot=int(f[7]),
                              expect=int(f[8]), expect_name=f[9], src=f[10], exact=f[11],
                              dst_off=int(f[12]), exp_off=int(f[13]), n_floats=int(f[14]),
-                             combine_src=int(f[15])))
+                             combine_src=int(f[15]), field_exact=f[16]))
     return rows
 
 
@@ -117,6 +120,33 @@ def _same_word(x, y):
     # quiet-NaN payload the compiler emitted is not a fact the gate claims to control
     return ((x & 0x7F800000) == 0x7F800000 and (x & 0x007FFFFF) != 0 and
             (y & 0x7F800000) == 0x7F800000 and (y & 0x007FFFFF) != 0)
+
+
+def is_nan_word(w):
+    """NaN-ness, any payload — the same NaN rule `_same_word` and `mg_word_eq` use."""
+    return (w & 0x7F800000) == 0x7F800000 and (w & 0x007FFFFF) != 0
+
+
+def span_census(w, off, n):
+    """(nan, zero, value) words in one span.
+
+    `value` = finite and non-zero, the only kind of word that can carry a computed result. A span of
+    exact zeros, of -0.0s, or of the driver's MG_NAN_BITS pre-fill all read value == 0, which is what
+    makes "nothing was computed" a count rather than a reading of the log. Judged against the
+    expectation's own census, so this never declares zero illegal in general — only absent where the
+    oracle says a value belongs (results.md §6: silence was the bug, not the number).
+    """
+    n_nan = n_zero = n_val = 0
+    for i in range(off, off + n):
+        x = w[i]
+        if is_nan_word(x):
+            n_nan += 1
+        elif x == 0 or x == 0x80000000:
+            n_zero += 1
+        else:
+            n_val += 1
+    return n_nan, n_zero, n_val
+
 
 
 def n_diff2(a, off_a, b, off_b, n):
@@ -232,6 +262,9 @@ class V(object):
 def adjudicate(v, cases, outw, expw, report, tag):
     """One arm's words against the oracle's words, plus the kernel's counters against the recount."""
     I, H = int(os.environ.get("MG_I", 512)), int(os.environ.get("MG_H", 2048))
+    # What one expert case must decode if it reads every weight it is supposed to: gate|up are 2I rows
+    # of H, down is H rows of I. Derived from the geometry, so it is a witness and not a band.
+    want_reads = 2 * I * H + H * I
     rep = {}
     with open(report) as fh:
         lines = [l for l in fh if l.strip() and not l.startswith("#")]
@@ -247,7 +280,22 @@ def adjudicate(v, cases, outw, expw, report, tag):
         if c["mode_name"] == "MG_MODE_CORRECT":
             honest_out[(c["kind"], c["block"], c["row"], c["slot"])] = c
     counts = {"MATCH": 0, "MISMATCH": 0, "ALT": 0, "IMMUNE": 0, "REPORT": 0}
-    fired = []
+    fired = []            # (case_kind, name, fired?) - one entry per negative control that ran
+    silent = no_value = nanmove = 0
+    gate_cases = gate_ok = 0
+    reach = {}            # mode_name -> [cases with a derived alternative, cases where it differs]
+    # The injection denominator, recounted from the plan rather than accumulated by the loop below:
+    # every MISMATCH case plus every ALT case that has a distinct honest counterpart to differ from.
+    # If a case silently lost its honest counterpart its control would vanish from the denominator and
+    # a smaller `checked` would read as a smaller problem (pitfalls/40 §"the unnamed denominator").
+    want_inj = 0
+    for c in cases:
+        if c["expect_name"] == "MG_EXP_MISMATCH":
+            want_inj += 1
+        elif c["expect_name"] == "MG_EXP_ALT":
+            hc = honest_out.get((c["kind"], c["block"], c["row"], c["slot"]))
+            if hc is not None and hc["case_index"] != c["case_index"]:
+                want_inj += 1
     for c in cases:
         cls = c["expect_name"].replace("MG_EXP_", "")
         counts[cls] = counts.get(cls, 0) + 1
@@ -256,18 +304,92 @@ def adjudicate(v, cases, outw, expw, report, tag):
         rec = rep[c["case_index"]]
         v.check("%s case=%d %s counter==recount" % (tag, c["case_index"], c["mode_name"]),
                 rec["bad"] == diff, n, "kernel bad=%d recount=%d" % (rec["bad"], diff))
+        # ---- the hard failure results.md §6 asked for, and it comes before any verdict on a number -
+        # A record that carries no value is a DEFECT, not a row: never written (the pre-fill survives),
+        # written from refused weight reads (all MG_NAN_BITS), or written from no weights at all (all
+        # zero, which is also what a zero-filled device buffer looked like). Four data-derived clauses
+        # on one attributed line:
+        #   1 a word is NaN in the output exactly when it is NaN in the oracle
+        #   2 where the oracle has a value, the record has at least one
+        #   3 if the words show a NaN where the oracle has none, the kernel must have counted it
+        #   4 if the kernel counted a NaN, the words must show one
+        e_nan, e_zero, e_val = span_census(expw, c["exp_off"], n)
+        o_nan, o_zero, o_val = span_census(outw, s, n)
+        nanmove_here = sum(1 for i in range(n)
+                           if is_nan_word(outw[s + i]) != is_nan_word(expw[c["exp_off"] + i]))
+        said_nan = rec["nan"] > 0
+        leak = o_nan > 0 and e_nan == 0
+        ok_silent = (nanmove_here == 0
+                     and (e_val == 0 or o_val > 0)
+                     and (not leak or said_nan)
+                     and (not said_nan or o_nan > 0))
+        v.check("%s case=%d %s record carries a value" % (tag, c["case_index"], c["mode_name"]),
+                ok_silent, n,
+                "out nan=%d zero=%d value=%d | expect nan=%d zero=%d value=%d | nan-moved=%d "
+                "kernel_nan=%d"
+                % (o_nan, o_zero, o_val, e_nan, e_zero, e_val, nanmove_here, 1 if said_nan else 0))
+        if not ok_silent:
+            silent += 1
+            no_value += 1 if (e_val > 0 and o_val == 0) else 0
+            nanmove += 1 if nanmove_here > 0 else 0
+        if c["kind"] == 0 and c["mode_name"] == "MG_MODE_CORRECT":
+            # The expectation-independent witness that the expert path really read weights: the kernel
+            # counted `route_n` successful decodes and geometry says how many there must be. The state
+            # this lane shipped in had route_n=0 on every case and nothing asserted on it.
+            v.check("%s case=%d weight reads == geometry" % (tag, c["case_index"]),
+                    rec["route_n"] == want_reads, want_reads,
+                    "kernel route_n=%d geometry=%d (gate|up 2I*H + down H*I)"
+                    % (rec["route_n"], want_reads))
+            # and the witness §6 named: a fixture whose expected gate field is entirely non-zero must
+            # produce a non-zero gate, not a record that is merely "different"
+            if span_census(expw, c["exp_off"], I)[2] == I:
+                gate_cases += 1
+                if span_census(outw, s, I)[2] == I:
+                    gate_ok += 1
         if cls in ("MATCH", "ALT", "IMMUNE"):
-            v.check("%s case=%d %s(%s) bit-exact vs oracle"
-                    % (tag, c["case_index"], c["mode_name"], cls), diff == 0, n,
-                    "differing=%d" % diff)
+            if cls in ("ALT", "IMMUNE") and c["kind"] == 0 and c["field_exact"] == "gate_up":
+                # The transcendental field rule, applied to an alternative the same way it is applied
+                # to a REPORT case: gate and up are fp32 dots over published bytes and must match the
+                # alternative bit for bit; s and raw cross expf, so they are counted and never banded.
+                # Which cases this covers is declared per case from the cls of the units the case
+                # actually reads (MG_MODE_EXPERT_ROTATE on a synthetic row reads real experts), not
+                # assumed per class, and gate.py refuses it for any MG_EXP_MATCH case.
+                for fname, fo, fn in fields(0, I, H):
+                    nd = n_diff(outw, expw, c["dst_off"] + fo, fn)
+                    if fname in ("gate", "up"):
+                        v.check("%s case=%d %s(%s) field=%s exact vs alt"
+                                % (tag, c["case_index"], c["mode_name"], cls, fname),
+                                nd == 0, fn, "differing=%d" % nd)
+                    else:
+                        print("COUNT case=%d %s field=%s differing=%d/%d (transcendental route, "
+                              "counted not banded)"
+                              % (c["case_index"], c["mode_name"], fname, nd, fn))
+            else:
+                v.check("%s case=%d %s(%s) bit-exact vs oracle"
+                        % (tag, c["case_index"], c["mode_name"], cls), diff == 0, n,
+                        "differing=%d" % diff)
         elif cls == "MISMATCH":
             v.check("%s case=%d %s FIRED (must differ)" % (tag, c["case_index"], c["mode_name"]),
                     diff > 0, n, "differing=%d" % diff)
-            fired.append((c["mode_name"], diff > 0))
+            fired.append((c["kind"], c["mode_name"], diff > 0))
         if cls in ("ALT", "IMMUNE"):
             hc = honest_out.get((c["kind"], c["block"], c["row"], c["slot"]))
             if hc is not None and hc["case_index"] != c["case_index"]:
                 nd = n_diff2(outw, hc["dst_off"], outw, s, n)
+                # The class has to agree with the oracle's OWN pair of expectations, and that is
+                # cross-checked here on the expectation buffer rather than trusted from cases.tsv:
+                # an ALT whose derived alternative is bit-identical to the honest expectation cannot
+                # differ from anything (asserting it must is asserting the impossible), and an IMMUNE
+                # whose alternative does differ is a mislabelled control.
+                e_nd = n_diff2(expw, hc["exp_off"], expw, c["exp_off"], n)
+                v.check("%s case=%d %s class matches its derived expectation"
+                        % (tag, c["case_index"], c["mode_name"]),
+                        (e_nd > 0) if cls == "ALT" else (e_nd == 0), n,
+                        "oracle's alternative vs oracle's honest differs in %d words; class=%s"
+                        % (e_nd, cls))
+                r = reach.setdefault(c["mode_name"], [0, 0])
+                r[0] += 1
+                r[1] += 1 if e_nd > 0 else 0
                 if cls == "IMMUNE":
                     v.check("%s case=%d %s equals the honest output (immunity)"
                             % (tag, c["case_index"], c["mode_name"]), nd == 0, n,
@@ -276,7 +398,7 @@ def adjudicate(v, cases, outw, expw, report, tag):
                     v.check("%s case=%d %s differs from the honest output"
                             % (tag, c["case_index"], c["mode_name"]), nd > 0, n,
                             "differs from honest in %d words" % nd)
-                    fired.append(("%s(alt-vs-honest)" % c["mode_name"], nd > 0))
+                    fired.append((c["kind"], "%s(alt-vs-honest)" % c["mode_name"], nd > 0))
         if cls == "REPORT":
             # the transcendental route is counted per field, never banded: gate and up are pure fp32
             # dots and must be bit-exact; s and raw depend on expf and are reported.
@@ -291,9 +413,48 @@ def adjudicate(v, cases, outw, expw, report, tag):
     print("POPULATION %s %s" % (tag, " ".join("%s=%d" % (k, counts.get(k, 0))
                                               for k in ("MATCH", "MISMATCH", "ALT", "IMMUNE",
                                                         "REPORT"))))
-    print("INJECTIONS %s checked=%d fired=%d" % (tag, len(fired), sum(1 for _, ok in fired if ok)))
-    for nm, ok in fired:
-        print("INJECTION arm=%s fired=%d" % (nm, 1 if ok else 0))
+    print("INTEGRITY %s cases=%d silent_records=%d of which no_value=%d nan-moved=%d"
+          % (tag, len(cases), silent, no_value, nanmove))
+    v.check("%s no record is silent" % tag, silent == 0, len(cases),
+            "silent=%d (no_value=%d nan-moved=%d)" % (silent, no_value, nanmove))
+    # A mode may be immune on SOME rows — that is arithmetic, and the cases say so — but a mode that is
+    # immune on EVERY row is untested, and an untested route has no gate (pitfalls/40 §"a route no
+    # fixture reaches has no tests"). Derived from the plan's own alternatives, per mode.
+    unreachable = sorted(m for m, (n_tot, n_dif) in reach.items() if n_dif == 0)
+    print("ALTREACH %s modes=%d reachable=%d immune_everywhere=%s"
+          % (tag, len(reach), len(reach) - len(unreachable), ",".join(unreachable) or "none"))
+    v.check("%s every injection mode is reachable somewhere in the sample" % tag,
+            len(reach) > 0 and not unreachable, len(reach),
+            "immune on every case of their kind: %s" % (",".join(unreachable) or "none"))
+    v.check("%s expert gate field nonzero wherever the oracle's is" % tag,
+            gate_cases > 0 and gate_ok == gate_cases, gate_cases,
+            "%d expert cases have an all-nonzero expected gate field, %d produced an all-nonzero gate"
+            % (gate_ok, gate_cases))
+    # The injections, split by which half of the kernel they test. The expert half is the one that
+    # could not fire while the expert path produced nothing, and a total of 30/49 printed beside a
+    # combine arm that was fully green read as "most controls work". Each half now has to carry its
+    # own non-zero denominator, and the denominator itself is cross-checked against the plan.
+    exp_inj = [x for x in fired if x[0] == 0]
+    com_inj = [x for x in fired if x[0] == 1]
+    print("INJECTIONS %s expert checked=%d fired=%d"
+          % (tag, len(exp_inj), sum(1 for _, _, ok in exp_inj if ok)))
+    print("INJECTIONS %s combine checked=%d fired=%d"
+          % (tag, len(com_inj), sum(1 for _, _, ok in com_inj if ok)))
+    print("INJECTIONS %s checked=%d fired=%d"
+          % (tag, len(fired), sum(1 for _, _, ok in fired if ok)))
+    for kind, nm, ok in fired:
+        print("INJECTION arm=%s kind=%s fired=%d"
+              % (nm, "expert" if kind == 0 else "combine", 1 if ok else 0))
+    v.check("%s injection denominator matches the plan" % tag,
+            want_inj > 0 and len(fired) == want_inj, want_inj,
+            "plan-derived=%d counted=%d (expert=%d combine=%d)"
+            % (want_inj, len(fired), len(exp_inj), len(com_inj)))
+    v.check("%s expert injections all fired" % tag,
+            len(exp_inj) > 0 and all(ok for _, _, ok in exp_inj), len(exp_inj),
+            "did not fire: %s" % (",".join(nm for _, nm, ok in exp_inj if not ok) or "none"))
+    v.check("%s combine injections all fired" % tag,
+            len(com_inj) > 0 and all(ok for _, _, ok in com_inj), len(com_inj),
+            "did not fire: %s" % (",".join(nm for _, nm, ok in com_inj if not ok) or "none"))
     return counts
 
 
@@ -347,6 +508,23 @@ def main():
         line = [l for l in out.splitlines() if l.startswith("CLASSES ")][0]
         n1 = int(kv(line)[cls])
         v.check("parsed==printed for %s" % cls, n1 == n2, n2, "oracle=%d cases.tsv=%d" % (n1, n2))
+    # ...and the same for the declared exactness rule. A MATCH case may never be judged on less than
+    # the whole span, or "exact" would stop meaning anything.
+    fxline = [l for l in out.splitlines() if l.startswith("FIELDEXACT ")]
+    if not fxline:
+        raise Fail("the oracle printed no FIELDEXACT line: which fields are exact is undeclared")
+    n_declared = int(kv(fxline[0])["gate_up"])
+    n_declared_all = int(kv(fxline[0])["all"])
+    n_gate_up = sum(1 for c in cases if c["field_exact"] == "gate_up")
+    v.check("parsed==printed for field_exact", n_declared == n_gate_up
+            and n_declared_all + n_gate_up == len(cases), len(cases),
+            "oracle gate_up=%d all=%d; cases.tsv gate_up=%d of %d"
+            % (n_declared, n_declared_all, n_gate_up, len(cases)))
+    match_not_all = [c["case_index"] for c in cases
+                     if c["expect_name"] == "MG_EXP_MATCH" and c["field_exact"] != "all"]
+    v.check("every MG_EXP_MATCH case is declared fully exact", not match_not_all,
+            sum(1 for c in cases if c["expect_name"] == "MG_EXP_MATCH"),
+            "MATCH cases declaring gate_up: %s" % (match_not_all or "none"))
 
     nf = sum(c["n_floats"] for c in cases)
     env = os.environ

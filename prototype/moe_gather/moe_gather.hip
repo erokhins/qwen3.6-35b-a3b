@@ -240,7 +240,20 @@ int main(int argc, char **argv) {
     CK(hipMemcpy(d_blocks, p.blocks, sizeof(MgBlock) * (size_t)pb, hipMemcpyHostToDevice));
     CK(hipMemcpy(d_slab, slab, sb, hipMemcpyHostToDevice));
     CK(hipMemcpy(d_expect, expect, (size_t)expect_floats * 4, hipMemcpyHostToDevice));
-    CK(hipMemset(d_out, 0, (size_t)(out_floats ? out_floats : 1) * 4));
+    /* The record buffer is pre-filled with the SAME loud pattern the host arm pre-fills with
+     * (mg_nan(), host_probe.cpp), not with zeros. hipMemset can only repeat one byte and the poison
+     * is a four-byte pattern, so a zero-filled device buffer would make "this case never ran" and
+     * "this case computed zero" read identically on the arm that has no mg_nan() of its own to
+     * point at — the exact silence this lane exists to refuse. This is a host->device copy and so
+     * does not touch HOST_SYNC, which counts device->host reads. */
+    {
+        const size_t out_bytes = (size_t)(out_floats ? out_floats : 1) * 4;
+        float *poison = (float *)malloc(out_bytes);
+        if (!poison) { printf("FAIL oom\n"); return 1; }
+        for (size_t i = 0; i < out_bytes / 4; ++i) poison[i] = mg_nan();
+        CK(hipMemcpy(d_out, poison, out_bytes, hipMemcpyHostToDevice));
+        free(poison);
+    }
     CK(hipMemset(d_cts, 0, sizeof(MgCounters) * (size_t)(pc ? pc : 1)));
     CK(hipMemset(d_launches, 0, sizeof(int)));
 

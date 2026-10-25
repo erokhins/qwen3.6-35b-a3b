@@ -1,0 +1,1143 @@
+LOCKREF gate.py references to the lock tool must be 0: 0
+LOCK acquired tag=q36 W13 moe_gather device gate status=HELD: 2026-10-25T15:27:50Z	q36 W13 moe_gather device gate	pid=435536
+UTIL_BEFORE gpu use: 92%
+CMD python3 /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/moe_gather/gate.py --device 
+GEOMETRY H=2048 I=512 K=8 E=256 (checkpoints/Qwen3.6-35B-A3B.config.json, reconciled against moe_gather_kernels.h)
+MANIFEST file=audit-selftest-2026-10-26.json records=104
+GGUF tensors=733 data_start=10990048
+SAMPLE blocks=3 real_rows=2 synthetic_rows=3 units=57 cases=97 expert_cases=70 combine_cases=27 slab_bytes=38011872 out_floats=306176 expect_floats=306176
+CLASSES MG_EXP_MATCH=29 MG_EXP_MISMATCH=6 MG_EXP_ALT=37 MG_EXP_IMMUNE=9 MG_EXP_REPORT=16
+FIELDEXACT all=79 gate_up=18 (gate_up = the case reads published bytes, so s and raw cross the transcendental and are counted, never banded; derived from the cls of the units each case actually reads)
+BLOCK tag=layer0 index=0 is_mtp=0 main_n=9 real_rows=1 experts=8 cases=[0,36] expert_cases=26
+BLOCK tag=layer39 index=39 is_mtp=0 main_n=9 real_rows=1 experts=8 cases=[37,73] expert_cases=26
+BLOCK tag=mtp0 index=40 is_mtp=1 main_n=1 real_rows=0 experts=0 cases=[74,96] expert_cases=18
+PLANROWS rows=162 parsed_field_counts=U16/R13/B10/C17
+EXPECT file=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/moe_gather/work/expect.f32 floats=306176
+MODECOVERAGE modes=15 covered=15 (the enum came from the header, not from a list here)
+COMBINEFORM rows=2 elements=4096 differing=0 -> the expectation the combine cases are judged by reproduces the pinned routed_sum
+P3 block=layer0 pairs=64 experts=47 elements_per_candidate=131072 legitimate_reassociation=5 (grouped=5 per_slot=5 hand_rolled=5)
+P3CAND block=layer0 cand=output_chunk_gate_first  differing=      5/131072 rows_bad=2/64 ratio_to_bound=1.0 reproduces=1
+P3CAND block=layer0 cand=output_chunk_up_first    differing= 130541/131072 rows_bad=64/64 ratio_to_bound=26108.2 reproduces=0
+P3CAND block=layer0 cand=input_chunk_gate_even    differing= 130995/131072 rows_bad=64/64 ratio_to_bound=26199.0 reproduces=0
+P3CAND block=layer0 cand=input_chunk_gate_odd     differing= 131003/131072 rows_bad=64/64 ratio_to_bound=26200.6 reproduces=0
+P3CAND block=layer0 cand=stack_transposed         differing= 130994/131072 rows_bad=64/64 ratio_to_bound=26198.8 reproduces=0
+P3DISTINCT block=layer0 pairs_of_candidates=10 distinguished=10 identical=0 []
+P3VERDICT block=layer0 consistent_candidates=[output_chunk_gate_first] verdict=PREDICTED_AND_CONFIRMED
+P3 block=layer1 pairs=64 experts=55 elements_per_candidate=131072 legitimate_reassociation=125 (grouped=111 per_slot=125 hand_rolled=125)
+P3CAND block=layer1 cand=output_chunk_gate_first  differing=    125/131072 rows_bad=4/64 ratio_to_bound=1.0 reproduces=1
+P3CAND block=layer1 cand=output_chunk_up_first    differing= 130582/131072 rows_bad=64/64 ratio_to_bound=1044.7 reproduces=0
+P3CAND block=layer1 cand=input_chunk_gate_even    differing= 130950/131072 rows_bad=64/64 ratio_to_bound=1047.6 reproduces=0
+P3CAND block=layer1 cand=input_chunk_gate_odd     differing= 130941/131072 rows_bad=64/64 ratio_to_bound=1047.5 reproduces=0
+P3CAND block=layer1 cand=stack_transposed         differing= 130947/131072 rows_bad=64/64 ratio_to_bound=1047.6 reproduces=0
+P3DISTINCT block=layer1 pairs_of_candidates=10 distinguished=10 identical=0 []
+P3VERDICT block=layer1 consistent_candidates=[output_chunk_gate_first] verdict=PREDICTED_AND_CONFIRMED
+P3 block=layer39 pairs=64 experts=50 elements_per_candidate=131072 legitimate_reassociation=73 (grouped=55 per_slot=73 hand_rolled=73)
+P3CAND block=layer39 cand=output_chunk_gate_first  differing=     73/131072 rows_bad=3/64 ratio_to_bound=1.0 reproduces=1
+P3CAND block=layer39 cand=output_chunk_up_first    differing= 130693/131072 rows_bad=64/64 ratio_to_bound=1790.3 reproduces=0
+P3CAND block=layer39 cand=input_chunk_gate_even    differing= 130940/131072 rows_bad=64/64 ratio_to_bound=1793.7 reproduces=0
+P3CAND block=layer39 cand=input_chunk_gate_odd     differing= 130978/131072 rows_bad=64/64 ratio_to_bound=1794.2 reproduces=0
+P3CAND block=layer39 cand=stack_transposed         differing= 130953/131072 rows_bad=64/64 ratio_to_bound=1793.9 reproduces=0
+P3DISTINCT block=layer39 pairs_of_candidates=10 distinguished=10 identical=0 []
+P3VERDICT block=layer39 consistent_candidates=[output_chunk_gate_first] verdict=PREDICTED_AND_CONFIRMED
+P3 block=mtp0 pairs=64 experts=55 elements_per_candidate=131072 legitimate_reassociation=80 (grouped=47 per_slot=80 hand_rolled=80)
+P3CAND block=mtp0 cand=output_chunk_gate_first  differing=     80/131072 rows_bad=4/64 ratio_to_bound=1.0 reproduces=1
+P3CAND block=mtp0 cand=output_chunk_up_first    differing= 130751/131072 rows_bad=64/64 ratio_to_bound=1634.4 reproduces=0
+P3CAND block=mtp0 cand=input_chunk_gate_even    differing= 130960/131072 rows_bad=64/64 ratio_to_bound=1637.0 reproduces=0
+P3CAND block=mtp0 cand=input_chunk_gate_odd     differing= 130936/131072 rows_bad=64/64 ratio_to_bound=1636.7 reproduces=0
+P3CAND block=mtp0 cand=stack_transposed         differing= 130961/131072 rows_bad=64/64 ratio_to_bound=1637.0 reproduces=0
+P3DISTINCT block=mtp0 pairs_of_candidates=10 distinguished=10 identical=0 []
+P3VERDICT block=mtp0 consistent_candidates=[output_chunk_gate_first] verdict=PREDICTED_AND_CONFIRMED
+P3RECORDS candidates=20 distinct_pairs=40 files=oracle_p3.tsv,oracle_p3_matrix.tsv
+P3OVERALL verdicts=PREDICTED_AND_CONFIRMED blocks=4 unprobed_blocks=layer2(not on disk)
+FLOOR file=oracle_floor.tsv rows=11
+no timing taken
+SAMPLE cases=97 expert=70 combine=27 modes=15 classes=MG_EXP_MATCH=29 MG_EXP_MISMATCH=6 MG_EXP_ALT=37 MG_EXP_IMMUNE=9 MG_EXP_REPORT=16
+ROWS real=2 synthetic=17 (real rows are pinned tokens; synthetic rows are the integer-exact fixtures)
+ELEMENTS judged=306176 words (sum of case spans)
+CUT max_rows=1: pinned tokens per real block cut from 2; no case class, no mode and no assertion was removed by the cut
+CHECK name=every mode is exercised ok=1 n=15 header=15 plan=15 missing=none
+CHECK name=parsed==printed for MG_EXP_MATCH ok=1 n=29 oracle=29 cases.tsv=29
+CHECK name=parsed==printed for MG_EXP_MISMATCH ok=1 n=6 oracle=6 cases.tsv=6
+CHECK name=parsed==printed for MG_EXP_ALT ok=1 n=37 oracle=37 cases.tsv=37
+CHECK name=parsed==printed for MG_EXP_IMMUNE ok=1 n=9 oracle=9 cases.tsv=9
+CHECK name=parsed==printed for MG_EXP_REPORT ok=1 n=16 oracle=16 cases.tsv=16
+CHECK name=parsed==printed for field_exact ok=1 n=97 oracle gate_up=18 all=79; cases.tsv gate_up=18 of 97
+CHECK name=every MG_EXP_MATCH case is declared fully exact ok=1 n=29 MATCH cases declaring gate_up: none
+CHECK name=host arm parsed==printed on the plan ok=1 n=4 units=57/57 rows=5/5 cases=97/97 blocks=3/3
+CHECK name=host case=0 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1324 recount=1324
+CHECK name=host case=0 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=747 value=2837 | expect nan=0 zero=747 value=2837 | nan-moved=0 kernel_nan=0
+CHECK name=host case=0 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=0 field=gate exact ok=1 n=512 differing=0
+CHECK name=host case=0 field=up exact ok=1 n=512 differing=0
+COUNT case=0 MG_MODE_CORRECT field=s differing=67/512 (transcendental route, counted not banded)
+COUNT case=0 MG_MODE_CORRECT field=raw differing=1257/2048 (transcendental route, counted not banded)
+CHECK name=host case=1 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1364 recount=1364
+CHECK name=host case=1 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=753 value=2831 | expect nan=0 zero=753 value=2831 | nan-moved=0 kernel_nan=0
+CHECK name=host case=1 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=1 field=gate exact ok=1 n=512 differing=0
+CHECK name=host case=1 field=up exact ok=1 n=512 differing=0
+COUNT case=1 MG_MODE_CORRECT field=s differing=71/512 (transcendental route, counted not banded)
+COUNT case=1 MG_MODE_CORRECT field=raw differing=1293/2048 (transcendental route, counted not banded)
+CHECK name=host case=2 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1246 recount=1246
+CHECK name=host case=2 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=633 value=2951 | expect nan=0 zero=633 value=2951 | nan-moved=0 kernel_nan=0
+CHECK name=host case=2 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=2 field=gate exact ok=1 n=512 differing=0
+CHECK name=host case=2 field=up exact ok=1 n=512 differing=0
+COUNT case=2 MG_MODE_CORRECT field=s differing=71/512 (transcendental route, counted not banded)
+COUNT case=2 MG_MODE_CORRECT field=raw differing=1175/2048 (transcendental route, counted not banded)
+CHECK name=host case=3 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1709 recount=1709
+CHECK name=host case=3 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=708 value=2876 | expect nan=0 zero=708 value=2876 | nan-moved=0 kernel_nan=0
+CHECK name=host case=3 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=3 field=gate exact ok=1 n=512 differing=0
+CHECK name=host case=3 field=up exact ok=1 n=512 differing=0
+COUNT case=3 MG_MODE_CORRECT field=s differing=87/512 (transcendental route, counted not banded)
+COUNT case=3 MG_MODE_CORRECT field=raw differing=1622/2048 (transcendental route, counted not banded)
+CHECK name=host case=4 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1389 recount=1389
+CHECK name=host case=4 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=741 value=2843 | expect nan=0 zero=741 value=2843 | nan-moved=0 kernel_nan=0
+CHECK name=host case=4 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=4 field=gate exact ok=1 n=512 differing=0
+CHECK name=host case=4 field=up exact ok=1 n=512 differing=0
+COUNT case=4 MG_MODE_CORRECT field=s differing=79/512 (transcendental route, counted not banded)
+COUNT case=4 MG_MODE_CORRECT field=raw differing=1310/2048 (transcendental route, counted not banded)
+CHECK name=host case=5 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1461 recount=1461
+CHECK name=host case=5 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=786 value=2798 | expect nan=0 zero=786 value=2798 | nan-moved=0 kernel_nan=0
+CHECK name=host case=5 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=5 field=gate exact ok=1 n=512 differing=0
+CHECK name=host case=5 field=up exact ok=1 n=512 differing=0
+COUNT case=5 MG_MODE_CORRECT field=s differing=69/512 (transcendental route, counted not banded)
+COUNT case=5 MG_MODE_CORRECT field=raw differing=1392/2048 (transcendental route, counted not banded)
+CHECK name=host case=6 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1436 recount=1436
+CHECK name=host case=6 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=897 value=2687 | expect nan=0 zero=897 value=2687 | nan-moved=0 kernel_nan=0
+CHECK name=host case=6 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=6 field=gate exact ok=1 n=512 differing=0
+CHECK name=host case=6 field=up exact ok=1 n=512 differing=0
+COUNT case=6 MG_MODE_CORRECT field=s differing=70/512 (transcendental route, counted not banded)
+COUNT case=6 MG_MODE_CORRECT field=raw differing=1366/2048 (transcendental route, counted not banded)
+CHECK name=host case=7 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1297 recount=1297
+CHECK name=host case=7 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=375 value=3209 | expect nan=0 zero=375 value=3209 | nan-moved=0 kernel_nan=0
+CHECK name=host case=7 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=7 field=gate exact ok=1 n=512 differing=0
+CHECK name=host case=7 field=up exact ok=1 n=512 differing=0
+COUNT case=7 MG_MODE_CORRECT field=s differing=98/512 (transcendental route, counted not banded)
+COUNT case=7 MG_MODE_CORRECT field=raw differing=1199/2048 (transcendental route, counted not banded)
+CHECK name=host case=8 MG_MODE_CORRECT counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=8 MG_MODE_CORRECT record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=host case=8 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=9 MG_MODE_CAST_AFTER counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=9 MG_MODE_CAST_AFTER record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=host case=9 MG_MODE_CAST_AFTER(IMMUNE) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=9 MG_MODE_CAST_AFTER class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 0 words; class=IMMUNE
+CHECK name=host case=9 MG_MODE_CAST_AFTER equals the honest output (immunity) ok=1 n=2048 differs from honest in 0 words
+CHECK name=host case=10 MG_MODE_F32_COMBINE counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=10 MG_MODE_F32_COMBINE record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=host case=10 MG_MODE_F32_COMBINE(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=10 MG_MODE_F32_COMBINE class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 1246 words; class=ALT
+CHECK name=host case=10 MG_MODE_F32_COMBINE differs from the honest output ok=1 n=2048 differs from honest in 1246 words
+CHECK name=host case=11 MG_MODE_RANK_ACCUM counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=11 MG_MODE_RANK_ACCUM record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=host case=11 MG_MODE_RANK_ACCUM(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=11 MG_MODE_RANK_ACCUM class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 1263 words; class=ALT
+CHECK name=host case=11 MG_MODE_RANK_ACCUM differs from the honest output ok=1 n=2048 differs from honest in 1263 words
+CHECK name=host case=12 MG_MODE_W_BY_EXPERT_ID counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=12 MG_MODE_W_BY_EXPERT_ID record carries a value ok=1 n=2048 out nan=0 zero=1 value=2047 | expect nan=0 zero=1 value=2047 | nan-moved=0 kernel_nan=0
+CHECK name=host case=12 MG_MODE_W_BY_EXPERT_ID(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=12 MG_MODE_W_BY_EXPERT_ID class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 2035 words; class=ALT
+CHECK name=host case=12 MG_MODE_W_BY_EXPERT_ID differs from the honest output ok=1 n=2048 differs from honest in 2035 words
+CHECK name=host case=13 MG_MODE_POISON_NAN counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=13 MG_MODE_POISON_NAN record carries a value ok=1 n=2048 out nan=2048 zero=0 value=0 | expect nan=2048 zero=0 value=0 | nan-moved=0 kernel_nan=1
+CHECK name=host case=13 MG_MODE_POISON_NAN(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=13 MG_MODE_POISON_NAN class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 2048 words; class=ALT
+CHECK name=host case=13 MG_MODE_POISON_NAN differs from the honest output ok=1 n=2048 differs from honest in 2048 words
+CHECK name=host case=14 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=14 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=14 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=14 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=15 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=15 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=15 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=15 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=16 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=16 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=16 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=16 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=17 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=17 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=17 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=17 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=18 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=18 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=18 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=18 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=19 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=19 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=19 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=19 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=20 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=20 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=20 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=20 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=21 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=21 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=21 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=21 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=22 MG_MODE_CORRECT counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=22 MG_MODE_CORRECT record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=host case=22 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=23 MG_MODE_CAST_AFTER counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=23 MG_MODE_CAST_AFTER record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=host case=23 MG_MODE_CAST_AFTER(IMMUNE) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=23 MG_MODE_CAST_AFTER class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 0 words; class=IMMUNE
+CHECK name=host case=23 MG_MODE_CAST_AFTER equals the honest output (immunity) ok=1 n=2048 differs from honest in 0 words
+CHECK name=host case=24 MG_MODE_F32_COMBINE counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=24 MG_MODE_F32_COMBINE record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=host case=24 MG_MODE_F32_COMBINE(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=24 MG_MODE_F32_COMBINE class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 2048 words; class=ALT
+CHECK name=host case=24 MG_MODE_F32_COMBINE differs from the honest output ok=1 n=2048 differs from honest in 2048 words
+CHECK name=host case=25 MG_MODE_RANK_ACCUM counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=25 MG_MODE_RANK_ACCUM record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=host case=25 MG_MODE_RANK_ACCUM(IMMUNE) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=25 MG_MODE_RANK_ACCUM class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 0 words; class=IMMUNE
+CHECK name=host case=25 MG_MODE_RANK_ACCUM equals the honest output (immunity) ok=1 n=2048 differs from honest in 0 words
+CHECK name=host case=26 MG_MODE_W_BY_EXPERT_ID counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=26 MG_MODE_W_BY_EXPERT_ID record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=host case=26 MG_MODE_W_BY_EXPERT_ID(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=26 MG_MODE_W_BY_EXPERT_ID class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 2048 words; class=ALT
+CHECK name=host case=26 MG_MODE_W_BY_EXPERT_ID differs from the honest output ok=1 n=2048 differs from honest in 2048 words
+CHECK name=host case=27 MG_MODE_HALVES_SWAPPED counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=27 MG_MODE_HALVES_SWAPPED record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=27 MG_MODE_HALVES_SWAPPED(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=27 MG_MODE_HALVES_SWAPPED class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 1024 words; class=ALT
+CHECK name=host case=27 MG_MODE_HALVES_SWAPPED differs from the honest output ok=1 n=3584 differs from honest in 1024 words
+CHECK name=host case=28 MG_MODE_INPUT_CHUNK counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=28 MG_MODE_INPUT_CHUNK record carries a value ok=1 n=3584 out nan=2816 zero=0 value=768 | expect nan=2816 zero=0 value=768 | nan-moved=0 kernel_nan=1
+CHECK name=host case=28 MG_MODE_INPUT_CHUNK(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=28 MG_MODE_INPUT_CHUNK class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3072 words; class=ALT
+CHECK name=host case=28 MG_MODE_INPUT_CHUNK differs from the honest output ok=1 n=3584 differs from honest in 3072 words
+CHECK name=host case=29 MG_MODE_ROW_OFF_1 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=29 MG_MODE_ROW_OFF_1 record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=29 MG_MODE_ROW_OFF_1(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=29 MG_MODE_ROW_OFF_1 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3072 words; class=ALT
+CHECK name=host case=29 MG_MODE_ROW_OFF_1 differs from the honest output ok=1 n=3584 differs from honest in 3072 words
+CHECK name=host case=30 MG_MODE_BLOCK_OFF_1 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=30 MG_MODE_BLOCK_OFF_1 record carries a value ok=1 n=3584 out nan=0 zero=3072 value=512 | expect nan=0 zero=3072 value=512 | nan-moved=0 kernel_nan=0
+CHECK name=host case=30 MG_MODE_BLOCK_OFF_1(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=30 MG_MODE_BLOCK_OFF_1 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3584 words; class=ALT
+CHECK name=host case=30 MG_MODE_BLOCK_OFF_1 differs from the honest output ok=1 n=3584 differs from honest in 3584 words
+CHECK name=host case=31 MG_MODE_BYTE_SHIFT_1 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=31 MG_MODE_BYTE_SHIFT_1 record carries a value ok=1 n=3584 out nan=0 zero=3584 value=0 | expect nan=0 zero=3584 value=0 | nan-moved=0 kernel_nan=0
+CHECK name=host case=31 MG_MODE_BYTE_SHIFT_1(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=31 MG_MODE_BYTE_SHIFT_1 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3584 words; class=ALT
+CHECK name=host case=31 MG_MODE_BYTE_SHIFT_1 differs from the honest output ok=1 n=3584 differs from honest in 3584 words
+CHECK name=host case=32 MG_MODE_Q6K_D_BYTE_0 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=32 MG_MODE_Q6K_D_BYTE_0 record carries a value ok=1 n=3584 out nan=0 zero=2048 value=1536 | expect nan=0 zero=2048 value=1536 | nan-moved=0 kernel_nan=0
+CHECK name=host case=32 MG_MODE_Q6K_D_BYTE_0(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=32 MG_MODE_Q6K_D_BYTE_0 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 2048 words; class=ALT
+CHECK name=host case=32 MG_MODE_Q6K_D_BYTE_0 differs from the honest output ok=1 n=3584 differs from honest in 2048 words
+CHECK name=host case=33 MG_MODE_EXPERT_ROTATE counter==recount ok=1 n=3584 kernel bad=1340 recount=1340
+CHECK name=host case=33 MG_MODE_EXPERT_ROTATE record carries a value ok=1 n=3584 out nan=0 zero=375 value=3209 | expect nan=0 zero=375 value=3209 | nan-moved=0 kernel_nan=0
+CHECK name=host case=33 MG_MODE_EXPERT_ROTATE(ALT) field=gate exact vs alt ok=1 n=512 differing=0
+CHECK name=host case=33 MG_MODE_EXPERT_ROTATE(ALT) field=up exact vs alt ok=1 n=512 differing=0
+COUNT case=33 MG_MODE_EXPERT_ROTATE field=s differing=100/512 (transcendental route, counted not banded)
+COUNT case=33 MG_MODE_EXPERT_ROTATE field=raw differing=1240/2048 (transcendental route, counted not banded)
+CHECK name=host case=33 MG_MODE_EXPERT_ROTATE class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3584 words; class=ALT
+CHECK name=host case=33 MG_MODE_EXPERT_ROTATE differs from the honest output ok=1 n=3584 differs from honest in 3584 words
+CHECK name=host case=34 MG_MODE_SCALE_MIN_NAIVE counter==recount ok=1 n=3584 kernel bad=3584 recount=3584
+CHECK name=host case=34 MG_MODE_SCALE_MIN_NAIVE record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=34 MG_MODE_SCALE_MIN_NAIVE FIRED (must differ) ok=1 n=3584 differing=3584
+CHECK name=host case=35 MG_MODE_WIDTH_MISREAD counter==recount ok=1 n=3584 kernel bad=2048 recount=2048
+CHECK name=host case=35 MG_MODE_WIDTH_MISREAD record carries a value ok=1 n=3584 out nan=0 zero=2048 value=1536 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=35 MG_MODE_WIDTH_MISREAD FIRED (must differ) ok=1 n=3584 differing=2048
+CHECK name=host case=36 MG_MODE_POISON_NAN counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=36 MG_MODE_POISON_NAN record carries a value ok=1 n=3584 out nan=3584 zero=0 value=0 | expect nan=3584 zero=0 value=0 | nan-moved=0 kernel_nan=1
+CHECK name=host case=36 MG_MODE_POISON_NAN(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=36 MG_MODE_POISON_NAN class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3584 words; class=ALT
+CHECK name=host case=36 MG_MODE_POISON_NAN differs from the honest output ok=1 n=3584 differs from honest in 3584 words
+CHECK name=host case=37 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1630 recount=1630
+CHECK name=host case=37 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=37 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=37 field=gate exact ok=1 n=512 differing=0
+CHECK name=host case=37 field=up exact ok=1 n=512 differing=0
+COUNT case=37 MG_MODE_CORRECT field=s differing=140/512 (transcendental route, counted not banded)
+COUNT case=37 MG_MODE_CORRECT field=raw differing=1490/2048 (transcendental route, counted not banded)
+CHECK name=host case=38 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1469 recount=1469
+CHECK name=host case=38 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=38 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=38 field=gate exact ok=1 n=512 differing=0
+CHECK name=host case=38 field=up exact ok=1 n=512 differing=0
+COUNT case=38 MG_MODE_CORRECT field=s differing=143/512 (transcendental route, counted not banded)
+COUNT case=38 MG_MODE_CORRECT field=raw differing=1326/2048 (transcendental route, counted not banded)
+CHECK name=host case=39 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1416 recount=1416
+CHECK name=host case=39 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=39 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=39 field=gate exact ok=1 n=512 differing=0
+CHECK name=host case=39 field=up exact ok=1 n=512 differing=0
+COUNT case=39 MG_MODE_CORRECT field=s differing=140/512 (transcendental route, counted not banded)
+COUNT case=39 MG_MODE_CORRECT field=raw differing=1276/2048 (transcendental route, counted not banded)
+CHECK name=host case=40 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1642 recount=1642
+CHECK name=host case=40 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=40 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=40 field=gate exact ok=1 n=512 differing=0
+CHECK name=host case=40 field=up exact ok=1 n=512 differing=0
+COUNT case=40 MG_MODE_CORRECT field=s differing=158/512 (transcendental route, counted not banded)
+COUNT case=40 MG_MODE_CORRECT field=raw differing=1484/2048 (transcendental route, counted not banded)
+CHECK name=host case=41 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1630 recount=1630
+CHECK name=host case=41 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=41 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=41 field=gate exact ok=1 n=512 differing=0
+CHECK name=host case=41 field=up exact ok=1 n=512 differing=0
+COUNT case=41 MG_MODE_CORRECT field=s differing=157/512 (transcendental route, counted not banded)
+COUNT case=41 MG_MODE_CORRECT field=raw differing=1473/2048 (transcendental route, counted not banded)
+CHECK name=host case=42 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1597 recount=1597
+CHECK name=host case=42 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=42 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=42 field=gate exact ok=1 n=512 differing=0
+CHECK name=host case=42 field=up exact ok=1 n=512 differing=0
+COUNT case=42 MG_MODE_CORRECT field=s differing=139/512 (transcendental route, counted not banded)
+COUNT case=42 MG_MODE_CORRECT field=raw differing=1458/2048 (transcendental route, counted not banded)
+CHECK name=host case=43 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1601 recount=1601
+CHECK name=host case=43 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=43 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=43 field=gate exact ok=1 n=512 differing=0
+CHECK name=host case=43 field=up exact ok=1 n=512 differing=0
+COUNT case=43 MG_MODE_CORRECT field=s differing=150/512 (transcendental route, counted not banded)
+COUNT case=43 MG_MODE_CORRECT field=raw differing=1451/2048 (transcendental route, counted not banded)
+CHECK name=host case=44 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1611 recount=1611
+CHECK name=host case=44 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=44 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=44 field=gate exact ok=1 n=512 differing=0
+CHECK name=host case=44 field=up exact ok=1 n=512 differing=0
+COUNT case=44 MG_MODE_CORRECT field=s differing=129/512 (transcendental route, counted not banded)
+COUNT case=44 MG_MODE_CORRECT field=raw differing=1482/2048 (transcendental route, counted not banded)
+CHECK name=host case=45 MG_MODE_CORRECT counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=45 MG_MODE_CORRECT record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=host case=45 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=46 MG_MODE_CAST_AFTER counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=46 MG_MODE_CAST_AFTER record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=host case=46 MG_MODE_CAST_AFTER(IMMUNE) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=46 MG_MODE_CAST_AFTER class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 0 words; class=IMMUNE
+CHECK name=host case=46 MG_MODE_CAST_AFTER equals the honest output (immunity) ok=1 n=2048 differs from honest in 0 words
+CHECK name=host case=47 MG_MODE_F32_COMBINE counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=47 MG_MODE_F32_COMBINE record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=host case=47 MG_MODE_F32_COMBINE(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=47 MG_MODE_F32_COMBINE class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 1134 words; class=ALT
+CHECK name=host case=47 MG_MODE_F32_COMBINE differs from the honest output ok=1 n=2048 differs from honest in 1134 words
+CHECK name=host case=48 MG_MODE_RANK_ACCUM counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=48 MG_MODE_RANK_ACCUM record carries a value ok=1 n=2048 out nan=0 zero=2 value=2046 | expect nan=0 zero=2 value=2046 | nan-moved=0 kernel_nan=0
+CHECK name=host case=48 MG_MODE_RANK_ACCUM(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=48 MG_MODE_RANK_ACCUM class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 1257 words; class=ALT
+CHECK name=host case=48 MG_MODE_RANK_ACCUM differs from the honest output ok=1 n=2048 differs from honest in 1257 words
+CHECK name=host case=49 MG_MODE_W_BY_EXPERT_ID counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=49 MG_MODE_W_BY_EXPERT_ID record carries a value ok=1 n=2048 out nan=0 zero=1 value=2047 | expect nan=0 zero=1 value=2047 | nan-moved=0 kernel_nan=0
+CHECK name=host case=49 MG_MODE_W_BY_EXPERT_ID(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=49 MG_MODE_W_BY_EXPERT_ID class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 2037 words; class=ALT
+CHECK name=host case=49 MG_MODE_W_BY_EXPERT_ID differs from the honest output ok=1 n=2048 differs from honest in 2037 words
+CHECK name=host case=50 MG_MODE_POISON_NAN counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=50 MG_MODE_POISON_NAN record carries a value ok=1 n=2048 out nan=2048 zero=0 value=0 | expect nan=2048 zero=0 value=0 | nan-moved=0 kernel_nan=1
+CHECK name=host case=50 MG_MODE_POISON_NAN(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=50 MG_MODE_POISON_NAN class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 2048 words; class=ALT
+CHECK name=host case=50 MG_MODE_POISON_NAN differs from the honest output ok=1 n=2048 differs from honest in 2048 words
+CHECK name=host case=51 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=51 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=51 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=51 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=52 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=52 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=52 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=52 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=53 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=53 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=53 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=53 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=54 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=54 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=54 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=54 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=55 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=55 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=55 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=55 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=56 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=56 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=56 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=56 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=57 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=57 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=57 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=57 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=58 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=58 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=58 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=58 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=59 MG_MODE_CORRECT counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=59 MG_MODE_CORRECT record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=host case=59 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=60 MG_MODE_CAST_AFTER counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=60 MG_MODE_CAST_AFTER record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=host case=60 MG_MODE_CAST_AFTER(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=60 MG_MODE_CAST_AFTER class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 512 words; class=ALT
+CHECK name=host case=60 MG_MODE_CAST_AFTER differs from the honest output ok=1 n=2048 differs from honest in 512 words
+CHECK name=host case=61 MG_MODE_F32_COMBINE counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=61 MG_MODE_F32_COMBINE record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=host case=61 MG_MODE_F32_COMBINE(IMMUNE) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=61 MG_MODE_F32_COMBINE class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 0 words; class=IMMUNE
+CHECK name=host case=61 MG_MODE_F32_COMBINE equals the honest output (immunity) ok=1 n=2048 differs from honest in 0 words
+CHECK name=host case=62 MG_MODE_RANK_ACCUM counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=62 MG_MODE_RANK_ACCUM record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=host case=62 MG_MODE_RANK_ACCUM(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=62 MG_MODE_RANK_ACCUM class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 2048 words; class=ALT
+CHECK name=host case=62 MG_MODE_RANK_ACCUM differs from the honest output ok=1 n=2048 differs from honest in 2048 words
+CHECK name=host case=63 MG_MODE_W_BY_EXPERT_ID counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=63 MG_MODE_W_BY_EXPERT_ID record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=host case=63 MG_MODE_W_BY_EXPERT_ID(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=63 MG_MODE_W_BY_EXPERT_ID class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 2048 words; class=ALT
+CHECK name=host case=63 MG_MODE_W_BY_EXPERT_ID differs from the honest output ok=1 n=2048 differs from honest in 2048 words
+CHECK name=host case=64 MG_MODE_HALVES_SWAPPED counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=64 MG_MODE_HALVES_SWAPPED record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=64 MG_MODE_HALVES_SWAPPED(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=64 MG_MODE_HALVES_SWAPPED class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 1024 words; class=ALT
+CHECK name=host case=64 MG_MODE_HALVES_SWAPPED differs from the honest output ok=1 n=3584 differs from honest in 1024 words
+CHECK name=host case=65 MG_MODE_INPUT_CHUNK counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=65 MG_MODE_INPUT_CHUNK record carries a value ok=1 n=3584 out nan=2816 zero=0 value=768 | expect nan=2816 zero=0 value=768 | nan-moved=0 kernel_nan=1
+CHECK name=host case=65 MG_MODE_INPUT_CHUNK(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=65 MG_MODE_INPUT_CHUNK class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3072 words; class=ALT
+CHECK name=host case=65 MG_MODE_INPUT_CHUNK differs from the honest output ok=1 n=3584 differs from honest in 3072 words
+CHECK name=host case=66 MG_MODE_ROW_OFF_1 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=66 MG_MODE_ROW_OFF_1 record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=66 MG_MODE_ROW_OFF_1(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=66 MG_MODE_ROW_OFF_1 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3072 words; class=ALT
+CHECK name=host case=66 MG_MODE_ROW_OFF_1 differs from the honest output ok=1 n=3584 differs from honest in 3072 words
+CHECK name=host case=67 MG_MODE_BLOCK_OFF_1 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=67 MG_MODE_BLOCK_OFF_1 record carries a value ok=1 n=3584 out nan=0 zero=3072 value=512 | expect nan=0 zero=3072 value=512 | nan-moved=0 kernel_nan=0
+CHECK name=host case=67 MG_MODE_BLOCK_OFF_1(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=67 MG_MODE_BLOCK_OFF_1 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3584 words; class=ALT
+CHECK name=host case=67 MG_MODE_BLOCK_OFF_1 differs from the honest output ok=1 n=3584 differs from honest in 3584 words
+CHECK name=host case=68 MG_MODE_BYTE_SHIFT_1 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=68 MG_MODE_BYTE_SHIFT_1 record carries a value ok=1 n=3584 out nan=0 zero=3584 value=0 | expect nan=0 zero=3584 value=0 | nan-moved=0 kernel_nan=0
+CHECK name=host case=68 MG_MODE_BYTE_SHIFT_1(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=68 MG_MODE_BYTE_SHIFT_1 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3584 words; class=ALT
+CHECK name=host case=68 MG_MODE_BYTE_SHIFT_1 differs from the honest output ok=1 n=3584 differs from honest in 3584 words
+CHECK name=host case=69 MG_MODE_Q6K_D_BYTE_0 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=69 MG_MODE_Q6K_D_BYTE_0 record carries a value ok=1 n=3584 out nan=0 zero=2048 value=1536 | expect nan=0 zero=2048 value=1536 | nan-moved=0 kernel_nan=0
+CHECK name=host case=69 MG_MODE_Q6K_D_BYTE_0(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=69 MG_MODE_Q6K_D_BYTE_0 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 2048 words; class=ALT
+CHECK name=host case=69 MG_MODE_Q6K_D_BYTE_0 differs from the honest output ok=1 n=3584 differs from honest in 2048 words
+CHECK name=host case=70 MG_MODE_EXPERT_ROTATE counter==recount ok=1 n=3584 kernel bad=1470 recount=1470
+CHECK name=host case=70 MG_MODE_EXPERT_ROTATE record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=70 MG_MODE_EXPERT_ROTATE(ALT) field=gate exact vs alt ok=1 n=512 differing=0
+CHECK name=host case=70 MG_MODE_EXPERT_ROTATE(ALT) field=up exact vs alt ok=1 n=512 differing=0
+COUNT case=70 MG_MODE_EXPERT_ROTATE field=s differing=133/512 (transcendental route, counted not banded)
+COUNT case=70 MG_MODE_EXPERT_ROTATE field=raw differing=1337/2048 (transcendental route, counted not banded)
+CHECK name=host case=70 MG_MODE_EXPERT_ROTATE class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3584 words; class=ALT
+CHECK name=host case=70 MG_MODE_EXPERT_ROTATE differs from the honest output ok=1 n=3584 differs from honest in 3584 words
+CHECK name=host case=71 MG_MODE_SCALE_MIN_NAIVE counter==recount ok=1 n=3584 kernel bad=3584 recount=3584
+CHECK name=host case=71 MG_MODE_SCALE_MIN_NAIVE record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=71 MG_MODE_SCALE_MIN_NAIVE FIRED (must differ) ok=1 n=3584 differing=3584
+CHECK name=host case=72 MG_MODE_WIDTH_MISREAD counter==recount ok=1 n=3584 kernel bad=2048 recount=2048
+CHECK name=host case=72 MG_MODE_WIDTH_MISREAD record carries a value ok=1 n=3584 out nan=0 zero=2048 value=1536 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=72 MG_MODE_WIDTH_MISREAD FIRED (must differ) ok=1 n=3584 differing=2048
+CHECK name=host case=73 MG_MODE_POISON_NAN counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=73 MG_MODE_POISON_NAN record carries a value ok=1 n=3584 out nan=3584 zero=0 value=0 | expect nan=3584 zero=0 value=0 | nan-moved=0 kernel_nan=1
+CHECK name=host case=73 MG_MODE_POISON_NAN(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=73 MG_MODE_POISON_NAN class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3584 words; class=ALT
+CHECK name=host case=73 MG_MODE_POISON_NAN differs from the honest output ok=1 n=3584 differs from honest in 3584 words
+CHECK name=host case=74 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=74 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=74 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=74 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=75 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=75 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=75 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=75 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=76 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=76 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=76 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=76 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=77 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=77 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=77 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=77 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=78 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=78 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=78 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=78 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=79 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=79 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=79 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=79 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=80 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=80 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=80 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=80 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=81 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=81 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=81 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=host case=81 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=82 MG_MODE_CORRECT counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=82 MG_MODE_CORRECT record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=host case=82 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=83 MG_MODE_CAST_AFTER counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=83 MG_MODE_CAST_AFTER record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=host case=83 MG_MODE_CAST_AFTER(IMMUNE) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=83 MG_MODE_CAST_AFTER class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 0 words; class=IMMUNE
+CHECK name=host case=83 MG_MODE_CAST_AFTER equals the honest output (immunity) ok=1 n=2048 differs from honest in 0 words
+CHECK name=host case=84 MG_MODE_F32_COMBINE counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=84 MG_MODE_F32_COMBINE record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=host case=84 MG_MODE_F32_COMBINE(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=84 MG_MODE_F32_COMBINE class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 2048 words; class=ALT
+CHECK name=host case=84 MG_MODE_F32_COMBINE differs from the honest output ok=1 n=2048 differs from honest in 2048 words
+CHECK name=host case=85 MG_MODE_RANK_ACCUM counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=85 MG_MODE_RANK_ACCUM record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=host case=85 MG_MODE_RANK_ACCUM(IMMUNE) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=85 MG_MODE_RANK_ACCUM class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 0 words; class=IMMUNE
+CHECK name=host case=85 MG_MODE_RANK_ACCUM equals the honest output (immunity) ok=1 n=2048 differs from honest in 0 words
+CHECK name=host case=86 MG_MODE_W_BY_EXPERT_ID counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=host case=86 MG_MODE_W_BY_EXPERT_ID record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=host case=86 MG_MODE_W_BY_EXPERT_ID(IMMUNE) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=host case=86 MG_MODE_W_BY_EXPERT_ID class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 0 words; class=IMMUNE
+CHECK name=host case=86 MG_MODE_W_BY_EXPERT_ID equals the honest output (immunity) ok=1 n=2048 differs from honest in 0 words
+CHECK name=host case=87 MG_MODE_HALVES_SWAPPED counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=87 MG_MODE_HALVES_SWAPPED record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=87 MG_MODE_HALVES_SWAPPED(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=87 MG_MODE_HALVES_SWAPPED class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 1024 words; class=ALT
+CHECK name=host case=87 MG_MODE_HALVES_SWAPPED differs from the honest output ok=1 n=3584 differs from honest in 1024 words
+CHECK name=host case=88 MG_MODE_INPUT_CHUNK counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=88 MG_MODE_INPUT_CHUNK record carries a value ok=1 n=3584 out nan=2816 zero=0 value=768 | expect nan=2816 zero=0 value=768 | nan-moved=0 kernel_nan=1
+CHECK name=host case=88 MG_MODE_INPUT_CHUNK(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=88 MG_MODE_INPUT_CHUNK class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3072 words; class=ALT
+CHECK name=host case=88 MG_MODE_INPUT_CHUNK differs from the honest output ok=1 n=3584 differs from honest in 3072 words
+CHECK name=host case=89 MG_MODE_ROW_OFF_1 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=89 MG_MODE_ROW_OFF_1 record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=89 MG_MODE_ROW_OFF_1(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=89 MG_MODE_ROW_OFF_1 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3072 words; class=ALT
+CHECK name=host case=89 MG_MODE_ROW_OFF_1 differs from the honest output ok=1 n=3584 differs from honest in 3072 words
+CHECK name=host case=90 MG_MODE_BLOCK_OFF_1 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=90 MG_MODE_BLOCK_OFF_1 record carries a value ok=1 n=3584 out nan=0 zero=3072 value=512 | expect nan=0 zero=3072 value=512 | nan-moved=0 kernel_nan=0
+CHECK name=host case=90 MG_MODE_BLOCK_OFF_1(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=90 MG_MODE_BLOCK_OFF_1 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3584 words; class=ALT
+CHECK name=host case=90 MG_MODE_BLOCK_OFF_1 differs from the honest output ok=1 n=3584 differs from honest in 3584 words
+CHECK name=host case=91 MG_MODE_BYTE_SHIFT_1 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=91 MG_MODE_BYTE_SHIFT_1 record carries a value ok=1 n=3584 out nan=0 zero=3584 value=0 | expect nan=0 zero=3584 value=0 | nan-moved=0 kernel_nan=0
+CHECK name=host case=91 MG_MODE_BYTE_SHIFT_1(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=91 MG_MODE_BYTE_SHIFT_1 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3584 words; class=ALT
+CHECK name=host case=91 MG_MODE_BYTE_SHIFT_1 differs from the honest output ok=1 n=3584 differs from honest in 3584 words
+CHECK name=host case=92 MG_MODE_Q6K_D_BYTE_0 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=92 MG_MODE_Q6K_D_BYTE_0 record carries a value ok=1 n=3584 out nan=0 zero=2048 value=1536 | expect nan=0 zero=2048 value=1536 | nan-moved=0 kernel_nan=0
+CHECK name=host case=92 MG_MODE_Q6K_D_BYTE_0(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=92 MG_MODE_Q6K_D_BYTE_0 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 2048 words; class=ALT
+CHECK name=host case=92 MG_MODE_Q6K_D_BYTE_0 differs from the honest output ok=1 n=3584 differs from honest in 2048 words
+CHECK name=host case=93 MG_MODE_EXPERT_ROTATE counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=93 MG_MODE_EXPERT_ROTATE record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=93 MG_MODE_EXPERT_ROTATE(IMMUNE) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=93 MG_MODE_EXPERT_ROTATE class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 0 words; class=IMMUNE
+CHECK name=host case=93 MG_MODE_EXPERT_ROTATE equals the honest output (immunity) ok=1 n=3584 differs from honest in 0 words
+CHECK name=host case=94 MG_MODE_SCALE_MIN_NAIVE counter==recount ok=1 n=3584 kernel bad=3584 recount=3584
+CHECK name=host case=94 MG_MODE_SCALE_MIN_NAIVE record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=94 MG_MODE_SCALE_MIN_NAIVE FIRED (must differ) ok=1 n=3584 differing=3584
+CHECK name=host case=95 MG_MODE_WIDTH_MISREAD counter==recount ok=1 n=3584 kernel bad=2048 recount=2048
+CHECK name=host case=95 MG_MODE_WIDTH_MISREAD record carries a value ok=1 n=3584 out nan=0 zero=2048 value=1536 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=host case=95 MG_MODE_WIDTH_MISREAD FIRED (must differ) ok=1 n=3584 differing=2048
+CHECK name=host case=96 MG_MODE_POISON_NAN counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=host case=96 MG_MODE_POISON_NAN record carries a value ok=1 n=3584 out nan=3584 zero=0 value=0 | expect nan=3584 zero=0 value=0 | nan-moved=0 kernel_nan=1
+CHECK name=host case=96 MG_MODE_POISON_NAN(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=host case=96 MG_MODE_POISON_NAN class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3584 words; class=ALT
+CHECK name=host case=96 MG_MODE_POISON_NAN differs from the honest output ok=1 n=3584 differs from honest in 3584 words
+POPULATION host MATCH=29 MISMATCH=6 ALT=37 IMMUNE=9 REPORT=16
+INTEGRITY host cases=97 silent_records=0 of which no_value=0 nan-moved=0
+CHECK name=host no record is silent ok=1 n=97 silent=0 (no_value=0 nan-moved=0)
+ALTREACH host modes=12 reachable=12 immune_everywhere=none
+CHECK name=host every injection mode is reachable somewhere in the sample ok=1 n=12 immune on every case of their kind: none
+CHECK name=host expert gate field nonzero wherever the oracle's is ok=1 n=32 32 expert cases have an all-nonzero expected gate field, 32 produced an all-nonzero gate
+INJECTIONS host expert checked=29 fired=29
+INJECTIONS host combine checked=14 fired=14
+INJECTIONS host checked=43 fired=43
+INJECTION arm=MG_MODE_F32_COMBINE(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_RANK_ACCUM(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_W_BY_EXPERT_ID(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_POISON_NAN(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_F32_COMBINE(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_W_BY_EXPERT_ID(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_HALVES_SWAPPED(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_INPUT_CHUNK(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_ROW_OFF_1(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_BLOCK_OFF_1(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_BYTE_SHIFT_1(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_Q6K_D_BYTE_0(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_EXPERT_ROTATE(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_SCALE_MIN_NAIVE kind=expert fired=1
+INJECTION arm=MG_MODE_WIDTH_MISREAD kind=expert fired=1
+INJECTION arm=MG_MODE_POISON_NAN(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_F32_COMBINE(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_RANK_ACCUM(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_W_BY_EXPERT_ID(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_POISON_NAN(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_CAST_AFTER(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_RANK_ACCUM(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_W_BY_EXPERT_ID(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_HALVES_SWAPPED(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_INPUT_CHUNK(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_ROW_OFF_1(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_BLOCK_OFF_1(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_BYTE_SHIFT_1(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_Q6K_D_BYTE_0(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_EXPERT_ROTATE(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_SCALE_MIN_NAIVE kind=expert fired=1
+INJECTION arm=MG_MODE_WIDTH_MISREAD kind=expert fired=1
+INJECTION arm=MG_MODE_POISON_NAN(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_F32_COMBINE(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_HALVES_SWAPPED(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_INPUT_CHUNK(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_ROW_OFF_1(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_BLOCK_OFF_1(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_BYTE_SHIFT_1(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_Q6K_D_BYTE_0(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_SCALE_MIN_NAIVE kind=expert fired=1
+INJECTION arm=MG_MODE_WIDTH_MISREAD kind=expert fired=1
+INJECTION arm=MG_MODE_POISON_NAN(alt-vs-honest) kind=expert fired=1
+CHECK name=host injection denominator matches the plan ok=1 n=43 plan-derived=43 counted=43 (expert=29 combine=14)
+CHECK name=host expert injections all fired ok=1 n=29 did not fire: none
+CHECK name=host combine injections all fired ok=1 n=14 did not fire: none
+CHECK name=device case=0 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1324 recount=1324
+CHECK name=device case=0 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=747 value=2837 | expect nan=0 zero=747 value=2837 | nan-moved=0 kernel_nan=0
+CHECK name=device case=0 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=0 field=gate exact ok=1 n=512 differing=0
+CHECK name=device case=0 field=up exact ok=1 n=512 differing=0
+COUNT case=0 MG_MODE_CORRECT field=s differing=66/512 (transcendental route, counted not banded)
+COUNT case=0 MG_MODE_CORRECT field=raw differing=1258/2048 (transcendental route, counted not banded)
+CHECK name=device case=1 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1363 recount=1363
+CHECK name=device case=1 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=753 value=2831 | expect nan=0 zero=753 value=2831 | nan-moved=0 kernel_nan=0
+CHECK name=device case=1 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=1 field=gate exact ok=1 n=512 differing=0
+CHECK name=device case=1 field=up exact ok=1 n=512 differing=0
+COUNT case=1 MG_MODE_CORRECT field=s differing=70/512 (transcendental route, counted not banded)
+COUNT case=1 MG_MODE_CORRECT field=raw differing=1293/2048 (transcendental route, counted not banded)
+CHECK name=device case=2 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1253 recount=1253
+CHECK name=device case=2 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=633 value=2951 | expect nan=0 zero=633 value=2951 | nan-moved=0 kernel_nan=0
+CHECK name=device case=2 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=2 field=gate exact ok=1 n=512 differing=0
+CHECK name=device case=2 field=up exact ok=1 n=512 differing=0
+COUNT case=2 MG_MODE_CORRECT field=s differing=76/512 (transcendental route, counted not banded)
+COUNT case=2 MG_MODE_CORRECT field=raw differing=1177/2048 (transcendental route, counted not banded)
+CHECK name=device case=3 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1721 recount=1721
+CHECK name=device case=3 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=708 value=2876 | expect nan=0 zero=708 value=2876 | nan-moved=0 kernel_nan=0
+CHECK name=device case=3 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=3 field=gate exact ok=1 n=512 differing=0
+CHECK name=device case=3 field=up exact ok=1 n=512 differing=0
+COUNT case=3 MG_MODE_CORRECT field=s differing=93/512 (transcendental route, counted not banded)
+COUNT case=3 MG_MODE_CORRECT field=raw differing=1628/2048 (transcendental route, counted not banded)
+CHECK name=device case=4 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1368 recount=1368
+CHECK name=device case=4 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=741 value=2843 | expect nan=0 zero=741 value=2843 | nan-moved=0 kernel_nan=0
+CHECK name=device case=4 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=4 field=gate exact ok=1 n=512 differing=0
+CHECK name=device case=4 field=up exact ok=1 n=512 differing=0
+COUNT case=4 MG_MODE_CORRECT field=s differing=77/512 (transcendental route, counted not banded)
+COUNT case=4 MG_MODE_CORRECT field=raw differing=1291/2048 (transcendental route, counted not banded)
+CHECK name=device case=5 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1483 recount=1483
+CHECK name=device case=5 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=786 value=2798 | expect nan=0 zero=786 value=2798 | nan-moved=0 kernel_nan=0
+CHECK name=device case=5 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=5 field=gate exact ok=1 n=512 differing=0
+CHECK name=device case=5 field=up exact ok=1 n=512 differing=0
+COUNT case=5 MG_MODE_CORRECT field=s differing=74/512 (transcendental route, counted not banded)
+COUNT case=5 MG_MODE_CORRECT field=raw differing=1409/2048 (transcendental route, counted not banded)
+CHECK name=device case=6 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1389 recount=1389
+CHECK name=device case=6 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=897 value=2687 | expect nan=0 zero=897 value=2687 | nan-moved=0 kernel_nan=0
+CHECK name=device case=6 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=6 field=gate exact ok=1 n=512 differing=0
+CHECK name=device case=6 field=up exact ok=1 n=512 differing=0
+COUNT case=6 MG_MODE_CORRECT field=s differing=68/512 (transcendental route, counted not banded)
+COUNT case=6 MG_MODE_CORRECT field=raw differing=1321/2048 (transcendental route, counted not banded)
+CHECK name=device case=7 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1320 recount=1320
+CHECK name=device case=7 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=375 value=3209 | expect nan=0 zero=375 value=3209 | nan-moved=0 kernel_nan=0
+CHECK name=device case=7 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=7 field=gate exact ok=1 n=512 differing=0
+CHECK name=device case=7 field=up exact ok=1 n=512 differing=0
+COUNT case=7 MG_MODE_CORRECT field=s differing=102/512 (transcendental route, counted not banded)
+COUNT case=7 MG_MODE_CORRECT field=raw differing=1218/2048 (transcendental route, counted not banded)
+CHECK name=device case=8 MG_MODE_CORRECT counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=8 MG_MODE_CORRECT record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=device case=8 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=9 MG_MODE_CAST_AFTER counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=9 MG_MODE_CAST_AFTER record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=device case=9 MG_MODE_CAST_AFTER(IMMUNE) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=9 MG_MODE_CAST_AFTER class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 0 words; class=IMMUNE
+CHECK name=device case=9 MG_MODE_CAST_AFTER equals the honest output (immunity) ok=1 n=2048 differs from honest in 0 words
+CHECK name=device case=10 MG_MODE_F32_COMBINE counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=10 MG_MODE_F32_COMBINE record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=device case=10 MG_MODE_F32_COMBINE(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=10 MG_MODE_F32_COMBINE class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 1246 words; class=ALT
+CHECK name=device case=10 MG_MODE_F32_COMBINE differs from the honest output ok=1 n=2048 differs from honest in 1246 words
+CHECK name=device case=11 MG_MODE_RANK_ACCUM counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=11 MG_MODE_RANK_ACCUM record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=device case=11 MG_MODE_RANK_ACCUM(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=11 MG_MODE_RANK_ACCUM class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 1263 words; class=ALT
+CHECK name=device case=11 MG_MODE_RANK_ACCUM differs from the honest output ok=1 n=2048 differs from honest in 1263 words
+CHECK name=device case=12 MG_MODE_W_BY_EXPERT_ID counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=12 MG_MODE_W_BY_EXPERT_ID record carries a value ok=1 n=2048 out nan=0 zero=1 value=2047 | expect nan=0 zero=1 value=2047 | nan-moved=0 kernel_nan=0
+CHECK name=device case=12 MG_MODE_W_BY_EXPERT_ID(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=12 MG_MODE_W_BY_EXPERT_ID class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 2035 words; class=ALT
+CHECK name=device case=12 MG_MODE_W_BY_EXPERT_ID differs from the honest output ok=1 n=2048 differs from honest in 2035 words
+CHECK name=device case=13 MG_MODE_POISON_NAN counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=13 MG_MODE_POISON_NAN record carries a value ok=1 n=2048 out nan=2048 zero=0 value=0 | expect nan=2048 zero=0 value=0 | nan-moved=0 kernel_nan=1
+CHECK name=device case=13 MG_MODE_POISON_NAN(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=13 MG_MODE_POISON_NAN class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 2048 words; class=ALT
+CHECK name=device case=13 MG_MODE_POISON_NAN differs from the honest output ok=1 n=2048 differs from honest in 2048 words
+CHECK name=device case=14 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=14 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=14 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=14 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=15 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=15 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=15 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=15 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=16 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=16 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=16 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=16 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=17 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=17 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=17 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=17 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=18 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=18 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=18 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=18 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=19 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=19 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=19 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=19 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=20 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=20 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=20 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=20 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=21 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=21 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=21 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=21 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=22 MG_MODE_CORRECT counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=22 MG_MODE_CORRECT record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=device case=22 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=23 MG_MODE_CAST_AFTER counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=23 MG_MODE_CAST_AFTER record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=device case=23 MG_MODE_CAST_AFTER(IMMUNE) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=23 MG_MODE_CAST_AFTER class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 0 words; class=IMMUNE
+CHECK name=device case=23 MG_MODE_CAST_AFTER equals the honest output (immunity) ok=1 n=2048 differs from honest in 0 words
+CHECK name=device case=24 MG_MODE_F32_COMBINE counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=24 MG_MODE_F32_COMBINE record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=device case=24 MG_MODE_F32_COMBINE(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=24 MG_MODE_F32_COMBINE class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 2048 words; class=ALT
+CHECK name=device case=24 MG_MODE_F32_COMBINE differs from the honest output ok=1 n=2048 differs from honest in 2048 words
+CHECK name=device case=25 MG_MODE_RANK_ACCUM counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=25 MG_MODE_RANK_ACCUM record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=device case=25 MG_MODE_RANK_ACCUM(IMMUNE) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=25 MG_MODE_RANK_ACCUM class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 0 words; class=IMMUNE
+CHECK name=device case=25 MG_MODE_RANK_ACCUM equals the honest output (immunity) ok=1 n=2048 differs from honest in 0 words
+CHECK name=device case=26 MG_MODE_W_BY_EXPERT_ID counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=26 MG_MODE_W_BY_EXPERT_ID record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=device case=26 MG_MODE_W_BY_EXPERT_ID(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=26 MG_MODE_W_BY_EXPERT_ID class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 2048 words; class=ALT
+CHECK name=device case=26 MG_MODE_W_BY_EXPERT_ID differs from the honest output ok=1 n=2048 differs from honest in 2048 words
+CHECK name=device case=27 MG_MODE_HALVES_SWAPPED counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=27 MG_MODE_HALVES_SWAPPED record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=27 MG_MODE_HALVES_SWAPPED(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=27 MG_MODE_HALVES_SWAPPED class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 1024 words; class=ALT
+CHECK name=device case=27 MG_MODE_HALVES_SWAPPED differs from the honest output ok=1 n=3584 differs from honest in 1024 words
+CHECK name=device case=28 MG_MODE_INPUT_CHUNK counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=28 MG_MODE_INPUT_CHUNK record carries a value ok=1 n=3584 out nan=2816 zero=0 value=768 | expect nan=2816 zero=0 value=768 | nan-moved=0 kernel_nan=1
+CHECK name=device case=28 MG_MODE_INPUT_CHUNK(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=28 MG_MODE_INPUT_CHUNK class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3072 words; class=ALT
+CHECK name=device case=28 MG_MODE_INPUT_CHUNK differs from the honest output ok=1 n=3584 differs from honest in 3072 words
+CHECK name=device case=29 MG_MODE_ROW_OFF_1 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=29 MG_MODE_ROW_OFF_1 record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=29 MG_MODE_ROW_OFF_1(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=29 MG_MODE_ROW_OFF_1 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3072 words; class=ALT
+CHECK name=device case=29 MG_MODE_ROW_OFF_1 differs from the honest output ok=1 n=3584 differs from honest in 3072 words
+CHECK name=device case=30 MG_MODE_BLOCK_OFF_1 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=30 MG_MODE_BLOCK_OFF_1 record carries a value ok=1 n=3584 out nan=0 zero=3072 value=512 | expect nan=0 zero=3072 value=512 | nan-moved=0 kernel_nan=0
+CHECK name=device case=30 MG_MODE_BLOCK_OFF_1(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=30 MG_MODE_BLOCK_OFF_1 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3584 words; class=ALT
+CHECK name=device case=30 MG_MODE_BLOCK_OFF_1 differs from the honest output ok=1 n=3584 differs from honest in 3584 words
+CHECK name=device case=31 MG_MODE_BYTE_SHIFT_1 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=31 MG_MODE_BYTE_SHIFT_1 record carries a value ok=1 n=3584 out nan=0 zero=3584 value=0 | expect nan=0 zero=3584 value=0 | nan-moved=0 kernel_nan=0
+CHECK name=device case=31 MG_MODE_BYTE_SHIFT_1(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=31 MG_MODE_BYTE_SHIFT_1 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3584 words; class=ALT
+CHECK name=device case=31 MG_MODE_BYTE_SHIFT_1 differs from the honest output ok=1 n=3584 differs from honest in 3584 words
+CHECK name=device case=32 MG_MODE_Q6K_D_BYTE_0 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=32 MG_MODE_Q6K_D_BYTE_0 record carries a value ok=1 n=3584 out nan=0 zero=2048 value=1536 | expect nan=0 zero=2048 value=1536 | nan-moved=0 kernel_nan=0
+CHECK name=device case=32 MG_MODE_Q6K_D_BYTE_0(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=32 MG_MODE_Q6K_D_BYTE_0 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 2048 words; class=ALT
+CHECK name=device case=32 MG_MODE_Q6K_D_BYTE_0 differs from the honest output ok=1 n=3584 differs from honest in 2048 words
+CHECK name=device case=33 MG_MODE_EXPERT_ROTATE counter==recount ok=1 n=3584 kernel bad=1344 recount=1344
+CHECK name=device case=33 MG_MODE_EXPERT_ROTATE record carries a value ok=1 n=3584 out nan=0 zero=375 value=3209 | expect nan=0 zero=375 value=3209 | nan-moved=0 kernel_nan=0
+CHECK name=device case=33 MG_MODE_EXPERT_ROTATE(ALT) field=gate exact vs alt ok=1 n=512 differing=0
+CHECK name=device case=33 MG_MODE_EXPERT_ROTATE(ALT) field=up exact vs alt ok=1 n=512 differing=0
+COUNT case=33 MG_MODE_EXPERT_ROTATE field=s differing=104/512 (transcendental route, counted not banded)
+COUNT case=33 MG_MODE_EXPERT_ROTATE field=raw differing=1240/2048 (transcendental route, counted not banded)
+CHECK name=device case=33 MG_MODE_EXPERT_ROTATE class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3584 words; class=ALT
+CHECK name=device case=33 MG_MODE_EXPERT_ROTATE differs from the honest output ok=1 n=3584 differs from honest in 3584 words
+CHECK name=device case=34 MG_MODE_SCALE_MIN_NAIVE counter==recount ok=1 n=3584 kernel bad=3584 recount=3584
+CHECK name=device case=34 MG_MODE_SCALE_MIN_NAIVE record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=34 MG_MODE_SCALE_MIN_NAIVE FIRED (must differ) ok=1 n=3584 differing=3584
+CHECK name=device case=35 MG_MODE_WIDTH_MISREAD counter==recount ok=1 n=3584 kernel bad=2048 recount=2048
+CHECK name=device case=35 MG_MODE_WIDTH_MISREAD record carries a value ok=1 n=3584 out nan=0 zero=2048 value=1536 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=35 MG_MODE_WIDTH_MISREAD FIRED (must differ) ok=1 n=3584 differing=2048
+CHECK name=device case=36 MG_MODE_POISON_NAN counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=36 MG_MODE_POISON_NAN record carries a value ok=1 n=3584 out nan=3584 zero=0 value=0 | expect nan=3584 zero=0 value=0 | nan-moved=0 kernel_nan=1
+CHECK name=device case=36 MG_MODE_POISON_NAN(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=36 MG_MODE_POISON_NAN class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3584 words; class=ALT
+CHECK name=device case=36 MG_MODE_POISON_NAN differs from the honest output ok=1 n=3584 differs from honest in 3584 words
+CHECK name=device case=37 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1612 recount=1612
+CHECK name=device case=37 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=37 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=37 field=gate exact ok=1 n=512 differing=0
+CHECK name=device case=37 field=up exact ok=1 n=512 differing=0
+COUNT case=37 MG_MODE_CORRECT field=s differing=136/512 (transcendental route, counted not banded)
+COUNT case=37 MG_MODE_CORRECT field=raw differing=1476/2048 (transcendental route, counted not banded)
+CHECK name=device case=38 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1525 recount=1525
+CHECK name=device case=38 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=38 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=38 field=gate exact ok=1 n=512 differing=0
+CHECK name=device case=38 field=up exact ok=1 n=512 differing=0
+COUNT case=38 MG_MODE_CORRECT field=s differing=147/512 (transcendental route, counted not banded)
+COUNT case=38 MG_MODE_CORRECT field=raw differing=1378/2048 (transcendental route, counted not banded)
+CHECK name=device case=39 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1436 recount=1436
+CHECK name=device case=39 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=39 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=39 field=gate exact ok=1 n=512 differing=0
+CHECK name=device case=39 field=up exact ok=1 n=512 differing=0
+COUNT case=39 MG_MODE_CORRECT field=s differing=145/512 (transcendental route, counted not banded)
+COUNT case=39 MG_MODE_CORRECT field=raw differing=1291/2048 (transcendental route, counted not banded)
+CHECK name=device case=40 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1638 recount=1638
+CHECK name=device case=40 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=40 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=40 field=gate exact ok=1 n=512 differing=0
+CHECK name=device case=40 field=up exact ok=1 n=512 differing=0
+COUNT case=40 MG_MODE_CORRECT field=s differing=157/512 (transcendental route, counted not banded)
+COUNT case=40 MG_MODE_CORRECT field=raw differing=1481/2048 (transcendental route, counted not banded)
+CHECK name=device case=41 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1646 recount=1646
+CHECK name=device case=41 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=41 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=41 field=gate exact ok=1 n=512 differing=0
+CHECK name=device case=41 field=up exact ok=1 n=512 differing=0
+COUNT case=41 MG_MODE_CORRECT field=s differing=154/512 (transcendental route, counted not banded)
+COUNT case=41 MG_MODE_CORRECT field=raw differing=1492/2048 (transcendental route, counted not banded)
+CHECK name=device case=42 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1604 recount=1604
+CHECK name=device case=42 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=42 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=42 field=gate exact ok=1 n=512 differing=0
+CHECK name=device case=42 field=up exact ok=1 n=512 differing=0
+COUNT case=42 MG_MODE_CORRECT field=s differing=144/512 (transcendental route, counted not banded)
+COUNT case=42 MG_MODE_CORRECT field=raw differing=1460/2048 (transcendental route, counted not banded)
+CHECK name=device case=43 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1644 recount=1644
+CHECK name=device case=43 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=43 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=43 field=gate exact ok=1 n=512 differing=0
+CHECK name=device case=43 field=up exact ok=1 n=512 differing=0
+COUNT case=43 MG_MODE_CORRECT field=s differing=150/512 (transcendental route, counted not banded)
+COUNT case=43 MG_MODE_CORRECT field=raw differing=1494/2048 (transcendental route, counted not banded)
+CHECK name=device case=44 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=1634 recount=1634
+CHECK name=device case=44 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=44 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=44 field=gate exact ok=1 n=512 differing=0
+CHECK name=device case=44 field=up exact ok=1 n=512 differing=0
+COUNT case=44 MG_MODE_CORRECT field=s differing=131/512 (transcendental route, counted not banded)
+COUNT case=44 MG_MODE_CORRECT field=raw differing=1503/2048 (transcendental route, counted not banded)
+CHECK name=device case=45 MG_MODE_CORRECT counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=45 MG_MODE_CORRECT record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=device case=45 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=46 MG_MODE_CAST_AFTER counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=46 MG_MODE_CAST_AFTER record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=device case=46 MG_MODE_CAST_AFTER(IMMUNE) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=46 MG_MODE_CAST_AFTER class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 0 words; class=IMMUNE
+CHECK name=device case=46 MG_MODE_CAST_AFTER equals the honest output (immunity) ok=1 n=2048 differs from honest in 0 words
+CHECK name=device case=47 MG_MODE_F32_COMBINE counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=47 MG_MODE_F32_COMBINE record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=device case=47 MG_MODE_F32_COMBINE(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=47 MG_MODE_F32_COMBINE class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 1134 words; class=ALT
+CHECK name=device case=47 MG_MODE_F32_COMBINE differs from the honest output ok=1 n=2048 differs from honest in 1134 words
+CHECK name=device case=48 MG_MODE_RANK_ACCUM counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=48 MG_MODE_RANK_ACCUM record carries a value ok=1 n=2048 out nan=0 zero=2 value=2046 | expect nan=0 zero=2 value=2046 | nan-moved=0 kernel_nan=0
+CHECK name=device case=48 MG_MODE_RANK_ACCUM(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=48 MG_MODE_RANK_ACCUM class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 1257 words; class=ALT
+CHECK name=device case=48 MG_MODE_RANK_ACCUM differs from the honest output ok=1 n=2048 differs from honest in 1257 words
+CHECK name=device case=49 MG_MODE_W_BY_EXPERT_ID counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=49 MG_MODE_W_BY_EXPERT_ID record carries a value ok=1 n=2048 out nan=0 zero=1 value=2047 | expect nan=0 zero=1 value=2047 | nan-moved=0 kernel_nan=0
+CHECK name=device case=49 MG_MODE_W_BY_EXPERT_ID(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=49 MG_MODE_W_BY_EXPERT_ID class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 2037 words; class=ALT
+CHECK name=device case=49 MG_MODE_W_BY_EXPERT_ID differs from the honest output ok=1 n=2048 differs from honest in 2037 words
+CHECK name=device case=50 MG_MODE_POISON_NAN counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=50 MG_MODE_POISON_NAN record carries a value ok=1 n=2048 out nan=2048 zero=0 value=0 | expect nan=2048 zero=0 value=0 | nan-moved=0 kernel_nan=1
+CHECK name=device case=50 MG_MODE_POISON_NAN(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=50 MG_MODE_POISON_NAN class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 2048 words; class=ALT
+CHECK name=device case=50 MG_MODE_POISON_NAN differs from the honest output ok=1 n=2048 differs from honest in 2048 words
+CHECK name=device case=51 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=51 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=51 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=51 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=52 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=52 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=52 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=52 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=53 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=53 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=53 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=53 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=54 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=54 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=54 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=54 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=55 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=55 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=55 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=55 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=56 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=56 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=56 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=56 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=57 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=57 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=57 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=57 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=58 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=58 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=58 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=58 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=59 MG_MODE_CORRECT counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=59 MG_MODE_CORRECT record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=device case=59 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=60 MG_MODE_CAST_AFTER counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=60 MG_MODE_CAST_AFTER record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=device case=60 MG_MODE_CAST_AFTER(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=60 MG_MODE_CAST_AFTER class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 512 words; class=ALT
+CHECK name=device case=60 MG_MODE_CAST_AFTER differs from the honest output ok=1 n=2048 differs from honest in 512 words
+CHECK name=device case=61 MG_MODE_F32_COMBINE counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=61 MG_MODE_F32_COMBINE record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=device case=61 MG_MODE_F32_COMBINE(IMMUNE) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=61 MG_MODE_F32_COMBINE class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 0 words; class=IMMUNE
+CHECK name=device case=61 MG_MODE_F32_COMBINE equals the honest output (immunity) ok=1 n=2048 differs from honest in 0 words
+CHECK name=device case=62 MG_MODE_RANK_ACCUM counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=62 MG_MODE_RANK_ACCUM record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=device case=62 MG_MODE_RANK_ACCUM(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=62 MG_MODE_RANK_ACCUM class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 2048 words; class=ALT
+CHECK name=device case=62 MG_MODE_RANK_ACCUM differs from the honest output ok=1 n=2048 differs from honest in 2048 words
+CHECK name=device case=63 MG_MODE_W_BY_EXPERT_ID counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=63 MG_MODE_W_BY_EXPERT_ID record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=device case=63 MG_MODE_W_BY_EXPERT_ID(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=63 MG_MODE_W_BY_EXPERT_ID class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 2048 words; class=ALT
+CHECK name=device case=63 MG_MODE_W_BY_EXPERT_ID differs from the honest output ok=1 n=2048 differs from honest in 2048 words
+CHECK name=device case=64 MG_MODE_HALVES_SWAPPED counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=64 MG_MODE_HALVES_SWAPPED record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=64 MG_MODE_HALVES_SWAPPED(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=64 MG_MODE_HALVES_SWAPPED class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 1024 words; class=ALT
+CHECK name=device case=64 MG_MODE_HALVES_SWAPPED differs from the honest output ok=1 n=3584 differs from honest in 1024 words
+CHECK name=device case=65 MG_MODE_INPUT_CHUNK counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=65 MG_MODE_INPUT_CHUNK record carries a value ok=1 n=3584 out nan=2816 zero=0 value=768 | expect nan=2816 zero=0 value=768 | nan-moved=0 kernel_nan=1
+CHECK name=device case=65 MG_MODE_INPUT_CHUNK(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=65 MG_MODE_INPUT_CHUNK class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3072 words; class=ALT
+CHECK name=device case=65 MG_MODE_INPUT_CHUNK differs from the honest output ok=1 n=3584 differs from honest in 3072 words
+CHECK name=device case=66 MG_MODE_ROW_OFF_1 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=66 MG_MODE_ROW_OFF_1 record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=66 MG_MODE_ROW_OFF_1(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=66 MG_MODE_ROW_OFF_1 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3072 words; class=ALT
+CHECK name=device case=66 MG_MODE_ROW_OFF_1 differs from the honest output ok=1 n=3584 differs from honest in 3072 words
+CHECK name=device case=67 MG_MODE_BLOCK_OFF_1 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=67 MG_MODE_BLOCK_OFF_1 record carries a value ok=1 n=3584 out nan=0 zero=3072 value=512 | expect nan=0 zero=3072 value=512 | nan-moved=0 kernel_nan=0
+CHECK name=device case=67 MG_MODE_BLOCK_OFF_1(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=67 MG_MODE_BLOCK_OFF_1 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3584 words; class=ALT
+CHECK name=device case=67 MG_MODE_BLOCK_OFF_1 differs from the honest output ok=1 n=3584 differs from honest in 3584 words
+CHECK name=device case=68 MG_MODE_BYTE_SHIFT_1 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=68 MG_MODE_BYTE_SHIFT_1 record carries a value ok=1 n=3584 out nan=0 zero=3584 value=0 | expect nan=0 zero=3584 value=0 | nan-moved=0 kernel_nan=0
+CHECK name=device case=68 MG_MODE_BYTE_SHIFT_1(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=68 MG_MODE_BYTE_SHIFT_1 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3584 words; class=ALT
+CHECK name=device case=68 MG_MODE_BYTE_SHIFT_1 differs from the honest output ok=1 n=3584 differs from honest in 3584 words
+CHECK name=device case=69 MG_MODE_Q6K_D_BYTE_0 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=69 MG_MODE_Q6K_D_BYTE_0 record carries a value ok=1 n=3584 out nan=0 zero=2048 value=1536 | expect nan=0 zero=2048 value=1536 | nan-moved=0 kernel_nan=0
+CHECK name=device case=69 MG_MODE_Q6K_D_BYTE_0(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=69 MG_MODE_Q6K_D_BYTE_0 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 2048 words; class=ALT
+CHECK name=device case=69 MG_MODE_Q6K_D_BYTE_0 differs from the honest output ok=1 n=3584 differs from honest in 2048 words
+CHECK name=device case=70 MG_MODE_EXPERT_ROTATE counter==recount ok=1 n=3584 kernel bad=1468 recount=1468
+CHECK name=device case=70 MG_MODE_EXPERT_ROTATE record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=70 MG_MODE_EXPERT_ROTATE(ALT) field=gate exact vs alt ok=1 n=512 differing=0
+CHECK name=device case=70 MG_MODE_EXPERT_ROTATE(ALT) field=up exact vs alt ok=1 n=512 differing=0
+COUNT case=70 MG_MODE_EXPERT_ROTATE field=s differing=131/512 (transcendental route, counted not banded)
+COUNT case=70 MG_MODE_EXPERT_ROTATE field=raw differing=1337/2048 (transcendental route, counted not banded)
+CHECK name=device case=70 MG_MODE_EXPERT_ROTATE class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3584 words; class=ALT
+CHECK name=device case=70 MG_MODE_EXPERT_ROTATE differs from the honest output ok=1 n=3584 differs from honest in 3584 words
+CHECK name=device case=71 MG_MODE_SCALE_MIN_NAIVE counter==recount ok=1 n=3584 kernel bad=3584 recount=3584
+CHECK name=device case=71 MG_MODE_SCALE_MIN_NAIVE record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=71 MG_MODE_SCALE_MIN_NAIVE FIRED (must differ) ok=1 n=3584 differing=3584
+CHECK name=device case=72 MG_MODE_WIDTH_MISREAD counter==recount ok=1 n=3584 kernel bad=2048 recount=2048
+CHECK name=device case=72 MG_MODE_WIDTH_MISREAD record carries a value ok=1 n=3584 out nan=0 zero=2048 value=1536 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=72 MG_MODE_WIDTH_MISREAD FIRED (must differ) ok=1 n=3584 differing=2048
+CHECK name=device case=73 MG_MODE_POISON_NAN counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=73 MG_MODE_POISON_NAN record carries a value ok=1 n=3584 out nan=3584 zero=0 value=0 | expect nan=3584 zero=0 value=0 | nan-moved=0 kernel_nan=1
+CHECK name=device case=73 MG_MODE_POISON_NAN(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=73 MG_MODE_POISON_NAN class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3584 words; class=ALT
+CHECK name=device case=73 MG_MODE_POISON_NAN differs from the honest output ok=1 n=3584 differs from honest in 3584 words
+CHECK name=device case=74 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=74 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=74 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=74 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=75 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=75 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=75 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=75 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=76 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=76 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=76 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=76 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=77 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=77 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=77 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=77 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=78 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=78 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=78 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=78 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=79 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=79 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=79 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=79 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=80 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=80 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=80 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=80 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=81 MG_MODE_CORRECT counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=81 MG_MODE_CORRECT record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=81 weight reads == geometry ok=1 n=3145728 kernel route_n=3145728 geometry=3145728 (gate|up 2I*H + down H*I)
+CHECK name=device case=81 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=82 MG_MODE_CORRECT counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=82 MG_MODE_CORRECT record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=device case=82 MG_MODE_CORRECT(MATCH) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=83 MG_MODE_CAST_AFTER counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=83 MG_MODE_CAST_AFTER record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=device case=83 MG_MODE_CAST_AFTER(IMMUNE) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=83 MG_MODE_CAST_AFTER class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 0 words; class=IMMUNE
+CHECK name=device case=83 MG_MODE_CAST_AFTER equals the honest output (immunity) ok=1 n=2048 differs from honest in 0 words
+CHECK name=device case=84 MG_MODE_F32_COMBINE counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=84 MG_MODE_F32_COMBINE record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=device case=84 MG_MODE_F32_COMBINE(ALT) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=84 MG_MODE_F32_COMBINE class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 2048 words; class=ALT
+CHECK name=device case=84 MG_MODE_F32_COMBINE differs from the honest output ok=1 n=2048 differs from honest in 2048 words
+CHECK name=device case=85 MG_MODE_RANK_ACCUM counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=85 MG_MODE_RANK_ACCUM record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=device case=85 MG_MODE_RANK_ACCUM(IMMUNE) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=85 MG_MODE_RANK_ACCUM class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 0 words; class=IMMUNE
+CHECK name=device case=85 MG_MODE_RANK_ACCUM equals the honest output (immunity) ok=1 n=2048 differs from honest in 0 words
+CHECK name=device case=86 MG_MODE_W_BY_EXPERT_ID counter==recount ok=1 n=2048 kernel bad=0 recount=0
+CHECK name=device case=86 MG_MODE_W_BY_EXPERT_ID record carries a value ok=1 n=2048 out nan=0 zero=0 value=2048 | expect nan=0 zero=0 value=2048 | nan-moved=0 kernel_nan=0
+CHECK name=device case=86 MG_MODE_W_BY_EXPERT_ID(IMMUNE) bit-exact vs oracle ok=1 n=2048 differing=0
+CHECK name=device case=86 MG_MODE_W_BY_EXPERT_ID class matches its derived expectation ok=1 n=2048 oracle's alternative vs oracle's honest differs in 0 words; class=IMMUNE
+CHECK name=device case=86 MG_MODE_W_BY_EXPERT_ID equals the honest output (immunity) ok=1 n=2048 differs from honest in 0 words
+CHECK name=device case=87 MG_MODE_HALVES_SWAPPED counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=87 MG_MODE_HALVES_SWAPPED record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=87 MG_MODE_HALVES_SWAPPED(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=87 MG_MODE_HALVES_SWAPPED class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 1024 words; class=ALT
+CHECK name=device case=87 MG_MODE_HALVES_SWAPPED differs from the honest output ok=1 n=3584 differs from honest in 1024 words
+CHECK name=device case=88 MG_MODE_INPUT_CHUNK counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=88 MG_MODE_INPUT_CHUNK record carries a value ok=1 n=3584 out nan=2816 zero=0 value=768 | expect nan=2816 zero=0 value=768 | nan-moved=0 kernel_nan=1
+CHECK name=device case=88 MG_MODE_INPUT_CHUNK(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=88 MG_MODE_INPUT_CHUNK class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3072 words; class=ALT
+CHECK name=device case=88 MG_MODE_INPUT_CHUNK differs from the honest output ok=1 n=3584 differs from honest in 3072 words
+CHECK name=device case=89 MG_MODE_ROW_OFF_1 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=89 MG_MODE_ROW_OFF_1 record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=89 MG_MODE_ROW_OFF_1(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=89 MG_MODE_ROW_OFF_1 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3072 words; class=ALT
+CHECK name=device case=89 MG_MODE_ROW_OFF_1 differs from the honest output ok=1 n=3584 differs from honest in 3072 words
+CHECK name=device case=90 MG_MODE_BLOCK_OFF_1 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=90 MG_MODE_BLOCK_OFF_1 record carries a value ok=1 n=3584 out nan=0 zero=3072 value=512 | expect nan=0 zero=3072 value=512 | nan-moved=0 kernel_nan=0
+CHECK name=device case=90 MG_MODE_BLOCK_OFF_1(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=90 MG_MODE_BLOCK_OFF_1 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3584 words; class=ALT
+CHECK name=device case=90 MG_MODE_BLOCK_OFF_1 differs from the honest output ok=1 n=3584 differs from honest in 3584 words
+CHECK name=device case=91 MG_MODE_BYTE_SHIFT_1 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=91 MG_MODE_BYTE_SHIFT_1 record carries a value ok=1 n=3584 out nan=0 zero=3584 value=0 | expect nan=0 zero=3584 value=0 | nan-moved=0 kernel_nan=0
+CHECK name=device case=91 MG_MODE_BYTE_SHIFT_1(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=91 MG_MODE_BYTE_SHIFT_1 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3584 words; class=ALT
+CHECK name=device case=91 MG_MODE_BYTE_SHIFT_1 differs from the honest output ok=1 n=3584 differs from honest in 3584 words
+CHECK name=device case=92 MG_MODE_Q6K_D_BYTE_0 counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=92 MG_MODE_Q6K_D_BYTE_0 record carries a value ok=1 n=3584 out nan=0 zero=2048 value=1536 | expect nan=0 zero=2048 value=1536 | nan-moved=0 kernel_nan=0
+CHECK name=device case=92 MG_MODE_Q6K_D_BYTE_0(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=92 MG_MODE_Q6K_D_BYTE_0 class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 2048 words; class=ALT
+CHECK name=device case=92 MG_MODE_Q6K_D_BYTE_0 differs from the honest output ok=1 n=3584 differs from honest in 2048 words
+CHECK name=device case=93 MG_MODE_EXPERT_ROTATE counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=93 MG_MODE_EXPERT_ROTATE record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=93 MG_MODE_EXPERT_ROTATE(IMMUNE) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=93 MG_MODE_EXPERT_ROTATE class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 0 words; class=IMMUNE
+CHECK name=device case=93 MG_MODE_EXPERT_ROTATE equals the honest output (immunity) ok=1 n=3584 differs from honest in 0 words
+CHECK name=device case=94 MG_MODE_SCALE_MIN_NAIVE counter==recount ok=1 n=3584 kernel bad=3584 recount=3584
+CHECK name=device case=94 MG_MODE_SCALE_MIN_NAIVE record carries a value ok=1 n=3584 out nan=0 zero=0 value=3584 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=94 MG_MODE_SCALE_MIN_NAIVE FIRED (must differ) ok=1 n=3584 differing=3584
+CHECK name=device case=95 MG_MODE_WIDTH_MISREAD counter==recount ok=1 n=3584 kernel bad=2048 recount=2048
+CHECK name=device case=95 MG_MODE_WIDTH_MISREAD record carries a value ok=1 n=3584 out nan=0 zero=2048 value=1536 | expect nan=0 zero=0 value=3584 | nan-moved=0 kernel_nan=0
+CHECK name=device case=95 MG_MODE_WIDTH_MISREAD FIRED (must differ) ok=1 n=3584 differing=2048
+CHECK name=device case=96 MG_MODE_POISON_NAN counter==recount ok=1 n=3584 kernel bad=0 recount=0
+CHECK name=device case=96 MG_MODE_POISON_NAN record carries a value ok=1 n=3584 out nan=3584 zero=0 value=0 | expect nan=3584 zero=0 value=0 | nan-moved=0 kernel_nan=1
+CHECK name=device case=96 MG_MODE_POISON_NAN(ALT) bit-exact vs oracle ok=1 n=3584 differing=0
+CHECK name=device case=96 MG_MODE_POISON_NAN class matches its derived expectation ok=1 n=3584 oracle's alternative vs oracle's honest differs in 3584 words; class=ALT
+CHECK name=device case=96 MG_MODE_POISON_NAN differs from the honest output ok=1 n=3584 differs from honest in 3584 words
+POPULATION device MATCH=29 MISMATCH=6 ALT=37 IMMUNE=9 REPORT=16
+INTEGRITY device cases=97 silent_records=0 of which no_value=0 nan-moved=0
+CHECK name=device no record is silent ok=1 n=97 silent=0 (no_value=0 nan-moved=0)
+ALTREACH device modes=12 reachable=12 immune_everywhere=none
+CHECK name=device every injection mode is reachable somewhere in the sample ok=1 n=12 immune on every case of their kind: none
+CHECK name=device expert gate field nonzero wherever the oracle's is ok=1 n=32 32 expert cases have an all-nonzero expected gate field, 32 produced an all-nonzero gate
+INJECTIONS device expert checked=29 fired=29
+INJECTIONS device combine checked=14 fired=14
+INJECTIONS device checked=43 fired=43
+INJECTION arm=MG_MODE_F32_COMBINE(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_RANK_ACCUM(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_W_BY_EXPERT_ID(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_POISON_NAN(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_F32_COMBINE(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_W_BY_EXPERT_ID(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_HALVES_SWAPPED(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_INPUT_CHUNK(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_ROW_OFF_1(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_BLOCK_OFF_1(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_BYTE_SHIFT_1(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_Q6K_D_BYTE_0(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_EXPERT_ROTATE(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_SCALE_MIN_NAIVE kind=expert fired=1
+INJECTION arm=MG_MODE_WIDTH_MISREAD kind=expert fired=1
+INJECTION arm=MG_MODE_POISON_NAN(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_F32_COMBINE(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_RANK_ACCUM(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_W_BY_EXPERT_ID(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_POISON_NAN(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_CAST_AFTER(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_RANK_ACCUM(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_W_BY_EXPERT_ID(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_HALVES_SWAPPED(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_INPUT_CHUNK(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_ROW_OFF_1(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_BLOCK_OFF_1(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_BYTE_SHIFT_1(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_Q6K_D_BYTE_0(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_EXPERT_ROTATE(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_SCALE_MIN_NAIVE kind=expert fired=1
+INJECTION arm=MG_MODE_WIDTH_MISREAD kind=expert fired=1
+INJECTION arm=MG_MODE_POISON_NAN(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_F32_COMBINE(alt-vs-honest) kind=combine fired=1
+INJECTION arm=MG_MODE_HALVES_SWAPPED(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_INPUT_CHUNK(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_ROW_OFF_1(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_BLOCK_OFF_1(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_BYTE_SHIFT_1(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_Q6K_D_BYTE_0(alt-vs-honest) kind=expert fired=1
+INJECTION arm=MG_MODE_SCALE_MIN_NAIVE kind=expert fired=1
+INJECTION arm=MG_MODE_WIDTH_MISREAD kind=expert fired=1
+INJECTION arm=MG_MODE_POISON_NAN(alt-vs-honest) kind=expert fired=1
+CHECK name=device injection denominator matches the plan ok=1 n=43 plan-derived=43 counted=43 (expert=29 combine=14)
+CHECK name=device expert injections all fired ok=1 n=29 did not fire: none
+CHECK name=device combine injections all fired ok=1 n=14 did not fire: none
+CHECK name=host arm and device arm agree word for word ok=0 n=306176 differing words=6631 of 306176
+CHECK name=device launch counter == launches issued ok=1 n=6 mode=grouped issued=6 device_counted=6
+CHECK name=no device->host read during the launches ok=1 n=1 d2h_total=3 d2h_during=0
+CHECK name=per-slot and grouped differ in launch count (prediction 2) ok=1 n=2 grouped=6 per-slot=27
+CHECK name=per-slot shape produces the same words (so the count is the only difference) ok=1 n=306176 differing=0
+CHECKS ran=908 failed=1 host arm and device arm agree word for word
+RESULT FAIL moe_gather device gate checks=908 findings=1
+UTIL_AFTER gpu use: 38%
+WALL started=2026-10-25T15:27:50Z finished=2026-10-25T15:28:04Z  (lock record only; no timing taken)
+no timing taken
+LOG /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/moe_gather/evidence/moe-gather-device-2026-10-26.log
+LOCK releasing
+LOCK released tag=q36 W13 moe_gather device gate

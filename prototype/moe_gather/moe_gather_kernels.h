@@ -408,7 +408,12 @@ MG_DEV static inline int mg_unit_elt(const MgPlan *p, const MgUnit *u, int role,
                                      int n_cols, int mode, float *v, float *v32) {
     if (u->kind != u->declared_kind || !mg_kind_ok(u->kind)) return 1;   /* plan bug: refuse       */
     int kind = u->kind;
-    if (mode == MG_MODE_WIDTH_MISREAD) {
+    if (mode == MG_MODE_WIDTH_MISREAD && role == MG_ROLE_DOWN) {
+        /* The misreading this mode models is the DOWN family's width swap, which is what its own
+         * reach declaration says (mg_reaches: WIDTH_MISREAD reaches MG_F_RAW only — "a down-only
+         * misread"). Applying it to gate and up too made every element of a Q4_K gate unit refuse,
+         * because Q4_K has no defined swap, so the record read all-NaN and the case "fired" for a
+         * reason that had nothing to do with width. Width is a per-family fact; so is the swap. */
         if (kind == MG_KIND_Q5K) kind = MG_KIND_Q6K;
         else if (kind == MG_KIND_Q6K) kind = MG_KIND_Q5K;
         else return 1;                               /* Q4_K has no defined width swap             */
@@ -424,8 +429,12 @@ MG_DEV static inline int mg_unit_elt(const MgPlan *p, const MgUnit *u, int role,
         flat = ((long long)row * 2 + half) * n_cols + c;
     } else {
         int r = row;
-        if (mode == MG_MODE_ROW_OFF_1) r = (role == MG_ROLE_DOWN) ? (row + 1) % MG_H
-                                                                  : (row + 1) % MG_TWO_I;
+        /* The rotate wraps inside the unit whose rows are read: gate and up are [I,H], down is
+         * [H,I], so the modulus is that unit's own row count. Modulo MG_TWO_I rotated a half-sized
+         * matrix by the fused matrix's modulus, which sent row I-1 of gate and of up past the end of
+         * the unit instead of wrapping it to row 0: two refused reads, and because the refused read
+         * NaNs s[i], every one of the H raw elements went NaN with it. */
+        if (mode == MG_MODE_ROW_OFF_1) r = (row + 1) % u->rows;
         if (r < 0 || r >= u->rows || col < 0 || col >= n_cols) return 1;
         flat = (long long)r * n_cols + col;
     }
@@ -531,7 +540,15 @@ MG_DEV static inline void mg_expert_case(const MgPlan *p, const MgCase *c, float
         if (!u) { out[t] = mg_nan(); nanseen = 1; continue; }
         for (int j = 0; j < MG_H; ++j) {
             float w, w32 = 0.0f;
-            if (!mg_unit_elt(p, u, role, row, j, MG_H, mode, &w, (mode == MG_MODE_CORRECT) ? &w32 : 0)) {
+            /* mg_unit_elt returns 0 when the element is defined and NON-zero only when this plan
+             * cannot answer for it. The test here used to be `!mg_unit_elt(...)`, which read success
+             * as a refusal: every element of every expert case was therefore treated as undefined,
+             * the accumulator was NaN-ed on the first j, and the width census below was never
+             * reached (route_n printed 0). The reader was never at fault — work/diag_unit_elt
+             * witnesses refused=0 and 6.5M non-zero decoded elements on the same plan.
+             * One contract, one polarity: non-zero is the refusal. */
+            if (mg_unit_elt(p, u, role, row, j, MG_H, mode, &w,
+                            (mode == MG_MODE_CORRECT) ? &w32 : 0)) {
                 acc = mg_nan(); nanseen = 1; break;
             }
             if (mode == MG_MODE_CORRECT) {
@@ -557,8 +574,9 @@ MG_DEV static inline void mg_expert_case(const MgPlan *p, const MgCase *c, float
         if (!u) { out[MG_OFF_RAW + t] = mg_nan(); nanseen = 1; continue; }
         for (int j = 0; j < MG_I; ++j) {
             float w, w32 = 0.0f;
-            if (!mg_unit_elt(p, u, MG_ROLE_DOWN, t, j, MG_I, mode, &w,
-                             (mode == MG_MODE_CORRECT) ? &w32 : 0)) {
+            /* the same contract as phase 1: non-zero return is the refusal, zero is a defined read  */
+            if (mg_unit_elt(p, u, MG_ROLE_DOWN, t, j, MG_I, mode, &w,
+                            (mode == MG_MODE_CORRECT) ? &w32 : 0)) {
                 acc = mg_nan(); nanseen = 1; break;
             }
             if (mode == MG_MODE_CORRECT) {
@@ -928,6 +946,26 @@ static inline int mg_verify_plan(const MgPlan *p, long long out_floats, long lon
             if (p->units[ui].rows != want_rows) { printf("FAIL plan: case %d unit %d covers %d rows, not %d\n", i, ui, p->units[ui].rows, want_rows); f++; }
         }
         if (c->mode == MG_MODE_CORRECT) ncls[c->expect]++;
+        /* ---- the hard failure: an expert case that resolves no weights is a plan defect ---------- *
+         * Before this, a mode whose resolve returned NULL still ran the case, wrote MG_NAN_BITS into
+         * the record, and showed up as one more failing numerics row - which is how a whole expert
+         * population produced no value and the lane read it as a numerics result (results.md §6, and
+         * the EXPERT_ROTATE identity bug in §3 was in the same class). "No unit for this role" is
+         * asserted here, on the plan, before a single case runs, so a silent record is impossible to
+         * mistake for a wrong number. MG_MODE_INPUT_CHUNK is deliberately NOT covered: its undefined
+         * reads are inside a resolved unit (rows past the run) and the oracle derives NaN for them. */
+        if (c->kind == MG_CASE_EXPERT && c->block >= 0 && c->block < p->n_blocks) {
+            for (int rl = 0; rl < MG_ROLE_COUNT; ++rl) {
+                const int ui = (rl == MG_ROLE_GATE) ? c->u_gate : (rl == MG_ROLE_UP) ? c->u_up : c->u_down;
+                if (ui < 0 || ui >= p->n_units) continue;   /* already reported above          */
+                if (!mg_resolve_unit(p, c, rl, c->mode)) {
+                    printf("FAIL plan: case %d mode %d resolves no unit for role %d: an expert with "
+                           "no weights must be refused, not run and write a silent record\n",
+                           i, c->mode, rl);
+                    f++;
+                }
+            }
+        }
     }
     if (verbose) {
         printf("PLANCHECK units=%d rows=%d cases=%d blocks=%d out_floats=%lld expect_floats=%lld "

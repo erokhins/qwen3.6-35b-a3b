@@ -290,7 +290,15 @@ class Slab(object):
 # synthetic exact fixtures
 # -----------------------------------------------------------------------------------------------
 F16_ONE = 0x3C00
-LIVE_COLS = (7, 263)          # two live columns, 256 apart, so BLOCK_OFF_1 lands on the other one
+# Two live columns, 256 apart, so MG_MODE_BLOCK_OFF_1 maps one onto the other and the block-shift
+# injection moves numbers instead of zeros. The pair also has to sit where the two 6-bit scale unpacks
+# DISAGREE: element e of a block lives in sub-block j = 2*(e>>6) + ((e>>5)&1) and e is (column % 256),
+# so the previous pair (7, 263) put every live element in j = 0 — the one sub-block where
+# get_scale_min_k4 and the naive contiguous-6-bit reading agree on these bytes — and
+# MG_MODE_SCALE_MIN_NAIVE printed differing=0 because it structurally could not fire. Column 33 is
+# e = 33 -> j = 1, where the decoder route reads sc = 1 and the naive route reads sc = 4 (the same
+# disagreement mg_scale_min_naive_differs witnesses in the selftest).
+LIVE_COLS = (33, 289)
 X0 = 512.0                    # the activation value at every live column
 
 
@@ -334,14 +342,14 @@ SYNTH_BUILD = {"Q4_K": synth_block_q4k, "Q6_K": synth_block_q6k}
 def synth_matrix(role, rows, cols):
     """The chosen value matrix of a synthetic unit. Integers only, and small:
 
-    gate[i]  = X0 * Vg[i, 7]  (+ X0 * Vg[i, 263] = 0 on the honest read)  -> 512 or 1536
-    up[i]    = X0 * Vu[i, 7]                                             -> 1024
-    s[i]     = silu(gate)*up, and |gate| >= 128 makes silu the identity   -> 524288 / 1572864
-    raw[t]   = s[3]*Vd[t, 3] + s[259]*Vd[t, 259]                          -> <= 4 718 592 < 2**24
+    gate[i]  = X0 * Vg[i, 33] + X0 * Vg[i, 289]   -> 1536 (i even) or 2560 (i odd)
+    up[i]    = X0 * Vu[i, 33]                    -> 1024
+    s[i]     = silu(gate)*up, and |gate| >= 128 makes silu the identity -> 1572864 or 2621440
+    raw[t]   = s[33]*Vd[t, 33] + s[289]*Vd[t, 289] <= 10485760 < 2**24
     Every intermediate is an integer below 2**24, so f32 addition is exact on it and no association
-    question exists to disagree about — which is what licenses MG_EXP_MATCH on these cases. The
-    second live column (263 = 7+256) is what makes the block-shift injection produce numbers rather
-    than zeros.
+    question exists to disagree about — which is what licenses MG_EXP_MATCH on these cases. The live
+    columns are 256 apart so the block-shift injection produces numbers rather than zeros, and they
+    sit in sub-block j = 1 so the naive scale-order injection can reach them (see LIVE_COLS).
     """
     m = np.zeros((rows, cols), dtype=np.float32)
     if role == "gate":
@@ -350,10 +358,9 @@ def synth_matrix(role, rows, cols):
     elif role == "up":
         m[:, LIVE_COLS[0]] = 2.0
     else:
-        m[:, 3] = [0.0, 1.0, 2.0, 1.0][0]      # replaced below; keep the shape explicit
         for i in range(rows):
-            m[i, 3] = [0.0, 1.0, 2.0, 1.0][i % 4]
-            m[i, 259] = [1.0, 0.0, 1.0, 0.0][i % 4]
+            m[i, LIVE_COLS[0]] = [0.0, 1.0, 2.0, 1.0][i % 4]
+            m[i, LIVE_COLS[1]] = [1.0, 0.0, 1.0, 0.0][i % 4]
     return m
 
 
@@ -577,12 +584,15 @@ class Plan(object):
 
     # ---- cases -------------------------------------------------------------------------
     def add_case(self, kind, mode, block_tag, row, slot, units, cls, src, exact, expect,
-                 combine_src=0):
+                 combine_src=0, field_exact="all"):
         nf = HC["EXPERT_FLOATS"] if kind == 0 else HC["MG_H"]
         exp = np.asarray(expect, dtype=np.float32).reshape(-1)
         if exp.size != nf:
             raise GateError("case mode=%s expects %d floats, got %d" % (MODE_NAME.get(mode, mode),
                                                                        nf, exp.size))
+        if field_exact not in ("all", "gate_up"):
+            raise GateError("case mode=%s has field_exact=%r, which is neither of the two rules"
+                            % (MODE_NAME.get(mode, mode), field_exact))
         dst = self.out_len
         self.out_len += nf
         off = self.expect_len
@@ -593,7 +603,7 @@ class Plan(object):
                                u=(units[0].n, units[1].n, units[2].n), row_idx=row["index"],
                                combine_src=combine_src, dst_off=dst, exp_off=off, cmp_off=-1,
                                expect=cls, n_floats=nf, group=block_tag, src=src, exact=exact,
-                               case_index=len(self.cases)))
+                               field_exact=field_exact, case_index=len(self.cases)))
         return self.cases[-1]
 
     def plan_row_c(self, c):
@@ -614,6 +624,13 @@ def honest_expert(plan, units, row, mode=MODES["MG_MODE_CORRECT"]):
     I, H, K = HC["MG_I"], HC["MG_H"], HC["MG_K"]
     if mode == MODES["MG_MODE_POISON_NAN"]:
         return np.full(HC["EXPERT_FLOATS"], NAN_WORD, dtype=np.float32)
+    if mode == MODES["MG_MODE_HALVES_SWAPPED"]:
+        # The kernel resolves this mode by choosing the OTHER unit — gate reads the up unit and up
+        # reads the gate unit — so the alternative is that swap, not a remapping of one matrix, and
+        # it is spelled here because this is where every other mode's reading is spelled too. It
+        # matters: on the integer fixture s = silu(gate)*up is the same product either way, so gate
+        # and up are the only fields that can distinguish the two readings at all.
+        g, u_ = u_, g
     Mg, Mu, Md = g.mat, u_.mat, d.mat
     if mode == MODES["MG_MODE_INPUT_CHUNK"]:
         Mg, Mu = remap_input_chunk(Mg), remap_input_chunk(Mu)
@@ -678,6 +695,24 @@ def units_of(plan, base, pos):
     return (plan.units[base + pos * 3], plan.units[base + pos * 3 + 1], plan.units[base + pos * 3 + 2])
 
 
+def field_rule(plan, kind, read_units):
+    """Which words of an expert case's span the oracle can promise bit-for-bit.
+
+    "all"     — every field. True when the case reads only synthetic exact units: integers below
+                2**24 through an fp32 dot, silu degenerating to the identity, so no association
+                question exists.
+    "gate_up" — gate and up are bit-exact fp32 dots, but s and raw cross the transcendental (the
+                kernel's fp32 `expf` against numpy's double `exp`), which this lane counts and never
+                bands (`specification/11-moe-block.md` §11.8; `moe_gather_kernels.h` §silu).
+    Derived from the cls of the units the case ACTUALLY reads, which for MG_MODE_EXPERT_ROTATE is not
+    the case's own unit triple. gate.py re-checks the declaration rather than trusting it: a case
+    judged MG_EXP_MATCH is refused unless it declares "all".
+    """
+    if kind != 0:
+        return "all"
+    return "gate_up" if any(plan.units[u.n]["cls"] == 0 for u in read_units) else "all"
+
+
 def synth_x():
     x = np.zeros(HC["MG_H"], dtype=np.float32)
     for j in LIVE_COLS:
@@ -691,32 +726,74 @@ def synth_wpre(K):
     return [float(1.0 + (k + 1) * 2.0 ** -9) for k in range(K)]
 
 
-def combine_injections(plan, row, ut, src_note):
-    """The four combine modes on one row, with the class derived from THAT ROW'S GEOMETRY.
+def bits_equal(a, b):
+    """Bit-identity of two derived expectation vectors.
 
-    RANK_ACCUM cannot move a row whose ids are already ascending, and W_BY_EXPERT_ID cannot move a row
-    where ids[k] % K == k for every k — both are facts about the id vector, both are read back out of
-    the plan's own id_asc / w_by_eid_fixed fields, and a case whose mode cannot reach it must be judged
-    IMMUNE (must equal the honest output exactly). That is the must-not-catch side of
+    Not `np.array_equal` on floats: here a NaN payload and the sign of a zero are differences, because
+    the judgement everywhere else in this lane is on words, not on numbers.
+    """
+    a = np.asarray(a, dtype=np.float32).reshape(-1)
+    b = np.asarray(b, dtype=np.float32).reshape(-1)
+    return a.shape == b.shape and bool(np.array_equal(a.view(np.uint32), b.view(np.uint32)))
+
+
+def weights_already_bf16(row):
+    """1 when every weight of the row is bit-identical after the bf16 round trip.
+
+    That is the geometry that makes MG_MODE_CAST_AFTER unreachable: if the stored weight is already a
+    bf16 value, casting before the multiply and casting the product afterwards are the same number,
+    so the case must be judged IMMUNE (equal to the honest output) rather than ALT. Both pinned
+    `topk_weights` blocks satisfy this (work/diag_residual.py §A: bf16-rounding-changes = 0 of 256
+    words for layer0 and layer39), and the synthetic rows deliberately do not — `synth_wpre` is a
+    1+2**-9 ladder — which is what keeps the injection reachable somewhere in the sample.
+    """
+    w = np.asarray(row["wpre"], dtype=np.float32)
+    return bool(np.array_equal(bf16_bits_to_f32(f32_to_bf16_bits(w)).view(np.uint32),
+                               w.view(np.uint32)))
+
+
+def combine_injections(plan, row, ut, src_note, raw=None, combine_src=0):
+    """The four combine modes on one row, with every class derived from THAT ROW'S GEOMETRY.
+
+    RANK_ACCUM cannot move a row whose ids are already ascending; W_BY_EXPERT_ID cannot move a row
+    where ids[k] % K == k for every k; CAST_AFTER cannot move a row whose weights are already
+    bf16-exact. All three are facts about the row, read back out of the row's own fields rather than
+    typed next to the case, and a case whose mode cannot reach it is judged IMMUNE (must equal the
+    honest output exactly). That is the must-not-catch side of
     pitfalls/40-gates-and-admissions.md §"A negative control with an empty must-catch set".
+
+    `raw`/`combine_src` MUST be the ones the honest case used: an ALT case that reads a different
+    pre-weight vector than its honest counterpart is judging two different inputs against each other
+    (and that is how a synthetic row whose pinned slice is all-zero came to carry four combine
+    injections that compared nothing).
     """
     MM, EXP = MODES, EXPS
+    h_exp = honest_combine(row, raw=raw)
     spec = [(MM["MG_MODE_CAST_AFTER"], dict(cast="after"),
-             "multiply by the fp32 weight and round the product afterwards (prediction 4)", None),
+             "multiply by the fp32 weight and round the product afterwards (prediction 4)",
+             weights_already_bf16, "every weight of this row is already bf16-exact"),
             (MM["MG_MODE_F32_COMBINE"], dict(acc="f32"),
-             "fp32 accumulator rounded once instead of a bf16 accumulator", None),
+             "fp32 accumulator rounded once instead of a bf16 accumulator", None, None),
             (MM["MG_MODE_RANK_ACCUM"], dict(order="rank"),
-             "addends in rank order instead of ascending expert id", "id_asc"),
+             "addends in rank order instead of ascending expert id",
+             lambda r: r["id_asc"] == 1, "this row's ids are already ascending"),
             (MM["MG_MODE_W_BY_EXPERT_ID"], dict(w_by="expert_id"),
-             "weight array indexed by expert id instead of by rank", "w_by_eid_fixed")]
-    for mode, kw, why, immune_field in spec:
-        immune = immune_field is not None and row[immune_field] == 1
+             "weight array indexed by expert id instead of by rank",
+             lambda r: r["w_by_eid_fixed"] == 1, "ids[k] % K == k for every k on this row")]
+    for mode, kw, why, immune_pred, why_immune in spec:
+        alt = honest_combine(row, raw=raw, **kw)
+        reasons = []
+        if immune_pred is not None and immune_pred(row):
+            reasons.append(why_immune)
+        if bits_equal(alt, h_exp):
+            reasons.append("the alternative the oracle derived is bit-identical to its own honest "
+                           "expectation on this row, so no kernel can make this record differ")
+        immune = bool(reasons)
         cls = EXP["MG_EXP_IMMUNE"] if immune else EXP["MG_EXP_ALT"]
-        exact = ("must equal the honest output exactly: this row's %s makes the mode a no-op"
-                 % immune_field if immune else
+        exact = ("must equal the honest output exactly: " + "; ".join(reasons) if immune else
                  "exact both ways: the alt must match AND differ from the honest span")
         plan.add_case(1, mode, row["block"], row, 0, ut, cls, src_note + ": " + why, exact,
-                      honest_combine(row, **kw))
+                      alt, combine_src=combine_src)
 
 
 def build_sample(plan, gg):
@@ -755,7 +832,8 @@ def build_sample(plan, gg):
                 plan.add_case(0, MM["MG_MODE_CORRECT"], block_tag, row, k, ut, EXP["MG_EXP_REPORT"],
                               "audited gguf_reader dequant of published bytes + declared fp32 form",
                               "gate/up exact; s/raw counted (silu is a transcendental off the "
-                              "exact fixtures)", honest_expert(plan, ut, row))
+                              "exact fixtures)", honest_expert(plan, ut, row),
+                              field_exact=field_rule(plan, 0, ut))
             exp = honest_combine(row)
             # The expectation this case is judged by is itself checked against the pinned
             # routed_sum, in the same run, so it is not a self-derived reference.
@@ -792,7 +870,8 @@ def build_sample(plan, gg):
                       "this kernel's OWN mode-0 raw outputs (the end-to-end arm)",
                       "exact only because the fixture is integer-exact",
                       honest_combine(srow, raw=tiled), combine_src=1)
-        combine_injections(plan, srow, ut, "synthetic raw (this arm's own output)")
+        combine_injections(plan, srow, ut, "synthetic raw (this arm's own output)",
+                           raw=tiled, combine_src=1)
         for mode, why in (
                 (MM["MG_MODE_HALVES_SWAPPED"], "gate and up exchanged: the [E,2I,H] half swap"),
                 (MM["MG_MODE_INPUT_CHUNK"], "the fused run read as [I,2H]: output row i reads run "
@@ -806,22 +885,38 @@ def build_sample(plan, gg):
                 continue                      # the mode cannot move a unit of another width
             if mode == MM["MG_MODE_BYTE_SHIFT_1"]:
                 # Deferred: this misread reaches one byte past its own unit, so its alternative has
-                # to come from the FINAL slab. Placeholder now, real alt in the second pass below.
+                # to come from the FINAL slab. Placeholder now, real alt in the second pass below,
+                # which is also where its class gets decided (same coincidence rule as below).
+                h_exp = honest_expert(plan, ut, srow)
                 c = plan.add_case(0, mode, block_tag, srow, 0, ut, EXP["MG_EXP_ALT"],
                                   "alt derived from the slab bytes themselves, read one byte late",
                                   "exact both ways: the alt must match AND differ from the honest span",
-                                  honest_expert(plan, ut, srow))
-                plan.bshift_jobs.append((c["case_index"], ut, srow))
+                                  h_exp)
+                plan.bshift_jobs.append((c["case_index"], ut, srow, h_exp))
                 continue
-            plan.add_case(0, mode, block_tag, srow, 0, ut, EXP["MG_EXP_ALT"],
+            h_exp = honest_expert(plan, ut, srow)
+            alt = honest_expert(plan, ut, srow, mode=mode)
+            coincides = bits_equal(alt, h_exp)
+            plan.add_case(0, mode, block_tag, srow, 0, ut,
+                          EXP["MG_EXP_IMMUNE"] if coincides else EXP["MG_EXP_ALT"],
                           "alt derived from the fixture matrix: " + why,
-                          "exact both ways: the alt must match AND differ from the honest span",
-                          honest_expert(plan, ut, srow, mode=mode))
+                          ("must equal the honest output exactly: the alternative this mode derives "
+                           "is bit-identical to the honest expectation on this fixture"
+                           if coincides else
+                           "exact both ways: the alt must match AND differ from the honest span"),
+                          alt)
         if main_n > 1:
             nxt = units_of(plan, base_real, 0) if len(experts) else ut
-            plan.add_case(0, MM["MG_MODE_EXPERT_ROTATE"], block_tag, srow, 0, ut, EXP["MG_EXP_ALT"],
+            h_exp = honest_expert(plan, ut, srow)
+            alt = honest_expert(plan, nxt, srow)
+            coincides = bits_equal(alt, h_exp)
+            plan.add_case(0, MM["MG_MODE_EXPERT_ROTATE"], block_tag, srow, 0, ut,
+                          EXP["MG_EXP_IMMUNE"] if coincides else EXP["MG_EXP_ALT"],
                           "alt = the next sampled expert of this block's main set",
-                          "exact both ways", honest_expert(plan, nxt, srow))
+                          ("must equal the honest output exactly: the next sampled expert's output is "
+                           "bit-identical to this record's on this fixture" if coincides else
+                           "exact both ways"), alt,
+                          field_exact=field_rule(plan, 0, nxt))
         else:
             plan.add_case(0, MM["MG_MODE_EXPERT_ROTATE"], block_tag, srow, 0, ut, EXP["MG_EXP_IMMUNE"],
                           "this block's main set holds ONE expert, so (pos+1) %% main_n == pos and "
@@ -847,8 +942,17 @@ def build_sample(plan, gg):
     # reaches past its own unit can now have its alternative derived from the bytes the kernel will
     # actually read rather than from a copy of them.
     plan.slab.guard()
-    for cidx, ut, srow in plan.bshift_jobs:
-        plan.expect[cidx] = honest_expert(plan, ut, srow, mode=MM["MG_MODE_BYTE_SHIFT_1"])
+    for cidx, ut, srow, h_exp in plan.bshift_jobs:
+        alt = honest_expert(plan, ut, srow, mode=MM["MG_MODE_BYTE_SHIFT_1"])
+        plan.expect[cidx] = alt
+        # The class is decided here, not at add time, because the alternative it turns on is only
+        # derivable once the guard byte exists. Same coincidence rule as every other alternative.
+        coincides = bits_equal(alt, h_exp)
+        plan.cases[cidx]["expect"] = EXP["MG_EXP_IMMUNE"] if coincides else EXP["MG_EXP_ALT"]
+        plan.cases[cidx]["exact"] = (
+            "must equal the honest output exactly: the byte-shifted read is bit-identical to the "
+            "honest one on this unit" if coincides else
+            "exact both ways: the alt must match AND differ from the honest span")
     for m in meta:
         ne = sum(1 for i in range(m["case_lo"], m["case_hi"] + 1) if plan.cases[i]["kind"] == 0)
         plan.blocks.append(dict(index=m["index"], is_mtp=m["is_mtp"], unit_base=m["base_real"],
@@ -895,14 +999,14 @@ def write_inventory(plan, work, meta):
     """cases.tsv / units.tsv / rows.tsv — the record counts gate.py must reproduce."""
     with open(os.path.join(work, "cases.tsv"), "w") as fh:
         fh.write("# case_index kind mode mode_name block_tag block_index row slot expect "
-                 "expect_name source exactness dst_off exp_off n_floats combine_src\n")
+                 "expect_name source exactness dst_off exp_off n_floats combine_src field_exact\n")
         for c in plan.cases:
             bt = BLOCKS[c["block"]][0]
             fh.write("\t".join(str(x) for x in (
                 c["case_index"], c["kind"], c["mode"], MODE_NAME[c["mode"]], c["block"],
                 BLOCKS[c["block"]][1], c["row"], c["slot"], c["expect"], EXP_NAME[c["expect"]],
                 c["src"], c["exact"], c["dst_off"], c["exp_off"], c["n_floats"],
-                c["combine_src"])) + "\n")
+                c["combine_src"], c["field_exact"])) + "\n")
     with open(os.path.join(work, "units.tsv"), "w") as fh:
         fh.write("# unit kind declared block_tag role expert src_off slot_bytes n_blocks rows "
                  "set_pos main_n cls tensor_index width\n")
@@ -1129,6 +1233,13 @@ def main():
     print("CLASSES " + " ".join("%s=%d" % (k, classes.get(k, 0))
                                 for k in ("MG_EXP_MATCH", "MG_EXP_MISMATCH", "MG_EXP_ALT",
                                           "MG_EXP_IMMUNE", "MG_EXP_REPORT")))
+    fields = {}
+    for c in plan.cases:
+        fields[c["field_exact"]] = fields.get(c["field_exact"], 0) + 1
+    print("FIELDEXACT all=%d gate_up=%d (gate_up = the case reads published bytes, so s and raw cross "
+          "the transcendental and are counted, never banded; derived from the cls of the units each "
+          "case actually reads)"
+          % (fields.get("all", 0), fields.get("gate_up", 0)))
     missing = sorted(MODE_NAME[m] for m in set(MODES.values()) - plan.modes_used)
     for b in plan.blocks:
         ne = sum(1 for c in plan.cases if c["block"] == plan.blocks.index(b) and c["kind"] == 0)
