@@ -1,0 +1,277 @@
+# speccheck/evidence/selftest-2026-10-26-w8.txt
+# Provenance. W8 (tensorfold lane), box clock 2026-10-25, repo convention date 2026-10-26.
+# The first GREEN capture of speccheck/selftest_moe.py --selftest. It inherits the red state
+# W4 left (tmp/w4-selftest-0459.txt: "arm=stub: stub missed 192 allowed stages, derived 184")
+# and closes it by derivation, not by moving the expectation: 192 is right, 184 dropped the
+# two conditional stages (topk_ids, expert_raw) that a bf16 softmax licenses on a real top-k
+# flip, in each of the 4 acquired blocks. Per-section derivation:
+# speccheck/evidence/selftest-derivation-2026-10-26-w8.txt ; negative controls (this green
+# gate still fails for named reasons): speccheck/evidence/selftest-controls-2026-10-26-w8.txt
+# Command: /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python speccheck/selftest_moe.py --selftest
+# Exit code 0. CPU only (torch-CPU, threads=8); no device run, no clock read: no timing taken.
+# The four blocks, the seed and the manifest are unchanged from the 2026-10-26 pins.
+# selftest_moe — torch 2.14.1+cpu CPU threads=8 seed=20261026
+# geometry from /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/checkpoints/Qwen3.6-35B-A3B.config.json: E=256 top_k=8 I=512 shared_I=512 H=2048 layers=40 +mtp=1 => 41 MoE blocks in the text path
+# blocks available in the acquired shards: 4 of 41 (layer0, layer1, layer39, mtp0) — coverage stated, not implied
+# derived cases per block: 15; total 60
+#   section cast_after_multiply: 1 case(s) per block (derived)
+#   section renorm_omitted: 1 case(s) per block (derived)
+#   section router_softmax_bf16: 1 case(s) per block (derived)
+#   section swapped_gate_up_half: 1 case(s) per block (derived)
+#   section swapped_shared_gate_up: 1 case(s) per block (derived)
+#   section transposed_expert_stack: 1 case(s) per block (derived)
+#   section wrong_expert_index: 9 case(s) per block (derived)
+# derived stage population per section, per block (AFFECTED / CONDITIONAL_AFFECTED x the case list):
+#   section                  cases stages/case stages/blk  conditional (licensed by a topk_ids flip)
+#   wrong_expert_index           9           3         27  -
+#   swapped_gate_up_half         1           3          3  -
+#   swapped_shared_gate_up       1           3          3  -
+#   transposed_expert_stack      1           3          3  -
+#   renorm_omitted               1           3          3  -
+#   cast_after_multiply          1           3          3  -
+#   router_softmax_bf16          1           4          4  +2 expert_raw,topk_ids
+#   unconditional total         15                     46
+# derived (case x allowed-stage) pairs, unconditional: 184 (= 46 per block x 4 blocks); the conditional pairs are derived after the arms, from the flip facts
+
+## firing table — arm=honest (the comparison is bit-level; no band is involved)
+  block   injection                param             T moved stages                                                    viol maxabs breach          
+  layer0  wrong_expert_index       {"slot": 0}      16 combined_out,expert_raw,routed_sum                                 0 9.961e-02                 
+  layer0  wrong_expert_index       {"slot": 1}      16 combined_out,expert_raw,routed_sum                                 0 1.422e-01                 
+  layer0  wrong_expert_index       {"slot": 2}      16 combined_out,expert_raw,routed_sum                                 0 1.191e-01                 
+  layer0  wrong_expert_index       {"slot": 3}      16 combined_out,expert_raw,routed_sum                                 0 1.064e-01                 
+  layer0  wrong_expert_index       {"slot": 4}      16 combined_out,expert_raw,routed_sum                                 0 1.378e-01                 
+  layer0  wrong_expert_index       {"slot": 5}      16 combined_out,expert_raw,routed_sum                                 0 1.134e-01                 
+  layer0  wrong_expert_index       {"slot": 6}      16 combined_out,expert_raw,routed_sum                                 0 1.182e-01                 
+  layer0  wrong_expert_index       {"slot": 7}      16 combined_out,expert_raw,routed_sum                                 0 1.436e-01                 
+  layer0  wrong_expert_index       {"slot": null}   16 combined_out,expert_raw,routed_sum                                 0 1.436e-01                 
+  layer0  swapped_gate_up_half     {}               16 combined_out,expert_raw,routed_sum                                 0 1.050e-01                 
+  layer0  swapped_shared_gate_up   {}               16 combined_out,shared_out,shared_raw                                 0 4.531e-01                 
+  layer0  transposed_expert_stack  {}               16 combined_out,expert_raw,routed_sum                                 0 1.168e-01                 
+  layer0  renorm_omitted           {}               16 combined_out,routed_sum,topk_weights                               0 2.600e-01                 
+  layer0  cast_after_multiply      {}               16 combined_out,routed_sum,topk_weights                               0 9.766e-04                 
+  layer0  router_softmax_bf16      {}               64 combined_out,expert_raw,routed_sum,router_probs,topk_ids,topk_weights     0 2.050e+02                 
+  layer1  wrong_expert_index       {"slot": 0}      16 combined_out,expert_raw,routed_sum                                 0 1.572e-01                 
+  layer1  wrong_expert_index       {"slot": 1}      16 combined_out,expert_raw,routed_sum                                 0 1.711e-01                 
+  layer1  wrong_expert_index       {"slot": 2}      16 combined_out,expert_raw,routed_sum                                 0 1.450e-01                 
+  layer1  wrong_expert_index       {"slot": 3}      16 combined_out,expert_raw,routed_sum                                 0 1.738e-01                 
+  layer1  wrong_expert_index       {"slot": 4}      16 combined_out,expert_raw,routed_sum                                 0 1.296e-01                 
+  layer1  wrong_expert_index       {"slot": 5}      16 combined_out,expert_raw,routed_sum                                 0 1.458e-01                 
+  layer1  wrong_expert_index       {"slot": 6}      16 combined_out,expert_raw,routed_sum                                 0 1.472e-01                 
+  layer1  wrong_expert_index       {"slot": 7}      16 combined_out,expert_raw,routed_sum                                 0 1.448e-01                 
+  layer1  wrong_expert_index       {"slot": null}   16 combined_out,expert_raw,routed_sum                                 0 1.738e-01                 
+  layer1  swapped_gate_up_half     {}               16 combined_out,expert_raw,routed_sum                                 0 7.263e-02                 
+  layer1  swapped_shared_gate_up   {}               16 combined_out,shared_out,shared_raw                                 0 2.781e-01                 
+  layer1  transposed_expert_stack  {}               16 combined_out,expert_raw,routed_sum                                 0 1.626e-01                 
+  layer1  renorm_omitted           {}               16 combined_out,routed_sum,topk_weights                               0 2.585e-01                 
+  layer1  cast_after_multiply      {}               16 combined_out,routed_sum,topk_weights                               0 4.883e-04                 
+  layer1  router_softmax_bf16      {}               64 combined_out,expert_raw,routed_sum,router_probs,topk_ids,topk_weights     0 1.670e+02                 
+  layer39 wrong_expert_index       {"slot": 0}      16 combined_out,expert_raw,routed_sum                                 0 1.654e+00                 
+  layer39 wrong_expert_index       {"slot": 1}      16 combined_out,expert_raw,routed_sum                                 0 7.593e-01                 
+  layer39 wrong_expert_index       {"slot": 2}      16 combined_out,expert_raw,routed_sum                                 0 4.663e-01                 
+  layer39 wrong_expert_index       {"slot": 3}      16 combined_out,expert_raw,routed_sum                                 0 1.373e+00                 
+  layer39 wrong_expert_index       {"slot": 4}      16 combined_out,expert_raw,routed_sum                                 0 6.445e-01                 
+  layer39 wrong_expert_index       {"slot": 5}      16 combined_out,expert_raw,routed_sum                                 0 7.681e-01                 
+  layer39 wrong_expert_index       {"slot": 6}      16 combined_out,expert_raw,routed_sum                                 0 4.805e-01                 
+  layer39 wrong_expert_index       {"slot": 7}      16 combined_out,expert_raw,routed_sum                                 0 5.183e-01                 
+  layer39 wrong_expert_index       {"slot": null}   16 combined_out,expert_raw,routed_sum                                 0 1.654e+00                 
+  layer39 swapped_gate_up_half     {}               16 combined_out,expert_raw,routed_sum                                 0 6.631e-01                 
+  layer39 swapped_shared_gate_up   {}               16 combined_out,shared_out,shared_raw                                 0 2.988e-01                 
+  layer39 transposed_expert_stack  {}               16 combined_out,expert_raw,routed_sum                                 0 1.188e+00                 
+  layer39 renorm_omitted           {}               16 combined_out,routed_sum,topk_weights                               0 1.916e-01                 
+  layer39 cast_after_multiply      {}               16 combined_out,routed_sum,topk_weights                               0 9.766e-04                 
+  layer39 router_softmax_bf16      {}               64 combined_out,expert_raw,routed_sum,router_probs,topk_ids,topk_weights     0 1.440e+02                 
+  mtp0    wrong_expert_index       {"slot": 0}      16 combined_out,expert_raw,routed_sum                                 0 6.914e-01                 
+  mtp0    wrong_expert_index       {"slot": 1}      16 combined_out,expert_raw,routed_sum                                 0 8.257e-01                 
+  mtp0    wrong_expert_index       {"slot": 2}      16 combined_out,expert_raw,routed_sum                                 0 6.519e-01                 
+  mtp0    wrong_expert_index       {"slot": 3}      16 combined_out,expert_raw,routed_sum                                 0 5.332e-01                 
+  mtp0    wrong_expert_index       {"slot": 4}      16 combined_out,expert_raw,routed_sum                                 0 1.115e+00                 
+  mtp0    wrong_expert_index       {"slot": 5}      16 combined_out,expert_raw,routed_sum                                 0 7.930e-01                 
+  mtp0    wrong_expert_index       {"slot": 6}      16 combined_out,expert_raw,routed_sum                                 0 1.287e+00                 
+  mtp0    wrong_expert_index       {"slot": 7}      16 combined_out,expert_raw,routed_sum                                 0 1.279e+00                 
+  mtp0    wrong_expert_index       {"slot": null}   16 combined_out,expert_raw,routed_sum                                 0 1.287e+00                 
+  mtp0    swapped_gate_up_half     {}               16 combined_out,expert_raw,routed_sum                                 0 8.193e-01                 
+  mtp0    swapped_shared_gate_up   {}               16 combined_out,shared_out,shared_raw                                 0 1.497e-01                 
+  mtp0    transposed_expert_stack  {}               16 combined_out,expert_raw,routed_sum                                 0 1.075e+00                 
+  mtp0    renorm_omitted           {}               16 combined_out,routed_sum,topk_weights                               0 2.477e-01                 
+  mtp0    cast_after_multiply      {}               16 combined_out,routed_sum,topk_weights                               0 9.766e-04                 
+  mtp0    router_softmax_bf16      {}               64 combined_out,expert_raw,routed_sum,router_probs,topk_ids,topk_weights     0 2.200e+02                 
+
+## tallies — arm=honest
+  honest   cases                        60
+  honest   caught                       60
+  honest   localised                    60
+  honest   stage_diffs                  192
+  honest   ids_flips                    4
+  honest   shared_moved_cases           4
+  honest   router_moved_cases           12
+  honest   must_not_catch_violations    0
+  honest   must_catch_missed            0
+  honest   crossed_breaches_injected    0
+  honest   crossed_alarms_fired         0
+
+## firing table — arm=stub (the comparison is bit-level; no band is involved)
+  block   injection                param             T moved stages                                                    viol maxabs breach          
+  layer0  wrong_expert_index       {"slot": 0}      16 (NOTHING MOVED)                                                    3 9.961e-02                 
+  layer0  wrong_expert_index       {"slot": 1}      16 (NOTHING MOVED)                                                    3 1.422e-01                 
+  layer0  wrong_expert_index       {"slot": 2}      16 (NOTHING MOVED)                                                    3 1.191e-01                 
+  layer0  wrong_expert_index       {"slot": 3}      16 (NOTHING MOVED)                                                    3 1.064e-01                 
+  layer0  wrong_expert_index       {"slot": 4}      16 (NOTHING MOVED)                                                    3 1.378e-01                 
+  layer0  wrong_expert_index       {"slot": 5}      16 (NOTHING MOVED)                                                    3 1.134e-01                 
+  layer0  wrong_expert_index       {"slot": 6}      16 (NOTHING MOVED)                                                    3 1.182e-01                 
+  layer0  wrong_expert_index       {"slot": 7}      16 (NOTHING MOVED)                                                    3 1.436e-01                 
+  layer0  wrong_expert_index       {"slot": null}   16 (NOTHING MOVED)                                                    3 1.436e-01                 
+  layer0  swapped_gate_up_half     {}               16 (NOTHING MOVED)                                                    3 1.050e-01                 
+  layer0  swapped_shared_gate_up   {}               16 (NOTHING MOVED)                                                    3 4.531e-01                 
+  layer0  transposed_expert_stack  {}               16 (NOTHING MOVED)                                                    3 1.168e-01                 
+  layer0  renorm_omitted           {}               16 (NOTHING MOVED)                                                    3 2.600e-01                 
+  layer0  cast_after_multiply      {}               16 (NOTHING MOVED)                                                    3 9.766e-04                 
+  layer0  router_softmax_bf16      {}               64 (NOTHING MOVED)                                                    6 2.050e+02                 
+  layer1  wrong_expert_index       {"slot": 0}      16 (NOTHING MOVED)                                                    3 1.572e-01                 
+  layer1  wrong_expert_index       {"slot": 1}      16 (NOTHING MOVED)                                                    3 1.711e-01                 
+  layer1  wrong_expert_index       {"slot": 2}      16 (NOTHING MOVED)                                                    3 1.450e-01                 
+  layer1  wrong_expert_index       {"slot": 3}      16 (NOTHING MOVED)                                                    3 1.738e-01                 
+  layer1  wrong_expert_index       {"slot": 4}      16 (NOTHING MOVED)                                                    3 1.296e-01                 
+  layer1  wrong_expert_index       {"slot": 5}      16 (NOTHING MOVED)                                                    3 1.458e-01                 
+  layer1  wrong_expert_index       {"slot": 6}      16 (NOTHING MOVED)                                                    3 1.472e-01                 
+  layer1  wrong_expert_index       {"slot": 7}      16 (NOTHING MOVED)                                                    3 1.448e-01                 
+  layer1  wrong_expert_index       {"slot": null}   16 (NOTHING MOVED)                                                    3 1.738e-01                 
+  layer1  swapped_gate_up_half     {}               16 (NOTHING MOVED)                                                    3 7.263e-02                 
+  layer1  swapped_shared_gate_up   {}               16 (NOTHING MOVED)                                                    3 2.781e-01                 
+  layer1  transposed_expert_stack  {}               16 (NOTHING MOVED)                                                    3 1.626e-01                 
+  layer1  renorm_omitted           {}               16 (NOTHING MOVED)                                                    3 2.585e-01                 
+  layer1  cast_after_multiply      {}               16 (NOTHING MOVED)                                                    3 4.883e-04                 
+  layer1  router_softmax_bf16      {}               64 (NOTHING MOVED)                                                    6 1.670e+02                 
+  layer39 wrong_expert_index       {"slot": 0}      16 (NOTHING MOVED)                                                    3 1.654e+00                 
+  layer39 wrong_expert_index       {"slot": 1}      16 (NOTHING MOVED)                                                    3 7.593e-01                 
+  layer39 wrong_expert_index       {"slot": 2}      16 (NOTHING MOVED)                                                    3 4.663e-01                 
+  layer39 wrong_expert_index       {"slot": 3}      16 (NOTHING MOVED)                                                    3 1.373e+00                 
+  layer39 wrong_expert_index       {"slot": 4}      16 (NOTHING MOVED)                                                    3 6.445e-01                 
+  layer39 wrong_expert_index       {"slot": 5}      16 (NOTHING MOVED)                                                    3 7.681e-01                 
+  layer39 wrong_expert_index       {"slot": 6}      16 (NOTHING MOVED)                                                    3 4.805e-01                 
+  layer39 wrong_expert_index       {"slot": 7}      16 (NOTHING MOVED)                                                    3 5.183e-01                 
+  layer39 wrong_expert_index       {"slot": null}   16 (NOTHING MOVED)                                                    3 1.654e+00                 
+  layer39 swapped_gate_up_half     {}               16 (NOTHING MOVED)                                                    3 6.631e-01                 
+  layer39 swapped_shared_gate_up   {}               16 (NOTHING MOVED)                                                    3 2.988e-01                 
+  layer39 transposed_expert_stack  {}               16 (NOTHING MOVED)                                                    3 1.188e+00                 
+  layer39 renorm_omitted           {}               16 (NOTHING MOVED)                                                    3 1.916e-01                 
+  layer39 cast_after_multiply      {}               16 (NOTHING MOVED)                                                    3 9.766e-04                 
+  layer39 router_softmax_bf16      {}               64 (NOTHING MOVED)                                                    6 1.440e+02                 
+  mtp0    wrong_expert_index       {"slot": 0}      16 (NOTHING MOVED)                                                    3 6.914e-01                 
+  mtp0    wrong_expert_index       {"slot": 1}      16 (NOTHING MOVED)                                                    3 8.257e-01                 
+  mtp0    wrong_expert_index       {"slot": 2}      16 (NOTHING MOVED)                                                    3 6.519e-01                 
+  mtp0    wrong_expert_index       {"slot": 3}      16 (NOTHING MOVED)                                                    3 5.332e-01                 
+  mtp0    wrong_expert_index       {"slot": 4}      16 (NOTHING MOVED)                                                    3 1.115e+00                 
+  mtp0    wrong_expert_index       {"slot": 5}      16 (NOTHING MOVED)                                                    3 7.930e-01                 
+  mtp0    wrong_expert_index       {"slot": 6}      16 (NOTHING MOVED)                                                    3 1.287e+00                 
+  mtp0    wrong_expert_index       {"slot": 7}      16 (NOTHING MOVED)                                                    3 1.279e+00                 
+  mtp0    wrong_expert_index       {"slot": null}   16 (NOTHING MOVED)                                                    3 1.287e+00                 
+  mtp0    swapped_gate_up_half     {}               16 (NOTHING MOVED)                                                    3 8.193e-01                 
+  mtp0    swapped_shared_gate_up   {}               16 (NOTHING MOVED)                                                    3 1.497e-01                 
+  mtp0    transposed_expert_stack  {}               16 (NOTHING MOVED)                                                    3 1.075e+00                 
+  mtp0    renorm_omitted           {}               16 (NOTHING MOVED)                                                    3 2.477e-01                 
+  mtp0    cast_after_multiply      {}               16 (NOTHING MOVED)                                                    3 9.766e-04                 
+  mtp0    router_softmax_bf16      {}               64 (NOTHING MOVED)                                                    6 2.200e+02                 
+
+## tallies — arm=stub
+  stub     cases                        60
+  stub     caught                       0
+  stub     localised                    0
+  stub     stage_diffs                  0
+  stub     ids_flips                    4
+  stub     shared_moved_cases           0
+  stub     router_moved_cases           0
+  stub     must_not_catch_violations    192
+  stub     must_catch_missed            192
+  stub     crossed_breaches_injected    0
+  stub     crossed_alarms_fired         0
+
+## firing table — arm=crossed (the comparison is bit-level; no band is involved)
+  block   injection                param             T moved stages                                                    viol maxabs breach          
+  layer0  wrong_expert_index       {"slot": 0}      16 combined_out,expert_raw,routed_sum,router_logits                   1 9.961e-02 router_logits   
+  layer0  wrong_expert_index       {"slot": 1}      16 combined_out,expert_raw,routed_sum,router_logits                   1 1.422e-01 router_logits   
+  layer0  wrong_expert_index       {"slot": 2}      16 combined_out,expert_raw,routed_sum,router_logits                   1 1.191e-01 router_logits   
+  layer0  wrong_expert_index       {"slot": 3}      16 combined_out,expert_raw,routed_sum,router_logits                   1 1.064e-01 router_logits   
+  layer0  wrong_expert_index       {"slot": 4}      16 combined_out,expert_raw,routed_sum,router_logits                   1 1.378e-01 router_logits   
+  layer0  wrong_expert_index       {"slot": 5}      16 combined_out,expert_raw,routed_sum,router_logits                   1 1.134e-01 router_logits   
+  layer0  wrong_expert_index       {"slot": 6}      16 combined_out,expert_raw,routed_sum,router_logits                   1 1.182e-01 router_logits   
+  layer0  wrong_expert_index       {"slot": 7}      16 combined_out,expert_raw,routed_sum,router_logits                   1 1.436e-01 router_logits   
+  layer0  wrong_expert_index       {"slot": null}   16 combined_out,expert_raw,routed_sum,router_logits                   1 1.436e-01 router_logits   
+  layer0  swapped_gate_up_half     {}               16 combined_out,expert_raw,routed_sum,router_logits                   1 1.050e-01 router_logits   
+  layer0  swapped_shared_gate_up   {}               16 combined_out,router_logits,shared_out,shared_raw                   1 4.531e-01 router_logits   
+  layer0  transposed_expert_stack  {}               16 combined_out,expert_raw,routed_sum,router_logits                   1 1.168e-01 router_logits   
+  layer0  renorm_omitted           {}               16 combined_out,routed_sum,router_logits,topk_weights                 1 2.600e-01 router_logits   
+  layer0  cast_after_multiply      {}               16 combined_out,routed_sum,router_logits,topk_weights                 1 1.953e-02 router_logits   
+  layer0  router_softmax_bf16      {}               64 combined_out,expert_raw,routed_sum,router_logits,router_probs,topk_ids,topk_weights     1 2.050e+02 router_logits   
+  layer1  wrong_expert_index       {"slot": 0}      16 combined_out,expert_raw,routed_sum,router_logits                   1 1.572e-01 router_logits   
+  layer1  wrong_expert_index       {"slot": 1}      16 combined_out,expert_raw,routed_sum,router_logits                   1 1.711e-01 router_logits   
+  layer1  wrong_expert_index       {"slot": 2}      16 combined_out,expert_raw,routed_sum,router_logits                   1 1.450e-01 router_logits   
+  layer1  wrong_expert_index       {"slot": 3}      16 combined_out,expert_raw,routed_sum,router_logits                   1 1.738e-01 router_logits   
+  layer1  wrong_expert_index       {"slot": 4}      16 combined_out,expert_raw,routed_sum,router_logits                   1 1.296e-01 router_logits   
+  layer1  wrong_expert_index       {"slot": 5}      16 combined_out,expert_raw,routed_sum,router_logits                   1 1.458e-01 router_logits   
+  layer1  wrong_expert_index       {"slot": 6}      16 combined_out,expert_raw,routed_sum,router_logits                   1 1.472e-01 router_logits   
+  layer1  wrong_expert_index       {"slot": 7}      16 combined_out,expert_raw,routed_sum,router_logits                   1 1.448e-01 router_logits   
+  layer1  wrong_expert_index       {"slot": null}   16 combined_out,expert_raw,routed_sum,router_logits                   1 1.738e-01 router_logits   
+  layer1  swapped_gate_up_half     {}               16 combined_out,expert_raw,routed_sum,router_logits                   1 7.263e-02 router_logits   
+  layer1  swapped_shared_gate_up   {}               16 combined_out,router_logits,shared_out,shared_raw                   1 2.781e-01 router_logits   
+  layer1  transposed_expert_stack  {}               16 combined_out,expert_raw,routed_sum,router_logits                   1 1.626e-01 router_logits   
+  layer1  renorm_omitted           {}               16 combined_out,routed_sum,router_logits,topk_weights                 1 2.585e-01 router_logits   
+  layer1  cast_after_multiply      {}               16 combined_out,routed_sum,router_logits,topk_weights                 1 3.516e-02 router_logits   
+  layer1  router_softmax_bf16      {}               64 combined_out,expert_raw,routed_sum,router_logits,router_probs,topk_ids,topk_weights     1 1.670e+02 router_logits   
+  layer39 wrong_expert_index       {"slot": 0}      16 combined_out,expert_raw,routed_sum,router_logits                   1 1.654e+00 router_logits   
+  layer39 wrong_expert_index       {"slot": 1}      16 combined_out,expert_raw,routed_sum,router_logits                   1 7.593e-01 router_logits   
+  layer39 wrong_expert_index       {"slot": 2}      16 combined_out,expert_raw,routed_sum,router_logits                   1 4.663e-01 router_logits   
+  layer39 wrong_expert_index       {"slot": 3}      16 combined_out,expert_raw,routed_sum,router_logits                   1 1.373e+00 router_logits   
+  layer39 wrong_expert_index       {"slot": 4}      16 combined_out,expert_raw,routed_sum,router_logits                   1 6.445e-01 router_logits   
+  layer39 wrong_expert_index       {"slot": 5}      16 combined_out,expert_raw,routed_sum,router_logits                   1 7.681e-01 router_logits   
+  layer39 wrong_expert_index       {"slot": 6}      16 combined_out,expert_raw,routed_sum,router_logits                   1 4.805e-01 router_logits   
+  layer39 wrong_expert_index       {"slot": 7}      16 combined_out,expert_raw,routed_sum,router_logits                   1 5.183e-01 router_logits   
+  layer39 wrong_expert_index       {"slot": null}   16 combined_out,expert_raw,routed_sum,router_logits                   1 1.654e+00 router_logits   
+  layer39 swapped_gate_up_half     {}               16 combined_out,expert_raw,routed_sum,router_logits                   1 6.631e-01 router_logits   
+  layer39 swapped_shared_gate_up   {}               16 combined_out,router_logits,shared_out,shared_raw                   1 2.988e-01 router_logits   
+  layer39 transposed_expert_stack  {}               16 combined_out,expert_raw,routed_sum,router_logits                   1 1.188e+00 router_logits   
+  layer39 renorm_omitted           {}               16 combined_out,routed_sum,router_logits,topk_weights                 1 1.916e-01 router_logits   
+  layer39 cast_after_multiply      {}               16 combined_out,routed_sum,router_logits,topk_weights                 1 1.953e-02 router_logits   
+  layer39 router_softmax_bf16      {}               64 combined_out,expert_raw,routed_sum,router_logits,router_probs,topk_ids,topk_weights     1 1.440e+02 router_logits   
+  mtp0    wrong_expert_index       {"slot": 0}      16 combined_out,expert_raw,routed_sum,router_logits                   1 6.914e-01 router_logits   
+  mtp0    wrong_expert_index       {"slot": 1}      16 combined_out,expert_raw,routed_sum,router_logits                   1 8.257e-01 router_logits   
+  mtp0    wrong_expert_index       {"slot": 2}      16 combined_out,expert_raw,routed_sum,router_logits                   1 6.519e-01 router_logits   
+  mtp0    wrong_expert_index       {"slot": 3}      16 combined_out,expert_raw,routed_sum,router_logits                   1 5.332e-01 router_logits   
+  mtp0    wrong_expert_index       {"slot": 4}      16 combined_out,expert_raw,routed_sum,router_logits                   1 1.115e+00 router_logits   
+  mtp0    wrong_expert_index       {"slot": 5}      16 combined_out,expert_raw,routed_sum,router_logits                   1 7.930e-01 router_logits   
+  mtp0    wrong_expert_index       {"slot": 6}      16 combined_out,expert_raw,routed_sum,router_logits                   1 1.287e+00 router_logits   
+  mtp0    wrong_expert_index       {"slot": 7}      16 combined_out,expert_raw,routed_sum,router_logits                   1 1.279e+00 router_logits   
+  mtp0    wrong_expert_index       {"slot": null}   16 combined_out,expert_raw,routed_sum,router_logits                   1 1.287e+00 router_logits   
+  mtp0    swapped_gate_up_half     {}               16 combined_out,expert_raw,routed_sum,router_logits                   1 8.193e-01 router_logits   
+  mtp0    swapped_shared_gate_up   {}               16 combined_out,router_logits,shared_out,shared_raw                   1 1.497e-01 router_logits   
+  mtp0    transposed_expert_stack  {}               16 combined_out,expert_raw,routed_sum,router_logits                   1 1.075e+00 router_logits   
+  mtp0    renorm_omitted           {}               16 combined_out,routed_sum,router_logits,topk_weights                 1 2.477e-01 router_logits   
+  mtp0    cast_after_multiply      {}               16 combined_out,routed_sum,router_logits,topk_weights                 1 9.766e-03 router_logits   
+  mtp0    router_softmax_bf16      {}               64 combined_out,expert_raw,routed_sum,router_logits,router_probs,topk_ids,topk_weights     1 2.200e+02 router_logits   
+
+## tallies — arm=crossed
+  crossed  cases                        60
+  crossed  caught                       60
+  crossed  localised                    0
+  crossed  stage_diffs                  252
+  crossed  ids_flips                    4
+  crossed  shared_moved_cases           4
+  crossed  router_moved_cases           60
+  crossed  must_not_catch_violations    60
+  crossed  must_catch_missed            0
+  crossed  crossed_breaches_injected    60
+  crossed  crossed_alarms_fired         60
+
+## derived (case x allowed-stage) population — the arm=stub expectation
+  unconditional    184   |AFFECTED[kind]| x 15 cases x 4 blocks
+  conditional      8   2 stage(s) expert_raw,topk_ids x 4/4 router_softmax_bf16 case(s) flipped topk_ids
+  derived total    192   the blinded differ must miss exactly this many allowed stages, no more and no fewer
+
+## what each witness is evidence for
+  arm=honest   stage_diffs>0, shared_moved_cases>0, router_moved_cases>0, ids_flips>0  — the four sides of the check that must be able to fire
+  arm=honest   must_not_catch_violations==0                  — localisation
+  arm=stub     caught==0, stage_diffs==0, must_catch_missed==derived>0 — the gate reads the differ, not a constant
+  flip facts   the conditional stages are licensed case-by-case by a real topk_ids flip, agreed across all three arms
+  arm=crossed  crossed_alarms_fired==cases                   — the must-not-catch side can fail, so its 0 in arm=honest is earned
+  arm labels are printed with every count above; no number in this file is unlabelled, and the verdict reads these same tallies
+
+SELFTEST PASS — honest arm: 60/60 derived cases caught, 192 stage differences, 0 must-not-catch violations; stub arm: 0 caught (expected 0), 192/192 allowed stages missed; crossed arm: 60 alarms on 60 injected breaches. no timing taken

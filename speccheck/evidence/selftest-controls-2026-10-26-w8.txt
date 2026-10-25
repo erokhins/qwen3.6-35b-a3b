@@ -1,0 +1,76 @@
+# speccheck/evidence/selftest-controls-2026-10-26-w8.txt
+# Provenance. W8 (tensorfold lane), box clock 2026-10-25, repo convention date 2026-10-26.
+# The gate went green at 192, and a green gate that cannot go red witnesses nothing
+# (pitfalls/40 §gates must fail for something). Each control mutates ONE thing in the
+# imported module and re-runs the whole three-arm matrix; speccheck/selftest_moe.py on
+# disk is never touched, so the file that shipped is the file that was tested. A control
+# is accepted only if the run exits 1 AND prints the named reason, not merely exits 1.
+# Control C is the one that says where the power sits: inflating the conditional table is
+# NOT caught by the stub arm (the derived expectation follows the table, so both move to
+# 196 and still agree) — it is caught by arm=honest, which is the arm that compares the
+# contract against what the differ really saw. Under-declaring is caught by both (B).
+# Harness: tmp/w8_controls.py (scratch). Command:
+#   /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python tmp/w8_controls.py
+# Exit code 0 = every control fired for its named reason and the fault-free case stayed
+# silent. CPU only; no device run, no clock read: no timing taken.
+
+=== control A stub arm still reads the differ: exit=1 RED-FOR-THE-NAMED-REASON
+    honest stage_diffs=192 must_not_catch_violations=0 stub must_catch_missed=0 derived_total=192
+    - arm=stub: the stub did not blind the gate (stage_diffs=192)
+    - arm=stub: the stubbed gate still caught 60 cases — the must-catch assertion is not reading the differ
+    - arm=stub: stub missed 0 allowed stages, derived 192
+
+=== control B CONDITIONAL_AFFECTED emptied: exit=1 RED-FOR-THE-NAMED-REASON
+    honest stage_diffs=192 must_not_catch_violations=8 stub must_catch_missed=184 derived_total=184
+    - honest/layer0/router_softmax_bf16: topk_ids:moved; expert_raw:moved
+    - honest/layer1/router_softmax_bf16: topk_ids:moved; expert_raw:moved
+    - honest/layer39/router_softmax_bf16: topk_ids:moved; expert_raw:moved
+    - honest/mtp0/router_softmax_bf16: topk_ids:moved; expert_raw:moved
+    - arm=honest: 8 must-not-catch violations (an injection moved a stage its contract says it cannot reach)
+    - arm=honest: only 56/60 cases localised
+    ... 4 more
+
+=== control C conditional table carries shared_raw: exit=1 RED-FOR-THE-NAMED-REASON
+    honest stage_diffs=192 must_not_catch_violations=4 stub must_catch_missed=196 derived_total=196
+    - honest/layer0/router_softmax_bf16: shared_raw:silent
+    - honest/layer1/router_softmax_bf16: shared_raw:silent
+    - honest/layer39/router_softmax_bf16: shared_raw:silent
+    - honest/mtp0/router_softmax_bf16: shared_raw:silent
+    - arm=honest: 4 must-not-catch violations (an injection moved a stage its contract says it cannot reach)
+    - arm=honest: only 56/60 cases localised
+
+=== control D the topk_ids flip fact is lost: exit=1 RED-FOR-THE-NAMED-REASON
+    honest stage_diffs=192 must_not_catch_violations=8 stub must_catch_missed=184 derived_total=184
+    - honest/layer0/router_softmax_bf16: topk_ids:moved; expert_raw:moved
+    - honest/layer1/router_softmax_bf16: topk_ids:moved; expert_raw:moved
+    - honest/layer39/router_softmax_bf16: topk_ids:moved; expert_raw:moved
+    - honest/mtp0/router_softmax_bf16: topk_ids:moved; expert_raw:moved
+    - arm=honest: 8 must-not-catch violations (an injection moved a stage its contract says it cannot reach)
+    - arm=honest: only 56/60 cases localised
+    ... 2 more
+
+=== control E1 a case has no flip fact: RED-FOR-THE-NAMED-REASON
+    - arm=honest: recorded 1 flip facts, derived 2 — the stub expectation would be counting a different case set
+    - arm=honest: no router_softmax_bf16 case flipped topk_ids, so the conditional stages expert_raw/topk_ids were never licensed by a real fact — that half of the contract is untested, not satisfied
+
+=== control E2 an arm reads a different discrete fact: RED-FOR-THE-NAMED-REASON
+    - arm=stub: flip fact for ('layer0', 'router_softmax_bf16', '{}') reads False but arm=honest read True — the arms are not comparing one fixture
+
+=== control E3 wrong_expert_index flips the selection it must report clean: RED-FOR-THE-NAMED-REASON
+    - arm=honest/layer0/wrong_expert_index{"slot": 0}: topk_ids changed but wrong_expert_index declares no conditional stages — the injection moved the selection it is contracted to report unchanged
+
+=== control E4 no router case flips: RED-FOR-THE-NAMED-REASON
+    - arm=honest: no router_softmax_bf16 case flipped topk_ids, so the conditional stages expert_raw/topk_ids were never licensed by a real fact — that half of the contract is untested, not satisfied
+
+=== control E5 no fault injected: SILENT AS IT SHOULD BE
+
+## control summary
+  FIRED    A  stub arm still reads the differ
+  FIRED    B  CONDITIONAL_AFFECTED emptied
+  FIRED    C  conditional table inflated
+  FIRED    D  the flip fact is lost
+  FIRED    E1 a case has no flip fact
+  FIRED    E2 an arm reads another fact
+  FIRED    E3 unlicensed flip
+  FIRED    E4 conditional never licensed
+  FIRED    E5 no fault -> stays silent

@@ -1,0 +1,43 @@
+# Capability probe of the installed transformers against this checkpoint.
+# driver: /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/speccheck/cross_check_hf.py
+# argv: /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/speccheck/hf_capability_probe.py /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/checkpoints/Qwen3.6-35B-A3B.config.json /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/models/qwen36-src /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/checkpoints/Qwen3.6-35B-A3B.safetensors.index.json
+# return code: 0
+# (subprocess, RLIMIT_AS=24 GB so a 66 GiB materialisation fails inside the probe rather than swapping the box the other workers run on)
+
+CAP config_from_json: OK Qwen3_5MoeConfig
+CAP build_conditional_generation_meta: OK 1026 params
+CAP build_text_causallm_meta: OK 40 layers
+CAP mtp_class_in_module: OK NO_MTP_CLASS_IN_MODULE
+CAP keys_to_ignore_on_load_unexpected: OK (['^mtp.*', '^model.visual.*'], ['^mtp.*'])
+CAP default_experts_implementation_bare_text_config: OK None
+CAP default_experts_implementation_nested: OK None
+CAP experts_implementation_after_model_build: OK bare=None after_build=grouped_mm
+CAP from_pretrained_real_index_26_shards: FAIL FileNotFoundError: No such file or directory: /tmp/cap-6e4nptct/model-00003-of-00026.safetensors
+POP truncated_index_population: OK kept 424 of 1045 tensors in 4 shards
+CAP from_pretrained_truncated_index_4_shards: FAIL RuntimeError: [enforce fail at alloc_cpu.cpp:127] err == 0. DefaultCPUAllocator: can't allocate memory: you tried to allocate 1073741824 bytes. Error code 12 (Cannot allocate memory)
+
+STDERR:
+yers.{2...37}.linear_attn.in_proj_qkv.weight                    | MISSING    | 
+model.layers.{2...37}.mlp.shared_expert.gate_proj.weight                | MISSING    | 
+model.layers.{2...37}.mlp.shared_expert.up_proj.weight                  | MISSING    | 
+model.layers.{2...37}.post_attention_layernorm.weight                   | MISSING    | 
+model.layers.{2...37}.mlp.gate.weight                                   | MISSING    | 
+model.layers.{2...37}.mlp.shared_expert_gate.weight                     | MISSING    | 
+model.layers.{2...37}.linear_attn.in_proj_a.weight                      | MISSING    | 
+model.layers.{2...37}.linear_attn.norm.weight                           | MISSING    | 
+model.layers.{3, 7, 11, 15, 19, 23, 27, 31, 35}.self_attn.o_proj.weight | MISSING    | 
+model.layers.{3, 7, 11, 15, 19, 23, 27, 31, 35}.self_attn.q_norm.weight | MISSING    | 
+model.layers.{3, 7, 11, 15, 19, 23, 27, 31, 35}.self_attn.k_norm.weight | MISSING    | 
+model.layers.{2...37}.linear_attn.dt_bias                               | MISSING    | 
+model.layers.{3, 7, 11, 15, 19, 23, 27, 31, 35}.self_attn.q_proj.weight | MISSING    | 
+model.layers.{2...37}.mlp.experts.gate_up_proj                          | MISSING    | 
+model.layers.{2...37}.linear_attn.in_proj_z.weight                      | MISSING    | 
+model.layers.{2...37}.linear_attn.in_proj_b.weight                      | MISSING    | 
+model.layers.{3, 7, 11, 15, 19, 23, 27, 31, 35}.self_attn.v_proj.weight | MISSING    | 
+model.layers.{2...37}.input_layernorm.weight                            | MISSING    | 
+model.layers.{3, 7, 11, 15, 19, 23, 27, 31, 35}.self_attn.k_proj.weight | MISSING    | 
+model.layers.{2...37}.linear_attn.conv1d.weight                         | MISSING    | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+- MISSING:	those params were newly initialized because missing from the checkpoint. Consider training on your downstream task.

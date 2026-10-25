@@ -1,0 +1,109 @@
+# speccheck/evidence/selftest-derivation-2026-10-26-w8.txt
+# Provenance. W8 (tensorfold lane), box clock 2026-10-25, repo convention date 2026-10-26.
+# Question: arm=stub printed "missed 192 allowed stages, derived 184". Which number is
+# right? Answer: 192. Neither tally was trusted; the gate prints one row per case listing
+# the stages the differ actually saw move, so the population was rebuilt from those rows
+# and compared against the contract tables. The 8 localises to exactly one section,
+# router_softmax_bf16, whose residual is exactly {topk_ids, expert_raw} x 1 case x 4 blocks.
+#
+# Why those two stages are licensed, from the dataflow in speccheck/moe_ref.py:
+#   §route          — logits -> softmax(softmax_dtype) -> torch.topk -> ids. A bf16 softmax
+#                     can reorder the probabilities, so it can change WHICH experts are in
+#                     the top-k. When it does, the reported ids themselves move.
+#   §expert_gather  — read_ids are those ids, and pick(e) indexes gate_up[e]/down[e] by
+#                     them, so a changed id reads a DIFFERENT 6.0 MiB expert: expert_raw
+#                     moves with it, then routed_sum, then combined_out.
+#   When the selection does NOT flip, both stages must stay bit-identical — so they are
+#                     conditional on the discrete fact, never unconditional. The fact here
+#                     is genuine: 4/4 blocks flip (honest ids_flips 4, and topk_ids appears
+#                     in the moved-stage column of exactly the 4 router rows and no other).
+# Why 184 was the wrong one: it is |AFFECTED| x the case list x 4 blocks = 46 x 4, and
+#                     AFFECTED is only the unconditional half. The runtime contract
+#                     (allowed_stages) had been adding {topk_ids, expert_raw} from a bare
+#                     literal the derivation could not see. Two spellings of one contract;
+#                     pitfalls/40 §two self-consistent layouts joined by a branch.
+# Third, independent witness that 192 is the truth: arm=crossed injects exactly one
+#                     must-not-catch breach per case, so its stage_diffs must be honest +
+#                     60. Printed: 192 + 60 = 252. And arm=honest reads
+#                     must_not_catch_violations 0 with localised 60/60, i.e. the moved set
+#                     equals the allowed set case for case — which pins |allowed| at 48 per
+#                     block, not 46.
+
+## the inherited red state — tmp/w4-selftest-0459.txt (W4), stub arm tally and the only failure
+## tallies — arm=stub
+  stub     cases                        60
+  stub     caught                       0
+  stub     localised                    0
+  stub     stage_diffs                  0
+  stub     ids_flips                    4
+  stub     shared_moved_cases           0
+  stub     router_moved_cases           0
+  stub     must_not_catch_violations    192
+  stub     must_catch_missed            192
+  stub     crossed_breaches_injected    0
+  stub     crossed_alarms_fired         0
+
+## tallies — arm=honest
+  honest   cases                        60
+  honest   caught                       60
+  honest   localised                    60
+  honest   stage_diffs                  192
+  honest   ids_flips                    4
+  honest   shared_moved_cases           4
+  honest   router_moved_cases           12
+  honest   must_not_catch_violations    0
+  honest   must_catch_missed            0
+  honest   crossed_breaches_injected    0
+  honest   crossed_alarms_fired         0
+
+  - arm=stub: stub missed 192 allowed stages, derived 184
+
+## BEFORE — the pre-fix contract re-derived (--no-conditional: AFFECTED only, which is all
+## the pre-fix header derivation could see). The residual is 8 and it lives in ONE section.
+parsed rows: crossed=60, honest=60, stub=60
+row-count witness: parsed 180 vs table rows in file 180  (OK)
+
+## expected stages per section, per block  (AFFECTED + licensed CONDITIONAL; 4 blocks)
+  section                  cases/blk  base/blk  cond/blk  contract  obs/blk residual/blk  residual stages
+  wrong_expert_index               9        27         0        27       27            0  -
+  swapped_gate_up_half             1         3         0         3        3            0  -
+  swapped_shared_gate_up           1         3         0         3        3            0  -
+  transposed_expert_stack          1         3         0         3        3            0  -
+  renorm_omitted                   1         3         0         3        3            0  -
+  cast_after_multiply              1         3         0         3        3            0  -
+  router_softmax_bf16              1         4         0         4        6            2  expert_raw,topk_ids
+
+  A  differ-observed moved stages, arm=honest : 192 (48/block x 4)
+  B  contract (AFFECTED + licensed CONDITIONAL): 184 (= 46/block x 4)
+  C  the capture's own printed derivation     : unconditional=184, derived total=None
+  R  residual total (moved, not licensed)      : 8  in sections ['router_softmax_bf16']
+
+  tallies as printed: honest stage_diffs=192 stub must_catch_missed=192 crossed stage_diffs=252 honest ids_flips=4
+  cases whose row lists topk_ids moved: {'router_softmax_bf16': 4, 'wrong_expert_index': 0, 'swapped_gate_up_half': 0, 'swapped_shared_gate_up': 0, 'transposed_expert_stack': 0, 'renorm_omitted': 0, 'cast_after_multiply': 0}
+  crossed - honest = 60 (crossed injects exactly one breach per case = 60)
+
+## AFTER — the shipped contract (AFFECTED + CONDITIONAL_AFFECTED, both read by
+## allowed_stages() and by derive_expected_allowed_stages()). Observed == contract ==
+## the gate's own printed derivation, and the residual is empty in every section.
+parsed rows: crossed=60, honest=60, stub=60
+row-count witness: parsed 180 vs table rows in file 180  (OK)
+
+## expected stages per section, per block  (AFFECTED + licensed CONDITIONAL; 4 blocks)
+  section                  cases/blk  base/blk  cond/blk  contract  obs/blk residual/blk  residual stages
+  wrong_expert_index               9        27         0        27       27            0  -
+  swapped_gate_up_half             1         3         0         3        3            0  -
+  swapped_shared_gate_up           1         3         0         3        3            0  -
+  transposed_expert_stack          1         3         0         3        3            0  -
+  renorm_omitted                   1         3         0         3        3            0  -
+  cast_after_multiply              1         3         0         3        3            0  -
+  router_softmax_bf16              1         4         2         6        6            0  -
+
+  A  differ-observed moved stages, arm=honest : 192 (48/block x 4)
+  B  contract (AFFECTED + licensed CONDITIONAL): 192 (= 48/block x 4)
+  C  the capture's own printed derivation     : unconditional=184, derived total=192
+     gate's derived total == contract and == observed
+  R  residual total (moved, not licensed)      : 0  in sections none
+
+  tallies as printed: honest stage_diffs=192 stub must_catch_missed=192 crossed stage_diffs=252 honest ids_flips=4
+  cases whose row lists topk_ids moved: {'router_softmax_bf16': 4, 'wrong_expert_index': 0, 'swapped_gate_up_half': 0, 'swapped_shared_gate_up': 0, 'transposed_expert_stack': 0, 'renorm_omitted': 0, 'cast_after_multiply': 0}
+  crossed - honest = 60 (crossed injects exactly one breach per case = 60)

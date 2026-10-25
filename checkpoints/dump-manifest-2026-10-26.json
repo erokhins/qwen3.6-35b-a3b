@@ -1,0 +1,2245 @@
+{
+ "manifest_version": 1,
+ "date": "2026-10-26",
+ "producing_command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json",
+ "interpreter": {
+  "executable": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python",
+  "version": "3.12.3",
+  "torch": "2.14.1+cpu",
+  "threads": 8
+ },
+ "geometry": {
+  "num_experts": 256,
+  "top_k": 8,
+  "moe_intermediate_size": 512,
+  "shared_expert_intermediate_size": 512,
+  "hidden_size": 2048,
+  "num_hidden_layers": 40,
+  "mtp_num_hidden_layers": 1,
+  "blocks_in_text_path": 41,
+  "blocks_dumped": [
+   "layer0",
+   "layer1",
+   "layer39",
+   "mtp0"
+  ],
+  "expert_bytes": 6291456,
+  "config": "/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/checkpoints/Qwen3.6-35B-A3B.config.json"
+ },
+ "input": {
+  "n_tokens": 32,
+  "seed": 20261026,
+  "dtype": "bfloat16",
+  "method": "speccheck/moe_ref.py \u00a7Input generation: fp32 torch.randn from a private torch.Generator('cpu').manual_seed(seed), each row rescaled to RMS exactly 1.0, cast to bf16. [ASSUMPTION A-01] RMS-1 models post_attention_layernorm output; it does NOT carry the (1+weight) modulation of a real activation"
+ },
+ "reading_rules": {
+  "payload": "raw little-endian element bytes, no header; bytes == elements x itemsize, and `verify` refuses a record whose size cannot hold its own declared shape (pitfalls/30 \u00a7Read a dump's dtype off its file size)",
+  "bf16": "two bytes per element, bit image \u2014 read with a uint16 view then bitcast, never cast the uint16 to a float (pitfalls/30 \u00a7Tensor.to casts, .view bitcasts)",
+  "slot axis": "expert_raw/routed_sum are indexed by top-k SLOT. The *_exact arm's slots follow the fp64 router's own rank order, which can permute a tie relative to the bf16 router; compare those along K sorted by topk_ids_exact (speccheck/cross_check_hf.py \u00a7canon_raw)",
+  "authoritative": "topk_weights is the cast-BEFORE tensor (the reference's form, README prediction 4 verified in source); topk_weights_f32 is the pre-cast value, kept so the cast-after form can be measured"
+ },
+ "dumps": [
+  {
+   "file": "data/dumps/2026-10-26/layer0.input.bin",
+   "bytes": 131072,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 65536,
+   "sha256": "f82d402d574a785b0d310a043ff6f3d8d6a03c19bd4ef46f3fb5b48f1f052ac3",
+   "name": "layer0.input",
+   "tensor_key": "input",
+   "block": "layer0",
+   "arm": "ref",
+   "source_shard": "seeded fixture, not a shard",
+   "source_tensor": "make_input(seed, T)",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.router_logits.bin",
+   "bytes": 16384,
+   "shape": [
+    32,
+    256
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 8192,
+   "sha256": "4ee256bfe9dbd8bf1c1e6dabcb088d110b018a776d0a391fd86f10ff94e38ac1",
+   "name": "layer0.router_logits",
+   "tensor_key": "router_logits",
+   "block": "layer0",
+   "arm": "ref",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.topk_ids.bin",
+   "bytes": 2048,
+   "shape": [
+    32,
+    8
+   ],
+   "dtype": "torch.int64",
+   "elements": 256,
+   "sha256": "7f297633210b348971fcc81dc1140b7a7957edc458d321fa5c187249decbc7d2",
+   "name": "layer0.topk_ids",
+   "tensor_key": "topk_ids",
+   "block": "layer0",
+   "arm": "ref",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.topk_weights.bin",
+   "bytes": 512,
+   "shape": [
+    32,
+    8
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 256,
+   "sha256": "b22f2e6065ba24e0f5e37a06acdebb03f0e1058289eccd96174e5223eff91a15",
+   "name": "layer0.topk_weights",
+   "tensor_key": "topk_weights",
+   "block": "layer0",
+   "arm": "ref",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.topk_weights_f32.bin",
+   "bytes": 1024,
+   "shape": [
+    32,
+    8
+   ],
+   "dtype": "torch.float32",
+   "elements": 256,
+   "sha256": "3f0b96554724cd8219029f6a1146aa0b28f8c2f59e1f1b6d6bbbc01756b5a919",
+   "name": "layer0.topk_weights_f32",
+   "tensor_key": "topk_weights",
+   "block": "layer0",
+   "arm": "spec",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.expert_raw.bin",
+   "bytes": 1048576,
+   "shape": [
+    32,
+    8,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 524288,
+   "sha256": "c393599a98a6e497a2f12d1ea6f52490c69f07a6a4619560f6ca597ee0760f2c",
+   "name": "layer0.expert_raw",
+   "tensor_key": "expert_raw",
+   "block": "layer0",
+   "arm": "ref",
+   "source_shard": "model-00001-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.routed_sum.bin",
+   "bytes": 131072,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 65536,
+   "sha256": "60d7c2e8cb4fc1304c83441693696f6a785753b1b153b03d46bc8e289464a688",
+   "name": "layer0.routed_sum",
+   "tensor_key": "routed_sum",
+   "block": "layer0",
+   "arm": "ref",
+   "source_shard": "model-00001-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.shared_raw.bin",
+   "bytes": 131072,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 65536,
+   "sha256": "17bb52e3eb288c9b360c35f0198ee359d23ea43990e9a6eb798e2d4cc4158b43",
+   "name": "layer0.shared_raw",
+   "tensor_key": "shared_raw",
+   "block": "layer0",
+   "arm": "ref",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.shared_expert.gate_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.shared_gate_prob.bin",
+   "bytes": 64,
+   "shape": [
+    32,
+    1
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 32,
+   "sha256": "fbf551946f0f5fa73bbcfc3a7f0112b52d4ba90cbf5d1ddba98d7d29878c919b",
+   "name": "layer0.shared_gate_prob",
+   "tensor_key": "shared_gate_prob",
+   "block": "layer0",
+   "arm": "ref",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.shared_expert_gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.shared_out.bin",
+   "bytes": 131072,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 65536,
+   "sha256": "3955a60ff05bf731e673990428577e05a08eb7548e3772f43a3d2d47f2ac1339",
+   "name": "layer0.shared_out",
+   "tensor_key": "shared_out",
+   "block": "layer0",
+   "arm": "ref",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.shared_expert.gate_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.combined_out.bin",
+   "bytes": 131072,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 65536,
+   "sha256": "963742ccef0087ae81c44f3c45bee64395a2a1f4481013c2ddec515e094c5676",
+   "name": "layer0.combined_out",
+   "tensor_key": "combined_out",
+   "block": "layer0",
+   "arm": "ref",
+   "source_shard": "model-00001-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.expert_raw_spec.bin",
+   "bytes": 2097152,
+   "shape": [
+    32,
+    8,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 524288,
+   "sha256": "a37d21ffa2a374ea7bd0ef9c8ab58957cf6731a091b2b0efab2261781c4e1335",
+   "name": "layer0.expert_raw_spec",
+   "tensor_key": "expert_raw",
+   "block": "layer0",
+   "arm": "spec",
+   "source_shard": "model-00001-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.routed_sum_spec.bin",
+   "bytes": 262144,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 65536,
+   "sha256": "1f977ba5de9f4248b8b673469416737fc4dae5197aab3f10799666b088bcfc7f",
+   "name": "layer0.routed_sum_spec",
+   "tensor_key": "routed_sum",
+   "block": "layer0",
+   "arm": "spec",
+   "source_shard": "model-00001-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.combined_out_spec.bin",
+   "bytes": 262144,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 65536,
+   "sha256": "1cb0cb61af36af32024ff4a9168bf896130fd74ba42bd5b7d198d04bc90458f3",
+   "name": "layer0.combined_out_spec",
+   "tensor_key": "combined_out",
+   "block": "layer0",
+   "arm": "spec",
+   "source_shard": "model-00001-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.router_logits_exact.bin",
+   "bytes": 32768,
+   "shape": [
+    32,
+    256
+   ],
+   "dtype": "torch.float32",
+   "elements": 8192,
+   "sha256": "bd05963af0fe07dc9da8ac601ec50935ce0929b5a060efd0e9fdb513529ed0f9",
+   "name": "layer0.router_logits_exact",
+   "tensor_key": "router_logits",
+   "block": "layer0",
+   "arm": "exact",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.topk_ids_exact.bin",
+   "bytes": 2048,
+   "shape": [
+    32,
+    8
+   ],
+   "dtype": "torch.int64",
+   "elements": 256,
+   "sha256": "a921e19147202cb98ae3facb483394df1b4c7f11603510e93b06493b1c09ef53",
+   "name": "layer0.topk_ids_exact",
+   "tensor_key": "topk_ids",
+   "block": "layer0",
+   "arm": "exact",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.topk_weights_exact.bin",
+   "bytes": 1024,
+   "shape": [
+    32,
+    8
+   ],
+   "dtype": "torch.float32",
+   "elements": 256,
+   "sha256": "73271209b6a7c52fbd2e57bc0cd85e55a956c4cb25cb096b797ce5e46c656a40",
+   "name": "layer0.topk_weights_exact",
+   "tensor_key": "topk_weights",
+   "block": "layer0",
+   "arm": "exact",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.expert_raw_exact.bin",
+   "bytes": 2097152,
+   "shape": [
+    32,
+    8,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 524288,
+   "sha256": "11fd435f44d3dde5c65488cdb0c02c077e7292881af4210007f1f814abe9b433",
+   "name": "layer0.expert_raw_exact",
+   "tensor_key": "expert_raw",
+   "block": "layer0",
+   "arm": "exact",
+   "source_shard": "model-00001-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.routed_sum_exact.bin",
+   "bytes": 262144,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 65536,
+   "sha256": "37b64fbbcb17ba3a70cdad864dfb6dc1c285c9cea84866139b0cb09b0ae01561",
+   "name": "layer0.routed_sum_exact",
+   "tensor_key": "routed_sum",
+   "block": "layer0",
+   "arm": "exact",
+   "source_shard": "model-00001-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.shared_out_exact.bin",
+   "bytes": 262144,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 65536,
+   "sha256": "8505ffa19da5d7fe85573ae8f0cd4d0519a077589393e3c451e7a3302894c793",
+   "name": "layer0.shared_out_exact",
+   "tensor_key": "shared_out",
+   "block": "layer0",
+   "arm": "exact",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.shared_expert.gate_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.combined_out_exact.bin",
+   "bytes": 262144,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 65536,
+   "sha256": "50f03699b227ae758c66f30f6bc275af24645c1cd131490b9c79d8be5def570f",
+   "name": "layer0.combined_out_exact",
+   "tensor_key": "combined_out",
+   "block": "layer0",
+   "arm": "exact",
+   "source_shard": "model-00001-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.mlp.gate.weight.bin",
+   "bytes": 1048576,
+   "shape": [
+    256,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 524288,
+   "sha256": "7e79efc3ff4f395be4667108f668061a4f40d32db4d0889431ffdbc70aafff40",
+   "name": "layer0.mlp.gate.weight",
+   "tensor_key": "mlp.gate.weight",
+   "block": "layer0",
+   "arm": "stored",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.mlp.shared_expert.gate_proj.weight.bin",
+   "bytes": 2097152,
+   "shape": [
+    512,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 1048576,
+   "sha256": "fd6a6d7141e34b202802f21907be7b0946ac1a649fcfbb1651037c15dfafe869",
+   "name": "layer0.mlp.shared_expert.gate_proj.weight",
+   "tensor_key": "mlp.shared_expert.gate_proj.weight",
+   "block": "layer0",
+   "arm": "stored",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.shared_expert.gate_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.mlp.shared_expert.up_proj.weight.bin",
+   "bytes": 2097152,
+   "shape": [
+    512,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 1048576,
+   "sha256": "5138ca73efe99193b8df70380773614c59f48125136e652698ef7691df304386",
+   "name": "layer0.mlp.shared_expert.up_proj.weight",
+   "tensor_key": "mlp.shared_expert.up_proj.weight",
+   "block": "layer0",
+   "arm": "stored",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.shared_expert.up_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.mlp.shared_expert.down_proj.weight.bin",
+   "bytes": 2097152,
+   "shape": [
+    2048,
+    512
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 1048576,
+   "sha256": "6322d07efb4659fcae2ab95bba3a30244a4fbca48b4aac7068556ce944aef7ed",
+   "name": "layer0.mlp.shared_expert.down_proj.weight",
+   "tensor_key": "mlp.shared_expert.down_proj.weight",
+   "block": "layer0",
+   "arm": "stored",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.shared_expert.down_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer0.mlp.shared_expert_gate.weight.bin",
+   "bytes": 4096,
+   "shape": [
+    1,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 2048,
+   "sha256": "b371ec6a6b72f7f7b249cebfcda69913ca8bec1071750637e7632a24f1d175c8",
+   "name": "layer0.mlp.shared_expert_gate.weight",
+   "tensor_key": "mlp.shared_expert_gate.weight",
+   "block": "layer0",
+   "arm": "stored",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.shared_expert_gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.input.bin",
+   "bytes": 131072,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 65536,
+   "sha256": "f82d402d574a785b0d310a043ff6f3d8d6a03c19bd4ef46f3fb5b48f1f052ac3",
+   "name": "layer1.input",
+   "tensor_key": "input",
+   "block": "layer1",
+   "arm": "ref",
+   "source_shard": "seeded fixture, not a shard",
+   "source_tensor": "make_input(seed, T)",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.router_logits.bin",
+   "bytes": 16384,
+   "shape": [
+    32,
+    256
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 8192,
+   "sha256": "9d105d98079d5e8543bc54087490f2c2e3cca758c8cfa89065f875afa4807357",
+   "name": "layer1.router_logits",
+   "tensor_key": "router_logits",
+   "block": "layer1",
+   "arm": "ref",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.topk_ids.bin",
+   "bytes": 2048,
+   "shape": [
+    32,
+    8
+   ],
+   "dtype": "torch.int64",
+   "elements": 256,
+   "sha256": "3d59d9dd62c205e98c4eab4647f9e388dcefc77fb50114bd6e5ae8043b1bc8c3",
+   "name": "layer1.topk_ids",
+   "tensor_key": "topk_ids",
+   "block": "layer1",
+   "arm": "ref",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.topk_weights.bin",
+   "bytes": 512,
+   "shape": [
+    32,
+    8
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 256,
+   "sha256": "f19513dca93de67d7f6b5234d73eab0ff177dd2147bce570e48b0cace0f644b5",
+   "name": "layer1.topk_weights",
+   "tensor_key": "topk_weights",
+   "block": "layer1",
+   "arm": "ref",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.topk_weights_f32.bin",
+   "bytes": 1024,
+   "shape": [
+    32,
+    8
+   ],
+   "dtype": "torch.float32",
+   "elements": 256,
+   "sha256": "302056434ad7582581cd74cc176d180ae492f517500b846cc2ef9e4f9c12846a",
+   "name": "layer1.topk_weights_f32",
+   "tensor_key": "topk_weights",
+   "block": "layer1",
+   "arm": "spec",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.expert_raw.bin",
+   "bytes": 1048576,
+   "shape": [
+    32,
+    8,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 524288,
+   "sha256": "49e34d4ce5ffe12a450835fde3e4a9ef842ee30944ce87ad9c8a7f4177de3d4e",
+   "name": "layer1.expert_raw",
+   "tensor_key": "expert_raw",
+   "block": "layer1",
+   "arm": "ref",
+   "source_shard": "model-00001-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.routed_sum.bin",
+   "bytes": 131072,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 65536,
+   "sha256": "647127362ec044efdc5b0ee97a668ee4a4379cd25ab18c849980c9b4a73e8ddc",
+   "name": "layer1.routed_sum",
+   "tensor_key": "routed_sum",
+   "block": "layer1",
+   "arm": "ref",
+   "source_shard": "model-00001-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.shared_raw.bin",
+   "bytes": 131072,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 65536,
+   "sha256": "51f178eb24a487d6f5bbdec57a264527c5bde4ff307e76289006370edb2b0336",
+   "name": "layer1.shared_raw",
+   "tensor_key": "shared_raw",
+   "block": "layer1",
+   "arm": "ref",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.shared_expert.gate_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.shared_gate_prob.bin",
+   "bytes": 64,
+   "shape": [
+    32,
+    1
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 32,
+   "sha256": "e18969ad77c7dee63715338a8ade1b12b2b5c8bea621b56f19db33c1df812887",
+   "name": "layer1.shared_gate_prob",
+   "tensor_key": "shared_gate_prob",
+   "block": "layer1",
+   "arm": "ref",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.shared_expert_gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.shared_out.bin",
+   "bytes": 131072,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 65536,
+   "sha256": "4741529143c22151101bfa0ebb5980fc9339bf4d088e70cc3b39f4ee7ddf9849",
+   "name": "layer1.shared_out",
+   "tensor_key": "shared_out",
+   "block": "layer1",
+   "arm": "ref",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.shared_expert.gate_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.combined_out.bin",
+   "bytes": 131072,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 65536,
+   "sha256": "c9cef7834d2fb3ab61f589e6fbf847e189a0401edc7bd47ba920791eaa32c333",
+   "name": "layer1.combined_out",
+   "tensor_key": "combined_out",
+   "block": "layer1",
+   "arm": "ref",
+   "source_shard": "model-00001-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.expert_raw_spec.bin",
+   "bytes": 2097152,
+   "shape": [
+    32,
+    8,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 524288,
+   "sha256": "5c9ef8f0fd405418aac1ca993178148432d4c7d66c45df7bb15e2909cf136be6",
+   "name": "layer1.expert_raw_spec",
+   "tensor_key": "expert_raw",
+   "block": "layer1",
+   "arm": "spec",
+   "source_shard": "model-00001-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.routed_sum_spec.bin",
+   "bytes": 262144,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 65536,
+   "sha256": "ff327bc718e77ea54b9823dadb5a34eeaba2bfa53b43c7c7b396edfd420f40e2",
+   "name": "layer1.routed_sum_spec",
+   "tensor_key": "routed_sum",
+   "block": "layer1",
+   "arm": "spec",
+   "source_shard": "model-00001-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.combined_out_spec.bin",
+   "bytes": 262144,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 65536,
+   "sha256": "e843447c827b3ec451dedf09d3c60730b9392313303d0a4ed2170d0ab6ceca2c",
+   "name": "layer1.combined_out_spec",
+   "tensor_key": "combined_out",
+   "block": "layer1",
+   "arm": "spec",
+   "source_shard": "model-00001-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.router_logits_exact.bin",
+   "bytes": 32768,
+   "shape": [
+    32,
+    256
+   ],
+   "dtype": "torch.float32",
+   "elements": 8192,
+   "sha256": "b949c33c22987867b0cab09cc47dea02cb8cc1da9c6138d09c6adf8110a91bc6",
+   "name": "layer1.router_logits_exact",
+   "tensor_key": "router_logits",
+   "block": "layer1",
+   "arm": "exact",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.topk_ids_exact.bin",
+   "bytes": 2048,
+   "shape": [
+    32,
+    8
+   ],
+   "dtype": "torch.int64",
+   "elements": 256,
+   "sha256": "9ea28feaa56bc8e22c442b1dc46efac8f4d724e26f83365e90c3422b8ab971d4",
+   "name": "layer1.topk_ids_exact",
+   "tensor_key": "topk_ids",
+   "block": "layer1",
+   "arm": "exact",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.topk_weights_exact.bin",
+   "bytes": 1024,
+   "shape": [
+    32,
+    8
+   ],
+   "dtype": "torch.float32",
+   "elements": 256,
+   "sha256": "4e24c8919230ba2ef688acc4a0088b0230c4fdec166f6074e5f9467bcee3b08e",
+   "name": "layer1.topk_weights_exact",
+   "tensor_key": "topk_weights",
+   "block": "layer1",
+   "arm": "exact",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.expert_raw_exact.bin",
+   "bytes": 2097152,
+   "shape": [
+    32,
+    8,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 524288,
+   "sha256": "f6ecea56634045d2f9c6835420056630bc86a194135ade161aba7a3b2bcc39af",
+   "name": "layer1.expert_raw_exact",
+   "tensor_key": "expert_raw",
+   "block": "layer1",
+   "arm": "exact",
+   "source_shard": "model-00001-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.routed_sum_exact.bin",
+   "bytes": 262144,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 65536,
+   "sha256": "572f649481a269860b89374d3424b5723a5d597bd92a46d60505767ef085f1b8",
+   "name": "layer1.routed_sum_exact",
+   "tensor_key": "routed_sum",
+   "block": "layer1",
+   "arm": "exact",
+   "source_shard": "model-00001-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.shared_out_exact.bin",
+   "bytes": 262144,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 65536,
+   "sha256": "9fd32c2edb369d540ea116bbfd36add77cd2515bbfb37eb483e3b420182f6c2b",
+   "name": "layer1.shared_out_exact",
+   "tensor_key": "shared_out",
+   "block": "layer1",
+   "arm": "exact",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.shared_expert.gate_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.combined_out_exact.bin",
+   "bytes": 262144,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 65536,
+   "sha256": "3f90c451c314ab64b3e86051f51a020b8d3ffc0f8b8dfc3c3591a339c57191d2",
+   "name": "layer1.combined_out_exact",
+   "tensor_key": "combined_out",
+   "block": "layer1",
+   "arm": "exact",
+   "source_shard": "model-00001-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.mlp.gate.weight.bin",
+   "bytes": 1048576,
+   "shape": [
+    256,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 524288,
+   "sha256": "c637316de82e434c7d4943460abb84676a618b08054a837311d8319141a16486",
+   "name": "layer1.mlp.gate.weight",
+   "tensor_key": "mlp.gate.weight",
+   "block": "layer1",
+   "arm": "stored",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.mlp.shared_expert.gate_proj.weight.bin",
+   "bytes": 2097152,
+   "shape": [
+    512,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 1048576,
+   "sha256": "d666ae3a2d0c5835a5b5ff47ecce947b832d0c6dd20aab52ce5c46444e07d769",
+   "name": "layer1.mlp.shared_expert.gate_proj.weight",
+   "tensor_key": "mlp.shared_expert.gate_proj.weight",
+   "block": "layer1",
+   "arm": "stored",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.shared_expert.gate_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.mlp.shared_expert.up_proj.weight.bin",
+   "bytes": 2097152,
+   "shape": [
+    512,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 1048576,
+   "sha256": "5e2d1f603a0e2af68e618c643a5fcc8d65e468a770d4a463a904d5a124d71f40",
+   "name": "layer1.mlp.shared_expert.up_proj.weight",
+   "tensor_key": "mlp.shared_expert.up_proj.weight",
+   "block": "layer1",
+   "arm": "stored",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.shared_expert.up_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.mlp.shared_expert.down_proj.weight.bin",
+   "bytes": 2097152,
+   "shape": [
+    2048,
+    512
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 1048576,
+   "sha256": "7db9c8a2c1e9ce10465b25042b934a0c6c9f757a026259f211096ec847fe5f03",
+   "name": "layer1.mlp.shared_expert.down_proj.weight",
+   "tensor_key": "mlp.shared_expert.down_proj.weight",
+   "block": "layer1",
+   "arm": "stored",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.shared_expert.down_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer1.mlp.shared_expert_gate.weight.bin",
+   "bytes": 4096,
+   "shape": [
+    1,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 2048,
+   "sha256": "8b0f4fcd2756ec94897d4fde00d7d0755a5563c146756e56dff112d30e211d8b",
+   "name": "layer1.mlp.shared_expert_gate.weight",
+   "tensor_key": "mlp.shared_expert_gate.weight",
+   "block": "layer1",
+   "arm": "stored",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.shared_expert_gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.input.bin",
+   "bytes": 131072,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 65536,
+   "sha256": "f82d402d574a785b0d310a043ff6f3d8d6a03c19bd4ef46f3fb5b48f1f052ac3",
+   "name": "layer39.input",
+   "tensor_key": "input",
+   "block": "layer39",
+   "arm": "ref",
+   "source_shard": "seeded fixture, not a shard",
+   "source_tensor": "make_input(seed, T)",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.router_logits.bin",
+   "bytes": 16384,
+   "shape": [
+    32,
+    256
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 8192,
+   "sha256": "fe71dd0092320a17317203c342db3e2a778dd8c264ec87ffe2e57d5186e0a4e3",
+   "name": "layer39.router_logits",
+   "tensor_key": "router_logits",
+   "block": "layer39",
+   "arm": "ref",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.topk_ids.bin",
+   "bytes": 2048,
+   "shape": [
+    32,
+    8
+   ],
+   "dtype": "torch.int64",
+   "elements": 256,
+   "sha256": "57b115dfa1f5a32414b133d96956a08468880069b8ad45a78ea986751cd0c7ac",
+   "name": "layer39.topk_ids",
+   "tensor_key": "topk_ids",
+   "block": "layer39",
+   "arm": "ref",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.topk_weights.bin",
+   "bytes": 512,
+   "shape": [
+    32,
+    8
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 256,
+   "sha256": "78c8d9cfeda719f4ba10fe01fd7b9b0ebb2974eedd231e211bad6f45aee77e75",
+   "name": "layer39.topk_weights",
+   "tensor_key": "topk_weights",
+   "block": "layer39",
+   "arm": "ref",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.topk_weights_f32.bin",
+   "bytes": 1024,
+   "shape": [
+    32,
+    8
+   ],
+   "dtype": "torch.float32",
+   "elements": 256,
+   "sha256": "381f490308f5306f4aea8f2f73d66bf36bcbbfdce1a6287485990534b39483a1",
+   "name": "layer39.topk_weights_f32",
+   "tensor_key": "topk_weights",
+   "block": "layer39",
+   "arm": "spec",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.expert_raw.bin",
+   "bytes": 1048576,
+   "shape": [
+    32,
+    8,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 524288,
+   "sha256": "fbe13c9d577baea0c850210afdf62133e82fa32b8f3edfa67145e3c7cd4fcf59",
+   "name": "layer39.expert_raw",
+   "tensor_key": "expert_raw",
+   "block": "layer39",
+   "arm": "ref",
+   "source_shard": "model-00025-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.routed_sum.bin",
+   "bytes": 131072,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 65536,
+   "sha256": "6fdb557938f91a3736cc72da8835dd6b42dd025ef8964115aab87a5763ac4709",
+   "name": "layer39.routed_sum",
+   "tensor_key": "routed_sum",
+   "block": "layer39",
+   "arm": "ref",
+   "source_shard": "model-00025-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.shared_raw.bin",
+   "bytes": 131072,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 65536,
+   "sha256": "f535323f3dd546b230040086c6e52b8abcad303d89eb3db782a0e95f72d8ffa8",
+   "name": "layer39.shared_raw",
+   "tensor_key": "shared_raw",
+   "block": "layer39",
+   "arm": "ref",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.shared_expert.gate_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.shared_gate_prob.bin",
+   "bytes": 64,
+   "shape": [
+    32,
+    1
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 32,
+   "sha256": "348051793ab9b71fa93d1176b539865fcf831262e7130da24f5458ceff7c0f74",
+   "name": "layer39.shared_gate_prob",
+   "tensor_key": "shared_gate_prob",
+   "block": "layer39",
+   "arm": "ref",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.shared_expert_gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.shared_out.bin",
+   "bytes": 131072,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 65536,
+   "sha256": "077365b59b831e4826a6c418ef2806f5234a52fd14efbc06c890fd1f69ffc07e",
+   "name": "layer39.shared_out",
+   "tensor_key": "shared_out",
+   "block": "layer39",
+   "arm": "ref",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.shared_expert.gate_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.combined_out.bin",
+   "bytes": 131072,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 65536,
+   "sha256": "f8d82ce8abdbb507047a945fe08600b8ce7ea16a44097faeff6fe67bfccd75c6",
+   "name": "layer39.combined_out",
+   "tensor_key": "combined_out",
+   "block": "layer39",
+   "arm": "ref",
+   "source_shard": "model-00025-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.expert_raw_spec.bin",
+   "bytes": 2097152,
+   "shape": [
+    32,
+    8,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 524288,
+   "sha256": "7b903799d57d5f5b3073bd5f5e00a28c50406902d27b97bb50ddbe8d8116a2fb",
+   "name": "layer39.expert_raw_spec",
+   "tensor_key": "expert_raw",
+   "block": "layer39",
+   "arm": "spec",
+   "source_shard": "model-00025-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.routed_sum_spec.bin",
+   "bytes": 262144,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 65536,
+   "sha256": "8442997967229a120015a0d6e1dbc3cd34d81d13b5e56b5a4330ee27b371b4a7",
+   "name": "layer39.routed_sum_spec",
+   "tensor_key": "routed_sum",
+   "block": "layer39",
+   "arm": "spec",
+   "source_shard": "model-00025-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.combined_out_spec.bin",
+   "bytes": 262144,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 65536,
+   "sha256": "61cb8774a17e7c1bef6b7734627076fa82c71e393cb02051393020aee0513420",
+   "name": "layer39.combined_out_spec",
+   "tensor_key": "combined_out",
+   "block": "layer39",
+   "arm": "spec",
+   "source_shard": "model-00025-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.router_logits_exact.bin",
+   "bytes": 32768,
+   "shape": [
+    32,
+    256
+   ],
+   "dtype": "torch.float32",
+   "elements": 8192,
+   "sha256": "2488f755419f2c34d4b7d86075d96357326bd1bffff2396c160be1c9eebfa6bd",
+   "name": "layer39.router_logits_exact",
+   "tensor_key": "router_logits",
+   "block": "layer39",
+   "arm": "exact",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.topk_ids_exact.bin",
+   "bytes": 2048,
+   "shape": [
+    32,
+    8
+   ],
+   "dtype": "torch.int64",
+   "elements": 256,
+   "sha256": "ce82c178bc5193bd3da0b502f9dcdd59d045533bc8aa59528b7039dc8f9ca0ad",
+   "name": "layer39.topk_ids_exact",
+   "tensor_key": "topk_ids",
+   "block": "layer39",
+   "arm": "exact",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.topk_weights_exact.bin",
+   "bytes": 1024,
+   "shape": [
+    32,
+    8
+   ],
+   "dtype": "torch.float32",
+   "elements": 256,
+   "sha256": "861bfa0cc9b113adc88084d4e564625938a3f6bfb8c379864bf9f9ace4d85733",
+   "name": "layer39.topk_weights_exact",
+   "tensor_key": "topk_weights",
+   "block": "layer39",
+   "arm": "exact",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.expert_raw_exact.bin",
+   "bytes": 2097152,
+   "shape": [
+    32,
+    8,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 524288,
+   "sha256": "3b5bfd50854b5b7278bbfb039bee7761453568089f6854d43d5c9f9557bf270a",
+   "name": "layer39.expert_raw_exact",
+   "tensor_key": "expert_raw",
+   "block": "layer39",
+   "arm": "exact",
+   "source_shard": "model-00025-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.routed_sum_exact.bin",
+   "bytes": 262144,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 65536,
+   "sha256": "2a4b5eecab3ac5ffff5b569e7eb7a6edbd54506035861fd4ed03187384f19c84",
+   "name": "layer39.routed_sum_exact",
+   "tensor_key": "routed_sum",
+   "block": "layer39",
+   "arm": "exact",
+   "source_shard": "model-00025-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.shared_out_exact.bin",
+   "bytes": 262144,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 65536,
+   "sha256": "908d48192ffe2f3ce7b86904b6bb91dd34f9969278e066817c052c82e7a4339e",
+   "name": "layer39.shared_out_exact",
+   "tensor_key": "shared_out",
+   "block": "layer39",
+   "arm": "exact",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.shared_expert.gate_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.combined_out_exact.bin",
+   "bytes": 262144,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 65536,
+   "sha256": "121d7b0744672725f534992ae604e1a10c6141c50433bdc6c85c5a59b51cfe03",
+   "name": "layer39.combined_out_exact",
+   "tensor_key": "combined_out",
+   "block": "layer39",
+   "arm": "exact",
+   "source_shard": "model-00025-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.mlp.gate.weight.bin",
+   "bytes": 1048576,
+   "shape": [
+    256,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 524288,
+   "sha256": "da0562b5537f0196f16f7dbb3f48151d183d69dac5b1d623ee7fde264ade8e25",
+   "name": "layer39.mlp.gate.weight",
+   "tensor_key": "mlp.gate.weight",
+   "block": "layer39",
+   "arm": "stored",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.mlp.shared_expert.gate_proj.weight.bin",
+   "bytes": 2097152,
+   "shape": [
+    512,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 1048576,
+   "sha256": "92ec8b6055576043871c935d3a2c24f297e98f9ee99c73c4520e8dbcf0cc107c",
+   "name": "layer39.mlp.shared_expert.gate_proj.weight",
+   "tensor_key": "mlp.shared_expert.gate_proj.weight",
+   "block": "layer39",
+   "arm": "stored",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.shared_expert.gate_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.mlp.shared_expert.up_proj.weight.bin",
+   "bytes": 2097152,
+   "shape": [
+    512,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 1048576,
+   "sha256": "0d83355fd8e44dd1974adaa4b7c578c024c43abfb3d86af9a21ff64111d97750",
+   "name": "layer39.mlp.shared_expert.up_proj.weight",
+   "tensor_key": "mlp.shared_expert.up_proj.weight",
+   "block": "layer39",
+   "arm": "stored",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.shared_expert.up_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.mlp.shared_expert.down_proj.weight.bin",
+   "bytes": 2097152,
+   "shape": [
+    2048,
+    512
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 1048576,
+   "sha256": "c8b0c1e70e242e8258a4f5bb3d867613485995765dd993b5fc27f75bf63cf0e9",
+   "name": "layer39.mlp.shared_expert.down_proj.weight",
+   "tensor_key": "mlp.shared_expert.down_proj.weight",
+   "block": "layer39",
+   "arm": "stored",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.shared_expert.down_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/layer39.mlp.shared_expert_gate.weight.bin",
+   "bytes": 4096,
+   "shape": [
+    1,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 2048,
+   "sha256": "d8a76953dbd80eb423004ba6ebc834cefcd1fbbeefaa82c3c616359141b555a5",
+   "name": "layer39.mlp.shared_expert_gate.weight",
+   "tensor_key": "mlp.shared_expert_gate.weight",
+   "block": "layer39",
+   "arm": "stored",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.shared_expert_gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.input.bin",
+   "bytes": 131072,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 65536,
+   "sha256": "f82d402d574a785b0d310a043ff6f3d8d6a03c19bd4ef46f3fb5b48f1f052ac3",
+   "name": "mtp0.input",
+   "tensor_key": "input",
+   "block": "mtp0",
+   "arm": "ref",
+   "source_shard": "seeded fixture, not a shard",
+   "source_tensor": "make_input(seed, T)",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.router_logits.bin",
+   "bytes": 16384,
+   "shape": [
+    32,
+    256
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 8192,
+   "sha256": "7ce5cc495e92abc09e05f5a4a0f3e8ec00f70a94eab1a223fe63f1b22950b9d2",
+   "name": "mtp0.router_logits",
+   "tensor_key": "router_logits",
+   "block": "mtp0",
+   "arm": "ref",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.topk_ids.bin",
+   "bytes": 2048,
+   "shape": [
+    32,
+    8
+   ],
+   "dtype": "torch.int64",
+   "elements": 256,
+   "sha256": "861fc754ff1532eda9d1e2d79cc01ec185a94cfd3f7da2c61a588992b199bb8d",
+   "name": "mtp0.topk_ids",
+   "tensor_key": "topk_ids",
+   "block": "mtp0",
+   "arm": "ref",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.topk_weights.bin",
+   "bytes": 512,
+   "shape": [
+    32,
+    8
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 256,
+   "sha256": "99e1541ec212608a1e2e2c59abe037c1e1824368d7b29674460408b05871f57d",
+   "name": "mtp0.topk_weights",
+   "tensor_key": "topk_weights",
+   "block": "mtp0",
+   "arm": "ref",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.topk_weights_f32.bin",
+   "bytes": 1024,
+   "shape": [
+    32,
+    8
+   ],
+   "dtype": "torch.float32",
+   "elements": 256,
+   "sha256": "3fa1204dea70e216062bba4d229ff27603bf0aa454c3e900162397ecc33e4b5c",
+   "name": "mtp0.topk_weights_f32",
+   "tensor_key": "topk_weights",
+   "block": "mtp0",
+   "arm": "spec",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.expert_raw.bin",
+   "bytes": 1048576,
+   "shape": [
+    32,
+    8,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 524288,
+   "sha256": "996da90bc36e65f00a7a55eead171161cce4ce112aef1b9b69e66a9bf97df863",
+   "name": "mtp0.expert_raw",
+   "tensor_key": "expert_raw",
+   "block": "mtp0",
+   "arm": "ref",
+   "source_shard": "model-00025-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.routed_sum.bin",
+   "bytes": 131072,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 65536,
+   "sha256": "74d5be06433d74bcebeca42e0371c92accbc7356448268363e3c2e5c294fc578",
+   "name": "mtp0.routed_sum",
+   "tensor_key": "routed_sum",
+   "block": "mtp0",
+   "arm": "ref",
+   "source_shard": "model-00025-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.shared_raw.bin",
+   "bytes": 131072,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 65536,
+   "sha256": "ccd4aa46d5ed0211f28309b9ab416c5ad20979810bf598a6f416c6507b59961a",
+   "name": "mtp0.shared_raw",
+   "tensor_key": "shared_raw",
+   "block": "mtp0",
+   "arm": "ref",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.shared_expert.gate_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.shared_gate_prob.bin",
+   "bytes": 64,
+   "shape": [
+    32,
+    1
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 32,
+   "sha256": "76e9228ada25ef0479bbc9bc437f5b5595e5768c0199384653965defd0d05e0f",
+   "name": "mtp0.shared_gate_prob",
+   "tensor_key": "shared_gate_prob",
+   "block": "mtp0",
+   "arm": "ref",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.shared_expert_gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.shared_out.bin",
+   "bytes": 131072,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 65536,
+   "sha256": "b29ca2450743e4a53c1c5b66c969377170075400e668c14236e8767dd7f87394",
+   "name": "mtp0.shared_out",
+   "tensor_key": "shared_out",
+   "block": "mtp0",
+   "arm": "ref",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.shared_expert.gate_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.combined_out.bin",
+   "bytes": 131072,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 65536,
+   "sha256": "ebcadf8f4f330710df0ed518b0706baaf880114a7e860a66baa792868c39fb7b",
+   "name": "mtp0.combined_out",
+   "tensor_key": "combined_out",
+   "block": "mtp0",
+   "arm": "ref",
+   "source_shard": "model-00025-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.expert_raw_spec.bin",
+   "bytes": 2097152,
+   "shape": [
+    32,
+    8,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 524288,
+   "sha256": "cb184bca093e429ec04b3b2751050fd5f81ee32f77b02614631dd624c75d4071",
+   "name": "mtp0.expert_raw_spec",
+   "tensor_key": "expert_raw",
+   "block": "mtp0",
+   "arm": "spec",
+   "source_shard": "model-00025-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.routed_sum_spec.bin",
+   "bytes": 262144,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 65536,
+   "sha256": "1c433504a7f22cf64d686204cc5af7a3c1be0f845d62342a7d2d61d90d738c22",
+   "name": "mtp0.routed_sum_spec",
+   "tensor_key": "routed_sum",
+   "block": "mtp0",
+   "arm": "spec",
+   "source_shard": "model-00025-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.combined_out_spec.bin",
+   "bytes": 262144,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 65536,
+   "sha256": "3519b27748b0e0053b8cb254426c592b84fde62a932f3fa3938240ad2d662c2c",
+   "name": "mtp0.combined_out_spec",
+   "tensor_key": "combined_out",
+   "block": "mtp0",
+   "arm": "spec",
+   "source_shard": "model-00025-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.router_logits_exact.bin",
+   "bytes": 32768,
+   "shape": [
+    32,
+    256
+   ],
+   "dtype": "torch.float32",
+   "elements": 8192,
+   "sha256": "c370b8f4ed96e148443fc4f6e8d988cbe62ea2d63a953c8df2cc06e4f996e307",
+   "name": "mtp0.router_logits_exact",
+   "tensor_key": "router_logits",
+   "block": "mtp0",
+   "arm": "exact",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.topk_ids_exact.bin",
+   "bytes": 2048,
+   "shape": [
+    32,
+    8
+   ],
+   "dtype": "torch.int64",
+   "elements": 256,
+   "sha256": "c7d7499e58ff57cb0c08d3dd41e6c70d35d3bb0b77dd78d50b994292b891f792",
+   "name": "mtp0.topk_ids_exact",
+   "tensor_key": "topk_ids",
+   "block": "mtp0",
+   "arm": "exact",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.topk_weights_exact.bin",
+   "bytes": 1024,
+   "shape": [
+    32,
+    8
+   ],
+   "dtype": "torch.float32",
+   "elements": 256,
+   "sha256": "16cab2e761d01a54e582b23179d457904892b72cc6bb0efef5802202c011eb18",
+   "name": "mtp0.topk_weights_exact",
+   "tensor_key": "topk_weights",
+   "block": "mtp0",
+   "arm": "exact",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.expert_raw_exact.bin",
+   "bytes": 2097152,
+   "shape": [
+    32,
+    8,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 524288,
+   "sha256": "a9068a267e073f566b637c855197fc13d46f047c86f1e7c54e01a73b5c9b9ee5",
+   "name": "mtp0.expert_raw_exact",
+   "tensor_key": "expert_raw",
+   "block": "mtp0",
+   "arm": "exact",
+   "source_shard": "model-00025-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.routed_sum_exact.bin",
+   "bytes": 262144,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 65536,
+   "sha256": "c9a4d377778ae37d79983e6213fcd59a869f0d585833e1efc9a40fea5465c80c",
+   "name": "mtp0.routed_sum_exact",
+   "tensor_key": "routed_sum",
+   "block": "mtp0",
+   "arm": "exact",
+   "source_shard": "model-00025-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.shared_out_exact.bin",
+   "bytes": 262144,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 65536,
+   "sha256": "c8bb3bac931fc366b46d6c17f71c543540d739e931b26a456bf8997e4fd706d4",
+   "name": "mtp0.shared_out_exact",
+   "tensor_key": "shared_out",
+   "block": "mtp0",
+   "arm": "exact",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.shared_expert.gate_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.combined_out_exact.bin",
+   "bytes": 262144,
+   "shape": [
+    32,
+    2048
+   ],
+   "dtype": "torch.float32",
+   "elements": 65536,
+   "sha256": "2e3a02c3bcef0d1bf322fb9a6a4b6f7450ab0991aae797a0ed762309e6afba86",
+   "name": "mtp0.combined_out_exact",
+   "tensor_key": "combined_out",
+   "block": "mtp0",
+   "arm": "exact",
+   "source_shard": "model-00025-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.experts.gate_up_proj",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.mlp.gate.weight.bin",
+   "bytes": 1048576,
+   "shape": [
+    256,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 524288,
+   "sha256": "ed592b6a2138228dc40dacc96179ce0c657ebd5c55c92476938c4eb0ede9108c",
+   "name": "mtp0.mlp.gate.weight",
+   "tensor_key": "mlp.gate.weight",
+   "block": "mtp0",
+   "arm": "stored",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.mlp.shared_expert.gate_proj.weight.bin",
+   "bytes": 2097152,
+   "shape": [
+    512,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 1048576,
+   "sha256": "0203b5ebc27a1dec00c88e93935899c538414bd7a31d6d2d024953dc5387231a",
+   "name": "mtp0.mlp.shared_expert.gate_proj.weight",
+   "tensor_key": "mlp.shared_expert.gate_proj.weight",
+   "block": "mtp0",
+   "arm": "stored",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.shared_expert.gate_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.mlp.shared_expert.up_proj.weight.bin",
+   "bytes": 2097152,
+   "shape": [
+    512,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 1048576,
+   "sha256": "29bafa204d41aa4c581ba6ed5f5b3db914a546fa653817dcc55e7db53aea56c3",
+   "name": "mtp0.mlp.shared_expert.up_proj.weight",
+   "tensor_key": "mlp.shared_expert.up_proj.weight",
+   "block": "mtp0",
+   "arm": "stored",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.shared_expert.up_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.mlp.shared_expert.down_proj.weight.bin",
+   "bytes": 2097152,
+   "shape": [
+    2048,
+    512
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 1048576,
+   "sha256": "e1ac113656bcf5bcac1ebbc46c61f6b40d7cc480aeef6e58dada17073f18458e",
+   "name": "mtp0.mlp.shared_expert.down_proj.weight",
+   "tensor_key": "mlp.shared_expert.down_proj.weight",
+   "block": "mtp0",
+   "arm": "stored",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.shared_expert.down_proj.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  },
+  {
+   "file": "data/dumps/2026-10-26/mtp0.mlp.shared_expert_gate.weight.bin",
+   "bytes": 4096,
+   "shape": [
+    1,
+    2048
+   ],
+   "dtype": "torch.bfloat16",
+   "elements": 2048,
+   "sha256": "6cf70655851eae34334fc252072d3d872d908b6ea2479ac45676e667ded61c2e",
+   "name": "mtp0.mlp.shared_expert_gate.weight",
+   "tensor_key": "mlp.shared_expert_gate.weight",
+   "block": "mtp0",
+   "arm": "stored",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.shared_expert_gate.weight",
+   "command": "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tools/dump_reference.py --blocks layer0,layer1,layer39,mtp0 --tokens 32 --seed 20261026 --threads 8 --out data/dumps/2026-10-26 --manifest checkpoints/dump-manifest-2026-10-26.json"
+  }
+ ],
+ "referenced_not_dumped": [
+  {
+   "block": "layer0",
+   "tensor_key": "mlp.experts.gate_up_proj",
+   "reason": "routed expert stack is 1.5 GiB per block and the shard is the authority; the manifest carries shape/dtype/shard/byte-offsets so a gate can read the selected experts directly",
+   "source_shard": "model-00001-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.experts.gate_up_proj",
+   "shape": [
+    256,
+    1024,
+    2048
+   ],
+   "dtype": "BF16",
+   "elements": 536870912,
+   "bytes": 1073741824,
+   "data_offsets": [
+    1084227584,
+    2157969408
+   ],
+   "header_bytes": 2840
+  },
+  {
+   "block": "layer0",
+   "tensor_key": "mlp.experts.down_proj",
+   "reason": "see gate_up",
+   "source_shard": "model-00002-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.0.mlp.experts.down_proj",
+   "shape": [
+    256,
+    2048,
+    512
+   ],
+   "dtype": "BF16",
+   "elements": 268435456,
+   "bytes": 536870912,
+   "data_offsets": [
+    332160,
+    537203072
+   ],
+   "header_bytes": 39368
+  },
+  {
+   "block": "layer1",
+   "tensor_key": "mlp.experts.gate_up_proj",
+   "reason": "routed expert stack is 1.5 GiB per block and the shard is the authority; the manifest carries shape/dtype/shard/byte-offsets so a gate can read the selected experts directly",
+   "source_shard": "model-00001-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.experts.gate_up_proj",
+   "shape": [
+    256,
+    1024,
+    2048
+   ],
+   "dtype": "BF16",
+   "elements": 536870912,
+   "bytes": 1073741824,
+   "data_offsets": [
+    2761949184,
+    3835691008
+   ],
+   "header_bytes": 2840
+  },
+  {
+   "block": "layer1",
+   "tensor_key": "mlp.experts.down_proj",
+   "reason": "see gate_up",
+   "source_shard": "model-00001-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.1.mlp.experts.down_proj",
+   "shape": [
+    256,
+    2048,
+    512
+   ],
+   "dtype": "BF16",
+   "elements": 268435456,
+   "bytes": 536870912,
+   "data_offsets": [
+    2225078272,
+    2761949184
+   ],
+   "header_bytes": 2840
+  },
+  {
+   "block": "layer39",
+   "tensor_key": "mlp.experts.gate_up_proj",
+   "reason": "routed expert stack is 1.5 GiB per block and the shard is the authority; the manifest carries shape/dtype/shard/byte-offsets so a gate can read the selected experts directly",
+   "source_shard": "model-00025-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.experts.gate_up_proj",
+   "shape": [
+    256,
+    1024,
+    2048
+   ],
+   "dtype": "BF16",
+   "elements": 536870912,
+   "bytes": 1073741824,
+   "data_offsets": [
+    1685401984,
+    2759143808
+   ],
+   "header_bytes": 2616
+  },
+  {
+   "block": "layer39",
+   "tensor_key": "mlp.experts.down_proj",
+   "reason": "see gate_up",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "model.language_model.layers.39.mlp.experts.down_proj",
+   "shape": [
+    256,
+    2048,
+    512
+   ],
+   "dtype": "BF16",
+   "elements": 268435456,
+   "bytes": 536870912,
+   "data_offsets": [
+    1017122816,
+    1553993728
+   ],
+   "header_bytes": 4104
+  },
+  {
+   "block": "mtp0",
+   "tensor_key": "mlp.experts.gate_up_proj",
+   "reason": "routed expert stack is 1.5 GiB per block and the shard is the authority; the manifest carries shape/dtype/shard/byte-offsets so a gate can read the selected experts directly",
+   "source_shard": "model-00025-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.experts.gate_up_proj",
+   "shape": [
+    256,
+    1024,
+    2048
+   ],
+   "dtype": "BF16",
+   "elements": 536870912,
+   "bytes": 1073741824,
+   "data_offsets": [
+    2759143808,
+    3832885632
+   ],
+   "header_bytes": 2616
+  },
+  {
+   "block": "mtp0",
+   "tensor_key": "mlp.experts.down_proj",
+   "reason": "see gate_up",
+   "source_shard": "model-00026-of-00026.safetensors",
+   "source_tensor": "mtp.layers.0.mlp.experts.down_proj",
+   "shape": [
+    256,
+    2048,
+    512
+   ],
+   "dtype": "BF16",
+   "elements": 268435456,
+   "bytes": 536870912,
+   "data_offsets": [
+    1632654336,
+    2169525248
+   ],
+   "header_bytes": 4104
+  }
+ ],
+ "agreement_at_write_time": {
+  "layer0": {
+   "topk_ids_bitexact_vs_reference": true,
+   "topk_ids_rows_set_equal": "32/32",
+   "routed_sum_bitexact_vs_reference": true,
+   "router_logits": {
+    "max_abs": 0.0,
+    "one_minus_cos": 0.0,
+    "ndiff": 0,
+    "n": 8192
+   },
+   "expert_raw": {
+    "max_abs": 0.0,
+    "one_minus_cos": 0.0,
+    "ndiff": 0,
+    "n": 524288
+   },
+   "routed_sum": {
+    "max_abs": 0.0,
+    "one_minus_cos": 0.0,
+    "ndiff": 0,
+    "n": 65536
+   },
+   "shared_out": {
+    "max_abs": 0.0,
+    "one_minus_cos": 0.0,
+    "ndiff": 0,
+    "n": 65536
+   },
+   "combined_out": {
+    "max_abs": 0.0,
+    "one_minus_cos": 0.0,
+    "ndiff": 0,
+    "n": 65536
+   },
+   "raw_vs_post_weight_elements_differ": 524288,
+   "recompose_routed_sum_bitexact": true
+  },
+  "layer1": {
+   "topk_ids_bitexact_vs_reference": true,
+   "topk_ids_rows_set_equal": "32/32",
+   "routed_sum_bitexact_vs_reference": true,
+   "router_logits": {
+    "max_abs": 0.0,
+    "one_minus_cos": 0.0,
+    "ndiff": 0,
+    "n": 8192
+   },
+   "expert_raw": {
+    "max_abs": 0.0,
+    "one_minus_cos": 0.0,
+    "ndiff": 0,
+    "n": 524288
+   },
+   "routed_sum": {
+    "max_abs": 0.0,
+    "one_minus_cos": 0.0,
+    "ndiff": 0,
+    "n": 65536
+   },
+   "shared_out": {
+    "max_abs": 0.0,
+    "one_minus_cos": 0.0,
+    "ndiff": 0,
+    "n": 65536
+   },
+   "combined_out": {
+    "max_abs": 0.0,
+    "one_minus_cos": 2.220446049250313e-16,
+    "ndiff": 0,
+    "n": 65536
+   },
+   "raw_vs_post_weight_elements_differ": 524288,
+   "recompose_routed_sum_bitexact": true
+  },
+  "layer39": {
+   "topk_ids_bitexact_vs_reference": true,
+   "topk_ids_rows_set_equal": "32/32",
+   "routed_sum_bitexact_vs_reference": true,
+   "router_logits": {
+    "max_abs": 0.0,
+    "one_minus_cos": 0.0,
+    "ndiff": 0,
+    "n": 8192
+   },
+   "expert_raw": {
+    "max_abs": 0.0,
+    "one_minus_cos": 0.0,
+    "ndiff": 0,
+    "n": 524288
+   },
+   "routed_sum": {
+    "max_abs": 0.0,
+    "one_minus_cos": 0.0,
+    "ndiff": 0,
+    "n": 65536
+   },
+   "shared_out": {
+    "max_abs": 0.0,
+    "one_minus_cos": 0.0,
+    "ndiff": 0,
+    "n": 65536
+   },
+   "combined_out": {
+    "max_abs": 0.0,
+    "one_minus_cos": 0.0,
+    "ndiff": 0,
+    "n": 65536
+   },
+   "raw_vs_post_weight_elements_differ": 524288,
+   "recompose_routed_sum_bitexact": true
+  },
+  "mtp0": {
+   "topk_ids_bitexact_vs_reference": true,
+   "topk_ids_rows_set_equal": "32/32",
+   "routed_sum_bitexact_vs_reference": true,
+   "router_logits": {
+    "max_abs": 0.0,
+    "one_minus_cos": 0.0,
+    "ndiff": 0,
+    "n": 8192
+   },
+   "expert_raw": {
+    "max_abs": 0.0,
+    "one_minus_cos": 0.0,
+    "ndiff": 0,
+    "n": 524288
+   },
+   "routed_sum": {
+    "max_abs": 0.0,
+    "one_minus_cos": 0.0,
+    "ndiff": 0,
+    "n": 65536
+   },
+   "shared_out": {
+    "max_abs": 0.0,
+    "one_minus_cos": 0.0,
+    "ndiff": 0,
+    "n": 65536
+   },
+   "combined_out": {
+    "max_abs": 0.0,
+    "one_minus_cos": 0.0,
+    "ndiff": 0,
+    "n": 65536
+   },
+   "raw_vs_post_weight_elements_differ": 524288,
+   "recompose_routed_sum_bitexact": true
+  }
+ },
+ "counts": {
+  "dumps": 104,
+  "expected": 104,
+  "blocks": 4,
+  "referenced_not_dumped": 8
+ }
+}

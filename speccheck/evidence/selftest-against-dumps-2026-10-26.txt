@@ -1,0 +1,131 @@
+# selftest_moe — torch 2.14.1+cpu CPU threads=8 seed=20261026
+# geometry from /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/checkpoints/Qwen3.6-35B-A3B.config.json: E=256 top_k=8 I=512 shared_I=512 H=2048 layers=40 +mtp=1 => 41 MoE blocks in the text path
+# blocks available in the acquired shards: 4 of 41 (layer0, layer1, layer39, mtp0) — coverage stated, not implied
+# derived cases per block: 15; total 60
+#   section cast_after_multiply: 1 case(s) per block (derived)
+#   section renorm_omitted: 1 case(s) per block (derived)
+#   section router_softmax_bf16: 1 case(s) per block (derived)
+#   section swapped_gate_up_half: 1 case(s) per block (derived)
+#   section swapped_shared_gate_up: 1 case(s) per block (derived)
+#   section transposed_expert_stack: 1 case(s) per block (derived)
+#   section wrong_expert_index: 9 case(s) per block (derived)
+
+## firing table (the comparison is bit-level; no band is involved)
+  block   injection                param           T moved stages                                                      viol maxabs
+  layer0  wrong_expert_index       {"slot": 0}    16 combined_out,expert_raw,routed_sum                                   0 9.961e-02
+  layer0  wrong_expert_index       {"slot": 1}    16 combined_out,expert_raw,routed_sum                                   0 1.422e-01
+  layer0  wrong_expert_index       {"slot": 2}    16 combined_out,expert_raw,routed_sum                                   0 1.191e-01
+  layer0  wrong_expert_index       {"slot": 3}    16 combined_out,expert_raw,routed_sum                                   0 1.064e-01
+  layer0  wrong_expert_index       {"slot": 4}    16 combined_out,expert_raw,routed_sum                                   0 1.378e-01
+  layer0  wrong_expert_index       {"slot": 5}    16 combined_out,expert_raw,routed_sum                                   0 1.134e-01
+  layer0  wrong_expert_index       {"slot": 6}    16 combined_out,expert_raw,routed_sum                                   0 1.182e-01
+  layer0  wrong_expert_index       {"slot": 7}    16 combined_out,expert_raw,routed_sum                                   0 1.436e-01
+  layer0  wrong_expert_index       {"slot": null}   16 combined_out,expert_raw,routed_sum                                   0 1.436e-01
+  layer0  swapped_gate_up_half     {}             16 combined_out,expert_raw,routed_sum                                   0 1.050e-01
+  layer0  swapped_shared_gate_up   {}             16 combined_out,shared_out,shared_raw                                   0 4.531e-01
+  layer0  transposed_expert_stack  {}             16 combined_out,expert_raw,routed_sum                                   0 1.168e-01
+  layer0  renorm_omitted           {}             16 combined_out,routed_sum,topk_weights                                 0 2.600e-01
+  layer0  cast_after_multiply      {}             16 combined_out,routed_sum,topk_weights                                 0 9.766e-04
+  layer0  router_softmax_bf16      {}             64 combined_out,expert_raw,routed_sum,router_probs,topk_ids,topk_weights     0 2.050e+02
+  layer1  wrong_expert_index       {"slot": 0}    16 combined_out,expert_raw,routed_sum                                   0 1.572e-01
+  layer1  wrong_expert_index       {"slot": 1}    16 combined_out,expert_raw,routed_sum                                   0 1.711e-01
+  layer1  wrong_expert_index       {"slot": 2}    16 combined_out,expert_raw,routed_sum                                   0 1.450e-01
+  layer1  wrong_expert_index       {"slot": 3}    16 combined_out,expert_raw,routed_sum                                   0 1.738e-01
+  layer1  wrong_expert_index       {"slot": 4}    16 combined_out,expert_raw,routed_sum                                   0 1.296e-01
+  layer1  wrong_expert_index       {"slot": 5}    16 combined_out,expert_raw,routed_sum                                   0 1.458e-01
+  layer1  wrong_expert_index       {"slot": 6}    16 combined_out,expert_raw,routed_sum                                   0 1.472e-01
+  layer1  wrong_expert_index       {"slot": 7}    16 combined_out,expert_raw,routed_sum                                   0 1.448e-01
+  layer1  wrong_expert_index       {"slot": null}   16 combined_out,expert_raw,routed_sum                                   0 1.738e-01
+  layer1  swapped_gate_up_half     {}             16 combined_out,expert_raw,routed_sum                                   0 7.263e-02
+  layer1  swapped_shared_gate_up   {}             16 combined_out,shared_out,shared_raw                                   0 2.781e-01
+  layer1  transposed_expert_stack  {}             16 combined_out,expert_raw,routed_sum                                   0 1.626e-01
+  layer1  renorm_omitted           {}             16 combined_out,routed_sum,topk_weights                                 0 2.585e-01
+  layer1  cast_after_multiply      {}             16 combined_out,routed_sum,topk_weights                                 0 4.883e-04
+  layer1  router_softmax_bf16      {}             64 combined_out,expert_raw,routed_sum,router_probs,topk_ids,topk_weights     0 1.670e+02
+  layer39 wrong_expert_index       {"slot": 0}    16 combined_out,expert_raw,routed_sum                                   0 1.654e+00
+  layer39 wrong_expert_index       {"slot": 1}    16 combined_out,expert_raw,routed_sum                                   0 7.593e-01
+  layer39 wrong_expert_index       {"slot": 2}    16 combined_out,expert_raw,routed_sum                                   0 4.663e-01
+  layer39 wrong_expert_index       {"slot": 3}    16 combined_out,expert_raw,routed_sum                                   0 1.373e+00
+  layer39 wrong_expert_index       {"slot": 4}    16 combined_out,expert_raw,routed_sum                                   0 6.445e-01
+  layer39 wrong_expert_index       {"slot": 5}    16 combined_out,expert_raw,routed_sum                                   0 7.681e-01
+  layer39 wrong_expert_index       {"slot": 6}    16 combined_out,expert_raw,routed_sum                                   0 4.805e-01
+  layer39 wrong_expert_index       {"slot": 7}    16 combined_out,expert_raw,routed_sum                                   0 5.183e-01
+  layer39 wrong_expert_index       {"slot": null}   16 combined_out,expert_raw,routed_sum                                   0 1.654e+00
+  layer39 swapped_gate_up_half     {}             16 combined_out,expert_raw,routed_sum                                   0 6.631e-01
+  layer39 swapped_shared_gate_up   {}             16 combined_out,shared_out,shared_raw                                   0 2.988e-01
+  layer39 transposed_expert_stack  {}             16 combined_out,expert_raw,routed_sum                                   0 1.188e+00
+  layer39 renorm_omitted           {}             16 combined_out,routed_sum,topk_weights                                 0 1.916e-01
+  layer39 cast_after_multiply      {}             16 combined_out,routed_sum,topk_weights                                 0 9.766e-04
+  layer39 router_softmax_bf16      {}             64 combined_out,expert_raw,routed_sum,router_probs,topk_ids,topk_weights     0 1.440e+02
+  mtp0    wrong_expert_index       {"slot": 0}    16 combined_out,expert_raw,routed_sum                                   0 6.914e-01
+  mtp0    wrong_expert_index       {"slot": 1}    16 combined_out,expert_raw,routed_sum                                   0 8.257e-01
+  mtp0    wrong_expert_index       {"slot": 2}    16 combined_out,expert_raw,routed_sum                                   0 6.519e-01
+  mtp0    wrong_expert_index       {"slot": 3}    16 combined_out,expert_raw,routed_sum                                   0 5.332e-01
+  mtp0    wrong_expert_index       {"slot": 4}    16 combined_out,expert_raw,routed_sum                                   0 1.115e+00
+  mtp0    wrong_expert_index       {"slot": 5}    16 combined_out,expert_raw,routed_sum                                   0 7.930e-01
+  mtp0    wrong_expert_index       {"slot": 6}    16 combined_out,expert_raw,routed_sum                                   0 1.287e+00
+  mtp0    wrong_expert_index       {"slot": 7}    16 combined_out,expert_raw,routed_sum                                   0 1.279e+00
+  mtp0    wrong_expert_index       {"slot": null}   16 combined_out,expert_raw,routed_sum                                   0 1.287e+00
+  mtp0    swapped_gate_up_half     {}             16 combined_out,expert_raw,routed_sum                                   0 8.193e-01
+  mtp0    swapped_shared_gate_up   {}             16 combined_out,shared_out,shared_raw                                   0 1.497e-01
+  mtp0    transposed_expert_stack  {}             16 combined_out,expert_raw,routed_sum                                   0 1.075e+00
+  mtp0    renorm_omitted           {}             16 combined_out,routed_sum,topk_weights                                 0 2.477e-01
+  mtp0    cast_after_multiply      {}             16 combined_out,routed_sum,topk_weights                                 0 9.766e-04
+  mtp0    router_softmax_bf16      {}             64 combined_out,expert_raw,routed_sum,router_probs,topk_ids,topk_weights     0 2.200e+02
+
+## tallies (every 0 below is printed with its witness)
+  cases                        60
+  caught                       60
+  localised                    60
+  stage_diffs                  192
+  ids_flips                    4
+  shared_moved_cases           4
+  router_moved_cases           12
+  must_not_catch_violations    0
+  expected cases               60
+  witnesses: shared_moved_cases>0 proves the shared must-not-catch side can fire; router_moved_cases>0 proves the router must-not-catch side can fire; stage_diffs>0 proves the differ is not stuck
+
+## against-dumps: 0/40 pinned ref tensors reproduced bit-exactly from the oracle
+
+SELFTEST FAIL
+  - layer0.input: dump shape/dtype (32, 2048)/torch.bfloat16 != recomputed (32, 2048)/torch.bfloat16
+  - layer0.router_logits: dump shape/dtype (32, 256)/torch.bfloat16 != recomputed (32, 256)/torch.bfloat16
+  - layer0.topk_ids: dump shape/dtype (32, 8)/torch.int64 != recomputed (32, 8)/torch.int64
+  - layer0.topk_weights: dump shape/dtype (32, 8)/torch.bfloat16 != recomputed (32, 8)/torch.bfloat16
+  - layer0.expert_raw: dump shape/dtype (32, 8, 2048)/torch.bfloat16 != recomputed (32, 8, 2048)/torch.bfloat16
+  - layer0.routed_sum: dump shape/dtype (32, 2048)/torch.bfloat16 != recomputed (32, 2048)/torch.bfloat16
+  - layer0.shared_raw: dump shape/dtype (32, 2048)/torch.bfloat16 != recomputed (32, 2048)/torch.bfloat16
+  - layer0.shared_gate_prob: dump shape/dtype (32, 1)/torch.bfloat16 != recomputed (32, 1)/torch.bfloat16
+  - layer0.shared_out: dump shape/dtype (32, 2048)/torch.bfloat16 != recomputed (32, 2048)/torch.bfloat16
+  - layer0.combined_out: dump shape/dtype (32, 2048)/torch.bfloat16 != recomputed (32, 2048)/torch.bfloat16
+  - layer1.input: dump shape/dtype (32, 2048)/torch.bfloat16 != recomputed (32, 2048)/torch.bfloat16
+  - layer1.router_logits: dump shape/dtype (32, 256)/torch.bfloat16 != recomputed (32, 256)/torch.bfloat16
+  - layer1.topk_ids: dump shape/dtype (32, 8)/torch.int64 != recomputed (32, 8)/torch.int64
+  - layer1.topk_weights: dump shape/dtype (32, 8)/torch.bfloat16 != recomputed (32, 8)/torch.bfloat16
+  - layer1.expert_raw: dump shape/dtype (32, 8, 2048)/torch.bfloat16 != recomputed (32, 8, 2048)/torch.bfloat16
+  - layer1.routed_sum: dump shape/dtype (32, 2048)/torch.bfloat16 != recomputed (32, 2048)/torch.bfloat16
+  - layer1.shared_raw: dump shape/dtype (32, 2048)/torch.bfloat16 != recomputed (32, 2048)/torch.bfloat16
+  - layer1.shared_gate_prob: dump shape/dtype (32, 1)/torch.bfloat16 != recomputed (32, 1)/torch.bfloat16
+  - layer1.shared_out: dump shape/dtype (32, 2048)/torch.bfloat16 != recomputed (32, 2048)/torch.bfloat16
+  - layer1.combined_out: dump shape/dtype (32, 2048)/torch.bfloat16 != recomputed (32, 2048)/torch.bfloat16
+  - layer39.input: dump shape/dtype (32, 2048)/torch.bfloat16 != recomputed (32, 2048)/torch.bfloat16
+  - layer39.router_logits: dump shape/dtype (32, 256)/torch.bfloat16 != recomputed (32, 256)/torch.bfloat16
+  - layer39.topk_ids: dump shape/dtype (32, 8)/torch.int64 != recomputed (32, 8)/torch.int64
+  - layer39.topk_weights: dump shape/dtype (32, 8)/torch.bfloat16 != recomputed (32, 8)/torch.bfloat16
+  - layer39.expert_raw: dump shape/dtype (32, 8, 2048)/torch.bfloat16 != recomputed (32, 8, 2048)/torch.bfloat16
+  - layer39.routed_sum: dump shape/dtype (32, 2048)/torch.bfloat16 != recomputed (32, 2048)/torch.bfloat16
+  - layer39.shared_raw: dump shape/dtype (32, 2048)/torch.bfloat16 != recomputed (32, 2048)/torch.bfloat16
+  - layer39.shared_gate_prob: dump shape/dtype (32, 1)/torch.bfloat16 != recomputed (32, 1)/torch.bfloat16
+  - layer39.shared_out: dump shape/dtype (32, 2048)/torch.bfloat16 != recomputed (32, 2048)/torch.bfloat16
+  - layer39.combined_out: dump shape/dtype (32, 2048)/torch.bfloat16 != recomputed (32, 2048)/torch.bfloat16
+  - mtp0.input: dump shape/dtype (32, 2048)/torch.bfloat16 != recomputed (32, 2048)/torch.bfloat16
+  - mtp0.router_logits: dump shape/dtype (32, 256)/torch.bfloat16 != recomputed (32, 256)/torch.bfloat16
+  - mtp0.topk_ids: dump shape/dtype (32, 8)/torch.int64 != recomputed (32, 8)/torch.int64
+  - mtp0.topk_weights: dump shape/dtype (32, 8)/torch.bfloat16 != recomputed (32, 8)/torch.bfloat16
+  - mtp0.expert_raw: dump shape/dtype (32, 8, 2048)/torch.bfloat16 != recomputed (32, 8, 2048)/torch.bfloat16
+  - mtp0.routed_sum: dump shape/dtype (32, 2048)/torch.bfloat16 != recomputed (32, 2048)/torch.bfloat16
+  - mtp0.shared_raw: dump shape/dtype (32, 2048)/torch.bfloat16 != recomputed (32, 2048)/torch.bfloat16
+  - mtp0.shared_gate_prob: dump shape/dtype (32, 1)/torch.bfloat16 != recomputed (32, 1)/torch.bfloat16
+  - mtp0.shared_out: dump shape/dtype (32, 2048)/torch.bfloat16 != recomputed (32, 2048)/torch.bfloat16
+  - mtp0.combined_out: dump shape/dtype (32, 2048)/torch.bfloat16 != recomputed (32, 2048)/torch.bfloat16
+  - against-dumps checked 0 of 40 ref-arm tensors
