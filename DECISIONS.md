@@ -679,3 +679,32 @@ sitting idle while a worker runs 35 t/s across the LAN is not free.
 
 **Applied retroactively? No.** W14 and W15 were both started under the old rule while two workers were
 live, which is the correct placement for a two-worker board anyway. D-15 binds from the next launch.
+
+## D-16 — Does a whole-buffer cross-arm check inherit the lane's declared field rule? — **OPEN (asked 2026-10-26, user's to set)**
+
+**Question.** `prototype/moe_gather/` declares `field_exact=gate_up` for 18 cases: the gate and up fields are
+held to bit-exactness, `s` and `raw` are not, because they carry an `expf` that this lane declares
+counted-and-never-banded (glibc on the host, ROCm libdevice on the device). The lane's cross-arm check —
+*host arm and device arm agree word for word* — is written over the **whole** output buffer, ignoring that
+declaration. It fails with **6,631 differing words of 306,176**, attributed by
+`prototype/moe_gather/work/diag_armdiff.py` as follows: all of it in `s` (206) and `raw` (6,425), only in those
+18 cases, while `gate`/`up` differ **0** times between arms and **0** from the oracle in both.
+
+**Why this is the user's and not mine.** The two readings are both defensible and they are not a bug report,
+they are a policy choice about what the gate is allowed to bless:
+
+| option | what it means | what it costs |
+|---|---|---|
+| **A — the check inherits the field rule** | cross-arm exactness is asserted per declared field: exact where declared, counted-and-reported elsewhere. The lane goes green today | the gate stops objecting to *any* divergence in `s`/`raw`, including one that is not libdevice. Mitigation: keep printing the differing-word census, and require it to stay zero outside the 18 cases |
+| **B — whole-buffer exactness stands** | the cross-arm check keeps its current teeth; the lane stays red until `expf` matches across arms | a red gate that no kernel change can fix without reimplementing `expf` bit-for-bit on both routes — which buys nothing, since the dumps already settle the numerics (D-14's ruling is the nearest precedent: a recomputed transcendental is not a bit-exactness obligation) |
+
+**Evidence, so the choice is informed.** `prototype/moe_gather/results.md`,
+`prototype/moe_gather/evidence/moe-gather-device-2026-10-26.log` (`CHECKS ran=908 failed=1`), and the
+attribution artifact above. Nearest precedent: **D-14** (a 1-ulp transcendental difference on two `ssm_a`
+cases was ruled acceptable, scoped narrowly to those cases — the scoping is the part that argues for option A
+*with the census kept printed*, rather than A as a blanket pass).
+
+**What I will not do.** Not loosen the check to make the gate green — the standing rule is that floors, bands
+and must-catch sets are never moved to fit what the current build produces. The lane stays committed at
+`3f1b977` with `RESULT FAIL … findings=1` until this is answered. Nothing was papered over, and the red is the
+evidence that the check still has teeth.
