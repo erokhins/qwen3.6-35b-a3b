@@ -145,9 +145,30 @@ def contract():
     if len(fields) != fc["LMH_F_R"] - 1:
         raise Fail("lmh_r_fields has %d names, LMH_F_R says %d data fields"
                    % (len(fields), fc["LMH_F_R"] - 1))
+    # The canonical text form of each field is scraped from the SAME header the writer compiles, so
+    # producer and parser cannot each hold a ruler: lmh_r_fmt[] is the one spelling of that rule.
+    m = re.search(r"lmh_r_fmt\[\]\s*=\s*\{([^}]*)\}", plan, re.S)
+    if not m:
+        raise Fail("no lmh_r_fmt[] array in lm_head_plan.h: no report field has a declared text form")
+    kinds = dict(re.findall(r"#define\s+(LMH_RF_[A-Z]+)\s+\"([a-z]+)\"", plan))
+    fmts = []
+    for tok in re.findall(r"LMH_RF_[A-Z]+|\"[a-z]+\"", m.group(1)):
+        if tok.startswith("LMH_RF_"):
+            if tok not in kinds:
+                raise Fail("lmh_r_fmt[] uses %s, which has no #define in lm_head_plan.h" % tok)
+            f = kinds[tok]
+        else:
+            f = tok.strip('"')
+        if f not in ("dec", "hex", "real"):
+            raise Fail("lmh_r_fmt[] declares form %r, which is not dec/hex/real" % f)
+        fmts.append(f)
+    if len(fmts) != len(fields):
+        raise Fail("lmh_r_fmt has %d forms, lmh_r_fields has %d names" % (len(fmts), len(fields)))
+    if "hex" not in fmts:
+        raise Fail("no report field is declared a bit image: the digest columns would have no ruler")
     modes = sorted(n for n in en if n.startswith("LMH_MODE_") and n != "LMH_MODE_COUNT"
                    and n != "LMH_MODE_CORRECT")
-    return fc, en, fields, modes
+    return fc, en, fields, modes, fmts
 
 
 def mode_token(mode_name):
@@ -155,6 +176,15 @@ def mode_token(mode_name):
     mode. Derived from the header enum, so a mode nobody wrote a witness for is a red check rather than
     a hole in a hand-typed list."""
     return mode_name[len("LMH_MODE_"):].lower().replace("_", "-")
+
+
+def mode_token_id(mid, en):
+    """The same fragment from the numeric id a plan record carries. The ids come from the plan and the
+    names from the header; this is the only place that translates, so a renumbered enum moves both."""
+    for k in sorted(en):
+        if k.startswith("LMH_MODE_") and k != "LMH_MODE_COUNT" and en[k] == mid:
+            return mode_token(k)
+    raise Fail("no LMH_MODE_* name in %s has id %d" % (KERNELS_H, mid))
 
 
 def read_config():
@@ -279,7 +309,13 @@ def _wbits(v):
 
 def synth_bf16_bits(h, rows):
     """The synthetic bf16 rows, as hex. Every value is required to be a bf16 value, so the
-    HALF_ACCUM derivation below has something exact to be immune about."""
+    HALF_ACCUM derivation below has something exact to be immune about.
+
+    The bf16 image is the HIGH half of the f32 image — a bf16 value is an f32 whose low 16 mantissa
+    bits are zero, so writing `bits & 0xFF` and `bits >> 8` writes two zero bytes for every legal
+    value. That is how this function shipped a table of all zeros while still passing its own
+    is-a-bf16-value test; the payload's non-zero witness at the end is what makes the encoding
+    checked rather than assumed."""
     out = bytearray(len(rows) * h * 2)
     for ri, row in enumerate(rows):
         for k, v in row:
@@ -287,8 +323,11 @@ def synth_bf16_bits(h, rows):
             if bits & 0xFFFF:
                 raise Fail("synthetic weight %r at row %d k=%d is not a bf16 value" % (v, ri, k))
             at = ri * h * 2 + k * 2
-            out[at] = bits & 0xFF
-            out[at + 1] = (bits >> 8) & 0xFF
+            out[at] = (bits >> 16) & 0xFF
+            out[at + 1] = (bits >> 24) & 0xFF
+    if not any(out):
+        raise Fail("synth_bf16_bits produced an all-zero payload: every case over it would be a "
+                   "zero-output case, which is a hollow check rather than a cheap one")
     return bytes(out).hex()
 
 
@@ -325,6 +364,8 @@ def build(cfg, fc, en, max_rows, deep_rows):
     and nothing else: no class, no mode and no assertion is removed by the cut (the cut is printed)."""
     p = Pop(cfg, fc, en)
     H, hd = cfg["h"], cfg["head_dim"]
+    BATCH = 4                                        # the bcount of every batched case, and the number
+    #                                                of copies each synthetic hidden shape gets below
     path = os.path.join(DUMP_DIR, DUMP_FILE)
     sz = os.path.getsize(path)
     if sz % (H * 2):
@@ -379,21 +420,26 @@ def build(cfg, fc, en, max_rows, deep_rows):
              ("onehot", dict(k=hd - 1)), ("onehot", dict(k=hd)),
              ("onehot_inexact", dict(k=H // 2)), ("tail_zero", {}), ("head_zero", {}),
              ("head_only", {})]
+    # Each synthetic shape is materialised BATCH times, because a case addresses hidden[b0 + b] for
+    # b in [0, bcount) and every batched case uses bcount=BATCH. One copy per shape made an injection
+    # built on tail_zero/head_zero/head_only read past the end of the pool — the out-of-range index is
+    # caught at build time below, so the pool size and the indexing rule cannot drift apart again.
     h_index, n_h = {}, n_real
     for kind, extra in kinds:
-        d = dict(i=n_h, src="synth", kind=kind)
-        d.update(extra)
-        hidden_spec.append(d)
         if kind not in h_index:
-            h_index[kind] = n_h
-        n_h += 1
+            h_index[kind] = n_h                      # the FIRST of that kind's group
+        for _ in range(BATCH):
+            d = dict(i=n_h, src="synth", kind=kind)
+            d.update(extra)
+            hidden_spec.append(d)
+            n_h += 1
     p.hidden_spec, p.n_hidden, p.h_index = hidden_spec, n_h, h_index
 
     SEQ, REV, S8 = en["LMH_ASSOC_SEQ"], en["LMH_ASSOC_REV"], en["LMH_ASSOC_SPLIT8"]
     DENSE, GATH = en["LMH_PATH_DENSE"], en["LMH_PATH_GATHER"]
     BATCHED, PERROW = en["LMH_BATCH_BATCHED"], en["LMH_BATCH_PERROW"]
     CORRECT, M = en["LMH_MODE_CORRECT"], en
-    B = 4
+    B = BATCH
     real0, real1 = 0, 1
     anchors = {}
     for t, nm, nr in [(t_lmh, "bf16-lmhead", max_rows), (t_emb, "bf16-embd", max_rows),
@@ -424,9 +470,13 @@ def build(cfg, fc, en, max_rows, deep_rows):
             p.add_case("honest-%s-dense-split8" % nm, t, path=DENSE, batching=BATCHED, b0=real0,
                        bcount=B, row_lo=0, nrows=nr, assoc=S8, mode=CORRECT, expect="BAND")
         if t == t_tied_b:
-            p.cases[-1]["expect"], p.cases[-1]["expect_name"] = declared("EXACT"), "EXACT"
-            p.cases[-1]["cmp_off"] = anchors["bf16-tied-a"]["batched"]["out_off"]
-            p.cases[-1]["name"] = "honest-bf16-tied-b-gather-vs-tied-a"
+            # The tied control's whole claim in one case: the SAME geometry (same hidden vectors, same
+            # id list, same path) issued against the PEER table. The peer's bytes are the anchor's bytes,
+            # so this is bit-exact by construction and any difference is the aliasing assumption breaking.
+            # It is not the shuffled case renamed: shuffled reads different hidden, which cannot be EXACT.
+            p.add_case("honest-bf16-tied-b-gather-vs-tied-a", t, path=GATH, batching=BATCHED,
+                       b0=real0, bcount=B, ids=gids, assoc=SEQ, mode=CORRECT, expect="EXACT",
+                       cmp_off=anchors["bf16-tied-a"]["gather"]["out_off"])
 
     p.add_case("honest-bf16-lmhead-dense-batched-b2", t_lmh, path=DENSE, batching=BATCHED,
                b0=real0, bcount=2, row_lo=0, nrows=max_rows, assoc=SEQ, mode=CORRECT,
@@ -453,12 +503,31 @@ def build(cfg, fc, en, max_rows, deep_rows):
         kw.setdefault("row_lo", 0)
         kw.setdefault("nrows", max_rows)
         tok = mode_token(mode_name)
-        return p.add_case("inj-%s-%s" % (nm, tok), table, mode=M[mode_name], expect="AUTO", **kw)
+        c = p.add_case("inj-%s-%s" % (nm, tok), table, mode=M[mode_name], expect="AUTO", **kw)
+        # Every injection is judged against the SAME work done honestly. Hand-pairing 73 injections
+        # with 73 baselines is the pairing that goes silently wrong, so the baseline is added here from
+        # the injection's own geometry when the population did not already contain one, and cmp_off is
+        # filled from it (lm_head_plan.h refuses a traced BYTES case with no baseline). adjudicate does
+        # NOT read cmp_off: it re-derives the twin from the geometry and the R line, so a mis-paired
+        # baseline is a red check rather than a silent agreement.
+        tw = p.honest_twin(c)
+        if tw is None:
+            tw = p.add_case("honest-%s-baseline" % c["name"], c["table"], path=c["path"],
+                            batching=c["batching"], b0=c["b0"], bcount=c["bcount"],
+                            row_lo=c["row_lo"], nrows=c["nrows"], ids=kw.get("ids"),
+                            assoc=c["assoc"], mode=CORRECT, expect="BAND")
+        if c["cmp_off"] < 0:
+            c["cmp_off"] = tw["out_off"]
+        return c
 
     for t, nm in [(t_lmh, "bf16-lmhead"), (t_lmh_q8, "q8-lmhead"), (t_emb, "bf16-embd"),
                   (t_emb_q8, "q8-embd")]:
         inj(nm, t, "LMH_MODE_HALF_ACCUM", b0=h_index["onehot"], bcount=B)
         inj(nm, t, "LMH_MODE_HALF_ACCUM", b0=real0, bcount=B)
+        # The firing arm needs a product that is NOT already a bf16 value by a margin the band cannot
+        # swallow: one hidden entry of 1.001953125 makes that single product's bf16 rounding about
+        # 2^-9 of itself, against a band of gamma_2048 = 1.2e-4 of the absolute sum.
+        inj(nm, t, "LMH_MODE_HALF_ACCUM", b0=h_index["onehot_inexact"], bcount=B)
         inj(nm, t, "LMH_MODE_DROP_LAST_K", b0=h_index["tail_zero"], bcount=B)
         inj(nm, t, "LMH_MODE_DROP_LAST_K", b0=real0, bcount=B)
         inj(nm, t, "LMH_MODE_DROP_LAST_K", b0=h_index["head_zero"], bcount=B, assoc=REV)
@@ -493,6 +562,12 @@ def build(cfg, fc, en, max_rows, deep_rows):
     p.t_of = dict(lmh=t_lmh, emb=t_emb, lmh_q8=t_lmh_q8, emb_q8=t_emb_q8, tied_a=t_tied_a,
                   tied_b=t_tied_b, synth=t_synth, synth_q8=t_synth_q8)
     p.real_hidden, p.synth_hidden = n_real, n_h - n_real
+    # A case addresses hidden[b0 .. b0+bcount): checked here, at build time, rather than as an
+    # IndexError from inside the oracle or a garbage row from a driver.
+    for c in p.cases:
+        if c["b0"] < 0 or c["bcount"] < 1 or c["b0"] + c["bcount"] > p.n_hidden:
+            raise Fail("case %r (idx %d) addresses hidden[%d,%d) but n_hidden=%d"
+                       % (c["name"], c["idx"], c["b0"], c["b0"] + c["bcount"], p.n_hidden))
     return p
 
 
@@ -568,6 +643,21 @@ class Data(object):
         return self.fc["LMH_SPLIT"] if c["assoc"] == self.en["LMH_ASSOC_SPLIT8"] else 1
 
 
+def _f32(x):
+    """Round a Python float to the binary32 value it would become, exactly as the kernel's float does."""
+    return struct.unpack("<f", struct.pack("<f", x))[0]
+
+
+def _bf16_round(x):
+    """The kernel's `__float2bfloat16(x)` then back: ties-to-even on the discarded 16 bits, so the
+    same rule as lm_head_kernels.h's bf16 product, not a truncation."""
+    b = struct.unpack("<I", struct.pack("<f", x))[0]
+    if (b & 0x7FFF_FFFF) > 0x7F80_0000:
+        return x                                    # NaN stays NaN
+    r = (b + 0x7FFF + ((b >> 16) & 1)) & 0xFFFF_0000
+    return struct.unpack("<f", struct.pack("<I", r))[0]
+
+
 def derive_class(c, d):
     """Which class a case IS, derived from the materialised bytes — never typed.
 
@@ -577,7 +667,17 @@ def derive_class(c, d):
     p, fc, en = d.p, d.fc, d.en
     mode, t = c["mode"], p.tables[c["table"]]
     if mode == en["LMH_MODE_CORRECT"]:
-        return c["expect_name"], "not an injection"
+        if c["expect_name"] != "AUTO":
+            return c["expect_name"], "not an injection"
+        # AUTO on a CORRECT case is only reachable by neutralising an injection (--control no-fire):
+        # the case now believes it is honest, so it is judged as one — bit-identical to the twin it
+        # names, otherwise against the oracle's band. Its expectation words were never filled (the
+        # oracle saw an injection when it ran), so the band it is bounded by reads NaN and the run
+        # goes red with a named word. That is the control's whole point, reached by a judgement.
+        if c["cmp_off"] >= 0:
+            return "EXACT", ("mode CORRECT with cmp_off=%d: bit-identity against the named twin"
+                             % c["cmp_off"])
+        return "BAND", "mode CORRECT with no declared class: bounded by the oracle band"
     h_used = d.h_used(c)
     rows = d.rows_of(c)
     peer = p.tables[t["peer"]] if t["peer"] >= 0 else None
@@ -588,8 +688,12 @@ def derive_class(c, d):
             a, an = d.row_bytes(t, r, h_used)
             b, bn = d.row_bytes(t, r + 1, h_used)
             if not (t["base"] <= b and b + bn <= t["base"] + t["nbytes"]):
-                return "BYTES", ("successor row %d of table %d leaves the table: the cross counter "
-                                 "must move" % (r + 1, t["idx"]))
+                # The successor of the LAST row is not this table's bytes at all, so BOTH rulers must
+                # move: the words (they come from a foreign range) and the cross counter. Calling that
+                # BYTES would demand "the words still equal the twin's" of a case whose whole content is
+                # reading somebody else's row.
+                return "FIRES", ("successor row %d of table %d leaves the table: the words come from a "
+                                 "foreign range and the cross counter must move" % (r + 1, t["idx"]))
             if d.slab[a:a + an] != d.slab[b:b + bn]:
                 same = False
         return ("IMMUNE" if same else "FIRES"), \
@@ -620,23 +724,47 @@ def derive_class(c, d):
         return ("IMMUNE" if (tail_zero and first) else "FIRES"), \
             "all rows are row 0 (%d) and h[k]==0 for k in [%d,%d) (%d)" % (first, hd, t["h"], tail_zero)
     if mode == en["LMH_MODE_HALF_ACCUM"]:
-        exact = True
+        # Derived from the bytes, not from the arm: round every product to bf16 here and ask whether the
+        # word would move FURTHER than that word's own band. "Some product is not a bf16 value" is not
+        # the claim — an injection whose every effect sits inside the rounding budget is not observable
+        # at this width, and calling it FIRES would certify a check that cannot go any colour but green.
+        u = 2.0 ** -24
+        beyond_any = False
+        moved_any = False
+        worst = 0.0
+        first = None
         for r in rows:
             vals = d.row_values(t, r, h_used)
             for b in range(c["bcount"]):
                 hv = d.hidden[c["b0"] + b]
+                honest, rounded, scale = [], [], 0.0
                 for k in range(h_used):
-                    if hv[k] == 0.0:
-                        continue
-                    if _wbits(hv[k] * vals[k]) & 0xFFFF:
-                        exact = False
-                        break
-                if not exact:
-                    break
-            if not exact:
-                break
-        return ("IMMUNE" if exact else "FIRES"), \
-            "every non-zero product is already a bf16 value: %d" % exact
+                    p = hv[k] * vals[k]
+                    honest.append(p)
+                    rounded.append(_f32(_bf16_round(p)))
+                    scale += abs(p)
+                K = h_used
+                band = (K * u / (1.0 - K * u)) * math.fsum(abs(x) for x in honest)
+                dd = abs(math.fsum(honest) - math.fsum(rounded))
+                if band > 0.0 and dd > band:
+                    beyond_any = True
+                if band > 0.0 and dd != 0.0:
+                    moved_any = True
+                if band > 0.0 and first is None:
+                    first = (dd, band)
+                worst = max(worst, dd / band if band > 0.0 else 0.0)
+        if beyond_any:
+            return "FIRES", "bf16-rounding every product moves a word beyond its own band (worst %.3g x)" % worst
+        if moved_any:
+            # The injection really happened (the words are not the twin's) and every word still sits
+            # inside the band. At h=2048 the fp32 summation band, gamma_2048 = 1.221e-4 of the absolute
+            # sum, is WIDER than the per-term error of rounding a product to bf16 after cancellation,
+            # so a bf16-valued pair of operands is not observable through the band. Declaring this
+            # FIRES would certify an arm that cannot be anything but red, and declaring it IMMUNE would
+            # claim bit-identity that the bytes contradict; INSIDE is the class that says both facts.
+            return "INSIDE", ("bf16-rounding every product moves every word but never past its own "
+                              "band (worst %.3f x)" % worst)
+        return "IMMUNE", "bf16-rounding every product changes no word at all"
     if mode == en["LMH_MODE_DROP_LAST_K"]:
         per = h_used // nlanes
         dropped = []
@@ -681,6 +809,11 @@ def recount(c, d, words, skip=False):
     nlanes = d.nlanes(c)
     per = h_used // nlanes
     rows = d.rows_of(c)
+    if c["mode"] == en["LMH_MODE_GATHER_ROW_OFF_1"]:
+        # The injection's whole content is "gather the successor row". A recount that read the honest
+        # row would agree with the kernel only if the kernel had not done what the mode says, so the
+        # +1 lives HERE as well as in the kernel; derive_class decided FIRES/BYTES from the same +1.
+        rows = [r + 1 for r in rows]
     src = t
     if c["mode"] == en["LMH_MODE_TIED_ALIAS"] and peer is not None:
         src = peer
@@ -727,7 +860,11 @@ def recount(c, d, words, skip=False):
                 pat, pn = slice_at(pr, k0, kn)
                 touch(pat, pn)
             r["lanes"] += 1
-            vals = d.row_values(t, row, h_used)
+            # the VALUES come from the table the addressing says was read (`src`), not from the table
+            # the case was named after: a tied-alias arm loads through the peer's base, and quoting the
+            # own table's values back would make the digest agree with the driver only if the alias
+            # had not happened.
+            vals = d.row_values(src, row, h_used)
             if mode == en["LMH_MODE_Q8_DROP_SCALE"]:
                 qbytes = d.slab
                 for k in range(k0, k1):
@@ -781,6 +918,15 @@ class V(object):
     def note(self, name, note):
         print("NOTE name=%s %s" % (name, note))
 
+    def refusal(self, e):
+        """An explicit refusal IS a finding. main() catches Fail from anywhere in the pipeline; before
+        this, a run that died in the oracle printed `RESULT PASS ... checks=2 findings=0` because the
+        two checks that had run were both green. A verdict over a run that adjudicated nothing is the
+        same class of hole as a check that can produce no output (pitfalls/40)."""
+        self.n += 1
+        self.bad.append("the run refused: %s" % str(e)[:120])
+        print("CHECK name=the run reached its adjudication ok=0 n=1 refusal=%s" % str(e)[:200])
+
     def verdict(self, label):
         print("CHECKS ran=%d failed=%d %s" % (self.n, len(self.bad),
                                               ",".join(self.bad[:8]) if self.bad else ""))
@@ -816,9 +962,28 @@ def f32(w):
     return struct.unpack("<f", struct.pack("<I", w))[0]
 
 
-def read_report(path, p, fields, fc):
-    """Parse the R lines, require the name line to be the writer's own array, and require one row per
-    case. A report that parsed to zero rows cannot fail, so it is refused here rather than judged."""
+# The consumer half of the report's canonical text form; lmh_r_fmt[] in lm_head_plan.h is the producer
+# half and contract() scrapes it, so a field's radix is declared once and enforced twice. Each pattern
+# is anchored with \Z, so a token only passes if the WHOLE token is the canonical spelling.
+CANON = {
+    "dec": re.compile(r"(?:0|[1-9][0-9]*)\Z"),
+    "hex": re.compile(r"0x[0-9A-F]{8}\Z"),
+    "real": re.compile(r"(?:[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|nan|[+-]inf(?:inity)?)\Z",
+                       re.I),
+}
+
+
+def read_report(path, p, fields, fc, fmts):
+    """Parse the R lines, require the name line to be the writer's own array, require one row per
+    case, and require EVERY numeric token to be the canonical spelling its declared form says. A report
+    that parsed to zero rows cannot fail, so it is refused here rather than judged.
+
+    The form check is the consumer half of the digest rule (lmh_r_fmt[] in lm_head_plan.h is the
+    producer half). A bit-image column accepts ONLY `0x` + 8 upper-case hex digits and a count column
+    ONLY canonical decimal, so a producer that spells a digest in the other radix is a REFUSAL naming
+    the field, the case and the offending token — never a mis-parse into a plausible number. Parsing
+    4278190080 where 0xFF400000 was written, or the reverse, is exactly the two-rulers bug that makes
+    every digest comparison in the lane meaningless in whichever direction it errs."""
     with open(path) as fh:
         lines = [l.rstrip("\n") for l in fh if l.strip()]
     header = [l for l in lines if l.startswith("#R")]
@@ -831,18 +996,36 @@ def read_report(path, p, fields, fc):
     if hf[1:] != fields:
         raise Fail("%s: the name line %s is not the writer's lmh_r_fields[] %s"
                    % (path, hf[1:][:5], fields[:5]))
+    if not body:
+        raise Fail("%s has a name line and NO R rows: an empty parse cannot fail" % path)
     rows = {}
     for l in body:
         f = l.split("\t")
         if len(f) != fc["LMH_F_R"]:
             raise Fail("%s: an R row has %d fields, the contract says %d" % (path, len(f), fc["LMH_F_R"]))
-        rows[int(f[1])] = dict(list(zip(fields, f[1:])))
+        rec = {}
+        for nm, kind, tok in zip(fields, fmts, f[1:]):
+            if not CANON[kind].match(tok):
+                msg = ("%s: case %s field '%s' is %r, which is not the canonical %s form the writer "
+                       "declares in lmh_r_fmt[] (a digest spelled in the wrong radix is a finding, not "
+                       "a plausible number to be compared)"
+                       % (path, f[1], nm, tok, kind))
+                # Printed in full BEFORE the raise: main() truncates a refusal to 200 chars in its CHECK
+                # line, and a non-zero exit that does not name the offending token is a crash, not a
+                # finding.
+                print("REFUSE %s" % msg)
+                raise Fail(msg)
+            rec[nm] = (int(tok, 16) if kind == "hex" else
+                       int(tok, 10) if kind == "dec" else float(tok))
+        rows[int(f[1])] = rec
     if len(body) != len(p.cases):
         raise Fail("%s printed %d R rows, the plan has %d cases (a missing row would leave that case "
                    "entirely unjudged)" % (path, len(body), len(p.cases)))
     if sorted(rows) != list(range(len(p.cases))):
         raise Fail("%s: the idx column is not 0..%d exactly once" % (path, len(p.cases) - 1))
-    print("REPORT file=%s parsed=%d printed=%d fields=%d" % (path, len(rows), len(body), len(fields)))
+    print("REPORT file=%s parsed=%d printed=%d fields=%d forms=hex:%d,dec:%d,real:%d"
+          % (path, len(rows), len(body), len(fields), fmts.count("hex"), fmts.count("dec"),
+             fmts.count("real")))
     return rows
 
 
@@ -856,14 +1039,16 @@ def legal_class(c, cls):
     there is nothing to derive); injections declare AUTO and must land in one of the three derived
     classes. Anything else means the population asked for a class the derivation has no rule for."""
     if c["expect_name"] == "AUTO":
-        return cls in ("FIRES", "IMMUNE", "BYTES")
+        return cls in ("FIRES", "IMMUNE", "BYTES", "INSIDE")
     return cls == c["expect_name"] and cls in ("BAND", "EXACT")
 
 
 def adjudicate(v, p, d, report, words, expw, bandw, tag, fc, en):
     rep = report
     counts = {}
-    fired, immunes, results = [], [], {}
+    fired, immunes, subband = [], [], []
+    results = {}
+    results = {}
     skip_all = (tag != "host")
     want_inj = sum(1 for c in p.cases if c["mode"] != en["LMH_MODE_CORRECT"]
                    and (not skip_all or c["on_device"]))
@@ -889,16 +1074,20 @@ def adjudicate(v, p, d, report, words, expw, bandw, tag, fc, en):
                 not bad_echo, len(want_echo), "mismatches=%s" % (bad_echo[:4],))
         # 2. the roll-ups of the words it wrote, recomputed from the output FILE
         rc = recount(c, d, words, skip)
+        # The report's numeric fields are ALL decimal — lmh_write_report prints oxor/xorb with %u and
+        # vsum/bsum with %llu. Parsing a bit image as hex here is the two-rulers bug this lane exists to
+        # catch: 29163520 read as hex is 689321248, which disagrees with the recount for every case.
+        # The 0x%08X below is how THIS file displays a bit image, not how the report spells it.
         v.check("%s case=%d %s oxor==recount" % (tag, c["idx"], c["name"]),
-                int(r["oxor"], 16) == rc["oxor"], c["bcount"] * c["n_out"],
-                "driver=0x%08X recount=0x%08X" % (int(r["oxor"], 16), rc["oxor"]))
+                int(r["oxor"]) == rc["oxor"], c["bcount"] * c["n_out"],
+                "driver=0x%08X recount=0x%08X" % (int(r["oxor"]) & 0xFFFFFFFF, rc["oxor"]))
         osum_ok = abs(float(r["osum"]) - rc["osum"]) <= 1e-6 * max(1.0, abs(rc["osum"]))
         v.check("%s case=%d %s osum==recount" % (tag, c["idx"], c["name"]), osum_ok,
                 c["bcount"] * c["n_out"], "driver=%s recount=%.9g" % (r["osum"], rc["osum"]))
         # 3. the read-set, field by field, against this file's own derivation
         bad_ctr = []
         for fld in COUNTER_FIELDS:
-            got = int(r["xorb"], 16) if fld == "xorb" else int(r[fld])
+            got = int(r["xorb"]) if fld == "xorb" else int(r[fld])
             want = rc[{"lo": "min_off", "hi": "max_off"}.get(fld, fld)]
             if got != want:
                 bad_ctr.append((fld, got, want))
@@ -941,39 +1130,85 @@ def adjudicate(v, p, d, report, words, expw, bandw, tag, fc, en):
                                 "worst=%.3f x band outside=%d %s"
                                 % (worst, len(outside), ("first=%r" % (outside[0],)) if outside else ""))
         elif cls == "EXACT":
-            nd = sum(1 for b in range(c["bcount"]) for j in range(c["n_out"])
-                     if not word_eq(words[c["out_off"] + b * slot + j],
-                                    words[c["cmp_off"] + b * slot + j]))
-            res["ok"] = v.check("%s case=%d %s EXACT vs cmp_off=%d" % (tag, c["idx"], c["name"],
-                                                                       c["cmp_off"]),
-                                nd == 0, c["bcount"] * c["n_out"], "differing=%d" % nd)
             owner = next((o for o in p.cases if o["out_off"] == c["cmp_off"] and o["idx"] != c["idx"]),
                          None)
+            legal_owner = (owner is not None and owner["mode"] == en["LMH_MODE_CORRECT"]
+                           and owner["assoc"] == c["assoc"] and owner["n_out"] == c["n_out"])
+            same_table = bool(owner is not None and owner["table"] == c["table"])
+            if owner is not None and not same_table:
+                # Two roles over ONE buffer is the tied control, and only the tied control: a cmp_off
+                # across tables whose bytes are not identical is the assumption this lane exists to
+                # break, so it stays a finding.
+                ot, ct = p.tables[owner["table"]], p.tables[c["table"]]
+                same_table = (ot["base"] == ct["base"] and ot["nbytes"] == ct["nbytes"]
+                              and ot["enc"] == ct["enc"] and ot["h"] == ct["h"])
             res["ok"] = v.check("%s case=%d %s cmp_off is a same-association honest case"
                                 % (tag, c["idx"], c["name"]),
-                                owner is not None and owner["mode"] == en["LMH_MODE_CORRECT"]
-                                and owner["assoc"] == c["assoc"] and owner["table"] == c["table"]
-                                and owner["n_out"] == c["n_out"], 1,
-                                "owner=%s" % (owner["name"] if owner else None)) and res["ok"]
-        elif cls in ("FIRES", "IMMUNE", "BYTES"):
+                                legal_owner and same_table, 1,
+                                "owner=%s same_table=%d" % (owner["name"] if owner else None,
+                                                            int(same_table)))
+            if legal_owner:
+                # A per-row case holds ONE hidden vector of the owner's batch, so the words it must
+                # equal are the owner's batch (b0 - owner.b0), not the owner's batch 0. Comparing every
+                # per-row arm against batch 0 makes three of four arms disagree with themselves.
+                oslot = p.slot(owner)
+                boff = (0 if owner["batching"] == en["LMH_BATCH_PERROW"]
+                        else c["b0"] - owner["b0"])
+                if not 0 <= boff < owner["bcount"]:
+                    raise Fail("case %d is EXACT against case %d's batch %d, which the owner "
+                               "(bcount=%d) does not have"
+                               % (c["idx"], owner["idx"], boff, owner["bcount"]))
+                nd = sum(1 for b in range(c["bcount"]) for j in range(c["n_out"])
+                         if not word_eq(words[c["out_off"] + b * slot + j],
+                                        words[c["cmp_off"] + (boff + b) * oslot + j]))
+                res["ok"] = v.check("%s case=%d %s EXACT vs cmp_off=%d batch=%d"
+                                    % (tag, c["idx"], c["name"], c["cmp_off"], boff),
+                                    nd == 0, c["bcount"] * c["n_out"], "differing=%d" % nd) and res["ok"]
+        elif cls in ("FIRES", "IMMUNE", "BYTES", "INSIDE"):
             if not v.check("%s case=%d %s has an honest twin" % (tag, c["idx"], c["name"]),
                            twin is not None, 1,
                            "no mode==CORRECT case with this geometry exists"):
                 continue
             ts = p.slot(twin)
+            # The judgement reads the words where a CONSUMER reads them: batch b at b*n_out. Reading a
+            # slot-stride injection at the stride it injected would find the right numbers in the wrong
+            # places and record that as agreement — the placement bug is exactly the thing being judged.
+            js = c["n_out"]
             nd = sum(1 for b in range(c["bcount"]) for j in range(c["n_out"])
-                     if not word_eq(words[c["out_off"] + b * slot + j],
+                     if not word_eq(words[c["out_off"] + b * js + j],
                                     words[twin["out_off"] + b * ts + j]))
             beyond = 0
             worst = 0.0
             for b in range(c["bcount"]):
                 for j in range(c["n_out"]):
-                    at = c["out_off"] + b * slot + j
+                    at = c["out_off"] + b * js + j
                     bt = twin["out_off"] + b * ts + j
                     dd = abs(f32(words[at]) - f32(words[bt]))
                     if dd > bandw[bt]:
                         beyond += 1
                     worst = max(worst, dd / max(bandw[bt], 1e-300))
+            # GATHER_ROW_OFF_1's read-set claim is a MODE claim, so it is judged whatever the words did:
+            # the cross count says exactly which successor rows escaped the table. A case that read
+            # nothing outside and still produced plausible numbers would otherwise sail past the word
+            # judgement, because an out-of-range successor can look like an unlucky value.
+            if c["mode"] == en["LMH_MODE_GATHER_ROW_OFF_1"]:
+                # lmh_case_row_direct adds 1 to the id and deliberately does NOT clamp, so the escape
+                # set is computable from the plan alone: an item's successor reads outside
+                # [base, base + v_rows*row_b) exactly when id+1 >= v_rows, and lmh_trace_range is called
+                # once per (item, lane). Zero escapes must mean zero cross reads, which is what stops a
+                # kernel from padding its read-set and still looking immune on the words.
+                tv = p.tables[c["table"]]["v_rows"]
+                ids = (p.ids[c["ids_off"]:c["ids_off"] + c["n_ids"]] if c["n_ids"]
+                       else list(range(c["row_lo"], c["row_lo"] + c["n_out"])))
+                esc = sum(1 for i in ids if i + 1 >= tv)
+                want_cross = esc * nlanes
+                res["ok"] = v.check(
+                    "%s case=%d %s only the successor rows that escape the table count as cross"
+                    % (tag, c["idx"], c["name"]), int(r["cross"]) == want_cross, want_cross,
+                    "cross=%s expected=%s (%d of %d ids escape v_rows=%d)"
+                    % (r["cross"], want_cross, esc, len(ids), tv)) and res["ok"]
+                if esc:
+                    fired.append((c["mode"], c["name"], int(r["cross"]) == want_cross))
             if cls == "FIRES":
                 ok = v.check("%s case=%d %s FIRED beyond the band" % (tag, c["idx"], c["name"]),
                              beyond > 0, c["bcount"] * c["n_out"],
@@ -985,11 +1220,24 @@ def adjudicate(v, p, d, report, words, expw, bandw, tag, fc, en):
                              % (tag, c["idx"], c["name"]), nd == 0, c["bcount"] * c["n_out"],
                              "differing=%d | %s" % (nd, pred))
                 immunes.append((c["mode"], c["name"], ok))
+            elif cls == "INSIDE":
+                # Two falsifiable halves: the words are NOT the twin's (the injection happened), and no
+                # word left the band (the perturbation is smaller than fp32 summation noise at this h).
+                moved = nd > 0
+                ok = v.check("%s case=%d %s INSIDE: moved but never beyond the band"
+                             % (tag, c["idx"], c["name"]), moved and beyond == 0,
+                             c["bcount"] * c["n_out"],
+                             "differing=%d beyond-band=%d worst=%.3g x band | %s"
+                             % (nd, beyond, worst, pred))
+                subband.append((c["mode"], c["name"], ok))
             else:
                 ok = v.check("%s case=%d %s BYTES: output still equals its twin"
                              % (tag, c["idx"], c["name"]), nd == 0, c["bcount"] * c["n_out"],
                              "differing=%d | %s" % (nd, pred))
                 hh = rep[twin["idx"]]
+                if c["mode"] not in (en["LMH_MODE_BATCH_RELOOPS"], en["LMH_MODE_CROSS_TABLE_READ"]):
+                    raise Fail("case %d is BYTES-classed but mode %d has no counter rule"
+                               % (c["idx"], c["mode"]))
                 if c["mode"] == en["LMH_MODE_BATCH_RELOOPS"]:
                     f = c["bcount"] if c["bcount"] > 1 else 1
                     ok = v.check("%s case=%d %s reloops bytes x%d loads x%d digest unchanged"
@@ -1016,16 +1264,16 @@ def adjudicate(v, p, d, report, words, expw, bandw, tag, fc, en):
                                  int(r["cross"]) == want_cross and int(r["peer_hits"]) == want_peer, 1,
                                  "cross=%s/%s peer_hits=%s/%s" % (r["cross"], want_cross,
                                                                  r["peer_hits"], want_peer)) and ok
-                    fired.append((c["mode"], c["name"], (not tied) and int(r["cross"]) > int(hh["cross"])))
+                    # The tied arm is a MUST-NOT-MOVE arm: reading the peer of a tied pair reads the
+                    # same bytes, so neither the words nor the counters can move. Putting it in the
+                    # must-fire list would demand a cross read from a case whose peer is its own range
+                    # — a check that can only ever be red. The untied arms carry the firing claim.
+                    (immunes if tied else fired).append(
+                        (c["mode"], c["name"],
+                         int(r["cross"]) == int(hh["cross"])
+                         and int(r["peer_hits"]) == int(hh["peer_hits"])))
                 elif c["mode"] == en["LMH_MODE_GATHER_ROW_OFF_1"]:
                     want_cross = c["n_out"] * nlanes
-                    ok = v.check("%s case=%d %s successor past the last row is a cross read"
-                                 % (tag, c["idx"], c["name"]), int(r["cross"]) == want_cross,
-                                 want_cross, "cross=%s expected=%s" % (r["cross"], want_cross)) and ok
-                    fired.append((c["mode"], c["name"], int(r["cross"]) > 0))
-                else:
-                    raise Fail("case %d is BYTES-classed but mode %d has no counter rule"
-                               % (c["idx"], c["mode"]))
         else:
             raise Fail("case %d derived class %r is not judgable" % (c["idx"], cls))
         ok_cls = v.check("%s case=%d %s declared class is legal and matches the derivation"
@@ -1035,7 +1283,7 @@ def adjudicate(v, p, d, report, words, expw, bandw, tag, fc, en):
         results[c["idx"]] = res
     print("POPULATION %s %s inj=%d" % (tag, " ".join("%s=%d" % (k, counts.get(k, 0))
                                                      for k in ("BAND", "EXACT", "FIRES", "IMMUNE",
-                                                               "BYTES")), want_inj))
+                                                               "BYTES", "INSIDE")), want_inj))
     print("INJECTIONS %s judged=%d fired=%d immune=%d immune-held=%d"
           % (tag, len(fired) + len(immunes), sum(1 for _, _, o in fired if o), len(immunes),
              sum(1 for _, _, o in immunes if o)))
@@ -1043,9 +1291,16 @@ def adjudicate(v, p, d, report, words, expw, bandw, tag, fc, en):
         print("INJECTION arm=%s fired=%d" % (nm, 1 if ok else 0))
     for mode, nm, ok in immunes:
         print("IMMUNITY arm=%s held=%d" % (nm, 1 if ok else 0))
+    for mode, nm, ok in subband:
+        print("SUBBAND arm=%s inside=%d" % (nm, 1 if ok else 0))
     v.check("%s injection denominator matches the plan" % tag,
-            want_inj > 0 and len(fired) + len(immunes) == want_inj, want_inj,
-            "plan=%d judged=%d" % (want_inj, len(fired) + len(immunes)))
+            want_inj > 0 and len(fired) + len(immunes) + len(subband) == want_inj, want_inj,
+            "plan=%d judged=%d (fired=%d immune=%d inside=%d)"
+            % (want_inj, len(fired) + len(immunes) + len(subband), len(fired), len(immunes),
+               len(subband)))
+    v.check("%s every arm judged INSIDE the band really moved and really stayed inside" % tag,
+            all(o for _, _, o in subband), len(subband),
+            "wrong: %s" % (",".join(nm for _, nm, o in subband if not o) or "none"))
     v.check("%s every injection that must fire fired" % tag,
             len(fired) > 0 and all(o for _, _, o in fired), len(fired),
             "did not fire: %s" % (",".join(nm for _, nm, o in fired if not o) or "none"))
@@ -1066,7 +1321,7 @@ def adjudicate(v, p, d, report, words, expw, bandw, tag, fc, en):
     for mode, nm, ok in fired:
         if mode in reach and ok:
             reach[mode]["fired"] += 1
-    untested = sorted(mode_token(m) for m, e in reach.items()
+    untested = sorted(mode_token_id(m, en) for m, e in reach.items()
                       if e["immune"] and not e["fired"])
     print("ALTREACH modes_with_injections=%d immune-somewhere=%d fireable-somewhere=%d "
           "immune-only=%s"
@@ -1099,7 +1354,12 @@ def write_plan(path, p, expect_map):
                        % (len(lines[-1].split("\t")), fc["LMH_F_T"]))
     exp_id = {"EXACT": en["LMH_EXP_EXACT"], "BAND": en["LMH_EXP_BAND"],
               "FIRES": en["LMH_EXP_FIRES"], "IMMUNE": en["LMH_EXP_IMMUNE"],
-              "BYTES": en["LMH_EXP_BYTES"]}
+              "BYTES": en["LMH_EXP_BYTES"],
+              # INSIDE is a judgement only this file can make — it needs the band, which the driver
+              # does not carry. To the driver it is an ordinary injection, so it travels under the
+              # FIRES id; the class the arm is actually held to is the derived one printed beside the
+              # verdict, and legal_class is what refuses a mismatch.
+              "INSIDE": en["LMH_EXP_FIRES"]}
     for c in p.cases:
         cls = expect_map[c["idx"]]
         if cls not in exp_id:
@@ -1235,17 +1495,34 @@ def three_way(v, p, d, host_rep, dev_rep, hostw, devw, expw, bandw, fc, en):
 def amortisation_and_disjointness(v, p, d, rep, tag, fc, en):
     """The two claims this lane can make WITHOUT a timer, both read off the traced read-set."""
     # ---- amortisation: batching must buy weight reads, and only weight reads ------------------
+    # The families are the per-row cases' OWN declarations (their grp names the batched case they are
+    # the control for); a batched case with no per-row control is not an amortisation claim, it is one
+    # of the injections' honest baselines. Completeness is then a finding: a family that lost an arm is
+    # reported, and the ratio is only asserted over families that are whole.
     groups = {}
+    orphans = []
     for c in p.cases:
-        if c["batching"] == en["LMH_BATCH_BATCHED"] and c["mode"] == en["LMH_MODE_CORRECT"]:
-            groups.setdefault(c["idx"], {"batched": c, "perrow": []})
-        elif c["batching"] == en["LMH_BATCH_PERROW"] and c["grp"] >= 0:
+        if c["batching"] == en["LMH_BATCH_PERROW"]:
+            if c["grp"] < 0:
+                orphans.append("case %d %s is per-row but names no batched control" % (c["idx"],
+                                                                                        c["name"]))
+                continue
             groups.setdefault(c["grp"], {"batched": None, "perrow": []})["perrow"].append(c)
+    by_idx = dict((c["idx"], c) for c in p.cases)
+    for gi in sorted(groups):
+        b = by_idx.get(gi)
+        if b is not None and b["mode"] == en["LMH_MODE_CORRECT"] \
+                and b["batching"] == en["LMH_BATCH_BATCHED"]:
+            groups[gi]["batched"] = b
     n_groups = 0
     bad = []
     for gi, g in sorted(groups.items()):
         b, per = g["batched"], g["perrow"]
-        if b is None or len(per) != b["bcount"]:
+        if b is None:
+            bad.append("group %d: no batched honest case to amortise (the control points at %s)"
+                       % (gi, "nothing"))
+            continue
+        if len(per) != b["bcount"]:
             bad.append("group %d: %d per-row controls for bcount=%d" % (gi, len(per), b["bcount"] if b else -1))
             continue
         n_groups += 1
@@ -1263,7 +1540,8 @@ def amortisation_and_disjointness(v, p, d, rep, tag, fc, en):
               % (tag, gi, want_rows, b["bcount"], bb, pb,
                  (pb / bb) if bb else 0.0, geometry_bytes))
     v.check("%s batching amortises the weight read by exactly bcount" % tag,
-            n_groups > 0 and not bad, n_groups, "; ".join(bad[:4]) or "all groups exact")
+            n_groups > 0 and not bad and not orphans, n_groups,
+            "; ".join((bad + orphans)[:4]) or "all groups exact")
     # bytes must not depend on how many hidden vectors share the walk
     curve = [c for c in p.cases if c["mode"] == en["LMH_MODE_CORRECT"]
              and c["batching"] == en["LMH_BATCH_BATCHED"] and c["path"] == en["LMH_PATH_DENSE"]
@@ -1272,27 +1550,39 @@ def amortisation_and_disjointness(v, p, d, rep, tag, fc, en):
     for c in curve:
         by_shape.setdefault((c["table"], c["row_lo"], c["nrows"], c["assoc"]), []).append(c)
     flat_bad = []
+    tested = 0
     for key, cs in sorted(by_shape.items()):
-        if len(cs) < 2:
-            continue
         bs = set(int(rep[c["idx"]]["bytes"]) for c in cs)
         bc = set(c["bcount"] for c in cs)
-        if len(bs) != 1 or len(bc) < 2:
+        if len(bc) < 2:
+            continue                      # one bcount cannot falsify "independent of bcount": not a
+            #                               claim yet, so it is not counted and not called a pass
+        tested += 1
+        if len(bs) != 1:
             flat_bad.append("shape %s: bytes %s over bcounts %s" % (key, sorted(bs), sorted(bc)))
         else:
             print("AMORTISE tag=%s shape=table%d/rows%d+n%d bytes=%d constant across bcounts %s"
-                  % (tag, key[0], key[1], key[2], bs.pop(), sorted(bc)))
+                  % (tag, key[0], key[1], key[2], sorted(bs)[0], sorted(bc)))
     v.check("%s addressed bytes are independent of bcount for the same row set" % tag,
-            bool(by_shape) and not flat_bad, len(flat_bad), "; ".join(flat_bad[:4]) or "flat")
+            tested > 0 and not flat_bad, tested, "; ".join(flat_bad[:4]) or "flat")
     # ---- disjointness: nobody read outside the table they were given ---------------------------
     stray = []
     for c in p.cases:
         r = rep[c["idx"]]
         cross, peer = int(r["cross"]), int(r["peer_hits"])
-        reads_peer = c["mode"] in (en["LMH_MODE_TIED_ALIAS"], en["LMH_MODE_CROSS_TABLE_READ"])
-        if cross and not reads_peer:
-            stray.append("case %d %s cross=%d without a peer-reading mode" % (c["idx"], c["name"], cross))
-    v.check("%s no case reads outside its own table unless it is the peer-reading injection" % tag,
+        # The modes whose own rule says a foreign range must be touched: the two peer readers, and the
+        # successor-row gather, whose successor of the last row is by construction outside the table.
+        # Exempting it here costs nothing: adjudicate requires cross == n_out*nlanes for exactly that
+        # case, so a gather that read further than its one successor row is still caught.
+        reads_foreign = c["mode"] in (en["LMH_MODE_TIED_ALIAS"], en["LMH_MODE_CROSS_TABLE_READ"],
+                                      en["LMH_MODE_GATHER_ROW_OFF_1"])
+        if cross and not reads_foreign:
+            stray.append("case %d %s cross=%d without a foreign-reading mode" % (c["idx"], c["name"],
+                                                                                 cross))
+        if peer and not reads_foreign:
+            stray.append("case %d %s peer_hits=%d without a foreign-reading mode" % (c["idx"],
+                                                                                      c["name"], peer))
+    v.check("%s no case reads outside its own table unless its mode says it must" % tag,
             not stray, len(p.cases), "; ".join(stray[:4]) or "no stray reads")
     # the two real tables: disjoint in the slab AND from different files, which is the untiedness
     real = [t for t in p.tables if t["real"] == 1 and t["kind"] == "real"]
@@ -1325,10 +1615,25 @@ def artifact_widths(gguf_path):
         return {}
     import gguf_width_table as GWT
     try:
-        table = GWT.parse_gguf(gguf_path)
+        # parse_gguf returns (version, n_tensors, rows, header_end, data_start) and each row is the
+        # tuple (name, dims, type_id) — NOT dicts. The type id is resolved through the audited
+        # decoder's own name table (tools/gguf_reader.py GGML_TYPES, the superset of the header
+        # tokenizer's 22-entry map) so a width claim in this lane names the same spelling as the
+        # dequantiser that would have to read the tensor.
+        _ver, n_tensors, rows, _he, _ds = GWT.parse_gguf(gguf_path)
     except Exception as e:                            # an unreadable artifact is a finding, not a skip
         raise Fail("cannot read the published artifact %s: %r" % (gguf_path, e))
-    return dict((t["name"], t["type"]) for t in table)
+    if len(rows) != n_tensors:
+        raise Fail("gguf_width_table parsed %d tensor rows, header declares %d"
+                   % (len(rows), n_tensors))
+    widths = {}
+    for name, _dims, dt in rows:
+        tn = GR.GGML_TYPES.get(dt)
+        if tn is None:                                # an unmapped type id is a failure, not an absent width
+            raise Fail("tensor %s has unmapped ggml type id %d in %s"
+                       % (name, dt, os.path.join(REPO, "tools", "gguf_reader.py")))
+        widths[name] = tn
+    return widths
 
 
 def tamper_q8_scale(slab_bytes, tables, en, fc, table_idx):
@@ -1347,7 +1652,7 @@ def tamper_q8_scale(slab_bytes, tables, en, fc, table_idx):
     return bytes(buf), nblk
 
 
-def do_run(a, v, device, fc, en, fields, modes):
+def do_run(a, v, device, fc, en, fields, modes, fmts):
     cfg = read_config()
     work = a.work
     p = build(cfg, fc, en, a.max_rows, a.deep_rows)
@@ -1399,14 +1704,17 @@ def do_run(a, v, device, fc, en, fields, modes):
         print(line)
     if rc != 0:
         raise Fail("oracle_arm.py failed rc=%d (see work/oracle.log)" % rc)
-    fill = parse_tag(out, "ORACLEFILL", ["regions_filled", "words", "band_nonzero",
-                                         "band_nonpositive"], want=1)[0]
+    fill = parse_tag(out, "ORACLEFILL", ["regions_filled", "words", "words_total",
+                                         "band_nonzero", "band_nonpositive"], want=1)[0]
     want_words = sum(c["bcount"] * c["n_out"] for c in p.cases
                      if c["mode"] == en["LMH_MODE_CORRECT"])
     v.check("the oracle filled exactly the honest cases' words", int(fill["words"]) == want_words
-            and int(fill["band_nonpositive"]) == 0, want_words,
-            "oracle=%s expected=%d band_nonpositive=%s" % (fill["words"], want_words,
-                                                           fill["band_nonpositive"]))
+            and int(fill["band_nonpositive"]) == 0
+            and int(fill["words_total"]) == p.out_floats
+            and int(fill["regions_filled"]) == want_words, want_words,
+            "oracle=%s/%s total=%s expected=%d band_nonpositive=%s"
+            % (fill["words"], fill["regions_filled"], fill["words_total"], want_words,
+               fill["band_nonpositive"]))
     slab_bands = parse_tag(out, "ARTIFACTWIDTH", ["tensor", "stored"], want=2)
     v.check("the oracle and the gate agree on the artifact widths (parsed == printed)",
             all(d["stored"] == widths.get(d["tensor"]) for d in slab_bands), len(slab_bands),
@@ -1415,11 +1723,16 @@ def do_run(a, v, device, fc, en, fields, modes):
 
     d = Data(work, p, fc, en)
 
+    # A control may legitimately move a column outside the expect column. When it does, it declares
+    # which case and which column here, and the witness below requires that tampering to be VISIBLE in
+    # the plan the drivers are handed: a control that silently did nothing stays red.
+    control_cols = {}
     if a.control == "no-fire":
         victim = next(c for c in reversed(p.cases) if c["name"].startswith("inj-"))
         print("CONTROL no-fire neutralising case=%d %s (mode %d -> CORRECT): the run MUST go red"
               % (victim["idx"], victim["name"], victim["mode"]))
         victim["mode"] = en["LMH_MODE_CORRECT"]
+        control_cols[victim["idx"]] = {12, 17}      # 12 is the mode column: the control's tampering
 
     # ---- derive the classes from the bytes, then rewrite the plan with what they said -----------
     expect2 = {}
@@ -1427,17 +1740,27 @@ def do_run(a, v, device, fc, en, fields, modes):
         cls, pred = derive_class(c, d)
         expect2[c["idx"]] = cls
     lines2 = write_plan(plan_path + ".derived", p, expect2)
+    # The derivation may move the expect column (field 17) and nothing else. Column INDICES, not
+    # values: comparing the moved values would let a column whose new value happens to equal the old
+    # expect value pass as "nothing but expect moved".
     diff = [i for i in range(len(lines1)) if lines1[i] != lines2[i]]
-    only_expect = True
+    moved = []
     for i in diff:
         if not lines1[i].startswith("C\t"):
-            only_expect = False
-        else:
-            f1, f2 = lines1[i].split("\t"), lines2[i].split("\t")
-            if [x for k, x in enumerate(f1) if f2[k] != x] != [f1[17]]:
-                only_expect = False
-    v.check("deriving the classes changed the expect column and nothing else", only_expect,
-            len(diff), "%d records differ" % len(diff))
+            moved.append(("non-case line", i, None))
+            continue
+        f1, f2 = lines1[i].split("\t"), lines2[i].split("\t")
+        allow = control_cols.get(int(f1[1]), set()) | {17}
+        cols = [k for k in range(len(f1)) if f1[k] != f2[k]]
+        if set(cols) - allow:
+            moved.append((int(f1[1]), i, cols))
+    v.check("deriving the classes changed the expect column and nothing else", not moved,
+            len(diff), "%d records differ, unexpected columns=%s" % (len(diff), moved[:6]))
+    for cidx in sorted(control_cols):
+        seen = [i for i in diff if lines1[i].startswith("C\t")
+                and int(lines1[i].split("\t")[1]) == cidx]
+        v.check("the control's tampering reaches the plan the drivers run", bool(seen), 1,
+                "case %d lines differing=%d" % (cidx, len(seen)))
     write_plan(plan_path, p, expect2)
 
     # ---- the host arm ---------------------------------------------------------------------------
@@ -1464,7 +1787,12 @@ def do_run(a, v, device, fc, en, fields, modes):
     if a.control == "tampered-out":
         op = os.path.join(work, "host_out.f32")
         words = words_of(op, p.out_floats)
-        tgt = next(c for c in p.cases if c["derived"] == "BAND")
+        # `c["derived"]` is only filled in by adjudicate(), which runs AFTER this control has tampered
+        # the file, so reading it here was a KeyError traceback (present at HEAD: `tgt = next(c for c in
+        # p.cases if c["derived"] == "BAND")` with adjudicate() 15 lines later). A traceback is not a
+        # verdict either, so the control derived nothing and never even printed its own CONTROL line.
+        # Ask the same derivation adjudicate will use, from the bytes as they are now.
+        tgt = next(c for c in p.cases if derive_class(c, d)[0] == "BAND")
         at = tgt["out_off"]
         words[at] ^= 0x00000001
         with open(op, "wb") as fh:
@@ -1477,13 +1805,55 @@ def do_run(a, v, device, fc, en, fields, modes):
         with open(rp, "w") as fh:
             fh.writelines(keep[:-1])
         print("CONTROL no-report dropped the last report row: parsed != printed MUST go red")
+    if a.control in ("digest-radix", "count-radix"):
+        # THE WRONG-RADIX CONTROL. One numeric token of one real R line is re-spelled in the OTHER
+        # radix — same 32-bit value, different text — which is exactly the producer/consumer drift that
+        # makes every digest comparison in the lane meaningless in whichever direction it errs: a bit
+        # image written `%u` and read as hex (or a count written as hex and read as decimal) yields a
+        # plausible number either way, so a value-only comparison cannot see it. The canonical form lives
+        # in lmh_r_fmt[] (lmh_head_plan.h) and is SCRAPED here, not mirrored; read_report refuses any
+        # token that is not the canonical spelling of its declared kind and names file, case, field and
+        # token. An injection that found nothing to tamper is itself a refusal, never a pass.
+        rp = os.path.join(work, "host_report.tsv")
+        fld_name = "oxor" if a.control == "digest-radix" else "loads"
+        want_hex = a.control == "digest-radix"          # a hex column spelled decimal, or vice versa
+        at = fields.index(fld_name) + 1                  # +1: token 0 is the record letter
+        if fmts[fields.index(fld_name)] != ("hex" if want_hex else "dec"):
+            raise Fail("control %s wants %s to be a %s column; lmh_r_fmt[] says %s"
+                       % (a.control, fld_name, "hex" if want_hex else "dec",
+                          fmts[fields.index(fld_name)]))
+        lines = open(rp).read().splitlines(True)
+        hit = None
+        for i, l in enumerate(lines):
+            if not l.startswith("R\t"):
+                continue
+            f = l.rstrip("\n").split("\t")
+            if len(f) != fc["LMH_F_R"]:
+                raise Fail("%s: an R row has %d fields, the contract says %d"
+                           % (rp, len(f), fc["LMH_F_R"]))
+            val = int(f[at], 16) if f[at].startswith("0x") else int(f[at], 10)
+            if (val & 0xFFFFFFFF) == 0:
+                continue          # 0 spells the same in both radices: no witness, wrong or right
+            bad = ("%d" % (val & 0xFFFFFFFF)) if want_hex else ("0x%08X" % (val & 0xFFFFFFFF))
+            f[at] = bad
+            lines[i] = "\t".join(f) + "\n"
+            hit = (f[1], fld_name, bad, val & 0xFFFFFFFF)
+            break
+        if hit is None:
+            raise Fail("control %s found no R row whose %s is non-zero: an injection that cannot fire "
+                       "is a finding, not a pass" % (a.control, fld_name))
+        with open(rp, "w") as fh:
+            fh.writelines(lines)
+        print("CONTROL %s file=%s case=%s field=%s value=0x%08X re-spelled in the other radix as %r: "
+              "the parser MUST refuse it by name, not compare a plausible number"
+              % (a.control, os.path.basename(rp), hit[0], hit[1], hit[3], hit[2]))
     hostw = words_of(os.path.join(work, "host_out.f32"), p.out_floats)
-    host_rep = read_report(os.path.join(work, "host_report.tsv"), p, fields, fc)
+    host_rep = read_report(os.path.join(work, "host_report.tsv"), p, fields, fc, fmts)
     adjudicate(v, p, d, host_rep, hostw, expw, bandw, "host", fc, en)
     amortisation_and_disjointness(v, p, d, host_rep, "host", fc, en)
 
     if a.control == "scale-q8":
-        return control_scale_q8(v, p, d, cfg, fc, en, work, host_rep, expw, bandw, fields)
+        return control_scale_q8(v, p, d, cfg, fc, en, work, host_rep, expw, bandw, fields, fmts)
 
     if a.check_only or not device:
         return v
@@ -1503,7 +1873,7 @@ def do_run(a, v, device, fc, en, fields, modes):
             len(p.cases) - n_off, "planned=%s skipped=%s cases=%s (host-only cases=%d)"
             % (drec["planned"], drec["skipped"], drec["cases"], n_off))
     devw = words_of(os.path.join(work, "out.f32"), p.out_floats)
-    dev_rep = read_report(os.path.join(work, "report.tsv"), p, fields, fc)
+    dev_rep = read_report(os.path.join(work, "report.tsv"), p, fields, fc, fmts)
     adjudicate(v, p, d, dev_rep, devw, expw, bandw, "device", fc, en)
     amortisation_and_disjointness(v, p, d, dev_rep, "device", fc, en)
     launch_bad = []
@@ -1569,7 +1939,7 @@ def control_q6k_geometry(v, p, cfg, fc, en, work):
     return v
 
 
-def control_scale_q8(v, p, d, cfg, fc, en, work, host_rep, expw, bandw, fields):
+def control_scale_q8(v, p, d, cfg, fc, en, work, host_rep, expw, bandw, fields, fmts):
     """A uniform power-of-two rescale of the Q8_0 deltas: the class of value bug an XOR of bit
     patterns provably cancels (the driver self-test's `xor-digest-blind-to-uniform-rescale` is the
     witness). The gate must go red on it, and `vsum` must be the field that moves — `bsum` cannot see
@@ -1589,7 +1959,7 @@ def control_scale_q8(v, p, d, cfg, fc, en, work, host_rep, expw, bandw, fields):
     if rc != 0:
         raise Fail("the scaled slab broke a structural check instead of a value check (rc=%d); "
                    "the control expects to be caught by the judge" % rc)
-    rep2 = read_report(os.path.join(work, "report_scaled.tsv"), p, fields, fc)
+    rep2 = read_report(os.path.join(work, "report_scaled.tsv"), p, fields, fc, fmts)
     words2 = words_of(os.path.join(work, "out_scaled.f32"), p.out_floats)
     moved_v = moved_x = same_x = n_traced = 0
     for c in p.cases:
@@ -1677,6 +2047,8 @@ def selftest(v, a, fc, en, modes):
     for name, marker in (("no-fire", "CONTROL no-fire"),
                          ("tampered-out", "CONTROL tampered-out"),
                          ("no-report", "CONTROL no-report"),
+                         ("digest-radix", "CONTROL digest-radix"),
+                         ("count-radix", "CONTROL count-radix"),
                          ("q6k-geometry", "CONTROLARM host_probe"),
                          ("q6k-source", "REFUSE"),
                          ("scale-q8", "SCALEDIFF")):
@@ -1690,7 +2062,7 @@ def selftest(v, a, fc, en, modes):
                                                                 saw[:1] and saw[0][:150]))
         v.check("control %s is refused or goes red" % name, rc != 0 and len(saw) >= 1, 1,
                 "rc=%d marker_lines=%d" % (rc, len(saw)))
-    for name in ("no-fire", "tampered-out", "no-report", "scale-q8"):
+    for name in ("no-fire", "tampered-out", "no-report", "digest-radix", "count-radix", "scale-q8"):
         log = os.path.join(a.work, "control-%s.log" % name)
         text = open(log).read() if os.path.exists(log) else ""
         bad = [l for l in text.splitlines() if l.startswith("CHECK ") and " ok=0 " in l]
@@ -1728,14 +2100,15 @@ def main():
     a = ap.parse_args()
     if not os.path.isdir(a.work):
         os.makedirs(a.work)
-    fc, en, fields, modes = contract()
+    fc, en, fields, modes, fmts = contract()
     v = V()
     if a.selftest:
         return selftest(v, a, fc, en, modes).verdict("lm_head host selftest")
     try:
-        do_run(a, v, a.device, fc, en, fields, modes)
+        do_run(a, v, a.device, fc, en, fields, modes, fmts)
     except Fail as e:
         print("FAIL %s" % e)
+        v.refusal(e)
         return v.verdict("lm_head (refused)")
     return v.verdict("lm_head %s" % ("host+device" if a.device else "host-only"))
 

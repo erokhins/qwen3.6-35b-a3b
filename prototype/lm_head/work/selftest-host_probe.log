@@ -1,0 +1,72 @@
+SELFTEST name=word-eq-nan-nan ok=1
+SELFTEST name=word-eq-signed-zero ok=1
+SELFTEST name=word-eq-ulp-neighbour ok=1
+SELFTEST name=bf16-one ok=1
+SELFTEST name=bf16-minus-one ok=1
+SELFTEST name=bf16-two ok=1
+SELFTEST name=bf16-minus-zero ok=1
+SELFTEST name=bf16-min-subnormal ok=1
+SELFTEST name=f16-one ok=1
+SELFTEST name=f16-half ok=1
+SELFTEST name=f16-min-subnormal ok=1
+SELFTEST name=f16-nan-is-nan ok=1
+SELFTEST name=bf16-round-tie-to-even-down ok=1
+SELFTEST name=bf16-round-tie-to-even-up ok=1
+SELFTEST name=bf16-round-below-half-down ok=1
+SELFTEST name=bf16-round-above-half-up ok=1
+SELFTEST name=combine-index-order ok=1
+SELFTEST name=combine-identity-neg-zero ok=1
+SELFTEST name=combine-is-order-sensitive ok=1
+SELFTEST name=combine-witness-left-to-right ok=1
+SELFTEST name=combine-witness-other-order ok=1
+SELFTEST name=lane-ranges-tile-the-row ok=1
+SELFTEST name=lane-address-matches-k-index ok=1
+SELFTEST name=row-pointer-nonnull ok=1
+SELFTEST name=gather-row-identity ok=1
+SELFTEST name=gather-row-successor ok=1
+SELFTEST name=dense-row-contiguous ok=1
+SELFTEST name=gather-successor-of-last-row-is-not-clamped ok=1
+SELFTEST name=trace-init-sentinels ok=1
+SELFTEST name=store-bound-counter-can-fire ok=1
+SELFTEST name=out-of-range-store-writes-nothing ok=1
+SELFTEST name=in-range-store-still-lands ok=1
+SELFTEST name=dot-bf16-against-hand-computation ok=1
+SELFTEST name=dot-bf16-trace-bytes-loads-lanes ok=1
+SELFTEST name=dot-q8-against-hand-computation ok=1
+SELFTEST name=dot-q8-trace-bytes-loads-lanes ok=1
+SELFTEST name=dot-q8-drop-scale-fires ok=1
+SELFTEST name=drop-scale-moves-the-value-digest ok=1
+SELFTEST name=xor-digest-blind-to-uniform-rescale ok=1
+SELFTEST name=byte-sum-digest-blind-to-decode ok=1
+SELFTEST name=drop-scale-reads-the-same-bytes ok=1
+SELFTEST name=reloops-leaves-outputs-identical ok=1
+SELFTEST name=reloops-doubles-bytes-and-cancels-the-digest ok=1
+SELFTEST name=untied-read-stays-in-its-table ok=1
+SELFTEST name=tied-control-peer-read-is-not-a-cross-read ok=1
+SELFTEST name=tied-control-reads-one-row-set ok=1
+FAIL plan work/selftest_plan_1.tsv line 3: C has 19 fields, expected 20
+FAIL plan work/selftest_plan_2.tsv line 2: unknown record type X
+FAIL plan work/selftest_plan_3.tsv line 2: a second P record
+SELFTEST name=plan-parser-fires-on-malformed-input ok=1
+SELFTEST name=report-form-table-agrees-with-the-field-names ok=1
+REPORT file=work/selftest_report.tsv rows=1 cases=1 arm=host
+SELFTEST name=report-field-count-names-and-vsum-column ok=1
+SELFTEST name=digest-radix-is-in-the-text-not-in-the-parser ok=1
+SELFTEST name=half-accum-fires-on-an-inexact-product ok=1
+SELFTEST name=half-accum-immune-for-every-one-hot-hidden ok=1
+SELFTEST name=drop-last-k-fires-when-the-last-term-is-live ok=1
+SELFTEST name=drop-last-k-immune-where-that-hidden-element-is-zero ok=1
+SELFTEST name=row-stride-head-dim-fires-on-a-row-beyond-the-first ok=1
+SELFTEST name=row-stride-head-dim-reads-head_dim-bytes-and-stays-in-its-table ok=1
+SELFTEST name=row-stride-head-dim-immune-numerically-for-a-head-only-hidden-at-row-0 ok=1
+SELFTEST name=tied-alias-untied-reads-the-embedding-rows-not-the-projection ok=1
+SELFTEST name=tied-alias-untied-is-counted-as-a-cross-read ok=1
+SELFTEST name=tied-alias-on-the-tied-control-is-a-no-op-and-never-a-cross-read ok=1
+SELFTEST name=cross-table-read-leaves-the-output-alone ok=1
+SELFTEST name=cross-table-read-untied-moves-both-byte-counters ok=1
+SELFTEST name=cross-table-read-on-the-tied-control-can-never-count-a-cross ok=1
+SELFTEST name=gather-row-off-1-immune-on-the-duplicate-and-live-next-to-it ok=1
+SELFTEST name=batch-slot-stride-immune-at-bcount-1 ok=1
+SELFTEST name=batch-reloops-immune-at-bcount-1 ok=1
+DRIVER SELFTEST RESULT checks=66 failures=0
+RESULT PASS host_probe selftest

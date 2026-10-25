@@ -32,11 +32,38 @@ H	file=layer39.combined_out.bin	i=29	n_rows=32	row=29	src=dump
 H	file=layer39.combined_out.bin	i=30	n_rows=32	row=30	src=dump
 H	file=layer39.combined_out.bin	i=31	n_rows=32	row=31	src=dump
 H	i=32	kind=ones	src=synth
-H	i=33	k=0	kind=onehot	src=synth
-H	i=34	k=2047	kind=onehot	src=synth
-H	i=35	k=255	kind=onehot	src=synth
-H	i=36	k=256	kind=onehot	src=synth
-H	i=37	k=1024	kind=onehot_inexact	src=synth
-H	i=38	kind=tail_zero	src=synth
-H	i=39	kind=head_zero	src=synth
-H	i=40	kind=head_only	src=synth
+H	i=33	kind=ones	src=synth
+H	i=34	kind=ones	src=synth
+H	i=35	kind=ones	src=synth
+H	i=36	k=0	kind=onehot	src=synth
+H	i=37	k=0	kind=onehot	src=synth
+H	i=38	k=0	kind=onehot	src=synth
+H	i=39	k=0	kind=onehot	src=synth
+H	i=40	k=2047	kind=onehot	src=synth
+H	i=41	k=2047	kind=onehot	src=synth
+H	i=42	k=2047	kind=onehot	src=synth
+H	i=43	k=2047	kind=onehot	src=synth
+H	i=44	k=255	kind=onehot	src=synth
+H	i=45	k=255	kind=onehot	src=synth
+H	i=46	k=255	kind=onehot	src=synth
+H	i=47	k=255	kind=onehot	src=synth
+H	i=48	k=256	kind=onehot	src=synth
+H	i=49	k=256	kind=onehot	src=synth
+H	i=50	k=256	kind=onehot	src=synth
+H	i=51	k=256	kind=onehot	src=synth
+H	i=52	k=1024	kind=onehot_inexact	src=synth
+H	i=53	k=1024	kind=onehot_inexact	src=synth
+H	i=54	k=1024	kind=onehot_inexact	src=synth
+H	i=55	k=1024	kind=onehot_inexact	src=synth
+H	i=56	kind=tail_zero	src=synth
+H	i=57	kind=tail_zero	src=synth
+H	i=58	kind=tail_zero	src=synth
+H	i=59	kind=tail_zero	src=synth
+H	i=60	kind=head_zero	src=synth
+H	i=61	kind=head_zero	src=synth
+H	i=62	kind=head_zero	src=synth
+H	i=63	kind=head_zero	src=synth
+H	i=64	kind=head_only	src=synth
+H	i=65	kind=head_only	src=synth
+H	i=66	kind=head_only	src=synth
+H	i=67	kind=head_only	src=synth

@@ -1,16 +1,12 @@
 # I off value
 I	off=0	value=0
 I	off=1	value=1
-I	off=2	value=1
-I	off=3	value=0
-I	off=4	value=0
-I	off=5	value=1
-I	off=6	value=2
-I	off=7	value=3
-I	off=8	value=3
-I	off=9	value=2
+I	off=2	value=2
+I	off=3	value=3
+I	off=4	value=3
+I	off=5	value=2
+I	off=6	value=1
+I	off=7	value=0
+I	off=8	value=31
+I	off=9	value=0
 I	off=10	value=1
-I	off=11	value=0
-I	off=12	value=7
-I	off=13	value=0
-I	off=14	value=1

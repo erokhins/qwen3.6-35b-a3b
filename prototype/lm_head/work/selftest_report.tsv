@@ -1,3 +1,3 @@
 #R	idx	table	role	enc	path	batching	b0	bcount	row_lo	nrows	n_ids	assoc	mode	expect	on_device	trace	n_out	n_items	nlanes	oxor	osum	bytes	loads	xorb	vsum	bsum	lo	hi	cross	peer_hits	lanes	bover	launches
 # oxor|osum roll the words this case wrote; xorb|vsum|bsum roll the weight elements it loaded; lo|hi|cross|peer_hits|lanes are the read-set; bover counts writes that would have left `out`; launches is blocks (device) or 1 (host)
-R	0	0	5	0	0	1	0	1	0	2	0	0	0	0	0	1	2	2	1	0	0.5	64	2	3735928559	20015998343868	7	4	68	0	0	2	0	3
+R	0	0	5	0	0	1	0	1	0	2	0	0	0	0	0	1	2	2	1	0x00000000	0.5	64	2	0xDEADBEEF	20015998343868	7	4	68	0	0	2	0	3

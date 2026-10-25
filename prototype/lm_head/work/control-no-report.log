@@ -1,0 +1,128 @@
+POPULATION tables=8 cases=192 injections=77 hidden=68 (real=32 synth=36) ids=11 out_floats=27488 slab_bytes=557568
+ARTIFACTWIDTH tensor=output.weight stored=Q6_K policy_a=Q8_0 citation=DECISIONS.md#D-10
+ARTIFACTWIDTH tensor=token_embd.weight stored=Q8_0 policy_a=Q8_0 citation=DECISIONS.md#D-10
+ARTIFACTWIDTH q6_k_tensors=4 first=['blk.34.ffn_down_exps.weight'] note=Q6_K kernel support deferred (tools/gguf_reader.py's audited _deq_q6_k is the reuse point)
+CHECK name=the stored width of the two tables this lane gates is read from the artifact, not assumed ok=1 n=733 output.weight=Q6_K token_embd.weight=Q8_0
+CHECK name=no Q8_0 table is sourced from the published GGUF (Q6_K would be read as Q8_0) ok=1 n=2 Q8_0 sources=['model-00001-of-00026.safetensors', 'model-00026-of-00026.safetensors']
+ORACLECONTRACT fields P=10 T=10 C=20 modes=10 exp=5 q8=34B/32 elts
+ORACLEPLAN file=work/plan.tsv records=201 p=1 tables=8 cases=192 h=2048 head_dim=256 vocab=248320 n_hidden=68 ids=11 out_floats=27488 slab_bytes=557568
+ARTIFACTWIDTH tensor=output.weight stored=Q6_K policy_a=Q8_0 note=D-10-deviation
+ARTIFACTWIDTH tensor=token_embd.weight stored=Q8_0 policy_a=Q8_0 note=D-10-deviation
+ARTIFACTFILE file=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf declared_tensors=733 parsed_rows=733
+SHARDHDR file=model-00026-of-00026.safetensors header_len=4112 data_bytes=2231412736 tensors=34 identity=header_plus_data_eq_filesize
+TABLE idx=0 kind=real enc=BF16 tensor=lm_head.weight shard=model-00026-of-00026.safetensors rows=32 bytes=131072 base=0 stored_dtype=BF16
+SHARDHDR file=model-00001-of-00026.safetensors header_len=2848 data_bytes=3996196864 tensors=22 identity=header_plus_data_eq_filesize
+TABLE idx=1 kind=real enc=BF16 tensor=model.language_model.embed_tokens.weight shard=model-00001-of-00026.safetensors rows=32 bytes=131072 base=131072 stored_dtype=BF16
+TABLE idx=2 kind=real enc=Q8_0 tensor=lm_head.weight shard=model-00026-of-00026.safetensors rows=32 bytes=69632 base=262144 stored_dtype=BF16
+TABLE idx=3 kind=real enc=Q8_0 tensor=model.language_model.embed_tokens.weight shard=model-00001-of-00026.safetensors rows=32 bytes=69632 base=331776 stored_dtype=BF16
+TABLE idx=4 kind=real enc=BF16 tensor=lm_head.weight shard=model-00026-of-00026.safetensors rows=32 bytes=131072 base=401408 stored_dtype=BF16
+TABLE idx=5 kind=tied_copy from_base=401408 bytes=131072 base=401408 (ONE buffer, two roles)
+SYNTHWITNESS table=6 rows=4 all_rows_nonzero=1 dup=[0, 1] dup_identical=1
+TABLE idx=6 kind=synth enc=BF16 bytes=16384 rows=0 base=532480
+SYNTHWITNESS table=7 rows=4 all_rows_nonzero=1 dup=[0, 1] dup_identical=1
+TABLE idx=7 kind=synth enc=Q8_0 bytes=8704 rows=0 base=548864
+SLAB file=slab.bin bytes=557568 pad=0xCD tables=8 q8_blocks=4352 table_bytes=688640
+HIDDEN i=0 src=dump file=layer39.combined_out.bin row=0 widened=bits<<16
+HIDDEN i=1 src=dump file=layer39.combined_out.bin row=1 widened=bits<<16
+HIDDEN i=2 src=dump file=layer39.combined_out.bin row=2 widened=bits<<16
+HIDDEN i=3 src=dump file=layer39.combined_out.bin row=3 widened=bits<<16
+HIDDEN i=4 src=dump file=layer39.combined_out.bin row=4 widened=bits<<16
+HIDDEN i=5 src=dump file=layer39.combined_out.bin row=5 widened=bits<<16
+HIDDEN i=6 src=dump file=layer39.combined_out.bin row=6 widened=bits<<16
+HIDDEN i=7 src=dump file=layer39.combined_out.bin row=7 widened=bits<<16
+HIDDEN i=8 src=dump file=layer39.combined_out.bin row=8 widened=bits<<16
+HIDDEN i=9 src=dump file=layer39.combined_out.bin row=9 widened=bits<<16
+HIDDEN i=10 src=dump file=layer39.combined_out.bin row=10 widened=bits<<16
+HIDDEN i=11 src=dump file=layer39.combined_out.bin row=11 widened=bits<<16
+HIDDEN i=12 src=dump file=layer39.combined_out.bin row=12 widened=bits<<16
+HIDDEN i=13 src=dump file=layer39.combined_out.bin row=13 widened=bits<<16
+HIDDEN i=14 src=dump file=layer39.combined_out.bin row=14 widened=bits<<16
+HIDDEN i=15 src=dump file=layer39.combined_out.bin row=15 widened=bits<<16
+HIDDEN i=16 src=dump file=layer39.combined_out.bin row=16 widened=bits<<16
+HIDDEN i=17 src=dump file=layer39.combined_out.bin row=17 widened=bits<<16
+HIDDEN i=18 src=dump file=layer39.combined_out.bin row=18 widened=bits<<16
+HIDDEN i=19 src=dump file=layer39.combined_out.bin row=19 widened=bits<<16
+HIDDEN i=20 src=dump file=layer39.combined_out.bin row=20 widened=bits<<16
+HIDDEN i=21 src=dump file=layer39.combined_out.bin row=21 widened=bits<<16
+HIDDEN i=22 src=dump file=layer39.combined_out.bin row=22 widened=bits<<16
+HIDDEN i=23 src=dump file=layer39.combined_out.bin row=23 widened=bits<<16
+HIDDEN i=24 src=dump file=layer39.combined_out.bin row=24 widened=bits<<16
+HIDDEN i=25 src=dump file=layer39.combined_out.bin row=25 widened=bits<<16
+HIDDEN i=26 src=dump file=layer39.combined_out.bin row=26 widened=bits<<16
+HIDDEN i=27 src=dump file=layer39.combined_out.bin row=27 widened=bits<<16
+HIDDEN i=28 src=dump file=layer39.combined_out.bin row=28 widened=bits<<16
+HIDDEN i=29 src=dump file=layer39.combined_out.bin row=29 widened=bits<<16
+HIDDEN i=30 src=dump file=layer39.combined_out.bin row=30 widened=bits<<16
+HIDDEN i=31 src=dump file=layer39.combined_out.bin row=31 widened=bits<<16
+HIDDEN i=32 src=synth kind=ones
+HIDDEN i=33 src=synth kind=ones
+HIDDEN i=34 src=synth kind=ones
+HIDDEN i=35 src=synth kind=ones
+HIDDEN i=36 src=synth kind=onehot
+HIDDEN i=37 src=synth kind=onehot
+HIDDEN i=38 src=synth kind=onehot
+HIDDEN i=39 src=synth kind=onehot
+HIDDEN i=40 src=synth kind=onehot
+HIDDEN i=41 src=synth kind=onehot
+HIDDEN i=42 src=synth kind=onehot
+HIDDEN i=43 src=synth kind=onehot
+HIDDEN i=44 src=synth kind=onehot
+HIDDEN i=45 src=synth kind=onehot
+HIDDEN i=46 src=synth kind=onehot
+HIDDEN i=47 src=synth kind=onehot
+HIDDEN i=48 src=synth kind=onehot
+HIDDEN i=49 src=synth kind=onehot
+HIDDEN i=50 src=synth kind=onehot
+HIDDEN i=51 src=synth kind=onehot
+HIDDEN i=52 src=synth kind=onehot_inexact
+HIDDEN i=53 src=synth kind=onehot_inexact
+HIDDEN i=54 src=synth kind=onehot_inexact
+HIDDEN i=55 src=synth kind=onehot_inexact
+HIDDEN i=56 src=synth kind=tail_zero
+HIDDEN i=57 src=synth kind=tail_zero
+HIDDEN i=58 src=synth kind=tail_zero
+HIDDEN i=59 src=synth kind=tail_zero
+HIDDEN i=60 src=synth kind=head_zero
+HIDDEN i=61 src=synth kind=head_zero
+HIDDEN i=62 src=synth kind=head_zero
+HIDDEN i=63 src=synth kind=head_zero
+HIDDEN i=64 src=synth kind=head_only
+HIDDEN i=65 src=synth kind=head_only
+HIDDEN i=66 src=synth kind=head_only
+HIDDEN i=67 src=synth kind=head_only
+HIDDEN vectors=68 real=32 synth=36 h=2048 head_dim=256
+ORACLEFILL regions_filled=1884 words=1884 words_total=27488 band_nonzero=1884 band_nonpositive=0 gamma_from_K=h_used
+BANDFORMULA u=2^-24 gamma_K=K*u/(1-K*u) band=gamma_K*fsum(|h_k||w_k|) K=h_used terms=h_used
+BAND idx=0 K=2048 gamma=0.000122085215 sigma=0.666342841 band=8.13506093e-05 exact=-0.05327053 table=0 path=0 assoc=0 mode=0 b0=0 bcount=4 word=0
+BAND idx=1 K=2048 gamma=0.000122085215 sigma=0.666342841 band=8.13506093e-05 exact=-0.05327053 table=0 path=0 assoc=0 mode=0 b0=0 bcount=1 word=16
+BAND idx=2 K=2048 gamma=0.000122085215 sigma=0.526225763 band=6.42443856e-05 exact=0.00910212193 table=0 path=0 assoc=0 mode=0 b0=1 bcount=1 word=20
+BAND idx=3 K=2048 gamma=0.000122085215 sigma=0.73913891 band=9.0237933e-05 exact=0.0294862594 table=0 path=0 assoc=0 mode=0 b0=2 bcount=1 word=24
+BAND idx=4 K=2048 gamma=0.000122085215 sigma=0.594441474 band=7.25725154e-05 exact=-0.0126093253 table=0 path=0 assoc=0 mode=0 b0=3 bcount=1 word=28
+BAND idx=5 K=2048 gamma=0.000122085215 sigma=0.666342841 band=8.13506093e-05 exact=-0.05327053 table=0 path=1 assoc=0 mode=0 b0=0 bcount=4 word=32
+BAND idx=6 K=2048 gamma=0.000122085215 sigma=0.459490844 band=5.60970388e-05 exact=0.0110164983 table=0 path=1 assoc=0 mode=0 b0=1 bcount=4 word=48
+BAND idx=7 K=2048 gamma=0.000122085215 sigma=0.666342841 band=8.13506093e-05 exact=-0.05327053 table=0 path=0 assoc=1 mode=0 b0=0 bcount=4 word=64
+BAND idx=8 K=2048 gamma=0.000122085215 sigma=0.666342841 band=8.13506093e-05 exact=-0.05327053 table=0 path=0 assoc=2 mode=0 b0=0 bcount=4 word=80
+BAND idx=9 K=2048 gamma=0.000122085215 sigma=0.245151323 band=2.99293521e-05 exact=-0.0165942889 table=1 path=0 assoc=0 mode=0 b0=0 bcount=4 word=96
+BAND idx=10 K=2048 gamma=0.000122085215 sigma=0.245151323 band=2.99293521e-05 exact=-0.0165942889 table=1 path=0 assoc=0 mode=0 b0=0 bcount=1 word=112
+BAND idx=11 K=2048 gamma=0.000122085215 sigma=0.194043294 band=2.36898174e-05 exact=-0.0149319218 table=1 path=0 assoc=0 mode=0 b0=1 bcount=1 word=116
+BAND idx=12 K=2048 gamma=0.000122085215 sigma=0.271286224 band=3.31200371e-05 exact=0.0183904152 table=1 path=0 assoc=0 mode=0 b0=2 bcount=1 word=120
+BAND idx=13 K=2048 gamma=0.000122085215 sigma=0.215972165 band=2.63670083e-05 exact=-0.00419327756 table=1 path=0 assoc=0 mode=0 b0=3 bcount=1 word=124
+BAND idx=14 K=2048 gamma=0.000122085215 sigma=0.245151323 band=2.99293521e-05 exact=-0.0165942889 table=1 path=1 assoc=0 mode=0 b0=0 bcount=4 word=128
+BAND idx=15 K=2048 gamma=0.000122085215 sigma=0.166179556 band=2.02880669e-05 exact=-0.005369714 table=1 path=1 assoc=0 mode=0 b0=1 bcount=4 word=144
+BANDSUMMARY cases_with_honest_words=115 printed=16
+RESULT PASS oracle arm filled=1884/27488 words slab=557568 B hidden=68
+CHECK name=the oracle filled exactly the honest cases' words ok=1 n=1884 oracle=1884/1884 total=27488 expected=1884 band_nonpositive=0
+CHECK name=the oracle and the gate agree on the artifact widths (parsed == printed) ok=1 n=2 oracle=['Q6_K', 'Q8_0'] gate=['Q6_K', 'Q8_0']
+CHECK name=deriving the classes changed the expect column and nothing else ok=1 n=33 33 records differ, unexpected columns=[]
+PLAN file=work/plan.tsv p_records=1 tables_parsed=8 cases_parsed=192 h=2048 head_dim=256 vocab=248320 n_hidden=68 ids=11 out_floats=27488 slab_bytes=557568
+RUN arm=host cases=192 skipped=0 items=1186 out_floats=27488
+OUT file=work/host_out.f32 floats=27488 bytes=109952
+REPORT file=work/host_report.tsv rows=192 cases=192 arm=host
+RESULT PASS host arm cases=192 items=1186
+CHECK name=host arm parsed the plan exactly ok=1 n=192 p=1 tables=8 cases=192
+CHECK name=host arm ran every case (nothing skipped) ok=1 n=192 cases=192 skipped=0 items=1186
+CONTROL no-report dropped the last report row: parsed != printed MUST go red
+FAIL work/host_report.tsv printed 191 R rows, the plan has 192 cases (a missing row would leave that case entirely unjudged)
+CHECK name=the run reached its adjudication ok=0 n=1 refusal=work/host_report.tsv printed 191 R rows, the plan has 192 cases (a missing row would leave that case entirely unjudged)
+CHECKS ran=8 failed=1 the run refused: work/host_report.tsv printed 191 R rows, the plan has 192 cases (a missing row would leave that case entirely unjudged)
+RESULT FAIL lm_head (refused) checks=8 findings=1

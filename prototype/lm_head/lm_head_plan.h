@@ -409,6 +409,110 @@ static const char *const lmh_r_fields[] = {
     "oxor", "osum", "bytes", "loads", "xorb", "vsum", "bsum", "lo", "hi", "cross", "peer_hits",
     "lanes", "bover", "launches"};
 
+/* THE CANONICAL TEXT FORM OF ONE R FIELD — the producer half of the one rule the digest columns live
+ * by. Two spellings exist and each field is assigned exactly one of them:
+ *
+ *   "hex"  0x + exactly 8 UPPER-CASE hex digits   — for a BIT IMAGE (oxor, xorb).
+ *   "dec"  0 | [1-9][0-9]*                        — for a COUNT or an INTEGER SUM (vsum, bsum, bytes,
+ *                                                   loads, lo, hi, cross, peer_hits, lanes, bover,
+ *                                                   launches, and every echoed plan field).
+ *   "real" what printf %.9g emits                  — for osum, which is a sum of VALUES.
+ *
+ * Why a bit image is hex and everything else is decimal, and why the prefix is mandatory: the bug
+ * this closes is a producer printing `%u` while the parser read the column as hex — 4278190080 and
+ * 0xFF400000 are the SAME 32 bits spelled two ways, and both parse to a plausible number, so the
+ * disagreement is invisible to any check that only compares values (`pitfalls/40` §"two self-consistent
+ * layouts"). An explicit `0x` puts the radix IN the string: a decimal bit image is then not a
+ * plausible-but-wrong number, it is a token the parser's form check rejects. vsum and bsum stay
+ * decimal because they are read as numbers, not as bits — `0x123456789ABC` invites a bit-wise reading
+ * of a value that only means anything summed, and the driver's own contract check parses that column
+ * with strtoull(base 10) below. gate.py scrapes THIS array and refuses any token that does not match
+ * its declared form, so the writer and the parser cannot each hold their own ruler; the driver's
+ * self-test witnesses the writer against the same table (block 11). */
+#define LMH_RF_HEX "hex"
+#define LMH_RF_DEC "dec"
+#define LMH_RF_REAL "real"
+
+/* The bit-image columns, named. These two are the only fields whose text is a BIT PATTERN, so they
+ * are the only fields whose radix a reader can get wrong without noticing: 0xFF400000 spelled as
+ * 4278190080 still looks like a number. Everything else in the R line is a count or a sum read as a
+ * number, and the one exception among the sums is osum, which adds decoded VALUES rather than bits. */
+static const char *const lmh_r_hex_fields[] = {"oxor", "xorb"};
+static const char *const lmh_r_real_fields[] = {"osum"};
+
+/* The form table, DERIVED from the field names rather than counted out by hand: a 33-entry literal
+ * list is exactly the constant that silently misaligns when a column is added, and LMH_F_R drifted
+ * once already. The rule is one line per family — a named bit image is hex, a named value-sum is a
+ * real, anything else is canonical decimal. lmh_r_fmt[] below is the text the gate scrapes, and the
+ * driver self-test requires the two to agree field by field, so neither the list nor the rule can
+ * drift alone. */
+static inline int lmh_name_in(const char *const *v, int n, const char *name) {
+    for (int i = 0; i < n; ++i) if (strcmp(v[i], name) == 0) return 1;
+    return 0;
+}
+static inline const char *lmh_r_fmt_of(int i) {
+    const char *nm = lmh_r_fields[i];
+    if (lmh_name_in(lmh_r_hex_fields, (int)(sizeof(lmh_r_hex_fields) / sizeof(lmh_r_hex_fields[0])),
+                    nm)) return LMH_RF_HEX;
+    if (lmh_name_in(lmh_r_real_fields,
+                    (int)(sizeof(lmh_r_real_fields) / sizeof(lmh_r_real_fields[0])), nm))
+        return LMH_RF_REAL;
+    return LMH_RF_DEC;
+}
+
+static const char *const lmh_r_fmt[] = {
+    LMH_RF_DEC, LMH_RF_DEC, LMH_RF_DEC, LMH_RF_DEC, LMH_RF_DEC, LMH_RF_DEC, LMH_RF_DEC, LMH_RF_DEC,
+    LMH_RF_DEC, LMH_RF_DEC, LMH_RF_DEC, LMH_RF_DEC, LMH_RF_DEC, LMH_RF_DEC, LMH_RF_DEC, LMH_RF_DEC,
+    LMH_RF_DEC, LMH_RF_DEC, LMH_RF_DEC,
+    LMH_RF_HEX,                                     /* oxor: a bit image */
+    LMH_RF_REAL,                                    /* osum: a sum of values */
+    LMH_RF_DEC, LMH_RF_DEC,
+    LMH_RF_HEX,                                     /* xorb: a bit image */
+    LMH_RF_DEC, LMH_RF_DEC, LMH_RF_DEC, LMH_RF_DEC, LMH_RF_DEC, LMH_RF_DEC,
+    LMH_RF_DEC, LMH_RF_DEC, LMH_RF_DEC};            /* lanes, bover, launches */
+
+/* One uint32 rendered in the canonical bit-image form. Hand-rolled rather than sprintf("%08X") so the
+ * prefix and the digit width are one expression in one place the self-test can also call. */
+static inline const char *lmh_hex32(char *buf, uint32_t v) {
+    static const char digits[16] = {'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'};
+    buf[0] = '0'; buf[1] = 'x';
+    for (int i = 0; i < 8; ++i) {
+        const unsigned shift = 4u * (7u - (unsigned)i);
+        buf[2 + i] = digits[(v >> shift) & 0xFu];
+    }
+    buf[10] = '\0';
+    return buf;
+}
+
+/* The validator the self-test runs its OWN output through. Deliberately not the writer: if the
+ * witness called lmh_hex32 and asked whether the result was non-empty it would prove nothing. This
+ * accepts a token only if it is the canonical spelling of its kind, so a producer that drifted to a
+ * bare `%u` (or to lower case, or to a leading zero) fails here rather than agreeing with itself. */
+static inline int lmh_fmt_ok(const char *kind, const char *s) {
+    if (!kind || !s || !*s) return 0;
+    if (strcmp(kind, LMH_RF_HEX) == 0) {
+        if (strlen(s) != 10 || s[0] != '0' || s[1] != 'x') return 0;
+        for (int i = 2; i < 10; ++i) {
+            const char c = s[i];
+            if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F'))) return 0;
+        }
+        return 1;
+    }
+    if (strcmp(kind, LMH_RF_DEC) == 0) {
+        if (s[0] == '0') return s[1] == '\0';        /* no 007, no -0, no +0 */
+        if (s[0] < '1' || s[0] > '9') return 0;      /* no sign, no prefix, no leading zero */
+        for (const char *p = s + 1; *p; ++p) if (*p < '0' || *p > '9') return 0;
+        return 1;
+    }
+    if (strcmp(kind, LMH_RF_REAL) == 0) {
+        char *end = NULL;
+        const double d = strtod(s, &end);
+        if (!end || *end != '\0' || end == s) return 0;
+        return d == d || d != d;                     /* a finite number, or a NaN: both are printable */
+    }
+    return 0;                                        /* an undeclared kind is never legal */
+}
+
 static inline int lmh_write_report(const char *path, const Plan &plan, const LmhTrace *tr,
                                    const float *out, const long long *n_launches, int device_run) {
     FILE *f = fopen(path, "wb");
@@ -440,12 +544,16 @@ static inline int lmh_write_report(const char *path, const Plan &plan, const Lmh
                 osum += (double)v;
             }
         const LmhTrace &r = tr[c.idx];
+        /* The two bit-image columns go through lmh_hex32 in the canonical 0x + 8 upper-case hex form;
+         * every other numeric column is plain decimal. The radix is IN the text, so the parser
+         * downstream cannot guess it and cannot silently mis-read one. */
+        char hxo[16], hxb[16];
         fprintf(f, "R\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t"
-                  "%u\t%.9g\t%llu\t%llu\t%u\t%llu\t%llu\t%u\t%u\t%u\t%u\t%u\t%u\t%lld\n",
+                  "%s\t%.9g\t%llu\t%llu\t%s\t%llu\t%llu\t%u\t%u\t%u\t%u\t%u\t%u\t%lld\n",
                 c.idx, c.table, t.role, t.enc, c.path, c.batching, c.b0, c.bcount, c.row_lo,
                 c.nrows, c.n_ids, c.assoc, c.mode, c.expect, c.on_device, c.trace, c.n_out,
-                (int)lmh_case_n_items(c), lmh_case_nlanes(c), oxor, osum,
-                (unsigned long long)r.bytes, (unsigned long long)r.loads, r.xorb,
+                (int)lmh_case_n_items(c), lmh_case_nlanes(c), lmh_hex32(hxo, oxor), osum,
+                (unsigned long long)r.bytes, (unsigned long long)r.loads, lmh_hex32(hxb, r.xorb),
                 (unsigned long long)r.vsum, (unsigned long long)r.bsum, r.min_off, r.max_off, r.cross, r.peer_hits, r.lanes,
                 r.bover, n_launches[c.idx]);
         ++printed;
@@ -865,6 +973,19 @@ static inline int lmh_driver_selftest(const char *workdir) {
 
         int contract_ok = 1;
         if (n_names != LMH_F_R - 1) contract_ok = 0;
+        if ((int)(sizeof(lmh_r_fmt) / sizeof(lmh_r_fmt[0])) != n_names) contract_ok = 0;
+        /* The hand-written form table and the name-derived rule must say the same thing for EVERY
+         * column, and the hex family must be populated: a digest rule over zero bit-image columns is a
+         * counter that reads zero and cannot fail (pitfalls/40). Its own counter, not contract_ok, so a
+         * red here names the form table and nothing else. */
+        int form_ok = ((int)(sizeof(lmh_r_fmt) / sizeof(lmh_r_fmt[0])) == n_names);
+        int n_hex = 0;
+        for (int i = 0; i < n_names; ++i) {
+            if (strcmp(lmh_r_fmt[i], lmh_r_fmt_of(i)) != 0) form_ok = 0;
+            if (strcmp(lmh_r_fmt[i], LMH_RF_HEX) == 0) ++n_hex;
+        }
+        if (n_hex != (int)(sizeof(lmh_r_hex_fields) / sizeof(lmh_r_hex_fields[0]))) form_ok = 0;
+        CK(form_ok, "report-form-table-agrees-with-the-field-names");
         if (vcol < 0 || xcol < 0) contract_ok = 0;
         char rpath[512];
         snprintf(rpath, sizeof(rpath), "%s/selftest_report.tsv", workdir);
@@ -893,11 +1014,40 @@ static inline int lmh_driver_selftest(const char *workdir) {
                 if (vcol < 0 || vcol >= nf || xcol >= nf) { contract_ok = 0; continue; }
                 if (strtoull(fld[vcol], 0, 10) != trv[0].vsum) contract_ok = 0;
                 if (strcmp(fld[vcol], fld[xcol]) == 0) contract_ok = 0;
+                /* Every printed token must be the canonical spelling of the kind lmh_r_fmt[] declares
+                 * for it — the writer is checked against the table the parser scrapes, so the two
+                 * sides cannot each keep their own ruler. */
+                for (int i = 0; i + 1 < LMH_F_R && i + 1 < nf; ++i)
+                    if (!lmh_fmt_ok(lmh_r_fmt[i], fld[i + 1])) contract_ok = 0;
             }
             fclose(rf);
             if (!saw_header || !saw_r) contract_ok = 0;
         }
         CK(contract_ok, "report-field-count-names-and-vsum-column");
+        /* THE WRONG-RADIX CONTROL. The bug this lane was handed is a producer that printed the digest
+         * with %u while the parser read the same column as hex: 0xDEADBEEF and 3735928559 are one
+         * 32-bit value in two radices, each of which parses to a plausible number, so a value-only
+         * comparison cannot see the disagreement. The rule that kills it is that the radix lives IN
+         * THE TEXT, and this block is the witness that the rule has teeth: the canonical token passes,
+         * the other radix's spelling of the SAME value is refused by both kinds, the two spellings
+         * differ as strings, and reading the decimal token as hex yields a number that is not the
+         * digest (which is exactly the mis-parse the parser must never be able to perform silently). */
+        {
+            int radix_ok = (xcol >= 0);
+            char hb[16];
+            char db[32];
+            const char *canon = lmh_hex32(hb, trv[0].xorb);
+            snprintf(db, sizeof(db), "%u", trv[0].xorb);
+            if (!lmh_fmt_ok(LMH_RF_HEX, canon)) radix_ok = 0;
+            if (lmh_fmt_ok(LMH_RF_HEX, db)) radix_ok = 0;
+            if (lmh_fmt_ok(LMH_RF_DEC, canon)) radix_ok = 0;
+            if (!lmh_fmt_ok(LMH_RF_DEC, db)) radix_ok = 0;
+            if (strcmp(canon, db) == 0) radix_ok = 0;
+            if (strtoull(canon, NULL, 16) != (unsigned long long)trv[0].xorb) radix_ok = 0;
+            if (strtoull(db, NULL, 10) != (unsigned long long)trv[0].xorb) radix_ok = 0;
+            if (strtoull(db, NULL, 16) == (unsigned long long)trv[0].xorb) radix_ok = 0;
+            CK(radix_ok, "digest-radix-is-in-the-text-not-in-the-parser");
+        }
     }
 
     /* 12. every injection this lane claims an immunity for, witnessed on BOTH arms — a firing arm and

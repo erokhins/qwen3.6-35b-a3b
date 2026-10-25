@@ -1,0 +1,5 @@
+PLAN file=work/plan.tsv p_records=1 tables_parsed=8 cases_parsed=192 h=2048 head_dim=256 vocab=248320 n_hidden=68 ids=11 out_floats=27488 slab_bytes=557568
+RUN arm=host cases=192 skipped=0 items=1186 out_floats=27488
+OUT file=work/out_scaled.f32 floats=27488 bytes=109952
+REPORT file=work/report_scaled.tsv rows=192 cases=192 arm=host
+RESULT PASS host arm cases=192 items=1186

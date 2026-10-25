@@ -247,7 +247,7 @@ def main():
     for nm in ("output.weight", "token_embd.weight"):
         print("ARTIFACTWIDTH tensor=%s stored=%s policy_a=Q8_0 note=D-10-deviation"
               % (nm, widths.get(nm, "absent-from-artifact")))
-    print("ARTIFACTWIDTH file=%s declared_tensors=%d parsed_rows=%d"
+    print("ARTIFACTFILE file=%s declared_tensors=%d parsed_rows=%d"
           % (os.path.basename(a.gguf), n_declared, n_parsed))
     if a.control == "q6k-source":
         # The refusal must be reachable, so the control points a Q8_0 table at the Q6_K tensor.
@@ -274,6 +274,7 @@ def main():
     import numpy as np
     n_bytes_written = 0
     n_q8_blocks = 0
+    shard_witnessed = set()
     for t in tables:
         d = by_idx[t["idx"]]
         want_enc = ENC_NAME[t["enc"]]
@@ -288,7 +289,11 @@ def main():
             row_b = q8_row_bytes(t["h"])
         else:
             row_b = t["h"] * fc["LMH_BF16_BYTES"]
-        if t["nbytes"] != len(rows) * row_b and t["real"]:
+        # The rows-times-row-width identity is a statement about a FILE read. A tied_copy has no rows of
+        # its own (it copies a byte range another table already read; its own geometry check is the
+        # nbytes == nbytes-copied comparison in that branch) and a synth table carries a byte payload,
+        # so requiring `rows` of them would demand 0 rows x 4096 B and refuse a legal plan.
+        if d["kind"] == "real" and t["real"] and t["nbytes"] != len(rows) * row_b:
             raise Refuse("table %d: nbytes=%d is not %d rows x %d B/row"
                          % (t["idx"], t["nbytes"], len(rows), row_b))
         base = t["base"]
@@ -302,6 +307,25 @@ def main():
                              % (t["idx"], len(payload), t["nbytes"]))
             slab[base:base + t["nbytes"]] = payload
             n_bytes_written += len(payload)
+            # POPULATION WITNESSES for a handed-over payload. (a) No row may decode to all zeros: an
+            # all-zero synthetic table makes every case over it a zero-output case, which is how a bf16
+            # image written from the wrong half of the f32 bits once shipped here — the value test on
+            # the way in passed, the bytes were still zeros. (b) The rows declared `dup=` must really
+            # be byte-identical, because the IMMUNE arms over this table rest on "two rows, one value".
+            zero_rows = [r for r in range(t["v_rows"])
+                         if not any(x != 0.0 for x in decode_row(slab, t, r, t["h"], fc, en))]
+            if zero_rows:
+                raise Refuse("synthetic table %d: rows %s decode to all zeros. A case over a zero row "
+                             "agrees with anything; it is a hollow check, not a cheap one."
+                             % (t["idx"], zero_rows[:8]))
+            dup = [int(x) for x in d["dup"].split(",")] if d.get("dup") else []
+            if dup:
+                imgs = dict((r, bytes(slab[base + r * row_b:base + (r + 1) * row_b])) for r in dup)
+                if len(set(imgs.values())) != 1:
+                    raise Refuse("synthetic table %d declares dup=%s but their bytes differ"
+                                 % (t["idx"], dup))
+            print("SYNTHWITNESS table=%d rows=%d all_rows_nonzero=1 dup=%s dup_identical=%d"
+                  % (t["idx"], t["v_rows"], dup or "none", 1 if dup else 0))
             if t["enc"] == en["LMH_ENC_Q8_0"]:
                 n_q8_blocks += t["nbytes"] // Q8_BYTES
             print("TABLE idx=%d kind=synth enc=%s bytes=%d rows=%d base=%d"
@@ -324,6 +348,22 @@ def main():
         if not os.path.exists(shard):
             raise Refuse("table %d: source shard %s does not exist" % (t["idx"], shard))
         hdr, header_len = read_safetensors_header(shard)
+        if shard not in shard_witnessed:
+            # WITNESS for header_len, not a trust: safetensors tiles every tensor from the data start,
+            # so the largest data_offset in the file must end exactly at EOF. An 8-byte slip in
+            # read_safetensors_header (returning the JSON length instead of 8 + it) makes this false by
+            # 8 for every shard — which is how a wrong offset becomes a refusal here instead of quietly
+            # becoming the reference the whole lane is judged against.
+            hi_max = max([v["data_offsets"][1] for k, v in hdr.items() if k != "__metadata__"])
+            sz = os.path.getsize(shard)
+            if header_len + hi_max != sz:
+                raise Refuse("%s: header_len=%d + max data_offset=%d = %d, but the file is %d B. The "
+                             "data section must end at EOF; the header length is wrong."
+                             % (os.path.basename(shard), header_len, hi_max,
+                                header_len + hi_max, sz))
+            print("SHARDHDR file=%s header_len=%d data_bytes=%d tensors=%d identity=header_plus_data_eq_filesize"
+                  % (os.path.basename(shard), header_len, hi_max, len(hdr) - 1))
+            shard_witnessed.add(shard)
         if tname not in hdr:
             raise Refuse("table %d: %s is not in %s" % (t["idx"], tname, shard))
         rec = hdr[tname]
@@ -454,15 +494,23 @@ def main():
     filled = [0] * out_floats
     u = 2.0 ** -24
     n_fill = 0
+    owner = [None] * out_floats
+    band_seen = set()
+    band_deriv = []
+    BAND_PRINT = 16
     for c in cases:
         if c["mode"] != en["LMH_MODE_CORRECT"]:
             continue                                     # injections are judged against their honest twin
         t = tables[c["table"]]
         h_used = t["h"]                       # an honest case never takes the wrong stride: mode is CORRECT
-        rows = ([c["row_lo"] + j for j in range(c.nrows)] if c["path"] == en["LMH_PATH_DENSE"]
-                else [ids[c["ids_off"] + j] for j in range(c.n_ids)])
+        rows = ([c["row_lo"] + j for j in range(c["nrows"])] if c["path"] == en["LMH_PATH_DENSE"]
+                else [ids[c["ids_off"] + j] for j in range(c["n_ids"])])
         slot = H if c["mode"] == en["LMH_MODE_BATCH_SLOT_STRIDE"] else c["n_out"]
-        for b in range(c.bcount):
+        for b in range(c["bcount"]):
+            if not 0 <= c["b0"] + b < len(hidden):
+                raise Refuse("case %d: batch row %d addresses hidden[%d] but the plan has %d "
+                             "vectors — an out-of-range hidden index, not a wrong number"
+                             % (c["idx"], b, c["b0"] + b, len(hidden)))
             hv = hidden[c["b0"] + b]
             for jj, r in enumerate(rows):
                 vals = decode_row(slab, t, r, h_used, fc, en)
@@ -478,8 +526,17 @@ def main():
                 expect[at] = exact
                 K = h_used
                 gamma = K * u / (1.0 - K * u)
-                band[at] = gamma * math.fsum(abs(x) for x in terms)
+                sigma = math.fsum(abs(x) for x in terms)
+                band[at] = gamma * sigma
                 filled[at] = 1
+                owner[at] = c["idx"]
+                if c["idx"] not in band_seen:
+                    band_seen.add(c["idx"])
+                    band_deriv.append(dict(idx=c["idx"], K=K, gamma=gamma, sigma=sigma,
+                                           band=band[at], exact=exact, table=c["table"],
+                                           path=c["path"], assoc=c["assoc"], mode=c["mode"],
+                                           b0=c["b0"], bcount=c["bcount"], h_used=h_used,
+                                           word=at))
                 n_fill += 1
     if n_fill == 0:
         raise Refuse("the oracle filled no expectation words: there is nothing to judge against")
@@ -488,12 +545,26 @@ def main():
     with open(os.path.join(work, "band.f64"), "wb") as fh:
         fh.write(struct.pack("<%dd" % out_floats, *band))
     n_band = sum(1 for i in range(out_floats) if filled[i] and not (band[i] > 0.0))
-    print("ORACLEFILL regions_filled=%d words=%d band_nonzero=%d band_nonpositive=%d "
-          "gamma_from_K=h_used" % (n_fill, out_floats, out_floats and (out_floats - n_band) or 0,
-                                   n_band))
+    print("ORACLEFILL regions_filled=%d words=%d words_total=%d band_nonzero=%d band_nonpositive=%d "
+          "gamma_from_K=h_used"
+          % (n_fill, n_fill, out_floats, n_fill - n_band, n_band))
+    # THE DERIVATION, printed. A band printed as a bare number is a number the reader has to trust;
+    # these lines carry K, gamma = K*u/(1-K*u) with u = 2^-24, the sum of |h_k||w_k|, the product, and
+    # the exact f32 expectation, so an independent reader can recompute the tolerance from the print.
+    print("BANDFORMULA u=2^-24 gamma_K=K*u/(1-K*u) band=gamma_K*fsum(|h_k||w_k|) K=h_used terms=h_used")
+    for b in band_deriv[:BAND_PRINT]:
+        print("BAND idx=%d K=%d gamma=%.9g sigma=%.9g band=%.9g exact=%.9g table=%d path=%d assoc=%d "
+              "mode=%d b0=%d bcount=%d word=%d"
+              % (b["idx"], b["K"], b["gamma"], b["sigma"], b["band"], b["exact"], b["table"],
+                 b["path"], b["assoc"], b["mode"], b["b0"], b["bcount"], b["word"]))
+    print("BANDSUMMARY cases_with_honest_words=%d printed=%d"
+          % (len(band_seen), min(len(band_seen), BAND_PRINT)))
+    for i in [w for w in range(out_floats) if filled[w] and not (band[w] > 0.0)][:20]:
+        print("BANDZERO word=%d case=%d exact=%.9g band=%.9g note=zero-band-word"
+              % (i, owner[i], expect[i], band[i]))
     if n_band:
         raise Refuse("%d expectation words have a non-positive band: the band is vacuous and a "
-                     "must-fire injection could never exceed it" % n_band)
+                     "must-fire injection could never exceed it (case list above)" % n_band)
 
     if a.full_table:
         full_table_witness(P, tables, hidden, fc, en)
@@ -504,9 +575,13 @@ def main():
 
 
 def read_safetensors_header(shard):
+    """(header dict, byte offset where the data section begins). The 8 comes from the format: the file
+    opens with a little-endian u64 tensor-info-JSON length, then that JSON, then the tensors. Returning
+    `n` instead of `8 + n` shifts every read 8 B early, which is eight bytes of the header's own JSON
+    read as bf16 weights — the reason this function's return is the second value and not a bare dict."""
     with open(shard, "rb") as fh:
         n = struct.unpack("<Q", fh.read(8))[0]
-        return json.loads(fh.read(n)), n
+        return json.loads(fh.read(n)), 8 + n
 
 
 def array_from_file(path, want):
