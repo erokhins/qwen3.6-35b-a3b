@@ -63,9 +63,13 @@ matrix rate above belongs to hipBLASLt's tuned kernels unless and until this eng
 
 **The device-visible pool is ≈55.5–56.5 GiB for the whole box, and `flash_serve` is inside it** — so
 what one process can map is what is *left*, ≈32 GiB while halogen is resident. `totalGlobalMem`
-reports ~110 GiB and is not what a process can use. Text weights are **65.72 GiB bf16**
-(`tools/quant_scenarios.py --census`), so the pool binds either way, and host-mapping does not
-escape it (it consumes it): see the next section.
+reports ~110 GiB and is not what a process can use. Text weights are **66.1337 GiB bf16** with the MTP
+draft block, **64.5604 GiB** without it (`quantization/evidence/bf16-census-adjudication-2026-10-26.md`,
+0 bytes of unexplained residue; per-family cut via `tools/gguf_suffix_census.py`). This read
+**65.72 GiB, cited to `tools/quant_scenarios.py --census`, until 2026-10-26 — and that tool is wrong by
+−0.4138 GiB**, which is how a figure that matched no independent ruler stayed in circulation: it was
+never cross-checked against the artifact's own tensor records, only against itself. So the pool binds
+either way, and host-mapping does not escape it (it consumes it): see the next section.
 
 ### Residency above the pool — pinning consumes the pool, it does not raise it (D-02, measured 2026-10-26)
 
@@ -113,9 +117,9 @@ Consequences, now stated against the corrected model:
 
 1. **The engine's budget is `pool − co-resident footprint`, so it is an ops decision, not a constant.**
    ≈32 GiB while halogen is resident; **≈55 GiB if the engine owns the box.** That is a different
-   project: Q8-throughout (34.97 GiB) *fits* at 55 GiB, so 4-bit experts becomes a **speed** choice
+   project: Q8-throughout (35.16 GiB, corrected 2026-10-26 from 34.97) *fits* at 55 GiB, so 4-bit experts becomes a **speed** choice
    rather than a fit requirement (`DECISIONS.md` D-11 asks the question; `quantization/README.md`
-   prices both budgets). bf16 (65.72 GiB) fits in neither.
+   prices both budgets). bf16 (66.1337 GiB) fits in neither.
 2. **Pinning does not escape the pool — it spends it.** Mapped host memory is charged to the same
    budget as device memory, and reads at ≥ device bandwidth (198.6 device vs 215.8 pinned GB/s in one
    window), so a two-tier layout is bandwidth-viable but buys no additional capacity.
@@ -177,7 +181,7 @@ it was written and is not true now: this session runs on `tensorfold` (`PI_PROVI
 `tools/halogen_gate.sh down` checks as a self-kill guard before it will touch anything). Stopping
 halogen once, with the GPU lock held, is the only way to observe the pool with the engine owning the
 box — the measurement `DECISIONS.md` D-11 is waiting on, and the one that decides whether
-Q8-throughout (34.97 GiB) fits and 4-bit experts is a speed choice rather than a fit requirement.
+Q8-throughout (35.16 GiB) fits and 4-bit experts is a speed choice rather than a fit requirement.
 
 ## Roofline for the target model
 
@@ -188,11 +192,19 @@ shape of it:
 
 | configuration | resident | GiB read per token | ceiling @237 GB/s |
 |---|---|---|---|
-| bf16 text weights | 65.72 GiB ✗ above both budgets | 5.194 | ~42 tok/s |
-| Q8_0 throughout | 34.97 GiB — above the co-resident budget (~32), **fits if the engine owns the pool (~55)** | 2.811 | ~79 tok/s |
-| experts Q4_K + rest Q8_0 (policy A, **decided**) | 19.59 GiB ✓ fits either budget | 2.331 | ~95 tok/s |
-| experts Q4_K + attn Q8_0 + `lm_head` Q6_K (policy G) | 19.36 GiB ✓ | 2.216 | ~100 tok/s |
-| experts + attention both Q4_K (policy E) | 18.81 GiB ✓ | 1.663 | ~133 tok/s |
+| bf16 text weights | 66.1337 GiB ✗ above both budgets | 5.61 | ~39 tok/s ⚠ |
+| Q8_0 throughout | 35.16 GiB — above the co-resident budget (~32), **fits if the engine owns the pool (~55)** | 2.811 ⚠ | ~79 tok/s ⚠ |
+| experts Q4_K + rest Q8_0 (policy A, **decided**) | 19.7848 GiB ✓ fits either budget | 2.5252 (2.4653 target-only) | ~87 tok/s |
+| experts Q4_K + attn Q8_0 + `lm_head` Q6_K (policy G) | 19.36 GiB ⚠ | 2.216 ⚠ | ~100 tok/s ⚠ |
+| experts + attention both Q4_K (policy E) | 18.81 GiB ⚠ | 1.663 ⚠ | ~133 tok/s ⚠ |
+
+⚠ **rows are pre-census-correction and expected to move** (~+1 % resident, +6–8 % per-token, since the
+omitted `ssm_out` is read in full every token). Only policy A's resident and per-token figures and
+policy F's resident figure have been re-derived against the corrected census
+(`quantization/evidence/bf16-census-adjudication-2026-10-26.md`); the bf16 rate row is supervisor
+arithmetic from 5.61 GiB/token against the 237/210/190 ladder, not a tool print. Re-print the whole
+table from the repaired `tools/quant_scenarios.py` rather than hand-deriving cells. Every rate in this
+table is a **prediction** against the measured copy rate, never a measurement.
 
 Two qualifications. Ceilings are ceilings: the sibling 0.8B engine reached ~60 % of its own, and the
 bandwidth actually delivered in the 2026-10-26 window was 190–225 GB/s, so quote the 190 column as
@@ -200,7 +212,7 @@ the honest lower bound. And these are **bytes**, not time: attention time at 4k 
 byte count (KV is 10 layers × 2 KV heads × 256 dim × 2 B = 10 KiB/token, ~0.7 % of a bf16 step) —
 long-context cost has to be measured, not inferred from this table.
 
-Anchors for the arithmetic: policy A predicts 19.59 GiB = 21.0 GB where the published GGUFs for this
+Anchors for the arithmetic: policy A predicts 19.7848 GiB = 21.27 GB where the published GGUFs for this
 architecture are 18.49 GB (unsloth Q4_K_M) and 19.77 GB (bartowski) — our figure is high by ~6–13 %
 in the expected direction, because those quants are dynamic (some expert tensors below Q4_K) and keep
 attention at Q4_K too. Details and sources: `quantization/evidence/`.

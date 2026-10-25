@@ -357,3 +357,44 @@ I also released `/tmp/pi_halogen.lock` on W1's completion — and the first atte
 because I ran `rmdir` on a directory still holding `holder`. `halogen_gate.sh status` printed the stale
 claim and only then did I notice; the retry removes the file first and now reads `stream claim: none`,
 so a down-window can admit. A lock released by a command that failed is a lock still held.
+
+## The census dispute: I was wrong, and nearly made it worse
+
+`tools/quant_scenarios.py`'s 65.7198 GiB — the figure in `AGENTS.md`, `README.md`, `PLAN.md` and D-11,
+the one whose excess over the pool *forced* 4-bit experts — was contradicted by the artifact itself.
+I built my own ruler from the GGUF's tensor records: **64.5604 GiB**. Three rulers, three answers, two
+of them tools. W10 adjudicated it to **0 bytes of residue**: the authoritative text figure is
+**66.1337 GiB** with the draft block, and my 64.5604 is the *same element set minus the 19 `mtp.*`
+tensors* — which I had already witnessed during step 1's audit (the published GGUF carries zero draft
+tensors) and then left out of my own arithmetic.
+
+**I measured the wrong quantity and defended it.** The closure is elements first: 34,660,610,688
+(artifact) + 844,640,768 (draft) = 35,505,251,456 → 66.1337 GiB, and adding vision's 446,571,248 elts
+gives 71,903,645,408 B = the shard index's own `total_size` exactly. The tool's −0.4138 GiB decomposes
+to the element: `ssm_out` omitted (+251,658,240), `mtp.fc` omitted (+8,388,608), phantom `3h×3h`
+(−37,748,736), phantom `+2*h`×30 (−122,880, which the first census pass missed), 86 real h-norms vs its
+84 (+4,096). My recomputation reproduced every one of those numbers independently.
+
+**Then I nearly introduced a new error while fixing old ones.** Editing `README.md`'s family breakdown,
+I "corrected" routed experts from 61.500 to 60.0000 — the artifact's own sum. Wrong: 61.500 was right,
+because it counts the draft block's own 1.500 GiB MoE stack. Caught only because I checked whether the
+original was actually wrong before replacing it. The real errors were GDN (1.416 → 1.885, the omitted
+`ssm_out`) and 0.0704 of phantoms sitting in "norms and misc". Rule worth keeping: **a number I intend
+to "fix" has to be falsified as wrong first; agreeing with my own ruler is not falsification.**
+
+**What moved, and what I refused to invent.** Policy A: resident 19.59 → **19.7848 GiB**, per-token
+2.331 → **2.5252** (2.4653 target-only), so the roofline prediction 95/84/76 → **87/77/70**. Policy F
+resident 34.97 → 35.16. The fit verdicts do not move, and neither does any width decision — the
+control arm is what makes that trustworthy: pricing policy A from the *broken* census reproduces
+19.59/2.331 exactly, so all the movement is census, not width rule.
+
+Only rows A and F were adjudicated, so **rows B, C, D, E, G and the other rate cells are marked ⚠** in
+both tables rather than quietly left as if current or hand-derived by me: they are expected to move
+~+1 % resident and +6–8 % per-token (the omitted `ssm_out` is read every token), and the instruction
+in the doc is to re-print them from the repaired tool so the docs and the tool cannot drift apart. An
+invented 96 tok/s and a stale 96 tok/s look identical to a reader, which is why the ⚠ matters more than
+the number. `AGENTS.md`, `README.md`, `quantization/README.md` and `devices/measured-facts.md` are
+corrected with provenance; **`DECISIONS.md` is not touched** — D-11 quotes 65.72 and 34.97, and while
+the conclusion is unaffected (all three candidate figures exceed the pool), that file is the user's.
+The journal's own earlier entries still assert 19.59/2.331 and are deliberately left as written: a
+journal records what was believed when, and gets corrected by a later entry, never by editing.

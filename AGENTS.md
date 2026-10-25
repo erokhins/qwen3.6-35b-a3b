@@ -14,9 +14,12 @@ reachable on a model this box can actually run. Lineage and evidence: `README.md
 Read this before importing the 0.8B project's scope statement — **one of its load-bearing
 paragraphs does not transfer.** That project's `AGENTS.md` states that memory capacity is *not* a
 constraint (its model is 4 % of the device-visible pool, so it forbade paging, eviction and
-quantize-to-fit). Here the model is **65.72 GiB bf16 against a device-visible pool of ≈55.5–56.5 GiB
+quantize-to-fit). Here the model is **66.1337 GiB bf16 (with the MTP draft block; 64.5604 without it)
+against a device-visible pool of ≈55.5–56.5 GiB
 for the whole box — ≈32 GiB free while halogen is resident, and host-pinning does not raise it**
-(`devices/measured-facts.md` §"Residency above the pool"), so:
+(`devices/measured-facts.md` §"Residency above the pool"; the bf16 figure was 65.72 GiB until
+2026-10-26, when the census was adjudicated to 0 bytes of residue —
+`quantization/evidence/bf16-census-adjudication-2026-10-26.md`), so:
 
 - capacity engineering is in scope for the first time: residency layout, shard staging,
   expert placement, state-pool sizing under a tighter budget;
@@ -26,8 +29,11 @@ for the whole box — ≈32 GiB free while halogen is resident, and host-pinning
   norms exact — is **policy A** in
   `quantization/README.md`. int8/int4/int-fp anything *beyond* what those two decisions cover still
   needs the user's explicit words; the decisions are recorded, never inferred. Note the arithmetic that
-  forced them: bf16 (65.72 GiB) is above the whole device-visible pool, and Q8-throughout (34.97 GiB)
-  is above what one process gets while halogen is resident (`DECISIONS.md` D-11).
+  forced them: bf16 (66.1337 GiB) is above the whole device-visible pool, and Q8-throughout (35.16 GiB)
+  is above what one process gets while halogen is resident (`DECISIONS.md` D-11). **The correction of
+  these two figures by ~0.4 GiB changes no decision**: all of 64.56 / 65.72 / 66.13 GiB exceed a
+  ≈55.5–56.5 GiB pool, and both 34.97 and 35.16 exceed the ≈32 GiB a process gets co-resident. A
+  decision that survives a 0.4 GiB correction was not resting on the fourth significant digit.
 - developing and gating in bf16 against pinned reference dumps still works and is still the first
   step — the CPU oracle path (installed `transformers` `qwen3_5_moe`) runs in 123 GiB of host RAM and
   does not need the weights on the GPU at all. The 4-bit kernel is not the first thing to write;

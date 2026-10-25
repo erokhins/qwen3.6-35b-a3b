@@ -21,10 +21,14 @@ processes* asking 20 GiB each could not coexist (`tools/pin_pair.sh`). What is l
 depends on who else is resident: **≈32 GiB while halogen holds its ~23.5 GiB**, ≈55 GiB if the engine
 owns the box (`DECISIONS.md` D-11).
 
-So bf16 (65.72 GiB) is impossible in either budget, and **Q8-throughout (34.97 GiB) is impossible
+So bf16 (66.1337 GiB, adjudicated 2026-10-26 — this read 65.72 GiB before the census was settled; see
+`quantization/evidence/bf16-census-adjudication-2026-10-26.md`) is impossible in either budget, and
+**Q8-throughout (35.16 GiB) is impossible
 co-resident but possible dedicated** — which does not change the plan, because (a) we do not control
-co-residency, and (b) 4-bit experts are the faster choice regardless: 2.331 vs 2.811 GiB/token, ~95 vs
-~79 tok/s at 237 GB/s. The same measurement says the *location* of the bytes does not matter: pinned
+co-residency, and (b) 4-bit experts are the faster choice regardless: policy A reads
+2.5252 GiB/token (2.4653 target-only) against Q8-throughout's 2.811, ~87 vs
+~79 tok/s at 237 GB/s. (F's per-token figure predates the census correction and has not been
+re-derived — see the staleness note under the policy table before quoting it.) The same measurement says the *location* of the bytes does not matter: pinned
 host memory reads at 215.8 GB/s against 198.6 GB/s for device memory in the same window, i.e. a
 bandwidth-bound engine loses nothing by reading pinned host pages.
 
@@ -36,14 +40,24 @@ cross-checked against the shard index's own `total_size` (delta 1.86 %, which is
 | family | bf16 GiB | share | read per token? |
 |---|---|---|---|
 | routed experts (40 layers + MTP block) | **61.500** | 91.84 % | 8/256 of it |
-| GDN linear attention (30 layers) | 1.416 | 2.11 % | all of it |
+| GDN linear attention (30 layers) | **1.885** | 2.85 % | all of it |
 | token embeddings | 0.947 | 1.41 % | one row (~4 KiB) |
 | `lm_head` (untied) | 0.947 | 1.41 % | all of it |
 | full attention (10 layers + MTP) | 0.559 | 0.83 % | all of it |
 | shared experts (41) | 0.240 | 0.36 % | all of it |
-| norms and misc | 0.071 | 0.11 % | all of it |
+| `mtp.fc` (embedding\|hidden fusion) | 0.016 | 0.02 % | all of it, on a draft pass |
+| norms and misc | ~0.001 | ~0.00 % | all of it |
 | routers `mlp.gate` (41) | 0.040 | 0.06 % | all of it |
-| **text total** | **65.720** | | **5.19 GiB/token at bf16** |
+| **text total** | **66.134** | | **5.61 GiB/token at bf16** |
+
+Two rows in this table were wrong until 2026-10-26 and are corrected against the artifact's own tensor
+records plus the draft block's shapes: GDN read 1.416 because `ssm_out` (0.469) was omitted entirely,
+and "norms and misc" carried 0.071 of which 0.0704 was a phantom `3h × 3h` term matching no tensor in
+this model. The artifact-side per-family cut is reproducible with `tools/gguf_suffix_census.py`; the
+closures (elements first, GiB last, 0 bytes unexplained) are in
+`quantization/evidence/bf16-census-adjudication-2026-10-26.md`. Text **without** the draft block is
+64.5604 GiB, and for a capacity argument the with-draft figure is the one to use, because once MTP is
+in scope (D-05) the draft weights have to be resident too.
 
 Two things fall out of this and matter more than the headline. First, experts are 92 % of the bytes
 but only ~36 % of a bf16 decode's per-token read, because only 8 of 256 fire per token. Second, the
@@ -60,14 +74,30 @@ this box actually delivered in the 2026-10-26 window, not the ledger's 237.
 
 | policy | resident GiB | GiB/token | ceiling @237 | @210 | @190 |
 |---|---|---|---|---|---|
-| bf16 | 65.72 ✗ | 5.194 | 42 | 38 | 34 |
-| **A — DECIDED** experts Q4_K, everything else Q8_0 | **19.59** | 2.331 | **95** | 84 | 76 |
-| B experts Q4_K, everything else bf16 | 21.52 | 3.813 | 58 | 51 | 46 |
-| C experts MXFP4, rest Q8_0 | 18.63 | 2.301 | 96 | 85 | 77 |
-| D experts IQ4_XS, rest Q8_0 | 18.63 | 2.301 | 96 | 85 | 77 |
-| E experts Q4_K, **attention Q4_K too** | 18.81 | 1.663 | **133** | 118 | 106 |
-| F Q8_0 throughout | 34.97 ✗ co-resident, ✓ if dedicated | 2.811 | 79 | 70 | 63 |
-| G (not taken, D-10) experts Q4_K, attention Q8_0, `lm_head` Q6_K | 19.36 | 2.216 | 100 | 88 | 80 |
+| bf16 | 66.13 ✗ | 5.61 | 39 ⚠ | 35 ⚠ | 31 ⚠ |
+| **A — DECIDED** experts Q4_K, everything else Q8_0 | **19.7848** | **2.5252** (2.4653 target-only) | **87** | 77 | 70 |
+| B experts Q4_K, everything else bf16 | 21.52 ⚠ | 3.813 ⚠ | 58 ⚠ | 51 ⚠ | 46 ⚠ |
+| C experts MXFP4, rest Q8_0 | 18.63 ⚠ | 2.301 ⚠ | 96 ⚠ | 85 ⚠ | 77 ⚠ |
+| D experts IQ4_XS, rest Q8_0 | 18.63 ⚠ | 2.301 ⚠ | 96 ⚠ | 85 ⚠ | 77 ⚠ |
+| E experts Q4_K, **attention Q4_K too** | 18.81 ⚠ | 1.663 ⚠ | **133** ⚠ | 118 ⚠ | 106 ⚠ |
+| F Q8_0 throughout | 35.16 ✗ co-resident, ✓ if dedicated | 2.811 ⚠ | 79 ⚠ | 70 ⚠ | 63 ⚠ |
+| G (not taken, D-10) experts Q4_K, attention Q8_0, `lm_head` Q6_K | 19.36 ⚠ | 2.216 ⚠ | 100 ⚠ | 88 ⚠ | 80 ⚠ |
+
+> **Staleness note (2026-10-26), and it is load-bearing.** This table was priced from
+> `tools/quant_scenarios.py`'s census, which the adjudication showed to carry four wrong terms. Only
+> the rows marked without ⚠ have been re-derived against the corrected census — policy A (resident
+> 19.59 → 19.7848, per-token 2.331 → 2.5252, and its rate prediction 95/84/76 → 87/77/70) and policy
+> F's resident figure (34.97 → 35.16). **Every ⚠ cell is the pre-correction number and is expected to
+> move by roughly +1 % resident and +6–8 % per-token**, because the omitted `ssm_out` is read in full
+> every token. Do not cite a ⚠ cell as current, and do not hand-derive replacements: re-print the
+> table from the repaired `tools/quant_scenarios.py`, so the docs and the tool cannot drift apart.
+> What the corrections do *not* change: the ordering of the policies, policy A's fit in either budget,
+> or any user width decision (D-01/D-01a/D-10) — those rest on relative bytes and on a KLD study, not
+> on this arithmetic.
+>
+> The bf16 rate cells are supervisor arithmetic — 5.61 GiB/token (adjudicated) against the
+> 237/210/190 GB/s ladder from `devices/measured-facts.md`, using the same GiB→GB conversion the old
+> 42/38/34 row implied. They are not a tool print, which is why they carry ⚠.
 
 ## The attention question (**DECIDED 2026-10-26: Q8_0** — the reasoning that got us there)
 
@@ -171,11 +201,11 @@ costs:
 ## Open items this file hands back
 
 - **D-01a is DECIDED (2026-10-26): attention/GDN at Q8_0**, so **policy A** — experts Q4_K, attention +
-  GDN + shared expert Q8_0, router/norms exact — is the shipping shape: 19.59 GiB resident, 2.331
+  GDN + shared expert Q8_0, router/norms exact — is the shipping shape: 19.7848 GiB resident, 2.5252
   GiB/token, ceiling 95 / 84 / 76 tok/s at 237 / 210 / 190 GB/s. Policy E (attention Q4_K too,
   1.663 GiB/token, ~133 tok/s) stays a funded experiment behind a KLD study, not a default.
 - **D-10 is DECIDED (2026-10-26): `lm_head` and embeddings at Q8_0.** Policy G (Q6_K, +4 % of ceiling)
-  is not taken, so policy A's 19.59 GiB / 2.331 GiB/token is final as a width assignment.
+  is not taken, so policy A's 19.7848 GiB / 2.5252 GiB/token is final as a width assignment.
 - **D-09 is DECIDED (2026-10-26): the MTP draft block is uniform** with the stack it drafts for. The
   price of widening it later is in `DECISIONS.md` D-09 (~2–3 % of a step), and acceptance — not
   bandwidth — is the quantity that would justify doing so.
