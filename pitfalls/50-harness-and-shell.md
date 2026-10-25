@@ -226,3 +226,87 @@ when the actual cause was my own pipe four commands earlier.
   only honest output in that case is "the measurement is lost, it must be retaken in an exclusive window".
 - And the reflex this cost: when evidence goes missing, **suspect your own last five commands before suspecting
   the author of the file.**
+
+## Copied from the sibling engine (2026-10-26)
+
+Harness, rig and build traps lifted out of `../qwen3.5-0.8b` on 2026-10-26, with their numbers and dates. All of
+them are **method-level**: they are about how an instrument is written, so they bite here exactly as they bit
+there. `U-n` ids map to `planning/port-inventory-2026-10-26.md` §9.10.
+
+- **A `MB` typed where `MiB` was meant makes a rig silently heavier than the census it reproduces** (U-1). Their
+  engine arm was **4.6 %** heavier because `lm_head` reads **509.552 MB = 485.947 MiB** and one side spelled it
+  as MiB. The rig's own invariant abort caught it; the fix keeps the two spellings distinct and makes the refusal
+  print both numbers. §4 of `../qwen3.5-0.8b/prototype/launch_price/S1-GATEZERO.md`. This repo has the same
+  collision available in three places (GiB read per token, GGUF byte offsets, `n_ctx` lanes), so a bytes helper
+  that prints both forms is cheaper than the audit.
+- **Two units on visually identical lines is a 40× error** (U-2). The draft rig printed `ms` for block arms and
+  **`µs/launch`** for its `empty` arm on lines that looked the same; "Read as ms it looks like an empty chain
+  costing 1.82 ms — 40× the launch floor it exists to measure — and would have been quoted as a finding about
+  launch cost." §"Three defects found while taking this" of
+  `../qwen3.5-0.8b/prototype/mtp_draft/DRAFT-RESULT.md`. Rule: the unit is part of the line, so print it on every
+  line, and make the reader's regex refuse a line whose unit it does not recognise.
+- **A tool with no argument handling accepts any flag by silence** (U-3). `price_block.py` had *no* argument
+  handling, yet the handover command passed it `--evidence DIR`; "The flag was accepted by silence and ignored, so
+  the tool printed bands it had never compared to a number — the empty-parse failure class exactly." After the
+  fix, its first refusal (`parsed arms [] lack block-k1/block-k2`) is what made a **second** bug visible: the
+  runner's regex matched `pass 1` where the log prints `pass1`. "a refusal path is what makes a parser bug
+  *visible* instead of silent." Same file, findings 1 and 3.
+- **A runner that deletes its own first pass still looks green** (U-4). Each phase began with `rm -f "$dir"/*.txt`,
+  so pass 2 erased pass 1's evidence before anyone read it, and the first failure message pointed at a file that
+  no longer existed. Fix: clear only `$dir/$phase-*.txt`. §"Two instrument defects found while taking it" of
+  `../qwen3.5-0.8b/prototype/mtp_delta/D3-RESULT.md`.
+- **A record-count trailer must count what the checker counts** (U-5). `sweep.sh`'s `CELLS-PRINTED` trailer counted
+  *distinct cells* while `fit_shape.py`'s count check compares *records*, so a complete **54-record** file refused
+  itself. Fix: the trailer counts records. §1 of `../qwen3.5-0.8b/prototype/wave_shape/ITEM2-RESULT.md`. This is
+  our own "a check that can produce no output cannot fail" rule seen from the other side: a count that measures a
+  different population than the checker's also cannot fail — it can only refuse correct work.
+- **Compute one verdict per case, once** (U-6). A kind-1 tally that silently inverted `chk.ok` printed
+  `caught=0/8` over a fully green run; the fix is "one verdict per case, computed once".
+  §4 of `../qwen3.5-0.8b/prototype/launch_price/S1-GATEZERO.md`.
+- **A sweep or a negative test must load its own weights** (U-7). Both inherited the last layer's weight files from
+  the main loop, so "the sweep would have ranked configs against the wrong matrix and the negatives were
+  vacuous". §Traps of `../qwen3.5-0.8b/prototype/mlp_gemv/results.md`. Same class here: a fixture set derived from
+  the artifact's own tensor records must be re-read per arm, or the must-catch set is inherited and vacuous.
+- **A compile-time constant the kernel uses while the host sweeps a runtime value prints impossible numbers**
+  (U-8). Their first `--rows` sweep printed **415–710 GB/s**, above the 256 GB/s physical peak, because the kernel
+  used `ROWS_PER_BLOCK` at compile time while the host launched the runtime value, so `--rows 2` "covered only a
+  quarter of the vocab rows — less work, so 'faster'". The permanent fix passes the value as an argument **and**
+  compares each config's output against the reference instead of trusting the timer.
+  `../qwen3.5-0.8b/prototype/lm_head_gemv/results.md` §Two traps.
+- **A control that is not expressible on the rig must not be silently droppable** (U-9). An occupancy control
+  enumerated a non-instantiated shape combination, exited 1 at its probe, and the caller's `len(...) >= 2` guard
+  meant the de-confounder it existed to provide simply vanished — cost noted in the runner, "Recorded in the
+  runner, not silently." `../qwen3.5-0.8b/prototype/mtp_delta/D3-RESULT.md`.
+- **A flag whose premise does not hold must refuse, not reinterpret** (U-10). Two instances: `--geometry fat`
+  refuses `--layout blob72`/`shipped72` because "the contiguity premise is checked, not assumed", and `--mode down`
+  refuses `--mapping` rather than ignoring it, because "a flag that silently did nothing on half the shapes would
+  make a null A/B indistinguishable from a mis-typed one". §4's table of
+  `../qwen3.5-0.8b/prototype/mlp_insitu/D2-DIAGNOSIS.md`; §Q10 of `../qwen3.5-0.8b/prototype/mlp_gemv/results.md`.
+- **A probe that races its own fixture produces a flaky-looking machine** (U-11). The concurrency probe initially
+  released its spinner immediately after launching the detector, and results flipped between runs: "that was a
+  race, not a flaky machine, and the protocol now releases only after the probe signals completion". §1 of
+  `../qwen3.5-0.8b/prototype/prefetch_tier/P1-ARITHMETIC.md`.
+- **The witness architecture worth copying whole for any launch-accounting rig** (U-12).
+  `../qwen3.5-0.8b/prototype/launch_price/S1-GATEZERO.md` §3, all of it device-found, none of it guessed:
+  each block writes `{read-sum, read-count, write-sum, write-count, launch tag}` into **its own slot**, so a slot
+  left at the sentinel is a block that never ran; the read fill has a closed form `word(p) = K·(2p+1)` over 8-byte
+  elements with `K` odd, so the host predicts any range's sum exactly and **invertibility mod 2⁶⁴ is asserted**
+  ("the first value tried was not invertible and the assertion caught it"); written values are indexed by offset
+  **inside their own launch**, not by destination, so an aliased launch is visible only to the byte-content check
+  and that is the point; chunk arithmetic is **booked, not inferred from `gridDim.x`** — deriving it from the grid
+  made every surviving block enlarge its own work, so a "one dropped block" control moved 64 records instead of 1;
+  **"one element short" has to be short in the block's own chunk** or two controls do nothing while printing
+  `must=0/2`; each control runs in **its own forked child** (one faulting kernel poisons the context and every
+  later case silently never ran); and a timed row that has not earned its number prints `NO-TIMING reason=…`
+  rather than a number, with the gate grepping its own correctness log for `ms_median|GB/s` and failing if one
+  appears, and `--pages cold` refused outright (first touch runs ~7× slow).
+- **Two spellings of one weight name need exactly one owner, and the lookup must refuse rather than helpfully
+  normalise** (U-13). Their store is keyed on the **normalised** name while every prototype reader opens the **raw**
+  checkpoint key; `at()` deliberately aborts — "a lookup that tolerated both spellings would answer for tensors the
+  store does not hold, and would turn a naming mistake into a silent pointer to the wrong blob" — so the fix
+  belongs on the producer side, and the producer is Python. Its selftest reads `model.safetensors.index.json`
+  rather than the shard header "because the header parser lives in `loader.cpp` behind a `load()` that hipMallocs
+  and workers do not touch the device". Docstring of `../qwen3.5-0.8b/prototype/weight_names.py`. This repo's
+  version has an extra axis (HF name ↔ GGUF name ↔ resident blob, over rank-3 fused expert tensors), and
+  `tools/PROVENANCE.md` §`gguf_suffix_census.py` already records what a hand-written name classifier did here:
+  it "mislabelled the family entirely while still getting the total right".

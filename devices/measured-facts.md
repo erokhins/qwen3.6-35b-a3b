@@ -265,3 +265,134 @@ ceiling), `gemm_peak.cpp` + `gemm_common.h` (matrix rates), `kernel_occupancy_pr
 here: `hostmap_probe.cpp` (pool boundary, host pinning, checksum-witnessed reads) and `quant_scenarios.py`
 (census + policy arithmetic, no device). Build with `hipcc -O2 -Wl,-rpath,/opt/rocm/lib`, take them blocking
 with `tools/gpu_lock.sh` held, and record the split first: `cat /sys/class/drm/card*/device/mem_info_{vram,gtt}_{total,used}`.
+
+## Copied from the sibling engine (2026-10-26)
+
+Everything in this section is a **copy** of a measurement the sibling project (`../qwen3.5-0.8b`) took on **this**
+machine. It lives here because a fact that lives only in that repo is a fact no session here can use
+(`pitfalls/60-docs-and-citations.md` §"The self-containment rule"). Full provenance per row; the map of which
+engine piece each row feeds is `planning/port-inventory-2026-10-26.md` (row ids `F-nn` below are its §9 ids).
+
+**Two tags, and the difference matters.**
+
+- `[SIB-BOX]` — measured on this silicon, and the quantity is model-independent (cache topology, dispatch cost,
+  compiler behaviour, allocation API). Usable as a box fact; still **not** measured against Qwen3.6-35B-A3B
+  tensors, so it is a design input and never an acceptance result.
+- `[SIB-GEO]` — **sibling-model fact: measured on Qwen3.5-0.8B geometry, NOT measured on this box against
+  Qwen3.6-35B-A3B.** An order-of-magnitude prior and a method; never a design constant here.
+
+### A. Launch, dispatch and drain prices
+
+| quantity | value | tag | provenance |
+|---|---|---|---|
+| async submit floor | **0.375 µs/launch** | `[SIB-BOX]` | `../qwen3.5-0.8b/prototype/launch_price/S1-GATEZERO.md` §2 shape-band table; instrument is `tools/launch_overhead_hip.cpp`, copied here |
+| empty-kernel dispatch | **1.85 µs per launch-segment** (empty 48-launch burst, one sync) | `[SIB-BOX]` | same §2; instrument `../qwen3.5-0.8b/tools/submission_probe.cpp`, **not** copied here |
+| serialized-sync gap | **5.9 µs per sync** (serialized minus burst = 1.80 ms over 305 syncs, identical work) | `[SIB-BOX]` | same §2, from `engine/stage_clock.cpp` rows |
+| sync cost at an engine operating point | **1 sync 9.4798 ms / 305 syncs 11.0932 / 340 syncs 11.2855 ⇒ 5.29 µs per sync**, linear to 4 % | `[SIB-GEO]` (step shape is theirs) | `../qwen3.5-0.8b/engine/generation-limits.md` §4, taken 2026-10-21 at 4,032 lanes |
+| **production launch price** | **3.10 µs**, measured by *deleting* 97 launches (**−0.3008 ms** at 4,032 lanes) | `[SIB-GEO]` shape, mechanism `[SIB-BOX]` | `generation-limits.md` §1 `cast` row, §6, §7 item (1), taken 2026-10-21 |
+| a fitted slope at an empty body overstates | **3.9473 µs/launch** was printed as "S1 IS REAL" and withdrawn: body=tiny has nothing to overlap behind, and the merge gain (13.08 µs/launch) moved workgroups-per-launch (grid 271 vs 1918) with it | `[SIB-GEO]` | `../qwen3.5-0.8b/progress/2026-10-21/route-S1-segments-2026-10-21.md` §7 |
+| small-op stage-line prices | `glue` **49 × 11.16 µs**, `copy` **19 × 10.7 µs**; a draft rig's `empty` arm **1.82 µs/launch** | `[SIB-GEO]` | `generation-limits.md` §1; `../qwen3.5-0.8b/prototype/mtp_draft/DRAFT-RESULT.md` |
+| **the drain leg was the instrument, not the engine** | the shipping path defaults `time_stages = false`, so `syncs_per_step = 305` is the stage clock billing its own ruler; "any prize computed as 'segments × us_per_segment' is pricing the measurement, not the engine" | `[SIB-BOX]` conclusion | `generation-limits.md` §4; route-S1 §7 |
+
+### B. Cache hierarchy and the residency API
+
+| quantity | value | tag | provenance |
+|---|---|---|---|
+| fast tier identity | KFD node 1 cache **85, level 3, size 32768 KiB, line 64 B** = 32 MiB; `rocminfo` does not report it | `[SIB-BOX]` | `../qwen3.5-0.8b/prototype/prefetch_tier/P1-ARITHMETIC.md` §1 (`p1c_query`, no timing) |
+| fast-tier read at 32 MiB | **876.7 GB/s**, cliff to **239.4** by 64 MiB | `[SIB-BOX]` | same §0 [Q3], from their bandwidth doc |
+| fast-tier **copy** at 32 MiB | **325.7 GB/s** — the copy column is **not** the read column in this tier | `[SIB-BOX]` | same §0 [Q4]. **Load-bearing for a gather kernel: 876 does not mean 876 for read+write** |
+| per-GPC L2 | **2 MiB** (KFD cache 84, level 2, line 128 B), agrees with the HIP attribute | `[SIB-BOX]` | same §0 [Q6] |
+| `attr PersistingL2CacheMaxSize` | **2,097,152 B** — byte-identical to `L2CacheSize`, so the carve-out *is* the L2, not the tier | `[SIB-BOX]` | same §1 |
+| `prop accessPolicyMaxWindowSize` | **0** — the runtime advertises no window it will accept | `[SIB-BOX]` | same §1 |
+| `hipStreamSetAttribute(accessPolicyWindow)` | **rejected at 1, 2, 8, 16, 32 and 64 MiB — 0 of 6 accepted**; no `hipDeviceSetLimit` carve-out enumerator, no `hipCtxResetPersistingL2Cache` | `[SIB-BOX]` | same §1. Consequence: **hardware residency hints cannot address this tier; only an explicit early load can** |
+| `hipMemPrefetchAsync` on a `hipMalloc` pointer | returns `no error`; nothing demonstrates it moved a byte — "Accepted is not performed" | `[SIB-BOX]` | same §1 |
+| `prop concurrentKernels` | reads **1**, but a spinner+probe test observed real second-stream overlap **5/5**, with a same-stream negative control correctly reading **0** | `[SIB-BOX]` | same §1. The device property is not a usable answer to "can two kernels overlap here" |
+
+### C. Per-block fetch capacity — launch shape, not launch count
+
+| quantity | value | tag | provenance |
+|---|---|---|---|
+| iso-population diagonal (`pop = 1024`, equal bytes, equal total workgroups) | **7.20 ms** at L=16/G=64 → **311.37 ms** at L=1024/G=1 — **43×** | `[SIB-BOX]` mechanism, `[SIB-GEO]` absolute ms | `../qwen3.5-0.8b/prototype/wave_shape/ITEM2-RESULT.md` §2, window 2026-10-21 |
+| the mechanism | at `G=1` a block must pull **1461 MiB / 1024 ≈ 1.43 MiB** with its own 256 threads "and one block cannot hold enough outstanding loads to approach the plateau" | `[SIB-BOX]` | same |
+| where the plateau ends | `pop = 4096`: **6.98 / 6.91 / 7.33 ms** at L=16/32/64, then **11.03 → 76.85**; per-cell spreads **0.13–0.45 ms at G ≥ 32** vs **30–270 ms at G ≤ 4** | `[SIB-BOX]` | same |
+| split-K on a one-row skinny-K body | loses at **2, 4, 7, 8, 14** ways (ship 0.0179 ms; `intra1/2/4/8` = 0.0179/0.0204/0.0251/0.0246; `two2…two14` = 0.0228…0.0369), because it re-stages the activation row 1,792 → 14,336 KiB against 7,168 KiB of weights; `intra8` also moved **≤ 48 ULP** | `[SIB-GEO]` | same §3 |
+
+### D. Weight-walk pattern vs contiguity
+
+| quantity | value | tag | provenance |
+|---|---|---|---|
+| engine per-thread walk ÷ contiguous sweep, same bytes and grid | **0.470** (gate/up), **0.472** (with the step's 62:1 writes), **0.629** (`down`) — transaction coalescing **100 % on both sides** | `[SIB-BOX]` pattern, `[SIB-GEO]` which kernel | `../qwen3.5-0.8b/devices/strix-halo-mixed-traffic.md` §Q9 Results, window `q9-mapping-locality` 2026-10-13 |
+| LDS staging exonerated | `--stage 0` ⇒ `nostage/eng = 1.098` | `[SIB-GEO]` | same |
+| the decisive row | `R_decisive` **140.5 GB/s = 0.598** of the contiguous reference **235.0 GB/s** (99.2 % of probe) | `[SIB-GEO]` | same |
+| launch **order** is not the lever | identical 424-launch multiset over a 1549 MiB footprint: `B_blk` **183.3** vs `B_rr` **184.2 GB/s** = **1.005** | `[SIB-GEO]`, and it was their own footprint | same |
+| the fix was a walk shape, and it was free | `interleave` → `contig` proven **bit-identical** (0 / 3584 `act`, 0 / 7168 `gate_pre+up_pre`, 0 / 1024 `out`, every layer), ISA witness `v4,v2,v4,v2,…` → `v17,v17,v17,…` | method, transfers | `../qwen3.5-0.8b/prototype/mlp_gemv/results.md` §Q10 |
+
+### E. Cross-phase prefetch, measured
+
+| quantity | value | tag | provenance |
+|---|---|---|---|
+| effect of an explicit prefetch on the use-site read | **+0.027 to +0.029 ms faster**, adjudicable wherever adjudicable | `[SIB-GEO]` (18 MiB target) | `../qwen3.5-0.8b/engine/generation-limits.md` §5 and §7, 2026-10-21 |
+| the cliff | an 18 MiB state survives **7 MiB** of intervening traffic (**+0.0278**) and is gone by **21** (−0.0001 to +0.0008); a 7.875 MiB KV slice still survives 21 MiB (**+0.0138**) | `[SIB-GEO]` | same |
+| verdict | best engine-shaped extrapolation **+0.0278 ms/step against a pre-registered 0.30 ms bar** → no engine change funded | `[SIB-GEO]` | same §7 |
+
+### F. Compiler and occupancy
+
+| quantity | value | tag | provenance |
+|---|---|---|---|
+| declared vs reserved LDS | `attn_core` declared **6,176 B** and **reserved 38,944 B**: LLVM promote-alloca-to-LDS moves `qreg[8]` and a `uint4` into LDS when the loop bound is a runtime value. At 64 KiB/CU that is 1 resident block | `[SIB-BOX]` compiler behaviour | `../qwen3.5-0.8b/engine/generation-limits.md` §3 |
+| the fix | a spelling: `for (t=0;t<8;++t) if (t<nd)` — byte-identical across 126 stage comparisons and 21 cases, residency **1 → 4** blocks/CU, **−46 %** on the line, **−9.9 %** on the step | `[SIB-BOX]` technique | same |
+| bound classification, and its precondition | traffic **27.7 %** of plateau and issue **5.9×** under its own roof ⇒ neither was the wall, so it was latency at occupancy; and at 128 lanes the launch is 8 blocks on 40 CUs, so neither residency nor population *can* bind | `[SIB-BOX]` method | same |
+
+### G. The sibling engine's own step ledger `[SIB-GEO]`
+
+| quantity | value | provenance |
+|---|---|---|
+| operating point | **4,032 lanes: 10.9357 ms/token = 91.4 tok/s**; **9.7855 ms = 102.2 tok/s** at 128 lanes; prefill 11,070 tok/s at 4,096 | `../qwen3.5-0.8b/engine/generation-limits.md` §0, paired windows 2026-10-21 |
+| per-step census | **1532.3 MB read / 24.4 MB written** at **340 launches / 305 stage segments**; **243 / 184** after the cast fold; **6.47 ms** of unavoidable weight traffic inside the 10.936 ms step | same §0/§1 |
+| family efficiency vs byte floors | `mlp` 70 %, `proj` 75 %, `lm_head` **104 %** ("AT THE WALL, cannot be faster"), `attn` 13 %, `gdn` 30 %, `cast` deleted; `host_tail` **0.7163 ms** — one blocking D2H of a 993 KB logits row plus CPU argmax, "on the critical path, not hidden" | same §1 |
+
+### H. `lm_head`, and the batched head
+
+| quantity | value | tag | provenance |
+|---|---|---|---|
+| their single-row head line | **2.1685 ms** for **509.6 MiB** = **246 GB/s demanded = 104 % of the wall** | `[SIB-GEO]` tied, H=1024 | `generation-limits.md` §1 |
+| batched-head marginal | M=1 **2.1265 ms**, M=2 **2.1305** (**R = 1.0019**), M=4 **2.1538** (**1.0128**) | `[SIB-GEO]` | `../qwen3.5-0.8b/prototype/mtp_headbatch/HEADBATCH-RESULT.md`, 2026-10-22 |
+| the witness behind it | `fetch_per_weight` **1.000000** on every M arm; calibration arms **2.000000** (`extra_pass`) and **1.25** (`extra_chunk`); `short_grid` **0.999968** with 16/32 poison holes | `[SIB-BOX]` instrument, transfers wholesale | same, and §2 of `HEADBATCH-HANDOVER.md` |
+| plateau arithmetic for one table read | 485.0000 MiB / 237 GB/s = **2.1458 ms** (measured 1-row = 1.011× it); 2nd logits row **+0.19 %**; dots 0.509 → 1.017 GFLOP/pass = **3.2 % → 6.4 %** of the 7.30 TFLOP/s scalar roof | `[SIB-GEO]` inputs | `HEADBATCH-HANDOVER.md` §0 |
+| `rows_per_block` sweep, all bit-identical | **1 → 192.7, 2 → 241.7, 4 → 242.1, 8 → 239.6, 16 → 239.0 GB/s** ("flat from 2 up") | `[SIB-GEO]` | `../qwen3.5-0.8b/prototype/lm_head_gemv/results.md` |
+| fused argmax | bought **1 %** (2.099 vs 2.126 ms): "writing 1 MB of logits is nothing next to reading 485 MB" | `[SIB-GEO]`, conclusion transfers | same |
+| second-row marginals on their shapes | `proj` **+7.6 %**, `mlp gateup` **+8 %**, `mlp down` **+76 %** ("the skinny `down_proj` is the worst marginal found"); `attn` measured *faster* for a second row and was refused as a result, because that rig sat at 13 % of its own byte floor | `[SIB-GEO]` | `../qwen3.5-0.8b/prototype/mtp_delta/D3-RESULT.md` |
+
+### I. GDN
+
+| quantity | value | tag | provenance |
+|---|---|---|---|
+| state size | **F32**, **1.000 MiB** per layer (16 × 128 × 128 × 4 B), **18.000 MiB** per request; conv window F32 **1.266 MiB** | `[SIB-GEO]` — ours is **60.0 MiB** (`derived here`, 30 × 32 × 128 × 128 × 4 = 62,914,560 B) | `../qwen3.5-0.8b/prototype/gdn_rec_isa/results.md` §8 |
+| state traffic per launch | **2 read + 1 write**, confirmed in machine code as 256 state loads / 128 stores per token-step = 2 MiB read / 1 MiB written; re-read every token "and it cannot be anything else in this geometry" | `[SIB-GEO]`, form transfers | same §8 |
+| state coldness | **+0.070 ms saturating at exactly 32 MiB** (`cold_0MiB -> 32 -> 512 -> 1536` = 0.1216 / 0.1917 / 0.1894 / 0.1922) — an L2-tier effect on an 18.9 MiB state, **not** a DRAM cliff | `[SIB-GEO]`, **does not transfer**: our 60 MiB state is 1.875× the tier | `../qwen3.5-0.8b/prototype/gdn_insitu/D4-DIAGNOSIS.md` §7 |
+| whole-family warm launch | **0.0646 ms** for 18.0 MiB = **876 GB/s cache-resident = 370 % of the probe** (one layer `rec` alone **0.0064 ms**); the file itself retires its 108 MiB / 255 GB/s row as unreproducible from the current binary | `[SIB-GEO]` | `../qwen3.5-0.8b/prototype/gdn_decode/results.md` §Performance |
+| launch geometry | `rec_kernel<<<NH=16, D=128>>>` = 16 blocks × 4 wavefronts = **64 wavefronts**, wave32, ≤1 per SIMD; prologue **323 of 1,523 slots (21 %)**, repeated 18× per token | `[SIB-GEO]` — ours is `derived here` 32 blocks = 128 wavefronts = **1.6 per SIMD** | `gdn_rec_isa/results.md` §1 |
+| LDS-resident route | modelled **11.4 ms**, measured **112.04 ms** (**9.8×**) against pre-registered **63 ms** win / **84 ms** kill lines | `[SIB-GEO]` verdict, `[SIB-BOX]` lesson | `../qwen3.5-0.8b/prototype/gdn_collapse/results.md` §0/§5 |
+| why it failed | **1.6 blocks per CU, one of whose four wavefronts does the recurrence**: "the cost is latency per token, not issue slots per token"; launches 18,432 → 36 removed traffic but bought nothing comparable | `[SIB-BOX]` mechanism | same §5 |
+| launch merging inside the family | `split8` 0.1839 → `comb_all` **0.0644 ms**: merging 18 launches into 1 at identical bytes buys **0.12 ms** | `[SIB-GEO]` | `gdn_insitu/D4-DIAGNOSIS.md` §7 |
+
+### J. The dense-MLP family (prior art for the shared expert) `[SIB-GEO]`
+
+| quantity | value | provenance |
+|---|---|---|
+| their per-token MLP, cold | **2.650 ms = 199.4 GB/s = 84 % of the 237 probe** (rows/block 8), explicitly marked "provisional and due for a clean re-measure" because the sweep did not alternate the two kernels and validated only replica 0; a first run of the fixed method gave **2.594 ms** in a window their own file discounts | `../qwen3.5-0.8b/prototype/mlp_gemv/results.md` §Performance |
+| their isolated "98 % floor" | **2.275 ms/token** on 528 MB `contig` — but that burst is one layer replicated 24× (**2 launches at 86,016 rows / 10,752 blocks**) while the engine ships **48 launches at 3,584 / 1,024 rows (448 / 128 blocks)**; the shape-matched arm reproduces it at **+1.0 %** | `../qwen3.5-0.8b/prototype/mlp_insitu/D2-DIAGNOSIS.md` §0(iv), §5 |
+| in-situ decomposition of 1.0878 ms | `T_geo` **+0.7565 ms (69.5 %, launch shape)** + `T_serial` +0.2709 (24.9 %, instrument) + `T_pipe` +0.0484 (4.4 %) + memory-state residue **~0.06 ms (5.5 %)**; "D2 as written is dead, and no code should be funded against it" | same §5 |
+| why the fat shape is unreachable | "layer *i*'s `act` must exist before its `down`, and `down` feeds the residual that layer *i+1* reads" — so the dependency chain forbids harvesting `T_geo` by merging | same §5 |
+| per-layer MLP bytes | **22.02 MiB** per layer against a **2 MiB L2**, so a per-token launch pays that from DRAM per token | `mlp_gemv/results.md` §What runs and §P4 |
+| warm vs cold config ranking | warm says rows/block 32 is 60 % better than 4; cold ranks all four configs within 4 % — "any of rows/block 4–16, 2.65–2.69 ms" | same §Performance |
+
+### K. MTP draft economics `[SIB-GEO]`
+
+| quantity | value | provenance |
+|---|---|---|
+| draft-step read ledger, witnessed | **16 distinct tensors / 549,465,088 B = 524.011 MiB**, of which the block is **39.0107 MiB** (15 tensors) ⇒ **92.6 % of a draft step's weight traffic is the head re-read**. Measured by running the reference drafter through a weights dict that records every key it indexes | `../qwen3.5-0.8b/prototype/mtp_gatezero/MTP-GATEZERO.md` §1.1. Our analogue, `derived here` from `checkpoints/Qwen3.6-35B-A3B.safetensors.index.json`, is ≈**95 %** bf16 / ≈**92 %** under policy A — same structure, different bytes |
+| speedup identity | `speedup = (1 + a_eff) / ((1 + delta) * (1 + c))`, wins iff `a_eff > (1 + delta)(1 + c) − 1` | same §1 |
+| draft block by depth | k1 **0.4371 ms**, k2 **0.7666** (ratio **1.754**), k4 **1.5039** (**3.441**); the block ran **1.83× its byte floor**; `empty` arm **1.82 µs/launch** ⇒ 14 launches ≈ 0.026 ms, so the launch floor is **overlapped, not exposed** | `../qwen3.5-0.8b/prototype/mtp_draft/DRAFT-RESULT.md` |
+| `delta`, the verify-body cost | plan A **1.6454 ms = 0.1505 of a step → 1.231×**; pessimistic **5.1712 ms = 0.4729** (KILLED); two sequential 1-row bodies KILLED **structurally**; state rollback excluded deliberately at ~0.12 ms/round | `../qwen3.5-0.8b/prototype/mtp_delta/D3-RESULT.md` |
+

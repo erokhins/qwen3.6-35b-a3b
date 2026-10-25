@@ -124,3 +124,136 @@ a labelled bound.
   value from the plan rather than from the kernel so the check cannot pass by construction. Same lesson
   mirrored: a write side verified by reading back a buffer pre-filled with the value the writes store proves
   nothing — pre-fill it with a value writes never store.
+
+## Copied from the sibling engine (2026-10-26)
+
+Method-level traps lifted out of `../qwen3.5-0.8b` on 2026-10-26, with their numbers and dates, because they
+still bite on this box at this model's widths. Map of which engine piece each came from:
+`planning/port-inventory-2026-10-26.md` §6 and §9 (`T-n` ids below are its ids). Tags as in
+`devices/measured-facts.md` §"Copied from the sibling engine (2026-10-26)": `[SIB-BOX]` = this silicon,
+model-independent; `[SIB-GEO]` = sibling-model fact, measured on Qwen3.5-0.8B geometry, NOT measured on this
+box against Qwen3.6-35B-A3B.
+
+### An instruction-slot bill is only valid where there is concurrency to hide the latency
+
+The 0.8B project priced a GDN "keep the state resident in LDS" route bottom-up at **11.4 ms** (1,370 instructions
+per token per useful wavefront → 1,370 cycles/token → 318 µs/site × 36 sites), cross-checked as a rate against
+the fp32 vector row; the device returned **112.04 ms — 9.8× the model**, and 2.8× even their own pessimistic
+figure. The geometry that the bill had recorded but not priced: "the grid is 64 blocks over 40 CUs, so about
+**1.6 blocks per CU, one of whose four wavefronts does the recurrence**. An instruction-count model assumes an
+instruction is issued per cycle per SIMD; at 1.6 *working* wavefronts per CU there is nothing else in the machine
+to schedule while a lane waits on a dependent load, so **the cost is latency per token, not issue slots per
+token**." `[SIB-GEO]` measurement (2026-10-14 window, adjudicated against pre-registered 63 ms / 84 ms lines),
+`[SIB-BOX]` lesson. §5 of `../qwen3.5-0.8b/prototype/gdn_collapse/results.md`.
+
+**The rule this repo adopts: every slot figure in a census must be printed next to the launch's
+wavefronts-per-SIMD.** A census that reports slots/token without saying whether the launch has the concurrency to
+hide a dependent load is reporting a lower bound it will not earn. (Related to §"A launch bill is not a body
+price" above, which is the same failure on the launch axis; and our `pitfalls/00` §"Occupancy/latency pricing
+beats instruction pricing for serial kernels" is the same failure on the bound axis.)
+
+### Price a launch by deleting launches
+
+Three launch/sync prices exist in the sibling ledger and they are not interchangeable: **0.375 µs/launch** async
+submit floor, **1.85 µs per launch-segment** empty-kernel dispatch, **5.9 µs per sync** serialized-drain gap
+(`[SIB-BOX]`, `../qwen3.5-0.8b/prototype/launch_price/S1-GATEZERO.md` §2). The number that actually described the
+running engine came from **deletion**: folding all 97 `cast` launches into their consumers moved the wall
+**−0.3008 ms at 4,032 lanes = 3.10 µs per launch** (`[SIB-GEO]` step, `[SIB-BOX]` mechanism, 2026-10-21,
+`../qwen3.5-0.8b/engine/generation-limits.md` §1/§7).
+
+And the two ways the cheap way of measuring it lied, both recorded in that repo at a cost:
+
+1. A fitted ladder at an empty body printed `FIT ok` and `3.9473 us/launch -> S1 IS REAL`, and was withdrawn:
+   the ladder ran at `body=tiny` (5.3 MiB, 340 launches) which is "precisely the regime the brief warned would
+   overstate", because nothing can overlap behind an empty body (§7 of
+   `../qwen3.5-0.8b/progress/2026-10-21/route-S1-segments-2026-10-21.md`).
+2. The merge arm compared 340 launches at `grid_max=271` against 48 at `grid_max=1918`, i.e. it moved
+   **workgroups-per-launch along with launch count** — "a confound, not a result". Same §7. Our `pitfalls/20`
+   already had "read workgroups per launch on both sides of an A/B"; this is the same rule earned a second time.
+3. Third, and worse than either: a large part of the measured *sync* leg was the instrument. The engine's shipping
+   path never drains per segment, so a prize computed as `segments × µs/segment` (their `mlp` 0.2709 ms, `gdn`
+   ~0.19–0.21 ms, the ledger's `segments × 7.2 us`) priced the stage clock, not the engine. Those prizes were
+   **withdrawn, not renegotiated** (`[SIB-GEO]` amounts, `[SIB-BOX]` conclusion — `generation-limits.md` §4).
+
+### Blocks per launch has a plateau, then a cliff — and the cliff is fetch capacity
+
+Holding total bytes **and** total workgroups constant and moving only the split between launches and
+blocks-per-launch moved time **43×**: at `pop = 1024`, **7.20 ms (L=16, G=64) → 311.37 ms (L=1024, G=1)**.
+"That is not launch cost (1008 extra launches × 3.10 µs = 3.1 ms, not 304 ms) and it is not noise. The mechanism
+is per-block fetch capacity: at `G=1` a single block must pull 1461 MiB / 1024 ≈ **1.43 MiB** with its own 256
+threads and nothing else in flight." The curve is a plateau then a cliff (`pop = 4096`: **6.98 / 6.91 / 7.33** ms
+at L=16/32/64, then **11.03 → 76.85**), and the fixed-`G` rows say where the plateau ends: spreads of
+**0.13–0.45 ms at G ≥ 32** against **30–270 ms at G ≤ 4**. `[SIB-GEO]` absolute times (taken 2026-10-21),
+`[SIB-BOX]` mechanism. §2 of `../qwen3.5-0.8b/prototype/wave_shape/ITEM2-RESULT.md`.
+
+Two consequences for a gather kernel: **do not trade blocks-per-launch away to reduce launch count**, and when an
+A/B changes launch count, verify workgroups-per-launch on both sides or the ratio is about the shape, not the
+launches. Note also that their own engine sat on the plateau and could not reach the cliff — the fat launch would
+have required a cross-layer merge their residual chain forbids — so the cliff is only a hazard for a kernel that
+voluntarily makes each block cover a huge byte range with few blocks in flight.
+
+### A kernel can reserve far more LDS than it declares, because of a runtime trip count
+
+`attn_core` **declared 6,176 B** of `__shared__` and **reserved 38,944 B**: "LLVM promote-alloca-to-LDS moves
+`qreg[8]` and the K-row `uint4` into LDS when the loop bound is the runtime `nd`. At 64 KiB LDS/CU that is 1
+resident block per CU — 8 of 32 wavefronts." The fix was a spelling — `for (t=0;t<8;++t) if (t<nd)` —
+byte-identical across 126 stage comparisons and 21 cases, residency **1 → 4** blocks/CU, **−46 %** on the family
+line and **−9.9 %** on the step. `[SIB-BOX]` compiler behaviour (gfx1151, clang as shipped by ROCm here);
+`[SIB-GEO]` the milliseconds. §3 of `../qwen3.5-0.8b/engine/generation-limits.md`, 2026-10-21.
+
+Three rules ride along, all of them ours already and all of them sharpened by this: (1) an occupancy claim comes
+from the probe (`tools/kernel_occupancy_probe.cpp`), never from `__shared__` text or a compiler note; (2) bound
+classification is arithmetic before it is intuition — there the traffic was **27.7 %** of the plateau and the
+issue rate **5.9×** under its own roof, so neither could be the wall, which left latency at occupancy; and (3)
+**check that the lever's shape can bind at the reported width at all** — at 128 lanes their launch was 8 blocks on
+40 CUs, where neither residency nor population can change anything, and the line did not move when the fix
+landed, exactly as predicted.
+
+### A probe's own summary column can be a mislabeled counter
+
+`issue_rate_probe`'s binary printed `mac_per_lane_clk` numerically equal to `icpcb`: it was reporting
+**warp-instructions per CU per clock labelled MACs per lane per clock**, which is why `irp_f32_8` claimed **172 %
+of a 1-MAC ceiling** and `irp_mix_8` claimed **248 %**. The table anyone quotes is recomputed from geometry
+instead: `MACs per launch = warps × 32 × iters × ops_per_iter(isa) × macs_per_lane_per_op`, divided by best
+seconds and by **2560 lanes × 2.894 GHz** (40 CU × 64 lanes — the KFD geometry in the section above about
+reading geometry from KFD, not from HIP). §0 of `../qwen3.5-0.8b/prototype/issue_rate_probe/results.md`,
+`[SIB-BOX]`, taken 2026-10-16 with the lock held. Two adjacent disciplines from the same run: the leg whose byte
+witness printed `checksum=FAIL` was **excluded** rather than footnoted, and a leg with no byte account at all got
+no row; and their full-occupancy timing recipe is `blocks=320 threads=128` → 1,280 waves = **32 wavefronts/CU on
+40 CUs**.
+
+### A noise floor is per-comparison, not a global absolute
+
+Two sibling failures, both fixed by refusing rather than relaxing. (1) Their shape matrix's adjudication used a
+single noise floor defined as the largest **absolute** within-arm spread, which let one **311 ms** cell make a
+7 ms comparison unadjudicable (floor **0.3071 ms ≥ the 0.30 ms WIN band** → `ADJUDICATION-FAILED`, and the band
+was **not** moved); the fix was to judge each comparison against the spread of **the two arms it uses**. (2) A
+per-**stratum** bimodality cap no arm could pass — the warm leg of a large single read repeats **2.0–2.5 % apart
+at REPS=5 and at REPS=12 alike** — discarded almost every stratum until it was scoped per comparison. Separately,
+a re-take refused bimodally at **21.8 %** (0.0285 vs 0.0347 ms across two passes) and the pre-registration said
+re-take, not average. `[SIB-BOX]` (this box's dispatch-bound bimodality, which our `pitfalls/00` already names),
+measured 2026-10-21. §1 of `../qwen3.5-0.8b/prototype/wave_shape/ITEM2-RESULT.md` and the corrections log of
+`generation-limits.md` §6.
+
+### An above-probe GB/s is explained by tiling past the cache — and a row no knob can reproduce is retired
+
+The 0.8B's own `>240 GB/s means skipped work` rule (ours, in `pitfalls/00-measurement.md`) needed a clause: their
+GDN whole-family launch read **18.0 MiB at 876 GB/s**, which was real and cache-resident. "The way to tell is to
+tile the working set past any plausible cache and re-measure … Without that check it looked exactly like the
+`lm_head_gemv` grid bug." `[SIB-GEO]`, 2026-10-11 re-take. And the same file retires its own companion row —
+108 MiB at 255 GB/s — because "the parser takes `mode|dir|out|iters|layers` … and has no tiling knob — so 255
+GB/s is quoted from a build that no longer exists". **A number whose instrument cannot re-produce it is retired,
+not annotated.** §Performance and the re-take note of
+`../qwen3.5-0.8b/prototype/gdn_decode/results.md`.
+
+### Split-K buys parallelism twice: it re-stages the activation, and it re-associates the sum
+
+Split-K on their one-row `down_proj` **lost at every setting tested** — 2, 4, 7, 8 and 14 ways, ship **0.0179 ms**
+against **0.0204 / 0.0251 / 0.0246** for `intra2/4/8` and **0.0228 … 0.0369** for the two-pass forms — "because a
+split re-stages the activation row **1,792 → 14,336 KiB against 7,168 KiB of weights**". The numerics rode
+along: `intra1` was `ndiff 0`, but `intra2/4/8` moved **≤ 2 / ≤ 4 / ≤ 48 ULP**, so a split-K that ever wins also
+changes the addition order. `[SIB-GEO]`, 2026-10-21. §3 of
+`../qwen3.5-0.8b/prototype/wave_shape/ITEM2-RESULT.md`. For this repo: price and band a split in the same arm, and
+check the activation-vs-weight staging ratio first — at our widths the shared expert's activation row is 8 KiB
+F32 (`derived here`) against a 6 MiB expert weight, which is a more favourable ratio than theirs, so the verdict
+must be re-measured rather than inherited.
