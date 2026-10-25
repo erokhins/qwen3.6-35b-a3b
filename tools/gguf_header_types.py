@@ -136,7 +136,7 @@ def fetch(src, nbytes):
         return fh.read(nbytes)
 
 
-def parse(data, raw_k=0, grep=None):
+def parse(data, raw_k=0, grep=None, keys=None):
     c = Cur(data)
     c.take(4)
     version = c.u32()
@@ -163,6 +163,19 @@ def parse(data, raw_k=0, grep=None):
            (k.startswith(arch + ".") and re.search(
                r"attention\.layer|full_attention|hidden_size|head_dim|head_length|value_length|layers|embedding|feed_forward_length|expert", k)):
             print("  %-52s %s" % (k, meta[k]))
+
+    if keys:
+        print("\nmetadata keys matching %r:" % keys)
+        for k in sorted(meta):
+            if re.search(keys, k):
+                v = str(meta[k])
+                print("  %-52s %s" % (k, v[:150] + ("..." if len(v) > 150 else "")))
+        # A GGUF is only runnable if it carries the generation contract; check for it, don't assume it.
+        for must in ("tokenizer.ggml.tokens", "tokenizer.ggml.model", "tokenizer.ggml.bos_token_id",
+                     "tokenizer.ggml.eos_token_id", "tokenizer.ggml.padding_token_id"):
+            print("  %-52s %s" % (must, "present" if must in meta else "** ABSENT **"))
+        ct = [k for k in meta if "chat_template" in k]
+        print("  chat template: %s" % (ct[0] if ct else "** ABSENT ** (chatml parity must then come from elsewhere)"))
 
     if raw_k:
         shown = [r for r in rows if (grep is None or grep in r[0])]
@@ -218,6 +231,7 @@ def main():
     raw_k = 30 if "--raw" not in a else (int(a[a.index("--raw") + 1]) if len(a) > a.index("--raw") + 1
                                         and a[a.index("--raw") + 1].isdigit() else 30)
     grep = a[a.index("--grep") + 1] if "--grep" in a else None
+    keys = a[a.index("--keys") + 1] if "--keys" in a else None
     err = None
     for n in sizes:
         data = fetch(src, n)
@@ -225,7 +239,7 @@ def main():
             print("not a GGUF (magic=%r)" % data[:4])
             return 1
         try:
-            parse(data, raw_k, grep)
+            parse(data, raw_k, grep, keys)
             return 0
         except (EOFError, struct.error) as e:
             err = e

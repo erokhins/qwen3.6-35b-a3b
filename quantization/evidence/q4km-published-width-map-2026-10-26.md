@@ -65,6 +65,45 @@ altogether in the arrangement that matters most: **produce our policy-A GGUF wit
 engine-vs-engine comparison is about our kernels only. What that arrangement still needs is the f16
 source to quantize from — which is D-03 again, plus the MTP fact above.
 
+## What else the file carries (it is runnable on its own)
+
+Same header, `--keys` pass:
+
+| key | value | why it matters here |
+|---|---|---|
+| `qwen35moe.rope.dimension_count` | **64** | = `partial_rotary_factor 0.25` × `head_dim 256`. The GGUF carries the partial-rope fact we would otherwise have to carry ourselves. |
+| `qwen35moe.rope.dimension_sections` | I32 ×4 | **not vanilla rope**: the file declares rope dimension *sections* (MRoPE-style, inherited from the VL parent). A text-path rope implementation that assumes a plain 0..63 rotation will be wrong; read this key. |
+| `qwen35moe.rope.freq_base` | 1e7 | matches the checkpoint's `rope_parameters.rope_theta` |
+| `tokenizer.ggml.model` | gpt2 (BPE) | tokenizer ships in the file |
+| `bos / eos / padding` | **248044 / 248046 / 248055** | the stop id is the same 248046 as the 0.8B, and `add_bos_token = False` |
+| `tokenizer.chat_template` | present, vision-aware | ChatML parity comes from the file, not from an external template. It counts image/video, i.e. it was carried over from the VL checkpoint — treat its vision branches as dead code, not as capability. |
+
+So the published file is sufficient to *run* the model: weights, tokenizer, template and rope parameters
+are all inside it. What it is missing is exactly one thing — the draft block, below.
+
+## The one thing it really lacks, and what it costs
+
+`mtp.*` is absent, and `tools/mtp_shard_cost.py` prices the fix from the committed index: the 19
+`mtp.*` tensors live in **2 shards of 26, ~5.2 GiB** (estimate = index `total_size` ÷ shard count; the
+listing gives the real number at fetch time). So keeping D-05 costs ~5 GiB, not 67. The same tool
+shows a **sampled provenance audit** — MTP plus layers 0, 1 and 39, enough to compare a published
+quant's Q4_K blocks against the bf16 originals at the format's own rounding floor — costs **4 shards,
+~10.3 GiB**. By contrast a witness spread over every layer (all routers, norms and GDN control
+tensors) touches **17 shards ≈ 44 GiB**, which is a full download in disguise: that is the number
+which says *sample* the audit, don't spread it.
+
+## If we ship the published file rather than converting our own
+
+Priced on the same roofline as policy A. Published bytes/token ≈ **2.26 GiB** (policy A 2.331): its
+`lm_head` at Q6_K is 0.114 GiB/token *cheaper* and its expert `down_proj` at Q5_K is ~0.042
+GiB/token dearer, so it is marginally **faster**, not slower — around 98 tok/s at 237 GB/s against 95.
+Residency is worse (20.676 GiB vs 19.59) and residency is not the binding constraint. The costs are
+not speed, they are: no way to measure quantization error (inherited from a producer's calibration),
+no way to change a width decision (including the `lm_head` Q6_K that D-10 rejected on tail-risk
+grounds), no witness against llama.cpp agreeing with itself, and no quantizer-writing capability
+built at 35B — which is the step where that capability would have been cheap to build and is needed
+for a fresh 125B checkpoint.
+
 ## Caveats on this evidence
 
 - **One file, one producer.** This is unsloth's *UD* (dynamic) recipe. llama.cpp's *stock* `Q4_K_M` is
