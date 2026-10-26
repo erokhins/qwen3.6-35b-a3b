@@ -51,8 +51,13 @@
  *
  * ---------------------------------------------------------------------------------------------
  * DECLARED ARITHMETIC — the compiled arms must agree bit for bit, so the order lives in the source:
- *   every reduction runs its index ASCENDING with one accumulator: no tree, no split, no FMA
+ *   every reduction runs its index ASCENDING with one accumulator — with ONE declared exception,
+ *   `gdn_sumsq`, whose association is a pairwise tree and is spelled as one in the source (D-23,
+ *   see its own comment) — and nothing anywhere splits, regroups or fuses: no FMA
  *   (`-ffp-contract=off` on both compiled arms; `-ffast-math` appears nowhere).
+ *   The WIDTH each accumulator keeps is part of this declaration and is stated where the reduction
+ *   is written: `gdn_sumsq` stays in f32 but combines in log-depth partials; `gdn_dot`/
+ *   `gdn_state_dot` and the two solves keep an ascending f32 accumulator.
  *   `expf`, `sqrtf`, `/` are the plain calls, never `__expf` and never a reciprocal approximation.
  *   §04.4's l2norm is transcribed as `x * rsqrt(sum(x*x) + eps)` with eps INSIDE the rsqrt and the
  *   reduction a SUM, not a mean. §04.7's gate is `x * sigmoid(x)` spelled `x / (1 + expf(-x))`.
@@ -277,10 +282,83 @@ GDNDAY_DEV static inline float gdn_state_dot(const float *a, const float *S, int
     return gdn_dot_col(a, S, GDN_D_K, col, GDN_D_V);
 #endif
 }
+/* The two row sums of squares — §04.4's l2norm here and §04.7's gated-norm variance in item I —
+ * share this one reduction, and the ASSOCIATION of its 128 terms is what left `q_hat` outside its
+ * band. The terms are exact: a bf16-widened value has an 8-bit mantissa, so its square needs 16
+ * bits and fits f32's 24 (`qhat_derive.py` counts the exceptions over the pinned pass — 64 of
+ * 131,072 at layer1, every one a square underflowing into the f32 subnormals), which leaves the
+ * additions as the only rounding site. A 128-term ascending chain in the stored width is 8 ULP off
+ * the correctly-rounded sum on the worst row of the pinned prefill pass — measured 2026-10-26 at
+ * layer0 h20 t21 d49: 0.090579554438591003 against a correctly-rounded 0.090579614043235779 — and
+ * that is what put `q_hat` at 2.980e-08 against a licensed 2.900e-08.
+ *
+ * llama.cpp was read first, per D-19. It meets the same construct — a row of squares feeding an
+ * rsqrt — in `ggml/src/ggml-cpu/ops.cpp::ggml_compute_forward_rms_norm_f32`, which runs
+ * `ggml_float sum = 0.0; sum += (ggml_float)(x[i00] * x[i00]);`, and
+ * `ggml/src/ggml-cpu/vec.h` typedefs `ggml_float` to `double`: a WIDE accumulator, ascending, one
+ * accumulator, products still formed in f32. Its answer buys the property we need (combine with
+ * more headroom than the storage offers) by paying in a budget that is not this target's:
+ * `ggml_float` is nearly free on a CPU, while this project's target is a Strix Halo iGPU
+ * (`gfx1151`) where fp64 is heavily derated and `gdn_sumsq` sits on the per-token path that has to
+ * clear the >= 48 t/s bar of AGENTS.md §GOAL. So D-19's boundary applies to its own case here:
+ * the PROPERTY is adopted, the SPELLING is not. The shipped reduction is a declared pairwise f32
+ * tree — log-depth partials, same width, no fp64 — and llama.cpp's wide accumulator stays
+ * available behind `GDN_SUMSQ_WIDE_F64` as the measured alternative rather than as dead code.
+ *
+ * Three spellings of one reduction:
+ *   (shipped)                pairwise f32 tree: n f32 products, then log2(n) levels of halving
+ *                            sums in f32. Level k adds partial i to partial i + n/2^(k+1); the
+ *                            association is fixed by the tree shape, so it is as deterministic as
+ *                            an ascending chain and both compilers must reproduce it.
+ *   GDN_SUMSQ_WIDE_F64       llama.cpp's shape: f32 products, ascending, ONE `double` accumulator.
+ *   GDN_BROKEN_SUMSQ_ASC32   one f32 accumulator ascending — the pre-fix defect, kept only as the
+ *                            control build `build/host_probe_sumsq` (`./build.sh --broken`).
+ *
+ * Measured 2026-10-26, `q_hat` of the pinned prefill, layer0 / layer1, at the UNCHANGED band
+ * (licensed max_abs 2.900e-08 = 2 x the population maximum 1.4500060693811712e-08):
+ *   ascending f32   vs pinned 2.980e-08 REJECTED   | arm vs f64 anchor 2.626e-08 / 2.757e-08 OUTSIDE
+ *   wide f64 acc    vs pinned 1.490e-08 ACCEPTED   | arm vs f64 anchor 9.987e-09 / 1.001e-08 inside
+ *   pairwise f32    vs pinned 1.490e-08 ACCEPTED   | arm vs f64 anchor 1.263e-08 / 8.311e-09 inside
+ * (the reference's own f32 arm measures 1.000e-08 / 1.354e-08 against that same anchor, which is
+ * what "inside the population" is sized against). The two fixed forms land at the SAME max_abs and
+ * both are inside the population that licensed the band; the tree is a factor of ~1.26 further
+ * from the anchor at layer0 and closer at layer1. `gate.py`'s `qhat_*` checks re-measure all three
+ * rows of that table every run, so this comment is a summary and not a claim nobody can re-check.
+ * Band, probe and digest are untouched by any of it.
+ *
+ * Cost, stated rather than assumed: the tree holds n f32 partials in a local array (128 words),
+ * which is a local-memory question for a device-codegen slice in a way fp64 ALU pressure is not;
+ * the first fold can be fused into a half-size scratch because it forms the same two products and
+ * the same one sum. That trade is a later slice's measurement, and it is the *reason* both forms
+ * are kept in this file — not a reason to pick one on taste now. */
+#if (GDN_D_K & (GDN_D_K - 1)) != 0 || (GDN_D_V & (GDN_D_V - 1)) != 0
+#error "gdn_sumsq's declared tree halves its partials to 1: d_k and d_v must be powers of two"
+#endif
+#define GDN_SUMSQ_MAX (GDN_D_K > GDN_D_V ? GDN_D_K : GDN_D_V)
+
 GDNDAY_DEV static inline float gdn_sumsq(const float *a, int n) {
+#if defined(GDN_BROKEN_SUMSQ_ASC32) && defined(GDN_SUMSQ_WIDE_F64)
+#error "define at most one of GDN_BROKEN_SUMSQ_ASC32 and GDN_SUMSQ_WIDE_F64"
+#elif defined(GDN_BROKEN_SUMSQ_ASC32)
     float acc = 0.0f;
     for (int i = 0; i < n; ++i) acc += a[i] * a[i];
     return acc;
+#elif defined(GDN_SUMSQ_WIDE_F64)
+    double acc = 0.0;
+    for (int i = 0; i < n; ++i) acc += (double)(a[i] * a[i]);
+    return (float)acc;
+#else
+    /* Both call sites pass `GDN_D_K` or `GDN_D_V`, and `GDN_SUMSQ_MAX` is the larger of the two, so
+     * the scratch cannot be overflowed by a legal call; a geometry change enlarges it rather than
+     * silently truncating a reduction. */
+    float t[GDN_SUMSQ_MAX];
+    for (int i = 0; i < n; ++i) t[i] = a[i] * a[i];
+    for (int w = n; w > 1; w >>= 1) {
+        const int h = w >> 1;
+        for (int i = 0; i < h; ++i) t[i] = t[i] + t[i + h];
+    }
+    return t[0];
+#endif
 }
 GDNDAY_DEV static inline float gdn_silu(float x) { return x / (1.0f + expf(-x)); }
 

@@ -7,6 +7,365 @@ this file on 2026-10-26 from ~minute 25 of its own deadline. The slice-3 lane wr
 ~minute 52 of its own deadline, before its full-gate run finished; the numbers it could not yet know
 are marked and filled in below.
 
+## SLICE 4 — the `q_hat` ULP, settled by re-derivation instead of relaxation
+
+**What was red.** `layer0/q_hat` and `layer1/q_hat`: `max_abs = 2.98023e-08` against a licensed
+`2.9000121387623423e-08`, one f32 ULP over, while the same rows' `meanrel` (7.0e-08 against a
+licensed 1.157e-07) and `1-cos` (2.4e-14 against 1.55e-13) sat inside. `max_abs` is load-bearing
+here even though the lane labels it `[reported_only]` in the three-arm agreement, because
+`band_check_row` — the thing that produces the row verdict — consumes it.
+
+**The band is a triangle inequality, and that is what made the question answerable.** From the band
+file itself, read through `gdn_ref.load_band` (`BANDPROVEN`/`BANDFOLD` in
+`work/qhat-derive.log`): `licensed.max_abs = BAND_FACTORS["max_abs"] × probe.max_abs = 2 ×
+1.4500060693811712e-08 = 2.9000121387623423e-08`, i.e. `|arm − pinned|` is at most
+`|arm − anchor| + |pinned − anchor|` with each side bounded by the population maximum, because the probed population
+contains both the oracle's F32 arms and the pinned bytes. So the test of an implementation is not
+only its distance to `pinned`: **its own distance to the f64 anchor must be inside the population
+maximum that licensed the bound.** That is the question, and it has a number.
+
+**The numbers (CPU-only; `work/qhat-derive.py`, log `work/qhat-derive.log`).** For each block, the
+torch reproduction of the oracle's `chunked` form was checked first and is **bit-exact against the
+pinned bytes** (`torch_arm_vs_pinned=0.0 ndiff=0`), so the program measured is the program that
+wrote the file. Distances, layer0 / layer1:
+
+| arm | vs f64 anchor | vs pinned | inside the population (≤1.450e-08)? | inside the licence (≤2.900e-08)? |
+|---|---|---|---|---|
+| the oracle's F32 arm (= the pinned bytes) | 1.0003e-08 / 1.3538e-08 | 0 / 0 | yes (it *is* the population) | yes |
+| **shipped: ascending f32 accumulator** | **2.6261e-08 / 2.7572e-08** | **2.9802e-08 / 2.9802e-08** | **NO** | NO |
+| f32 products, **double** accumulator | 9.9871e-09 / 1.0011e-08 | 1.4901e-08 / 1.4901e-08 | yes | YES |
+| pairwise f32 tree | 1.2627e-08 / 8.3111e-09 | 1.4901e-08 / 1.4901e-08 | yes | YES |
+| no rounding until the end (f64 throughout) | 0 / 0 | 1.0003e-08 / 1.3538e-08 | yes | yes |
+
+The ascending arm's `ndiff` against the pinned bytes — 71,750 (layer0) and 74,172 (layer1) — is
+exactly what the gate printed, so the numpy model is the compiled arm and not a look-alike.
+
+**So this was case (b), not case (a).** The derived bound is correct and unchanged; the kernel was
+outside the family the band was sized from. At the worst element the observed error decomposes
+exactly into the two distances the licence adds — layer0 h20 t21 d49: `2.1287e-08 (arm−anchor) +
+8.5153e-09 (reference−anchor) = 2.9802e-08 = the observed max_abs`, and the reference's own
+contribution is *inside* the population while the arm's was not. To license the old kernel the
+bound would have had to become 2×2.6261e-08 ≈ 5.25e-08, i.e. **the licence would have had to nearly
+double**, which is a relaxation dressed as a re-derivation.
+
+**The defect, and the fix.** §04.4's l2norm sums 128 squares. Those terms are exact in f32 — a
+bf16-widened value has an 8-bit mantissa so its square needs 16 of f32's 24 bits; the driver counts
+the exceptions over both pinned passes (0 at layer0, 64 at layer1, every one a square underflowing
+into the f32 subnormals) — so the additions are the only rounding site, and a 128-term ascending
+chain in the stored width is 8 ULP off the correctly-rounded sum at layer0's worst element
+(`0.090579554438591003` against a correctly-rounded `0.090579614043235779`; the pairwise tree is 1
+ULP off there). llama.cpp was read first, per D-19: `ggml/src/ggml-cpu/ops.cpp::
+ggml_compute_forward_rms_norm_f32` reduces a row of squares as `ggml_float sum = 0.0; sum +=
+(ggml_float)(x[i00] * x[i00]);` and `ggml/src/ggml-cpu/vec.h` typedefs `ggml_float` to `double` — a
+**wide accumulator, ascending, one accumulator, products still formed in f32**, which is the same
+construct (a row of squares feeding an rsqrt). That is what the first slice-4 lane shipped, and the
+**main agent overrode the choice on hardware grounds**: `ggml_float` is nearly free on a CPU, this
+target is a Strix Halo iGPU (`gfx1151`) where fp64 is heavily derated and `gdn_sumsq` sits on the
+per-token path against the ≥ 48 t/s bar of AGENTS.md §GOAL. **The shipped form is the pairwise f32
+tree** (arm `D` in the table above) and llama.cpp's wide accumulator (arm `B`) is kept behind
+`GDN_SUMSQ_WIDE_F64` as the measured alternative; both are inside the population AND the licence at
+the SAME `max_abs`, with arm-vs-anchor within a factor of 1.26 of each other, so D-19's own boundary
+applies: the property (combine with more headroom than the storage offers) is adopted, the spelling
+(fp64 on a device where fp64 costs) is not. Recorded as **D-23, DECIDED (agent, 2026-10-26)**.
+Neither spelling touches an input's numeric width, so D-17 is not in play, and the declared index
+order is fixed in the source either way, so the two compiled arms still agree bit for bit
+(`PAIR ... ndiff_bytes=0` on both files, in the finished run). `gdn_sumsq` is shared by §04.4's
+l2norm and §04.7's gated-norm variance, so `normed`/`y` move slightly and both stayed ACCEPTED
+(see the after numbers below).
+
+**Consequence at the unchanged band.** Before → after, `layer0/q_hat`, from the finished run's own
+STAGE line (verbatim, `evidence/gdn-slice4-gate-2026-10-26.log`):
+
+    STAGE arm=kernel_vs_dump block=layer0 pass=prefill stage=q_hat n=131072 ndiff=71750 relL2=1.08286e-07 maxabs=2.98023e-08[reported_only] band=REJECTED meanrel=7.001e-08 1-cos=2.387e-14 perhead=2.980e-08(h20/32) verdict=FAIL why=max_abs=2.980e-08 > licensed 2.900e-08
+    STAGE arm=kernel_vs_dump block=layer0 pass=prefill stage=q_hat n=131072 ndiff=36830 relL2=6.04145e-08 maxabs=1.49012e-08[reported_only] band=ACCEPTED meanrel=2.978e-08 1-cos=2.109e-14 perhead=1.490e-08(h16/32) verdict=PASS why=all four derived keys inside the probe-derived band
+
+The band file, its four licensed numbers and its digest are untouched — digest is still
+`27a68c7e82c9aa0507b9bcd677adc0d5d1b0bc865dd1e86bf495ed90f47392ee`, read back through
+`gdn_ref.load_band` and compared against the constant pinned in `gate.py`, and now also re-folded
+out of the probe log's own per-record table (`QHATFOLD`). All fourteen banded prefill rows are
+ACCEPTED, and with the shipped tree the other stages sit at: `k_hat` 1.19e-07 against a licensed
+2.60e-07; `scan_out` 4.889e-09 against 3.48e-08; `state` 8.94e-08 against 1.15e-06; `core_attn`
+4.77e-07 against 1.53e-05; `normed` meanrel 7.03e-08 against 3.94e-06 and maxabs 6.10e-05 against
+3.13e-02; `y` meanrel 6.96e-06 against 8.31e-05.
+
+**What slice 4's first lane left undone, and what the finishing lane added.** The red was closed by a
+kernel change, and a kernel change that nothing can fail is a story: the gate printed no check that
+could see the reduction shape. That is what `qhat_checks` in `gate.py` now is — five checks and
+eight witnesses, all of them seen firing, described in §SLICE 4 FINISHED below.
+
+**Files changed by slice 4 so far:** `prototype/gdn/gdn_kernels.h` (`gdn_sumsq`'s accumulator width +
+the `GDN_BROKEN_SUMSQ_ASC32` control + the declared-arithmetic note), `prototype/gdn/build.sh` (the
+sumsq control build), `prototype/gdn/gate.py` (the checks and witnesses above), `prototype/gdn/HANDOFF.md`.
+Nothing under `speccheck/`, `checkpoints/` or `data/` is touched: the band, the floor probe, the
+oracle and the pinned dumps are read-only for this lane. CPU-only throughout: `gpu_lock` is not
+taken, no device was touched, and no timer is read anywhere in this section or its logs.
+
+## SUPERSEDED — "NOT FINISHED in slice 4": read §SLICE 4 IS FINISHED below
+
+This section is kept as the record of what was open when the first slice-4 lane stopped at its
+deadline, and it is **no longer true**: `gate.py` runs to completion, `qhat_checks` exists, every
+check it added has been witnessed firing, and the full gate has been run and committed as evidence.
+The numbers in items 1-8 below were the *first* lane's plan; the shipped spelling changed (pairwise
+f32 tree, not the double accumulator — see D-23 and §SLICE 4 IS FINISHED), so the predicted `ndiff`
+figures here (33,922 / 36,356) are the wide-f64 arm's and the shipped tree's are 36,830 / 36,242.
+Everything below is quoted unchanged.
+
+**`gate.py` was broken on unfinished ground: the `band` section called
+`qhat_checks(...)` (line ~921) and that function had not been written.** The file compiled
+(`python -m py_compile` passed) and `--only three-arm` still ran, but any run that reached the end
+of the `band` section died with `NameError: qhat_checks`. The call site was the seam left for the
+next worker: the derivation was done and the fix was in and measured, but **the gate did not yet
+witness it**, so the `q_hat` ACCEPTED verdict was at that moment a claim in this file and a number in
+a log, not a checked fact of the gate. Named checks were still 15. Its successor reads:
+
+
+The call site's signature is
+`qhat_checks(band, digest, recs, blocks, T, plan, ins, wts, armres, fails, counts, chk)` and every
+argument is already in scope at that point in `main` (the `band` section's own honest arm run is
+`armres`). What it must contain, with every number it needs already measured so nobody has to
+re-derive it:
+
+1. `qhat_numpy(x, wide)` — §04.4's l2norm over `[h_v,T,d]` f32 words, spelled the way
+   `gdn_item_enter` spells it: f32 products; ONE ascending accumulator, `double` when `wide` and
+   f32 in the control; one rounding back to f32; eps added **in f32**; the reciprocal root
+   `(float)(1.0/sqrt((double)(sum+eps)))`; scale as **two** multiplies `(q*rq)*qs` with
+   `qs=(float)(1.0/sqrt(128.0))` — folding those two constants into one product is a different f32
+   and the model then no longer matches the arm. `work/qhat_derive.py`'s `l2()` is that function,
+   working and validated (it reproduces the gate's `ndiff` 71,750 / 74,172 exactly for the
+   stored-width spelling).
+2. `qhat_anchor(x)` — the f64 ruler, accumulation in f64, scale a **divide** by `sqrt(d_k)`, result
+   left in f64 (rounding it to f32 moves every distance by up to half an ULP and breaks the
+   agreement with the probe log).
+3. Check `qhat_numpy_model_bit_identical`: the `wide=True` model vs `stage_tensor(armres, i, T,
+   "q_hat")` word-for-word, denominator `blocks*T*32*128` = 262,144. Predicted 0 differing words on
+   both blocks — the fixed compiled arm's `q_hat` vs pinned is `ndiff=33,922` (layer0) and `36,356`
+   (layer1), and the numpy arm-B model predicts exactly those two counts, which is the evidence the
+   model is the arm; the check makes it a checked fact instead of a coincidence.
+4. Check `qhat_arm_inside_probe_population`: per block `max|arm − anchor| ≤ band["q_hat"]["probe"]
+   ["max_abs"]`. Fixed arm: 9.9871e-09 (layer0), 1.0011e-08 (layer1) — inside. Wrong-order arm:
+   2.6261e-08 / 2.7572e-08 — outside. Population maximum `1.4500060693811712e-08`, licensed
+   `2.9000121387623423e-08` (and `mean_rel` licensed `1.1572293681934131e-07`). The reference's own
+   arm measures 1.0003e-08 / 1.3538e-08 against this anchor, which is the probe log's own
+   `1.000e-08` / `1.354e-08` for the same rows — the numpy anchor is the oracle's anchor.
+5. Check `qhat_rows_accepted_and_licensed`: `G.band_check_row(band, "q_hat", ag)` ACCEPTED on both
+   blocks **and** `G.band_licenses(band, pass_key, "q_hat", "chunked", "pinned")` grants the row —
+   note the argument order (`band, pass_key, stage, arm_a, arm_b`) differs from `band_check_row`
+   (`band, stage, ag`), and the row key is `pass|arm|arm` with the arms sorted
+   (`layer0/pinned/prefill|chunked|pinned`) — and `digest == BAND_DIGEST`.
+6. Check `qhat_bound_is_a_fold_of_its_probe`: the four licensed keys equal `probe[key] ×
+   G.BAND_FACTORS[key]` exactly, **and** the committed probe log's own band-summary row for `q_hat`
+   (`records 102`, `probe maxabs 1.450e-08`, `band maxabs 2.900e-08`, at
+   `speccheck/evidence/gdn-floor-probe-2026-10-26.txt:1114`) agrees with the parsed per-record table
+   at the log's printed precision. The per-record parser is `work/qhat_proberecords.py`: it prints
+   `printed_lines=512 parsed=512 equal=True` and `q_hat folded_records=102`, so parsed == printed is
+   witnessed and the 8 records sitting at the maximum are named (all four `layer1` padded/exact
+   fixture passes × the two recurrent-family arms — the `div` spelling of `q_scale`).
+7. Check `qhat_band_rejects_a_perturbation_at_a_derived_rung`: rung = `floor(-log2(8 × licensed
+   mean_rel))` = **20**, so the perturbation is `1 + 2⁻²⁰` relative = 9.54e-07 = 8.24× the licensed
+   `mean_rel`; multiply the arm's own `q_hat` words by it and require `band_check_row` to REJECT.
+   Derived from the band's own number, not typed, and non-vacuous at that ratio.
+8. Witnesses (`chk.witness`), all with counts: `build/host_probe_sumsq` (`-DGDN_BROKEN_SUMSQ_ASC32`,
+   built by `./build.sh --broken`, already present at `build/host_probe_sumsq`) must give q_hat rows
+   REJECTED on both blocks at the unchanged band **and** fail check 4 (arm-vs-anchor outside the
+   population) **and** break check 3's bit-identity; a band tampered wider and one tampered narrower
+   must both be refused by `G.load_band` (it enforces `licensed == probe × factor` per key, so any
+   one-sided edit raises `AssertionError`); a **probe-consistent** inflation (both sides scaled) must
+   pass `load_band` and be caught instead by `G.band_digest(...) != BAND_DIGEST`, which is the
+   witness that the digest pin is what actually protects against an inflation with no measurement
+   behind it — i.e. exactly the (a) that was rejected here.
+9. Also still to do: run the **full** gate into `work/` (no `head`/`tail`; `--only band,three-arm`
+   is not the whole gate) and copy the before/after logs plus `work/qhat-derive.log` into
+   `prototype/gdn/evidence/`; confirm `named_checks` went from 15 and `named_checks_red=0`; confirm
+   the determinism section's children still print byte-identical STAGE lines (the q_hat rows moved
+   from 2.980e-08 to 1.490e-08 in all three sections that print them — band, chunkcarry's
+   bit-identity rows, and the determinism children — so `evidence/gdn-slice3-stage-line.diff`'s
+   "byte-identical" claim is now stale and a new stage-line diff against the slice-3 log is the
+   right artifact to add); write the decision entry for `DECISIONS.md` (**agent-decided, 2026-10-26**,
+   status `DECIDED (agent, …)` — it must NOT be worded as a user decision) since this lane may not
+   write outside `prototype/gdn/` and `specification/evidence/`; and note in it the device-side
+   caveat that a double accumulator costs fp64 throughput on `gfx1151`, with the measured
+   alternative (pairwise f32 tree: 1.2627e-08 / 8.3111e-09 vs anchor, 1.4901e-08 vs pinned, also
+   inside the population) if a device-codegen slice ever finds fp64 rate binding.
+
+Two known-inaccurate details to fix while touching `work/qhat_derive.py`: its `PRODUCTS` note says
+every inexact f32 square is a subnormal underflow and prints `inexact_and_under_normal` to prove it
+(0 at layer0, 64 at layer1 — the claim holds), but its `WORSTTERMS` line reports
+`subnormal_f32_terms=0` for the worst row, which is a different (also true) statement and reads
+like a contradiction; and the script lives in `work/`, which is regenerable and untracked-by-intent,
+so the durable copy of its numbers is this file plus `evidence/`.
+
+Two details in `work/qhat_derive.py` that read like a contradiction, resolved by naming what each
+counts instead of by editing a scratch file: its `PRODUCTS` line counts, over the **whole pinned
+pass**, the f32 squares that are inexact — every one of them a square underflowing into the f32
+subnormals (0 at layer0, 64 at layer1) — while its `WORSTTERMS` line counts the subnormal terms in
+the **single worst row**, which is 0 there. Both statements are true and they are about different
+populations; the durable copy of every number is now `evidence/gdn-slice4-qhat-derive-2026-10-26.log`
+plus this file, and `work/` stays regenerable scratch that nobody has to open.
+
+## SLICE 4 IS FINISHED — the checks exist, each was seen firing, and the gate runs to completion
+
+Finished by the follow-on lane on 2026-10-26, with one engineering choice overridden by the main
+agent (the reduction spelling — D-23). CPU-only throughout: no device, no `gpu_lock` reference in
+any file this lane touched (`gate.py`, `gdn_kernels.h`, `build.sh`, `HANDOFF.md` all print 0), and no
+timer is read by anything here or in any log it produced.
+
+**The full gate** (`evidence/gdn-slice4-gate-2026-10-26.log`, whole run, nothing filtered):
+
+* `GATE QUALIFIED arms=3 stages=7 blocks=2 T=32 band_digest=27a68c7e82c9aa05 device=none
+  banded_rows=116 credited=74 uncredited=42`, exit 1, **findings 0**. `GATE PASS` did not print, and
+  it cannot: the 42 uncredited rows are 24 unlicensed + 18 form-unprobed, exactly as D-21 left them.
+  That the run ends QUALIFIED-and-not-PASS with zero findings is the expected outcome, not a defect.
+* **14/14 banded prefill rows and 84/84 decode rows ACCEPTED**, both `q_hat` rows now at
+  `maxabs=1.49012e-08` against the unchanged licensed `2.9000121387623423e-08`; `named_checks=40
+  named_checks_red=0`; `exact_field_checks=16 exact_field_red=0`; `controls=9` all firing.
+* `SELFTEST PASS` on both compiled arms (25 checks each), `PAIR pair=host_twin_vs_hip_hostpath
+  file=out.bin bytes=35143680 ndiff_bytes=0 zero_tolerance=1 verdict=IDENTICAL` on the prefill plan
+  and on the carried plan (88,670,208 B), `DETERMINISM here=178 run1=178 run2=178 run1_eq_run2=1
+  both_eq_this_run=1 verdict=IDENTICAL`, oracle CLI `rc=0 ... CROSS-FORM PASS` with the same digest.
+
+**The five named checks `qhat_checks` added** (end of the `band` section; log
+`evidence/gdn-slice4-band-checks-2026-10-26.log`; every predicate is an expression over records, the
+band file, the probe log or an arm's own words — no constant predicates):
+
+| check | what it asserts | what turns it RED |
+|---|---|---|
+| `qhat_numpy_model_bit_identical` | the numpy spelling of `gdn_item_enter`'s l2norm reproduces the compiled arm's `q_hat` words at **zero tolerance** — 262,144 words derived as `blocks × stage_words(T)[q_hat]`, `differing_words_vs_compiled_arm=0` | `sumsq_control_breaks_the_model_bit_identity` |
+| `qhat_arm_inside_probe_population` | **the leg the whole verdict rests on**: the arm's own distance to the f64 anchor (`1.262702e-08` layer0 / `8.311082e-09` layer1) is ≤ the band file's own `probe.max_abs` `1.4500060693811712e-08`, AND the ruler is credible — the pinned bytes' distance to that anchor reproduces the probe log's own `pinned`-arm records (`1.000e-08` / `1.354e-08`) at the log's precision | `sumsq_control_is_outside_the_probe_population` |
+| `qhat_rows_accepted_and_licensed` | `band_check_row` ACCEPTS both rows **and** `band_licenses` grants `layer{0,1}/pinned/prefill\|chunked\|pinned`, with `digest == BAND_DIGEST` | `sumsq_control_is_red_at_the_unchanged_band`, `qhat_licence_fires_on_a_revoked_prefill_row` |
+| `qhat_bound_is_a_fold_of_its_probe` | all 28 licensed numbers (7 stages × 4 keys) re-equal `probe × G.BAND_FACTORS[key]`, and the licensed `q_hat` bound is re-derived from the probe log's own per-record table: `printed_lines=512 parsed=512 equal=1`, `parsed_folded_records=102 == summary_records_column=102`, worst log record `1.450e-08` == band probe at log precision, summary band column `2.900e-08` == licensed at log precision | the three band-tamper witnesses below |
+| `qhat_band_rejects_a_perturbation_at_a_derived_rung` | rung `= floor(-log2(8 × licensed mean_rel)) = 20`, so the factor is `1+2⁻²⁰` (8.24× the licensed `mean_rel`); both rows REJECT under it while both ACCEPT unperturbed, and the measured `mean_rel` ratio is printed (7.86 / 7.68 — under 8 because a signed perturbation partly cancels the error already there) | `qhat_perturbation_fires_on_a_probe_consistent_inflation` |
+
+`qhat_reduction_alternatives_both_licensed` is a sixth check the lane added for the override: it
+measures all three spellings against the same rulers and requires the shipped tree **and** llama.cpp's
+wide accumulator to be inside population+licence while the pre-fix ascending arm is inside neither
+(`tree_vs_wide64_differing_words=17368`, so the comparison cannot be vacuous).
+
+**The eight witnesses, every one `fired=RED` in that same run:**
+
+* `sumsq_control_is_red_at_the_unchanged_band` — `build/host_probe_sumsq` (`-DGDN_BROKEN_SUMSQ_ASC32`,
+  built by `./build.sh --broken`) is **REJECTED on both blocks at the unchanged band**:
+  `arm_vs_pinned=2.980232e-08`, `ndiff_vs_pinned=71750` (layer0) and `74172` (layer1) — exactly the
+  two red numbers this slice was created to explain — and its words differ from the shipped arm's by
+  66,846 / 68,368. **This is the proof the fix is load-bearing and not cosmetic.**
+* `sumsq_control_is_outside_the_probe_population` — same build's arm-vs-anchor `2.626090e-08` /
+  `2.757199e-08`, outside `1.4500060693811712e-08` on both blocks.
+* `sumsq_control_breaks_the_model_bit_identity` — the shipped spelling's model differs from the
+  control's words (66,846 / 68,368) while the pre-fix spelling's model matches them at zero
+  tolerance (`model_asc32_words_differ=0`), i.e. the numpy ruler tracks the compiled arm across a
+  change of spelling.
+* `band_tamper_wider_is_refused_by_load_band` and `band_tamper_narrower_is_refused_by_load_band` — a
+  copy of the band with `q_hat.max_abs` × 2 (or × ½) written into `work/` raises `AssertionError`
+  ("is not the derived …"), with the honest file still loading at the pinned digest beside it.
+* `band_probe_consistent_inflation_is_caught_by_the_digest` — scaling probe **and** licensed together
+  (×16) passes `load_band` (it is arithmetically self-consistent — exactly the edit that cannot be
+  refused on arithmetic) and is caught only by the digest: `inflated_digest=97a0a6dd3fa1c593 ≠
+  27a68c7e82c9aa05`. This is the witness that the digest pin, not `load_band`, is what stands between
+  someone and a quietly widened licence.
+* `qhat_licence_fires_on_a_revoked_prefill_row` — revoke `layer0/pinned/prefill|chunked|pinned` from
+  an in-memory band copy and `band_licenses` flips to "no probe record for one of the two arms".
+* `qhat_perturbation_fires_on_a_probe_consistent_inflation` — the same rung-20 perturbation is
+  ACCEPTED under the ×16-inflated band, so check 5's rejection is a fact about the licensed number
+  and not about its own arithmetic.
+
+**Which STAGE lines moved, and by how much.** D-21's "179 STAGE lines byte-identical" claim is now
+**stale**: with the reduction changed, **124 of 178 STAGE lines moved and 54 are byte-identical**
+(`evidence/gdn-slice4-stage-line.diff`, slice 3 → now; the parser counts 178 parsed against 178
+printed on both sides and refuses if the row keys do not line up). Moved per stage: `q_hat` 14,
+`k_hat` 14, `scan_out` 30, `core_attn` 14, `state` 27, `normed` 12, `y` 13. The **only two
+band-verdict flips in the whole run** are the two `q_hat` prefill rows, REJECTED → ACCEPTED:
+prefill `layer0` `ndiff 71750 → 36830`, `layer1` `74172 → 36242`, both at
+`maxabs 2.98023e-08 → 1.49012e-08`. Every other row moved and stayed ACCEPTED (the pre-fix build's
+`ndiff` for those same rows was the 71,750-class number; the decode `q_hat` rows moved e.g.
+`layer0/decode0 ndiff 3172 → 2252`, `maxabs 1.49012e-08 → 7.45058e-09`), and the sabotage rows are
+still REJECTED at the same magnitudes. `gdn_sumsq` feeds both §04.4's l2norm and §04.7's gated-norm
+variance, which is why six stages move and not two.
+
+**Files this finishing lane changed:** `prototype/gdn/gdn_kernels.h` (`gdn_sumsq` becomes the declared
+pairwise f32 tree; `GDN_SUMSQ_WIDE_F64` keeps llama.cpp's shape as the measured alternative;
+`GDN_BROKEN_SUMSQ_ASC32` stays the control; the DECLARED-ARITHMETIC note now names the one exception
+to "ascending, one accumulator" and states all three measured rows), `prototype/gdn/build.sh` (the
+control's comment, and the command that builds the wide-f64 alternative), `prototype/gdn/gate.py`
+(`qhat_checks` + the three ruler functions + the probe-log parser + the eight witnesses; the stale
+`open=user-decision` KNOWN line now states the resolution), this file, four new files under
+`evidence/`, and **`DECISIONS.md` D-23** — the only write outside `prototype/gdn/`, one entry, status
+`DECIDED (agent, 2026-10-26)`.
+
+**What is still open, unchanged:** the 24 unlicensed decode rows (only the oracle may write a probe
+record, and §04b.1 refuses to run a chunked arm at a decode pass — a user decision, not a rounding
+error), the 18 form-unprobed split rows, no device codegen yet, batching/MTP/§04.2/§04.3 still out.
+**One new deferred question, named rather than decided here:** the shipped tree keeps `n` f32 partials
+in a local array (128 words), which is a local-memory question for a device-codegen slice in a way
+fp64 ALU pressure is not. The first fold can be fused into a half-size scratch without changing a
+single product or sum. Nobody has measured fp64-versus-tree on `gfx1151`, and the case for the tree
+is an ALU-budget case; `GDN_SUMSQ_WIDE_F64` exists so that the comparison can be measured later
+instead of argued, and the licence does not care which of the two wins.
+
+## Checkpoint log (slice 4, 2026-10-26)
+
+- min 0-25 — reproduced the red verbatim (`work/qhat-before-band-only.log`: `ndiff=71,750`,
+  `maxabs=2.98023e-08`, `why=max_abs=2.980e-08 > licensed 2.900e-08`, `named_checks=15`,
+  `findings=2`); read the band's own provenance (`BANDFOLD`: every licensed key == its probe key ×
+  `G.BAND_FACTORS[key]`, so the bound is a fold and not a typed number) and the probe log's summary
+  row and per-record table; read `gdn_ref.band_check_row` / `band_licenses` / `load_band` /
+  `band_digest` for the licensing path and its refusals.
+- min 25-55 — built the two rulers in pure numpy and adjudicated. The torch reproduction of the
+  oracle's `chunked` form is **bit-exact against the pinned bytes** (`ndiff=0`), so the program being
+  measured is the program that wrote the dump; the shipped ascending-f32 arm reproduces the gate's
+  own `ndiff` and `max_abs` exactly; the arm-vs-anchor comparison then says (b) — the kernel was
+  outside the population, the band was never one rounding tight, and licensing the old kernel needs
+  5.25e-08 (a relaxation). Read llama.cpp first per D-19 (`ops.cpp::
+  ggml_compute_forward_rms_norm_f32` + `vec.h`'s `ggml_float == double`) and adopted its
+  wide-accumulator, ascending, one-accumulator shape in `gdn_sumsq`; added
+  `GDN_BROKEN_SUMSQ_ASC32` and `build/host_probe_sumsq`.
+- min 55-75 — `./build.sh --broken` rebuilds both arms and all three control builds clean; the
+  compiled pair still agrees at **zero tolerance** (`PAIR out.bin 35,143,680 B ndiff_bytes=0`,
+  `echo.bin 3,163,136 B ndiff_bytes=0`), so the widened accumulator did not split the two
+  compilers; `--only band,three-arm` prints **all 14 banded rows ACCEPTED**, `q_hat` at
+  `1.49012e-08` against the unchanged licensed `2.9000121387623423e-08`, digest unchanged; the
+  other six stages moved with it (k_hat 1.19e-07 vs licensed 2.60e-07; scan_out 4.66e-09 vs
+  3.48e-08; state 8.94e-08 vs 1.15e-06; core_attn 4.77e-07 vs 1.53e-05; normed 6.10e-05 vs
+  3.13e-02; y 4.88e-04 vs 7.81e-03) — nothing that was green went red.
+- min 75-90 — wrote this file (slice-4 section + this log + the NOT FINISHED section above) and
+  wired the call site for `qhat_checks`. **Stopped here at the runner's deadline checkpoint with the
+  checks unwritten: `gate.py` raised `NameError: qhat_checks` at the end of the `band` section.**
+  Nothing staged, nothing committed, no git operation run by this lane; nothing outside
+  `prototype/gdn/` written; `grep -c gpu_lock` = 0 in `gate.py`, `gdn_kernels.h` and `build.sh`; no
+  device run and no timing taken anywhere in this lane or its logs.
+
+### Finishing lane, same day (checks, the spelling override, the full run)
+
+- min 0-10 — read `HANDOFF` §SLICE 4 + NOT FINISHED, `gdn_ref.load_band/band_check_row/band_licenses/
+  band_digest`, the probe log's per-record table and its `### band` summary row (line 1114), and the
+  previous lane's `work/qhat-derive.log`. Applied the main agent's override: `gdn_sumsq` ships the
+  pairwise f32 tree (arm `D`), llama.cpp's `double` accumulator moves behind `GDN_SUMSQ_WIDE_F64`,
+  `GDN_BROKEN_SUMSQ_ASC32` stays the control, and a `#error` refuses a build that defines both. The
+  DECLARED-ARITHMETIC header note now names its own exception ("ascending, one accumulator, except
+  `gdn_sumsq`, which is a declared tree") and prints all three measured rows.
+- min 10-25 — `./build.sh --broken` rebuilds both arms and all three controls clean under
+  `-Wall -Wextra`; both honest arms `SELFTEST PASS checks=25`; the compiled pair still agrees at zero
+  tolerance with the tree in place, so no compiler reassociated the halving. The shipped arm's `q_hat`
+  landed at `ndiff=36830`/`36242`, `maxabs=1.49012e-08` — the same numbers the numpy tree arm
+  predicted, which is the first evidence the model is the arm.
+- min 25-55 — wrote `qhat_checks`: three numpy rulers (`qhat_sumsq`/`qhat_l2`/`qhat_anchor`), a
+  probe-log parser that must parse what it prints (512/512), six checks and eight witnesses. Fixed
+  three defects found by running it rather than by reading it: the arm-vs-model word compare used a
+  3-D model against a flat arm (broadcast error), the probe-log `pinned` lookup collapsed across
+  stages and picked up a `k_hat` record (`1.209e-07` instead of `1.000e-08`) — which is the ruler-
+  credibility leg going RED, correctly, and it is the reason that leg exists — and the rung predicate
+  demanded `measured mean_rel ≥ 8 × licensed`, which is not what a signed perturbation measures
+  (7.86/7.68 measured, now printed instead of hidden; the derived factor ratio 8.24 is what the rung
+  guarantees). One mislabelled print (a REJECTED row printed ACCEPTED in `QHATINFLATE`) was found and
+  fixed before any of this was copied into `evidence/`.
+- min 55-70 — full gate to completion into `work/`, never piped: `GATE QUALIFIED ... credited=74
+  uncredited=42`, exit 1, **findings 0**, `named_checks=40 named_checks_red=0` (26 → 40; +14 here),
+  `DETERMINISM ... IDENTICAL`, `PAIR ... ndiff_bytes=0`. Stage-line diff regenerated and committed as
+  evidence: 124 of 178 STAGE lines moved, 54 identical, and the only band-verdict flips are the two
+  `q_hat` rows. Logs and the derive log copied to `evidence/` with dated names.
+- min 70-80 — this file refreshed (§SLICE 4 IS FINISHED, the superseded section marked as such),
+  `DECISIONS.md` D-23 appended as `DECIDED (agent, 2026-10-26)` and nothing else in that file
+  touched. `grep -c gpu_lock` = 0 in every file this lane wrote. Nothing staged, no git write
+  operation run; the only file outside `prototype/gdn/` is the one D-23 entry.
+
 ## SLICE 3 — every banded row cites its licence, and the multi-chunk question gets a field name
 
 **Why the slice exists.** Slice 2 named two limits as its own: (1) its 84 accepted decode rows are

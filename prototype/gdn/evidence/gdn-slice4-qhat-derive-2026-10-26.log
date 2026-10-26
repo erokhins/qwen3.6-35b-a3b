@@ -1,0 +1,22 @@
+BANDPROVEN stage=q_hat probe_max_abs=1.4500060693811712e-08 licensed_max_abs=2.9000121387623423e-08 factor=2 factor_source=gdn_ref.BAND_FACTORS band_file=gdn-band-2026-10-26.json
+BANDFOLD keys=max_abs,mean_rel,one_minus_cos,per_head_max every_licensed_equals_probe_times_factor=True note=the four licensed numbers are the file's own probe block folded through the oracle's own factor table; a hand-edited bound fails this
+RULER block=layer0 T=32 n=131072 torch_arm_vs_anchor=1.000253e-08 ndiff=127484 pinned_vs_anchor=1.000253e-08 ndiff=127484 torch_arm_vs_pinned=0.000000e+00 ndiff=0 verdict=ORACLE_PROGRAM_REPRODUCED_BIT_EXACT
+PRODUCTS block=layer0 bf16_widened_terms=131072 f32_product_inexact=0 terms_under_f32_normal=3588 inexact_and_under_normal=0 note=the two counts agree, so every inexact f32 square is a subnormal underflow; elsewhere a bf16-widened square is exact in f32 and the additions are the only rounding site
+ARM block=layer0 arm=A_asc_f32acc_dblrsqrt    arm_vs_anchor=2.626090e-08 arm_vs_pinned=2.980232e-08 ndiff_vs_pinned=71750 n=131072 inside_probe_population=NO inside_licensed_max_abs=NO
+ARM block=layer0 arm=B_asc_f64acc_f32prod     arm_vs_anchor=9.987079e-09 arm_vs_pinned=1.490116e-08 ndiff_vs_pinned=33922 n=131072 inside_probe_population=YES inside_licensed_max_abs=YES
+ARM block=layer0 arm=C_f64prod_f64acc         arm_vs_anchor=0.000000e+00 arm_vs_pinned=1.000253e-08 ndiff_vs_pinned=127484 n=131072 inside_probe_population=YES inside_licensed_max_abs=YES
+ARM block=layer0 arm=D_pair_f32acc_dblrsqrt   arm_vs_anchor=1.262702e-08 arm_vs_pinned=1.490116e-08 ndiff_vs_pinned=36830 n=131072 inside_probe_population=YES inside_licensed_max_abs=YES
+ARM block=layer0 arm=E_pair_f32acc_f32rsqrt   arm_vs_anchor=8.515250e-09 arm_vs_pinned=1.490116e-08 ndiff_vs_pinned=21606 n=131072 inside_probe_population=YES inside_licensed_max_abs=YES
+WORSTPOINT block=layer0 h=20 t=21 d=49 anchor=0.0636693473 arm_A=0.0636693686 pinned=0.0636693388 arm_minus_anchor=2.128707e-08 oracle_minus_anchor=8.515250e-09 sum_of_both=2.980232e-08 observed=2.980232e-08
+WORSTSUM block=layer0 f64=0.090579616027753218 f32_correctly_rounded=0.090579614043235779 A_asc_f32=0.090579554438591003 D_pair_f32=0.090579621493816376 A_ulps_from_rounded=8 D_ulps_from_rounded=1 one_f32_ulp_here=7.45e-09
+WORSTTERMS block=layer0 n_terms=128 min_term=2.1837e-09 subnormal_f32_terms=0 note=a bf16-widened square needs 16 mantissa bits and is exact in f32 unless the term underflows into the subnormal range
+RULER block=layer1 T=32 n=131072 torch_arm_vs_anchor=1.353791e-08 ndiff=124736 pinned_vs_anchor=1.353791e-08 ndiff=124736 torch_arm_vs_pinned=0.000000e+00 ndiff=0 verdict=ORACLE_PROGRAM_REPRODUCED_BIT_EXACT
+PRODUCTS block=layer1 bf16_widened_terms=131072 f32_product_inexact=64 terms_under_f32_normal=6406 inexact_and_under_normal=64 note=the two counts agree, so every inexact f32 square is a subnormal underflow; elsewhere a bf16-widened square is exact in f32 and the additions are the only rounding site
+ARM block=layer1 arm=A_asc_f32acc_dblrsqrt    arm_vs_anchor=2.757199e-08 arm_vs_pinned=2.980232e-08 ndiff_vs_pinned=74172 n=131072 inside_probe_population=NO inside_licensed_max_abs=NO
+ARM block=layer1 arm=B_asc_f64acc_f32prod     arm_vs_anchor=1.001062e-08 arm_vs_pinned=1.490116e-08 ndiff_vs_pinned=36356 n=131072 inside_probe_population=YES inside_licensed_max_abs=YES
+ARM block=layer1 arm=C_f64prod_f64acc         arm_vs_anchor=0.000000e+00 arm_vs_pinned=1.353791e-08 ndiff_vs_pinned=124736 n=131072 inside_probe_population=YES inside_licensed_max_abs=YES
+ARM block=layer1 arm=D_pair_f32acc_dblrsqrt   arm_vs_anchor=8.311082e-09 arm_vs_pinned=1.490116e-08 ndiff_vs_pinned=36242 n=131072 inside_probe_population=YES inside_licensed_max_abs=YES
+ARM block=layer1 arm=E_pair_f32acc_f32rsqrt   arm_vs_anchor=1.086340e-08 arm_vs_pinned=1.490116e-08 ndiff_vs_pinned=24190 n=131072 inside_probe_population=YES inside_licensed_max_abs=YES
+WORSTPOINT block=layer1 h=20 t=1 d=45 anchor=0.0864501054 arm_A=0.0864501297 pinned=0.0864500999 arm_minus_anchor=2.431691e-08 oracle_minus_anchor=5.485412e-09 sum_of_both=2.980232e-08 observed=2.980232e-08
+WORSTSUM block=layer1 f64=1.1286049056745924 f32_correctly_rounded=1.1286048889160156 A_asc_f32=1.1286044120788574 D_pair_f32=1.1286048889160156 A_ulps_from_rounded=4 D_ulps_from_rounded=0 one_f32_ulp_here=1.19e-07
+WORSTTERMS block=layer1 n_terms=128 min_term=3.96176e-09 subnormal_f32_terms=0 note=a bf16-widened square needs 16 mantissa bits and is exact in f32 unless the term underflows into the subnormal range

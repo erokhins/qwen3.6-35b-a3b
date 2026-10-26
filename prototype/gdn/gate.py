@@ -75,10 +75,22 @@ WHAT SLICE 3 ADDS — LICENCE PROVENANCE, AND THE MULTI-CHUNK QUESTION ANSWERED 
   `band_check_row`. Those rows are labelled `LICENSED_FORM_UNPROBED` — the pair is licensed at a
   prefill pass but chunk width 16 is not a width any probe arm ran — so they are also not credited.
 
-THE q_hat ROWS ARE RED AND STAY RED: they are one f32 ULP over a probe-derived band, and whether to
-  match torch's reduction order, re-probe with a non-torch arm, or document the stage out-of-band is
-  an OPEN USER DECISION (see HANDOFF.md §Open). Nothing here widens, re-derives or ignores a band:
-  every such row is reported as a finding and the gate exits non-zero because of them.
+THE q_hat ROWS: CLOSED BY A KERNEL FORM, UNDER AN UNCHANGED BAND (D-23)
+  `q_hat`'s `max_abs` used to be 2.980e-08 against a licensed 2.900e-08 — one f32 ULP over — and the
+  band turned out to be exactly right. It is a triangle inequality: licensed `max_abs` = 2 x (max over
+  the probe population of |arm − f64 anchor|), so the test of an implementation is not only its
+  distance to `pinned` but its OWN distance to the anchor against that population maximum
+  (1.4500060693811712e-08). The old ascending-f32 sum of squares measured 2.626e-08 against that
+  anchor — outside every record that licensed the band — so licensing it would have needed ~5.25e-08,
+  a relaxation dressed as a re-derivation, which is reserved to the user and was refused. The kernel
+  was wrong and is fixed: `gdn_sumsq` now combines its 128 squares as a declared pairwise f32 tree
+  (`gdn_kernels.h`), the row sits at 1.490e-08, and the band, its probe block and its digest are
+  byte-unchanged. `qhat_checks` at the end of the `band` section is what makes that a checked fact:
+  the numpy model of the reduction is bit-identical to the compiled arm, the arm's own distance to
+  the anchor is inside the population, the licensed number is re-folded out of the probe log rather
+  than trusted, a perturbation at a rung derived from the band's own `mean_rel` is still rejected,
+  and every one of those is witnessed RED by `build/host_probe_sumsq` (the same source with the old
+  ascending accumulator put back) or by a tampered copy of the band.
 
 DEVICE POLICY: this file touches no device, reads no timer, and holds no device lock of any kind —
 the wrapper is the sole acquirer and there is nothing here for it to wrap. Every printed counter is
@@ -89,6 +101,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -117,6 +130,12 @@ XPOSE = HERE / "build" / "host_probe_xpose"
 # every head carry data instead of §04b.2's zeros. Arm-internal by necessity — the pads are
 # synthesised inside `gdn_item_enter`, so no driver-side mutation can reach one.
 PAD = HERE / "build" / "host_probe_pad"
+# Slice 4's control build: the same source with `-DGDN_BROKEN_SUMSQ_ASC32`, which puts the row of
+# squares back into ONE ascending f32 accumulator instead of the declared pairwise tree it ships
+# with. The `q_hat` band was re-derived rather than widened (D-23), so the ACCEPTED verdict on that
+# row is only a check if some build can be RED under the unchanged band; this is that build, and
+# `qhat_checks` is the lane that says it fired.
+SUMSQ = HERE / "build" / "host_probe_sumsq"
 
 # The authoritative band digest: `band_digest(load_band(BAND_PATH))` as measured 2026-10-26. It is
 # pinned here so a silently regenerated band cannot be judged against itself. If `load_band()`
@@ -748,6 +767,13 @@ def fmt(m) -> str:
             % (m["n"], m["ndiff"], m["relL2"], m["maxabs"], m["cos"]))
 
 
+# Why this exists: the FAIL branch used to be the only verdict line that printed a finding count,
+# so on the QUALIFIED/PASS paths a reader could not tell "zero findings, measured" apart from
+# "findings never counted on this path", and a REJECTED row whose fail_msg is None never becomes a
+# finding at all. Every terminal verdict line now carries the tally so the machinery is seen alive.
+_REJECT_TALLY = {}
+
+
 def band_row(band, tag, block, pass_, stage, mine, ref, stage_lines, fails, fail_msg=None,
              name_key=None):
     """One arm's stage against one pinned stage: the metrics, the oracle's own verdict, one line.
@@ -773,9 +799,598 @@ def band_row(band, tag, block, pass_, stage, mine, ref, stage_lines, fails, fail
                "PASS" if ok else "FAIL", why))
     print(line)
     stage_lines.append(line)
+    if not ok:
+        _REJECT_TALLY["rejected"] = _REJECT_TALLY.get("rejected", 0) + 1
+        # A REJECTED row with fail_msg=None is an EXPECTED rejection (a sabotage or control row);
+        # one with a fail_msg is a finding. The two must never be conflated, and the counts below
+        # are what prove the classifier ran in this very run rather than in some earlier one.
+        key = "untaxed" if fail_msg is None else "taxed"
+        _REJECT_TALLY[key] = _REJECT_TALLY.get(key, 0) + 1
     if not ok and fail_msg is not None:
         fails.append(fail_msg(block, pass_, stage, why) if callable(fail_msg) else fail_msg)
     return ok, m
+
+
+# ------------------------------------------------------- the q_hat reduction rulers (§04.4, D-23)
+#
+# The band on `q_hat` is a statement about the PROBE, not about this kernel: each licensed key is
+# `BAND_FACTORS[key]` x the worst record in the probe population, and each record is one arm's
+# distance to the f64 anchor. So the ruler that decides whether a new spelling of §04.4's l2norm is
+# inside the family the band was sized from is the arm's OWN distance to that anchor, and it has to
+# be computed here in plain numbers: `torch` only READS pinned tensors in this file, so nothing in an
+# arithmetic path shares a compiler with the arm being judged.
+#
+# Three spellings are transcribed once, here, and every `q_hat` number this gate prints uses them:
+#   `qhat_sumsq`   a row of f32 squares combined in one of the three shapes `gdn_sumsq` has — the
+#                  shipped pairwise tree, the wide-f64 alternative, the pre-fix ascending f32.
+#   `qhat_l2`      §04.4's l2norm exactly as `gdn_item_enter` spells it: f32 products, eps added IN
+#                  f32, the reciprocal root taken in double and rounded once, and the scale as TWO
+#                  multiplies `(q * rq) * qs` with `qs = (float)(1/sqrt(128))`. Folding the two
+#                  constants into one product is a different f32 and the model stops being the arm.
+#   `qhat_anchor`  the f64 exact arm: same program, f64 accumulation, a DIVIDE by sqrt(d_k), result
+#                  left in f64. Rounding it to f32 here would move every distance by up to half an
+#                  ULP and break the agreement with the probe log it is reconciled against.
+
+QH_PROBE_LOG = REPO / "speccheck" / "evidence" / "gdn-floor-probe-2026-10-26.txt"
+# The floor probe's two table shapes: one record line per (pass, arm, stage) and one band summary
+# line per stage inside the `### band` section. Both parsers must account for every line they claim
+# (`pitfalls/40` §a check that can produce no output cannot fail).
+QH_STAGES = r"q_hat|k_hat|scan_out|core_attn|state|normed|y"
+QH_REC_RE = re.compile(r"^\s+(\S+)\s+(\S+)\s+(" + QH_STAGES + r")\s+(float32|float64)\s+"
+                       r"([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+(\d+)/(\d+)"
+                       r"(?:\s+(\S*))?\s*$")
+QH_REC_SEEN = re.compile(r"\s(" + QH_STAGES + r")\s+(?:float32|float64)\s")
+QH_SUM_RE = re.compile(r"^\s+(" + QH_STAGES + r")\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d.eE+-]+)"
+                       r"\s+([\d.eE+-]+)")
+
+
+def qhat_sumsq(p: np.ndarray, form: str) -> np.ndarray:
+    """One row of f32 squares, combined the way `gdn_sumsq` combines it. `form` names the spelling
+    in the header: "tree" (shipped), "wide64" (`GDN_SUMSQ_WIDE_F64`, llama.cpp's shape), "asc32"
+    (`GDN_BROKEN_SUMSQ_ASC32`, the pre-fix defect and the control build). Last axis is reduced."""
+    n = int(p.shape[-1])
+    if n & (n - 1):
+        raise Refuse("q_hat sum-of-squares over %d terms: the declared tree halves to 1, so the "
+                     "term count has to be a power of two (as gdn_kernels.h's #error says)" % n)
+    if form == "tree":
+        t = p.copy()
+        w = n
+        while w > 1:
+            h = w >> 1
+            t[..., :h] = (t[..., :h] + t[..., h:w]).astype(np.float32)
+            w = h
+        return t[..., 0]
+    if form == "wide64":
+        acc = np.zeros(p.shape[:-1], dtype=np.float64)
+        for i in range(n):
+            acc = acc + p[..., i].astype(np.float64)
+        return acc.astype(np.float32)
+    if form == "asc32":
+        acc = np.zeros(p.shape[:-1], dtype=np.float32)
+        for i in range(n):
+            acc = (acc + p[..., i]).astype(np.float32)
+        return acc
+    raise Refuse("unknown gdn_sumsq spelling %r" % (form,))
+
+
+def qhat_l2(x: np.ndarray, form: str) -> np.ndarray:
+    """§04.4's l2norm as `gdn_item_enter` spells it, with the sum-of-squares spelling selectable."""
+    sq = qhat_sumsq((x * x).astype(np.float32), form)
+    root = 1.0 / np.sqrt((sq + np.float32(G.L2NORM_EPS)).astype(np.float32).astype(np.float64))
+    rq = np.asarray(root, dtype=np.float32)
+    qs = np.float32(1.0 / np.sqrt(128.0))
+    return ((x * rq[..., None]).astype(np.float32) * qs).astype(np.float32)
+
+
+def qhat_anchor(x: np.ndarray) -> np.ndarray:
+    """The f64 exact arm (`gdn_ref.Form("exact")`'s shape): f64 accumulation, DIVIDE by sqrt(d_k),
+    and the result stays f64 — that is what the probe log's records are distances to."""
+    xf = x.astype(np.float64)
+    r = 1.0 / np.sqrt((xf * xf).sum(axis=-1) + np.float64(G.L2NORM_EPS))
+    return xf * (r[..., None] / np.sqrt(float(x.shape[-1])))
+
+
+def qhat_f32_words(a) -> np.ndarray:
+    """The u32 bit image of f32 values, for zero-tolerance word comparisons."""
+    return np.ascontiguousarray(np.asarray(a, dtype=np.float32)).view(np.uint32)
+
+
+def qhat_f64_of_words(w) -> np.ndarray:
+    """f64 values from u32 bit images — the widening used for every distance, never `.view`."""
+    return np.ascontiguousarray(np.asarray(w, dtype=np.uint32)).view(np.float32).astype(np.float64)
+
+
+def qhat_probe_log() -> dict:
+    """Parse the pinned floor-probe log: every per-record line, and the band summary block.
+
+    Refuses rather than reports a short parse: printed count must equal parsed count, or a drifted
+    log format would silently shrink the population this whole argument is sized from."""
+    if not QH_PROBE_LOG.exists():
+        raise Refuse("%s is missing: the q_hat population check reads the probe log the band was "
+                     "derived from, and cannot be run without it" % QH_PROBE_LOG)
+    recs, summary, printed, unparsed = [], {}, 0, 0
+    in_band = False
+    for ln in QH_PROBE_LOG.read_text().splitlines():
+        if ln.startswith("###"):
+            in_band = ln.startswith("### band")
+            continue
+        if QH_REC_SEEN.search(ln):
+            printed += 1
+            m = QH_REC_RE.match(ln)
+            if not m:
+                unparsed += 1
+                print("QHATUNPARSED %s" % ln.strip())
+                continue
+            recs.append(dict(pass_=m.group(1), arm=m.group(2), stage=m.group(3), dtype=m.group(4),
+                             maxabs=float(m.group(5)), oneminus=float(m.group(6)),
+                             meanrel=float(m.group(7)), perhead=float(m.group(8)),
+                             ndiff=int(m.group(9)), n=int(m.group(10)), fold=m.group(11) or ""))
+        if in_band:
+            m = QH_SUM_RE.match(ln)
+            if m:
+                summary[m.group(1)] = dict(arms=int(m.group(2)), passes=int(m.group(3)),
+                                           records=int(m.group(4)), probe_maxabs=float(m.group(5)),
+                                           band_maxabs=float(m.group(6)))
+    if printed != len(recs) or printed == 0:
+        raise Refuse("probe log parse: printed=%d parsed=%d unparsed=%d — parsed != printed is a "
+                     "refusal, not a partial read (pitfalls/40)" % (printed, len(recs), unparsed))
+    if len(summary) != len(STAGES):
+        raise Refuse("probe log band summary parsed %d stage rows, this lane bands %d stages"
+                     % (len(summary), len(STAGES)))
+    print("PROBELOG file=%s printed_lines=%d parsed=%d equal=1 band_summary_rows=%d "
+          "derived_rows=%d note=the log is read-only here; it is the population the band folds and "
+          "the ruler these checks reconcile against, so both parsers are required to account for "
+          "every line they claim"
+          % (QH_PROBE_LOG.name, printed, len(recs), len(summary), len(STAGES)))
+    return dict(recs=recs, summary=summary, printed=printed)
+
+
+def qhat_checks(band, digest, recs, blocks, T, plan, ins, wts, armres, fails, counts, chk):
+    """The `q_hat` reduction, made permanent (D-23).
+
+    Called at the end of the `band` section, where the honest arm's own `q_hat` words are already in
+    scope (`armres`). Five checks, and every one of them is witnessed RED in this same run — by
+    `build/host_probe_sumsq`, the same source with the pre-fix ascending accumulator put back, or by
+    a tampered copy of the band written into `work/`. Findings are recorded through `chk`, which
+    appends to `fails` itself; `fails` is carried so the call site reads like the section's own.
+
+    The band's shape is why these are the right checks. Each licensed key is `BAND_FACTORS[key]` x the
+    worst record in the probe population, and every record is one arm's distance to the f64 anchor,
+    so `licensed.max_abs = 2 x population_max` is the triangle inequality on
+    `|arm - pinned| <= |arm - anchor| + |pinned - anchor|`. An implementation is inside the family the
+    band sizes only if its OWN distance to the anchor is inside that population maximum — the leg a
+    plain band verdict cannot see, and the leg the old kernel failed: it measured 2.980e-08 against
+    `pinned` (licence 2.900e-08) and 2.626e-08 against the anchor (population 1.450e-08). Licensing
+    it would have needed ~5.25e-08 — a relaxation, reserved to the user, refused. No band, probe or
+    digest is written by anything here."""
+    n_before = len(chk.names)
+    qprobe = band["q_hat"]["probe"]["max_abs"]
+    qlic = band["q_hat"]["max_abs"]
+    qmrel = band["q_hat"]["mean_rel"]
+    plog = qhat_probe_log()
+
+    # ---- one ruler per block, and the three spellings of §04.4's reduction measured against it
+    per = {}
+    for i, block in enumerate(blocks):
+        q_pre = dump_tensor(recs, block, "prefill", "q_pre")
+        ref = dump_tensor(recs, block, "prefill", "q_hat")
+        h_k, h_v, d = int(q_pre.shape[2]), int(ref.shape[1]), int(q_pre.shape[3])
+        if (q_pre.ndim != 4 or int(q_pre.shape[1]) != T or int(ref.shape[2]) != T
+                or int(ref.shape[3]) != d or h_v % h_k or d & (d - 1)):
+            raise Refuse("%s/prefill: q_pre %s and q_hat %s are not the [1,T,h_k,d] -> [1,h_v,T,d] "
+                         "expansion with h_v a multiple of h_k and a power-of-two d_k; the head "
+                         "expansion below would be a guess about the dump's orientation"
+                         % (block, tuple(q_pre.shape), tuple(ref.shape)))
+        # `q_pre` is [1,T,h_k,d]; every STAGE tensor is the oracle's scan orientation [1,h_v,T,d].
+        # The key-to-value-head expansion is a broadcast and the transpose a permute: neither is a
+        # reduction, so neither can move a number the ruler is computed from.
+        x = np.transpose(np.repeat(q_pre.to(torch.float32).numpy()[0], h_v // h_k, axis=1),
+                         (1, 0, 2))
+        pin = ref.numpy()[0]
+        arm = stage_tensor(armres, i, T, "q_hat")
+        armw = words_of(arm).reshape(-1)
+        if int(arm.numel()) != pin.size:
+            raise Refuse("%s: the arm emitted %d q_hat words, the dump holds %d elements"
+                         % (block, int(arm.numel()), pin.size))
+        anch = qhat_anchor(x)
+        pin64 = pin.astype(np.float64)
+        forms = {}
+        for form in ("tree", "wide64", "asc32"):
+            m = qhat_l2(x, form)
+            m64 = m.astype(np.float64)
+            mw = qhat_f32_words(m).reshape(-1)
+            pw = qhat_f32_words(pin).reshape(-1)
+            forms[form] = dict(model=m, words=mw,
+                               vs_anchor=float(np.abs(m64 - anch).max()),
+                               vs_pinned=float(np.abs(m64 - pin64).max()),
+                               ndiff_vs_pinned=int((mw != pw).sum()),
+                               vs_arm_ndiff=int((mw != armw).sum()))
+        plog_pin = {(r["pass_"], r["arm"]): r for r in plog["recs"] if r["stage"] == "q_hat"}[
+            ("%s/pinned/prefill" % block, "pinned")]
+        pinned_vs_anchor = float(np.abs(pin64 - anch).max())
+        per[block] = dict(i=i, ref=ref, pin=pin, anch=anch, armw=armw, forms=forms, n=int(pin.size),
+                          pinned_vs_anchor=pinned_vs_anchor,
+                          ruler_matches_log=float("%.3e" % pinned_vs_anchor) == plog_pin["maxabs"],
+                          log_pinned_record=plog_pin["maxabs"],
+                          arm_vs_anchor=forms["tree"]["vs_anchor"],
+                          arm_vs_pinned=forms["tree"]["vs_pinned"],
+                          ndiff_vs_pinned=forms["tree"]["ndiff_vs_pinned"],
+                          model_vs_arm_ndiff=forms["tree"]["vs_arm_ndiff"])
+        print("QHATRULER block=%s stage=q_hat n=%d d_k=%d h_k=%d h_v=%d shipped=pairwise_f32_tree "
+              "model_vs_compiled_arm_ndiff=%d arm_vs_anchor=%.6e arm_vs_pinned=%.6e "
+              "ndiff_vs_pinned=%d pinned_vs_anchor=%.6e probe_log_pinned_record=%.3e "
+              "probe_population_max=%.17g licensed_max_abs=%.17g inside_population=%s "
+              "inside_licence=%s note=the reference's own distance to this anchor is the probe log's "
+              "own `pinned` record for this row, which is what makes the anchor the oracle's and not "
+              "one this gate invented"
+              % (block, per[block]["n"], d, h_k, h_v, per[block]["model_vs_arm_ndiff"],
+                 per[block]["arm_vs_anchor"], per[block]["arm_vs_pinned"],
+                 per[block]["ndiff_vs_pinned"], pinned_vs_anchor, per[block]["log_pinned_record"],
+                 qprobe, qlic, per[block]["arm_vs_anchor"] <= qprobe,
+                 per[block]["arm_vs_pinned"] <= qlic))
+        for form, label, shipped in (("tree", "pairwise_f32_tree", 1),
+                                     ("wide64", "wide_f64_accumulator_llama_cpp_shape", 0),
+                                     ("asc32", "ascending_f32_pre_fix_defect", 0)):
+            f = forms[form]
+            print("QHATARM block=%s arm=%s shipped=%d source=numpy_model_of_gdn_sumsq "
+                  "arm_vs_anchor=%.6e inside_population=%s arm_vs_pinned=%.6e ndiff_vs_pinned=%d "
+                  "inside_licensed_max_abs=%s"
+                  % (block, label, shipped, f["vs_anchor"], f["vs_anchor"] <= qprobe,
+                     f["vs_pinned"], f["ndiff_vs_pinned"], f["vs_pinned"] <= qlic))
+
+    # ---- 1: the numpy spelling IS the compiled arm, at zero tolerance
+    derived_words = len(blocks) * stage_words(T)["q_hat"]
+    seen_words = sum(p["n"] for p in per.values())
+    model_ndiff = sum(p["model_vs_arm_ndiff"] for p in per.values())
+    chk.check("qhat_numpy_model_bit_identical",
+              derived_words > 0 and seen_words == derived_words and model_ndiff == 0,
+              "words=%d derived=%d differing_words_vs_compiled_arm=%d blocks=%s "
+              "source=stage_tensor(armres) vs qhat_l2(x,'tree') "
+              "note=every q_hat distance printed in this run is measured from this model, so the "
+              "model has to be the arm and not a look-alike; a spelling that differs from the "
+              "compiled words by one word would make the population check below about numpy "
+              "(witness: sumsq_control_breaks_the_model_bit_identity)"
+              % (seen_words, derived_words, model_ndiff, ",".join(blocks)))
+
+    # ---- 2: the leg the band cannot see on its own — the arm's own distance to the anchor
+    inside = [p["arm_vs_anchor"] <= qprobe for p in per.values()]
+    ruler_ok = all(p["ruler_matches_log"] for p in per.values())
+    chk.check("qhat_arm_inside_probe_population",
+              len(per) == len(blocks) and all(inside) and ruler_ok,
+              "arm_vs_anchor=%s inside=%d/%d probe_population_max=%.17g licensed_max_abs=%.17g "
+              "ruler_agrees_with_probe_log_pinned_records=%s "
+              "note=THIS is the verdict: licensed max_abs is 2 x this population maximum because the "
+              "band is a triangle inequality on the probe, so an arm inside the licence by being "
+              "OUTSIDE the population is outside the family the band sizes even when its row passes. "
+              "The reference's own f32 arm sits in the same population, which is the second direction. "
+              "(witness: sumsq_control_is_outside_the_probe_population)"
+              % (",".join("%s=%.6e" % (b, per[b]["arm_vs_anchor"]) for b in per),
+                 sum(inside), len(per), qprobe, qlic, ruler_ok))
+
+    # ---- 3: the rows are ACCEPTED and the licence grants them, at the pinned digest
+    row_ok, lic_ok, rows = [], [], []
+    for block in sorted(per):
+        p = per[block]
+        ag = G.aggregates(stage_tensor(armres, p["i"], T, "q_hat").reshape(p["ref"].shape),
+                          p["ref"], name="%s/pinned/prefill|%s" % (block, "q_hat"), stage="q_hat")
+        ok, why = G.band_check_row(band, "q_hat", ag)
+        pass_key = "%s/pinned/%s" % (block, "prefill")
+        licensed, lwhy = G.band_licenses(band, pass_key, "q_hat", *LICENCE_PAIR)
+        row_ok.append(ok)
+        lic_ok.append(licensed)
+        rows.append(G.cross_form_key(pass_key, *LICENCE_PAIR))
+        p["ag"] = ag
+        p["band_ok"] = ok
+        print("QHATROW block=%s row=%s max_abs=%.6e licensed=%.6e per_head=%.6e mean_rel=%.6e "
+              "licensed_mean_rel=%.6e band=%s licence_granted=%d digest_pinned=%d why=%s licence=%s"
+              % (block, rows[-1], ag["max_abs"], band["q_hat"]["max_abs"], ag["per_head_max"],
+                 ag["mean_rel"], band["q_hat"]["mean_rel"], "ACCEPTED" if ok else "REJECTED",
+                 int(licensed), int(digest == BAND_DIGEST), why, lwhy))
+    chk.check("qhat_rows_accepted_and_licensed",
+              len(rows) == len(blocks) and all(row_ok) and all(lic_ok) and digest == BAND_DIGEST,
+              "rows=%s accepted=%d/%d licensed=%d/%d band_digest=%s note=the verdict is "
+              "band_check_row's and the licence is band_licenses', both over the pair this row "
+              "actually measures (%s); the digest pin is what stops a regenerated band from being "
+              "judged against itself (witnesses: sumsq_control_is_red_at_the_unchanged_band for the "
+              "band leg, qhat_licence_fires_on_a_revoked_prefill_row for the licence leg)"
+              % (",".join(rows), sum(row_ok), len(rows), sum(lic_ok), len(rows), digest[:16],
+                 "|".join(LICENCE_PAIR)))
+
+    # ---- 4: the licence is a fold of its own probe, recomputed rather than trusted
+    folds = [(st, key, band[st]["probe"][key] * G.BAND_FACTORS[key], band[st][key])
+             for st in sorted(band) for key in sorted(G.BAND_FACTORS)]
+    folds_ok = [f[2] == f[3] for f in folds]
+    qsum = plog["summary"]["q_hat"]
+    qrecs = [r for r in plog["recs"] if r["stage"] == "q_hat" and r["fold"] == "folded"]
+    log_max = max(r["maxabs"] for r in qrecs)
+    log_probe_keys = dict(maxabs=log_max,
+                          mean_rel=max(r["meanrel"] for r in qrecs))
+    print("QHATFOLD stages=%d keys=%d folds_checked=%d every_licensed_equals_probe_times_factor=%s | "
+          "q_hat parsed_folded_records=%d summary_records_column=%d equal=%s | "
+          "log_worst_probe_maxabs=%.3e band_probe_maxabs_at_log_precision=%.3e "
+          "log_band_maxabs=%.3e licensed_at_log_precision=%.3e | source=%s"
+          % (len(band), len(G.BAND_FACTORS), len(folds), all(folds_ok), len(qrecs),
+             qsum["records"], len(qrecs) == qsum["records"], log_probe_keys["maxabs"],
+             float("%.3e" % qprobe), qsum["band_maxabs"], float("%.3e" % qlic),
+             QH_PROBE_LOG.name))
+    chk.check("qhat_bound_is_a_fold_of_its_probe",
+              len(folds) == len(band) * len(G.BAND_FACTORS) and all(folds_ok)
+              and len(qrecs) == qsum["records"] and len(qrecs) > 0
+              and float("%.3e" % qprobe) == log_max
+              and float("%.3e" % qlic) == qsum["band_maxabs"],
+              "folds_ok=%d/%d q_hat records parsed=%d summary=%d worst_log_record=%.3e "
+              "band_probe=%.3e summary_probe_column=%.3e summary_band_column=%.3e licensed=%.17g "
+              "note=the licensed number is re-derived from the log's own per-record table instead of "
+              "read off the band file, at the log's own printed precision, so a hand-edited bound "
+              "fails here as well as in load_band (witnesses: band_tamper_wider_is_refused_by_load_band, "
+              "band_tamper_narrower_is_refused_by_load_band, "
+              "band_probe_consistent_inflation_is_caught_by_the_digest)"
+              % (sum(folds_ok), len(folds), len(qrecs), qsum["records"], log_probe_keys["maxabs"],
+                 qprobe, qsum["probe_maxabs"], qsum["band_maxabs"], qlic))
+
+    # ---- 5: the band still refuses a perturbation at a rung derived from its own number
+    rung = int(np.floor(-np.log2(8.0 * qmrel)))
+    if rung < 1:
+        raise Refuse("the derived perturbation rung is %d: licensed mean_rel %.3e is too wide for "
+                     "8x to be expressible, so this check has no rung and must not be run" % (rung,
+                                                                                              qmrel))
+    rel = float(2.0 ** (-rung))
+    factor_ratio = rel / qmrel
+    pert_ok, ratios = [], []
+    for block in sorted(per):
+        p = per[block]
+        pert = (p["forms"]["tree"]["model"] * np.float32(1.0 + rel)).astype(np.float32)
+        agp = G.aggregates(torch.from_numpy(pert).reshape(p["ref"].shape), p["ref"],
+                           name="qhat_rung/%s/%s" % (block, "q_hat"), stage="q_hat")
+        ok_p, why_p = G.band_check_row(band, "q_hat", agp)
+        ratios.append(agp["mean_rel"] / qmrel)
+        pert_ok.append(not ok_p)
+        p["perturbed"] = (pert, agp, ok_p, why_p)
+        print("QHATRUNG block=%s rung=%d derived_from=floor(-log2(8 x licensed_mean_rel)) "
+              "licensed_mean_rel=%.6e factor=1+2^-%d relative=%.10g factor_ratio_to_licensed=%.4g "
+              "perturbed_mean_rel=%.6e measured_ratio_to_licensed=%.4g band=%s unperturbed_band=%s "
+              "why=%s"
+              % (block, rung, qmrel, rung, 1.0 + rel, factor_ratio, agp["mean_rel"],
+                 agp["mean_rel"] / qmrel, "REJECTED" if not ok_p else "ACCEPTED",
+                 "ACCEPTED" if p["band_ok"] else "REJECTED", why_p))
+    chk.check("qhat_band_rejects_a_perturbation_at_a_derived_rung",
+              len(pert_ok) == len(blocks) and all(pert_ok)
+              and all(p["band_ok"] for p in per.values())
+              and factor_ratio >= 8.0 and min(ratios) > 1.0,
+              "rung=%d factor=1+2^-%d relative_factor_ratio_to_licensed=%.4g measured_mean_rel_ratio="
+              "%s rejected=%d/%d unperturbed_accepted=%d/%d "
+              "note=the rung comes from the band's own licensed mean_rel and nothing else, and the "
+              "UNPERTURBED row must still pass the same comparator, so a predicate that rejects "
+              "everything cannot pass this. The measured ratio sits a little under 8 because the "
+              "perturbation partly cancels the error that is already there — a real property of a "
+              "signed difference, printed rather than hidden "
+              "(witness: qhat_perturbation_fires_on_a_probe_consistent_inflation)"
+              % (rung, rung, factor_ratio, ",".join("%.4g" % r for r in ratios), sum(pert_ok),
+                 len(pert_ok), sum(1 for p in per.values() if p["band_ok"]), len(per)))
+
+    # ---- the two licensed alternatives, measured side by side, plus the pre-fix row
+    alt_ok, alt_words_differ = {}, None
+    for form in ("tree", "wide64", "asc32"):
+        alt_ok[form] = all(per[b]["forms"][form]["vs_anchor"] <= qprobe
+                           and per[b]["forms"][form]["vs_pinned"] <= qlic for b in per)
+    alt_words_differ = int((per[sorted(per)[0]]["forms"]["tree"]["words"]
+                            != per[sorted(per)[0]]["forms"]["wide64"]["words"]).sum())
+    chk.check("qhat_reduction_alternatives_both_licensed",
+              alt_ok["tree"] and alt_ok["wide64"] and (not alt_ok["asc32"]) and alt_words_differ > 0,
+              "pairwise_f32_tree_inside=%s wide_f64_accumulator_inside=%s "
+              "ascending_f32_pre_fix_inside=%s tree_vs_wide64_differing_words=%d "
+              "note=the shipped form and llama.cpp's wide-accumulator shape are both inside the "
+              "population AND the licence at the SAME max_abs, which is what lets the device "
+              "budget (fp64 is derated on gfx1151; AGENTS.md §GOAL's >= 48 t/s bar) pick the tree "
+              "without touching the licence; the pre-fix ascending row is inside NEITHER, which is "
+              "the second direction this predicate needs to have teeth "
+              "(witness: sumsq_control_is_outside_the_probe_population)"
+              % (alt_ok["tree"], alt_ok["wide64"], alt_ok["asc32"], alt_words_differ))
+
+    qhat_witness_control(band, blocks, T, plan, ins, wts, per, qprobe, chk)
+    qhat_witness_band(band, digest, per, blocks, chk)
+    counts["qhat_words"] = seen_words
+    counts["qhat_probe_records"] = len(qrecs)
+    counts["qhat_probe_log_records"] = plog["printed"]
+    counts["qhat_derived_rung"] = rung
+    counts["qhat_checks_added"] = len(chk.names) - n_before
+
+
+def qhat_witness_control(band, blocks, T, plan, ins, wts, per, qprobe, chk):
+    """`build/host_probe_sumsq` — the same source with `-DGDN_BROKEN_SUMSQ_ASC32`, one ascending f32
+    accumulator — witnessed doing three separate damage jobs at the UNCHANGED band.
+
+    This is the proof the fix is load-bearing and not cosmetic. Under the control:
+      1. the `q_hat` row is REJECTED at the licence as it stands (the old red: 2.980e-08 against a
+         licensed 2.900e-08) and its words differ from the shipped arm's;
+      2. its own distance to the anchor is OUTSIDE the population maximum, so the population check
+         rejects it and not only the band — the leg that would have been silently relaxed had anyone
+         widened the bound to ~5.25e-08 to accommodate it;
+      3. the numpy model of the SHIPPED spelling no longer reproduces its words, while the model of
+         the ascending spelling reproduces them at zero tolerance. That is what licenses using the
+         model as the ruler at all: it tracks the compiled arm across a change of spelling, so the
+         thing check 1 verified is the arm and not a look-alike that happens to agree today.
+    A missing control build is a named refusal in all three witnesses (the same third state D-21 uses
+    for the pad witness), not a silence: a witness that cannot run has witnessed nothing."""
+    names = ("sumsq_control_is_red_at_the_unchanged_band",
+             "sumsq_control_is_outside_the_probe_population",
+             "sumsq_control_breaks_the_model_bit_identity")
+    if not SUMSQ.exists():
+        for nm in names:
+            chk.witness(nm, False,
+                        "build=%s exists=0 note=run ./build.sh --broken. With no build that is RED at "
+                        "the unchanged band, the q_hat ACCEPTED verdict restates the number it prints"
+                        % SUMSQ)
+        return
+    ctl = run_arm(SUMSQ, "host_twin", plan, ins, wts, "sumsq")
+    parse_arm(ctl, len(blocks), T)
+    red, moved, outside, model_breaks, model_matches = [], [], [], [], []
+    for block in sorted(per):
+        p = per[block]
+        ref = p["ref"]
+        mine = stage_tensor(ctl, p["i"], T, "q_hat")
+        w = words_of(mine).reshape(-1)
+        w64 = qhat_f64_of_words(w)
+        ag = G.aggregates(mine.reshape(ref.shape), ref, name="sumsq_control/%s/q_hat" % block,
+                          stage="q_hat")
+        ok, why = G.band_check_row(band, "q_hat", ag)
+        vs_anchor = float(np.abs(w64 - p["anch"].reshape(-1)).max())
+        vs_pin = float(np.abs(w64 - p["pin"].astype(np.float64).reshape(-1)).max())
+        nd_honest = int((w != p["armw"]).sum())
+        nd_tree = int((w != p["forms"]["tree"]["words"]).sum())
+        nd_asc = int((w != p["forms"]["asc32"]["words"]).sum())
+        red.append(not ok)
+        moved.append(nd_honest > 0)
+        outside.append(vs_anchor > qprobe)
+        model_breaks.append(nd_tree > 0)
+        model_matches.append(nd_asc == 0)
+        print("QHATCONTROL block=%s build=host_probe_sumsq define=GDN_BROKEN_SUMSQ_ASC32 "
+              "ndiff_vs_shipped_arm=%d arm_vs_anchor=%.6e outside_population=%s arm_vs_pinned=%.6e "
+              "ndiff_vs_pinned=%d licensed_max_abs=%.17g population_max=%.17g band=%s "
+              "model_tree_words_differ=%d model_asc32_words_differ=%d why=%s"
+              % (block, nd_honest, vs_anchor, vs_anchor > qprobe, vs_pin, ag["ndiff"],
+                 band["q_hat"]["max_abs"], qprobe, "REJECTED" if not ok else "ACCEPTED",
+                 nd_tree, nd_asc, why))
+    print("QHATCONTROLSUM build=host_probe_sumsq blocks=%d rejected=%d/%d outside_population=%d/%d "
+          "model_shipped_broken=%d/%d model_pre_fix_matches=%d/%d note=the pre-fix spelling, "
+          "compiled; these are the two red rows of HANDOFF §SLICE 4, and the point of printing them "
+          "from a build is that they are red at a band nothing in this run touched"
+          % (len(per), sum(red), len(per), sum(outside), len(per), sum(model_breaks), len(per),
+             sum(model_matches), len(per)))
+    chk.witness("sumsq_control_is_red_at_the_unchanged_band",
+                len(red) == len(blocks) and all(red) and all(moved),
+                "rejected=%d/%d every_row_moved_vs_shipped_arm=%s licensed_max_abs=%.17g "
+                "note=the band, its probe block and its digest are the ones the honest run judged; a "
+                "build that stayed inside them would mean the shipped change did nothing"
+                % (sum(red), len(red), all(moved), band["q_hat"]["max_abs"]))
+    chk.witness("sumsq_control_is_outside_the_probe_population",
+                len(outside) == len(blocks) and all(outside),
+                "outside=%d/%d population_max=%.17g note=the same predicate check 2 applies to the "
+                "shipped arm, applied to the pre-fix arm, is false — that is the measured difference "
+                "between `the band was one rounding tight` and `the kernel was outside the family the "
+                "band sizes`, and the reason ~5.25e-08 was never on the table"
+                % (sum(outside), len(outside), qprobe))
+    chk.witness("sumsq_control_breaks_the_model_bit_identity",
+                len(model_breaks) == len(blocks) and all(model_breaks) and all(model_matches),
+                "model_shipped_differs_from_control=%d/%d model_pre_fix_identical_to_control=%d/%d "
+                "note=both directions: the shipped model must NOT describe the control's words and "
+                "the pre-fix model must describe them exactly, or the ruler check 1 verified belongs "
+                "to a spelling nobody compiled"
+                % (sum(model_breaks), len(model_breaks), sum(model_matches), len(model_matches)))
+
+
+def qhat_tampered_band_file(tag, mutate):
+    """Write a tampered COPY of the band into work/ and return its path.
+
+    Only the file's own bytes are read and nothing at `G.BAND_PATH` is ever written, so the honest
+    object the witnesses are compared against cannot be moved by the tampering."""
+    doc = json.loads(G.BAND_PATH.read_text())
+    mutate(doc["band"])
+    path = WORK / ("band_tamper_qhat_%s.json" % tag)
+    path.write_text(json.dumps(doc))
+    return path
+
+
+def qhat_witness_band(band, digest, per, blocks, chk):
+    """The band itself, witnessed as a live constraint and not a transcription.
+
+    Three tamperings, each printed beside the honest leg so no witness can fire on a broken tool:
+      wider / narrower   one licensed key moved on its own. `load_band` enforces
+                         `licensed == probe x BAND_FACTORS` per key, so either direction is an
+                         `AssertionError`. Both directions are needed: a reader that refused every
+                         file would pass a one-sided test.
+      probe-consistent   probe and licensed moved TOGETHER, which is arithmetically self-consistent
+                         and therefore exactly the edit `load_band` cannot refuse. The pinned digest
+                         is what catches it, so this is the witness that the digest pin is load-
+                         bearing and not decoration — the (a) that was rejected in this slice.
+      revoked row        the licence grant for one prefill row withdrawn from an in-memory copy, so
+                         the ACCEPTED-plus-licensed check is shown to answer to the table.
+      inflated + rung    the derived-rung perturbation, judged under the inflated band: it passes """
+    honest_digest = G.band_digest(G.load_band(G.BAND_PATH))
+
+    def tamper_one(factor):
+        def mutate(b):
+            ent = b["q_hat"]
+            ent["max_abs"] = ent["probe"]["max_abs"] * G.BAND_FACTORS["max_abs"] * factor
+        return mutate
+
+    for label, factor, name in (("wider", 2.0, "band_tamper_wider_is_refused_by_load_band"),
+                                ("narrower", 0.5, "band_tamper_narrower_is_refused_by_load_band")):
+        path = qhat_tampered_band_file(label, tamper_one(factor))
+        refused, reason = False, ""
+        try:
+            G.load_band(path)
+        except AssertionError as exc:
+            refused, reason = True, str(exc)
+        chk.witness(name, refused and honest_digest == BAND_DIGEST,
+                    "tamper=q_hat.max_abs_x%s file=%s refused=%s "
+                    "honest_still_loads_at_pinned_digest=%s reason=%s note=a load_band that refused "
+                    "every file would satisfy the refused leg alone, so the honest digest beside it is "
+                    "the second direction"
+                    % (factor, path.name, refused, honest_digest == BAND_DIGEST, reason[:150]))
+
+    def inflate(b, scale=16.0):
+        for key in G.BAND_FACTORS:
+            b["q_hat"]["probe"][key] = b["q_hat"]["probe"][key] * scale
+            b["q_hat"][key] = b["q_hat"][key] * scale
+
+    infl_path = qhat_tampered_band_file("inflated", inflate)
+    infl_band, infl_ok, infl_reason = None, False, ""
+    try:
+        infl_band = G.load_band(infl_path)
+        infl_ok = True
+    except AssertionError as exc:
+        infl_reason = str(exc)
+    infl_digest = G.band_digest(infl_band) if infl_band is not None else ""
+    chk.witness("band_probe_consistent_inflation_is_caught_by_the_digest",
+                infl_ok and infl_digest != BAND_DIGEST and honest_digest == BAND_DIGEST,
+                "tamper=q_hat_probe_and_licensed_x16 file=%s load_band_accepted=%s reason=%s "
+                "inflated_digest=%s honest_digest_pinned=%d note=this is the inflation load_band "
+                "CANNOT refuse, because every key is still its own probe times its own factor; the "
+                "digest pin is the guard, which is the measured answer to `could the band have been "
+                "quietly widened to license the old kernel` "
+                % (infl_path.name, infl_ok, infl_reason[:120], infl_digest[:16],
+                   honest_digest == BAND_DIGEST))
+
+    pass_key = "%s/pinned/prefill" % sorted(per)[0]
+    row_key = G.cross_form_key(pass_key, *LICENCE_PAIR)
+    granted_honest, _ = G.band_licenses(band, pass_key, "q_hat", *LICENCE_PAIR)
+    revoked = json.loads(json.dumps(band))
+    revoked["q_hat"]["licensed_rows"] = [k for k in revoked["q_hat"].get("licensed_rows", [])
+                                         if k != row_key]
+    granted_revoked, rwhy = G.band_licenses(revoked, pass_key, "q_hat", *LICENCE_PAIR)
+    chk.witness("qhat_licence_fires_on_a_revoked_prefill_row",
+                granted_honest and not granted_revoked,
+                "row=%s stage=q_hat honest_licence=%d revoked_licence=%d revoked_reason=%s "
+                "note=the licence leg of check 3 is a lookup, so it has to be shown to answer to the "
+                "table: revoke the grant and the same call must refuse "
+                % (row_key, int(granted_honest), int(granted_revoked), rwhy[:80]))
+
+    infl_oks = []
+    if infl_band is None:
+        chk.witness("qhat_perturbation_fires_on_a_probe_consistent_inflation", False,
+                    "inflated_band=%s could_not_be_loaded=%s note=with no inflated band to judge "
+                    "against, the rung rejection has no second direction and the check stays "
+                    "unwitnessed: reason=%s" % (infl_path.name, True, infl_reason[:120]))
+        return
+    for block in sorted(per):
+        _, agp, ok_honest, why_p = per[block]["perturbed"]
+        ok_infl, why_infl = G.band_check_row(infl_band, "q_hat", agp)
+        infl_oks.append((bool(ok_infl), not ok_honest))
+        print("QHATINFLATE block=%s rung_perturbation_under_honest_band=%s "
+              "same_perturbation_under_inflated_band=%s licensed_mean_rel_honest=%.6e "
+              "inflated_mean_rel=%.6e perturbed_mean_rel=%.6e why_honest=%s why_inflated=%s"
+              % (block, "REJECTED" if not ok_honest else "ACCEPTED",
+                 "ACCEPTED" if ok_infl else "REJECTED", band["q_hat"]["mean_rel"],
+                 infl_band["q_hat"]["mean_rel"], agp["mean_rel"], why_p[:60], why_infl[:60]))
+    chk.witness("qhat_perturbation_fires_on_a_probe_consistent_inflation",
+                len(infl_oks) == len(blocks) and all(o and r for o, r in infl_oks),
+                "rejected_under_honest_band=%d/%d accepted_under_inflated_band=%d/%d "
+                "note=the rung rejection is a fact about the licensed number and not about the code: "
+                "inflate the band 16x and the same perturbation passes. That is the witness that "
+                "check 5 measures the band and not its own arithmetic "
+                % (sum(1 for _, r in infl_oks if r), len(infl_oks),
+                   sum(1 for o, _ in infl_oks if o), len(infl_oks)))
 
 
 def main() -> int:
@@ -901,14 +1516,19 @@ def main() -> int:
                 n_rows += 1
                 if st == "q_hat":
                     print("KNOWN stage=q_hat block=%s pass=prefill measured_maxabs=%.3e "
-                          "licensed_maxabs=%.3e open=user-decision note=band NOT touched NOT widened"
-                          % (block, m["maxabs"], band["q_hat"]["max_abs"]))
+                          "licensed_maxabs=%.3e band=%s resolution=kernel_reduction_form_d23 "
+                          "note=band NOT touched NOT widened: digest %s unchanged; the row closed "
+                          "when gdn_sumsq became a declared pairwise f32 tree, numbers in QHATRULER "
+                          "below"
+                          % (block, m["maxabs"], band["q_hat"]["max_abs"],
+                             "ACCEPTED" if ok else "REJECTED", digest[:16]))
         counts["stage_rows"] = n_rows
         if n_rows != len(blocks) * len(STAGES):
             fails.append("stage rows %d != derived %d" % (n_rows, len(blocks) * len(STAGES)))
         if n_rows == 0:
             raise Refuse("no stage rows: a banded verdict over nothing is a constant predicate")
         licence_tally(chk, lic, "band:single_chunk", len(blocks) * len(STAGES), counts)
+        qhat_checks(band, digest, recs, blocks, T, plan, ins, wts, armres, fails, counts, chk)
 
     # ============================================ the multi-chunk question (slice 3)
     if want("chunkcarry"):
@@ -1243,22 +1863,25 @@ def main() -> int:
         raise Refuse("no section ran; a gate that checked nothing cannot pass")
     missing = [s for s in SECTIONS if s not in ran]
     if missing:
-        print("GATE PARTIAL ran=%s missing=%s uncredited_banded_rows=%d "
+        print("GATE PARTIAL ran=%s missing=%s uncredited_banded_rows=%d findings=%d "
               "note=a partial run does not claim PASS: the three-arm "
               "claim needs the dump arm, the oracle CLI arm and the kernel arm, and one of them is "
-              "not in this run" % (",".join(ran), ",".join(missing), lic_uncredited))
+              "not in this run" % (",".join(ran), ",".join(missing), lic_uncredited, len(fails)))
         return 2
+    tally = ("findings=%d band_rows_rejected=%d rejected_untaxed=%d rejected_became_findings=%d"
+             % (len(fails), _REJECT_TALLY.get("rejected", 0),
+                _REJECT_TALLY.get("untaxed", 0), _REJECT_TALLY.get("taxed", 0)))
     if lic_uncredited:
         print("GATE QUALIFIED arms=3 stages=%d blocks=%d T=%d band_digest=%s device=none "
-              "timing=taken=no banded_rows=%d credited=%d uncredited=%d "
+              "timing=taken=no banded_rows=%d credited=%d uncredited=%d %s "
               "note=GATE PASS is unreachable while any banded row lacks a licence; this is the "
               "licence state, not a band failure and not a finding"
               % (len(STAGES), len(blocks), T, digest[:16], len(lic.rows), lic_cred,
-                 lic_uncredited))
+                 lic_uncredited, tally))
         return 1
     print("GATE PASS arms=3 stages=%d blocks=%d T=%d band_digest=%s device=none timing=taken=no "
-          "banded_rows=%d credited=%d"
-          % (len(STAGES), len(blocks), T, digest[:16], len(lic.rows), lic_cred))
+          "banded_rows=%d credited=%d %s"
+          % (len(STAGES), len(blocks), T, digest[:16], len(lic.rows), lic_cred, tally))
     return 0
 
 

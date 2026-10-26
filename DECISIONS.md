@@ -763,6 +763,7 @@ decisions so that a later session can tell who ratified what.
 | D-20 | which Higham form bands an `lm_head` dot? | **DECIDED (user, 2026-10-26)** — γ<sub>2K−1</sub> where products are measurably inexact, γ<sub>K−1</sub> where exact |
 | D-21 | under what licence are GDN decode rows judged? | **DECIDED (agent, 2026-10-26)** — `recurrent|pinned`, *conditioned* on an inside-the-arm pad witness |
 | D-22 | what does "comparable to llama.cpp" mean? | **DECIDED (agent, 2026-10-26)** — ≥ 48 t/s = 90 % of the measured 53.4 t/s median, identical recorded conditions |
+| D-23 | what reduction form does `gdn_sumsq` ship with? | **DECIDED (agent, 2026-10-26)** — pairwise f32 tree; wide fp64 accumulator kept behind a define; the band was right and was not touched |
 
 ### D-18 — may an agent decide engineering questions alone? — **DECIDED (user grant, 2026-10-26)**
 
@@ -894,6 +895,74 @@ conditions (zero workers, halogen down, `gpu_lock` held, blocking). 90 % chosen 
 would be measuring our harness rather than our engine. Ceiling context: policy A's roofline is ~95 t/s,
 so 48 t/s is 51 % of achievable and llama.cpp sits at 56 %. Two riders: the bar is meaningless until
 M3's greedy-argmax gate is green, and any figure quoted outside a clean window is not a measurement.
+### D-23 — `gdn_sumsq` reduction form — **DECIDED (agent, 2026-10-26)**
+
+**What was red, and which branch it was.** `layer0/q_hat` and `layer1/q_hat` measured `max_abs =
+2.980e-08` against a licensed `2.9000121387623423e-08` while `mean_rel` (7.0e-08 vs 1.157e-07) and
+`1-cos` sat inside. The band is a fold of its own probe — every licensed key is `BAND_FACTORS[key]` ×
+the worst record in the population, and every record is an arm's distance to the f64 anchor — so the
+real test is the arm's **own** distance to that anchor against the population maximum
+`1.4500060693811712e-08`, not merely its distance to the pinned bytes. Measured: the shipped
+ascending-f32 sum of 128 squares sat at `2.6261e-08` / `2.7572e-08` against the anchor — **outside
+every record that licensed the band** — while the reference's own f32 arm sits at `1.0003e-08` /
+`1.3538e-08` and the pinned dumps reproduce torch's reduction order bit for bit (`ndiff=0`, so the
+program measured is the program that wrote the file). **Branch (b): the kernel was wrong and the
+licence is correct and unchanged.** At the worst element (`layer0 h20 t21 d49`) the observed error
+decomposes exactly: `2.1287e-08 (arm−anchor) + 8.5153e-09 (reference−anchor) = 2.9802e-08`. Cause:
+the 128-term ascending chain accumulated in the stored width is 8 ULP off the correctly-rounded sum
+(`0.090579554438591003` against `0.090579614043235779`); the products themselves are exact except for
+64 squares underflowing into the f32 subnormals at layer1, so the additions were the only rounding
+site.
+
+**What was refused.** Licensing the old kernel needed `2 × 2.6261e-08 ≈ 5.25e-08`, i.e. nearly
+doubling a bound — a **relaxation dressed as a re-derivation**, which D-18 reserves to the user. It
+was not asked for and not done. The band file, its probe block and its digest
+(`27a68c7e82c9aa05…`) are byte-unchanged; `gate.py` now re-folds all 28 licensed numbers from the
+probe log's own per-record table (`printed=512 parsed=512 equal=1`, `q_hat folded_records=102`) so
+the licensed value is re-derived rather than trusted.
+
+**The decision: pairwise f32 tree, not the wide fp64 accumulator.** llama.cpp was consulted per D-19:
+`ggml/src/ggml-cpu/ops.cpp::ggml_compute_forward_rms_norm_f32` reduces a row of squares with
+`ggml_float sum = 0.0; sum += (ggml_float)(x[i00] * x[i00]);` and `ggml/src/ggml-cpu/vec.h` typedefs
+`ggml_float` to `double` — wide accumulator, ascending, one accumulator, products still f32. A
+follow-on lane first shipped exactly that shape, and the main agent overrode the choice on hardware
+grounds: `ggml_float` is nearly free on a CPU, whereas this target is a Strix Halo iGPU (`gfx1151`)
+with heavily derated fp64 and `gdn_sumsq` sits on the per-token path that has to clear D-22's ≥ 48 t/s
+bar. **This is D-19's own boundary applied to D-19's own example**: llama.cpp reaches a good property
+(combine with more headroom than the storage offers) by paying in a budget that is not ours, so the
+property is adopted and the spelling is not. Both candidates are inside the population *and* the
+licence at the **same** `max_abs`, so nothing in the numbers forces the choice:
+
+| spelling of the 128-square sum | `q_hat` vs pinned (licence 2.900e-08) | arm vs f64 anchor (population 1.450e-08) | verdict |
+|---|---|---|---|
+| ascending f32 accumulator (pre-fix) | 2.980e-08, ndiff 71,750 / 74,172 | 2.626e-08 / 2.757e-08 | **outside both — REJECTED** |
+| f32 products, `double` accumulator (llama.cpp shape) | 1.490e-08, ndiff 33,922 / 36,356 | 9.987e-09 / 1.001e-08 | inside both — available behind `GDN_SUMSQ_WIDE_F64` |
+| **pairwise f32 tree (shipped)** | **1.490e-08, ndiff 36,830 / 36,242** | **1.263e-08 / 8.311e-09** | **inside both — shipped default** |
+
+The tree is within a factor of ~1.26 of the fp64 form on the anchor distance (further at layer0,
+closer at layer1) and identical on `max_abs`. It is a *declared* tree: the association is spelled in
+the source (halving levels over the f32 products), the `-ffp-contract=off` / no-fast-math rule still
+applies, and both compiled arms still agree at zero tolerance (`PAIR … out.bin 35,143,680 B
+ndiff_bytes=0` on both plans). No input's numeric width moved anywhere, so D-17 is not in play.
+
+**How it is checked rather than believed.** `gate.py`'s `qhat_*` checks re-measure all three rows of
+that table every run from a numpy ruler that reproduces the compiled arm's `q_hat` words at zero
+tolerance (262,144 words), and eight witnesses fire in the same run: `build/host_probe_sumsq`
+(`-DGDN_BROKEN_SUMSQ_ASC32`, the pre-fix spelling compiled) is RED at the unchanged band and fails the
+population test; a band tampered wider *and* narrower is refused by `load_band`; a
+probe-consistent inflation — the one edit `load_band` cannot refuse — is caught only by the pinned
+digest; and a perturbation at a rung derived from the band's own `mean_rel` (rung 20 = 8.24×) is still
+rejected, and accepted only under an inflated band. Full run: `GATE QUALIFIED … credited=74
+uncredited=42`, findings **0**, `named_checks 26 → 40` with `named_checks_red=0`, and 124 of 178
+STAGE lines moved with the only two verdict flips being the two `q_hat` rows (`evidence/
+gdn-slice4-gate-2026-10-26.log`, `evidence/gdn-slice4-stage-line.diff`).
+
+**Deferred, named and not decided here.** The tree holds `n` f32 partials in a local array (128
+words), which is a local-memory question for a device-codegen slice in a way fp64 ALU pressure is
+not; the fp64-versus-tree comparison has never been measured on `gfx1151`. `GDN_SUMSQ_WIDE_F64` exists
+so that measurement can be made later instead of argued, and the licence does not care which of the
+two wins.
+
 ## D-17 — May a shared comparator accept ±1 ULP automatically, above some width? — **PRINCIPLE APPROVED by the user 2026-10-26; the guardrails are engineering and are recorded here**
 
 **User's request.** Stop escalating isolated last-bit disagreements for approval: have one piece of machinery

@@ -19,6 +19,16 @@
 #                             that can reach them and the only thing that can make the pad census
 #                             leave zero. Every check in this lane is witnessed failing before it
 #                             is trusted.
+#                         build/host_probe_sumsq -DGDN_BROKEN_SUMSQ_ASC32 — `gdn_sumsq` back to
+#                             one ascending f32 accumulator instead of the declared pairwise tree
+#                             it ships with. This is the reduction-order witness the q_hat band
+#                             needs after D-23: the band is unchanged, so the only proof that
+#                             `q_hat` ACCEPTED means something is a build that is RED under it.
+#                             The other spelling in the same function, `GDN_SUMSQ_WIDE_F64` (llama.
+#                             cpp's wide-accumulator shape, D-23's measured alternative), is built
+#                             by hand the same way when someone wants to re-measure it: g++ -O2
+#                             -I prototype/gdn -std=c++11 -ffp-contract=off -fno-fast-math
+#                             -DGDN_SUMSQ_WIDE_F64 host_probe.cpp -o build/host_probe_wide64
 #   ./build.sh --clean    remove build/ and both binaries
 #
 # Build facts that are not optional on this box (pitfalls/50-harness-and-shell.md §"Build and
@@ -74,6 +84,14 @@ if [ "${1:-}" = "--broken" ]; then
           -c "$HERE/host_probe.cpp" -o "$BUILD/host_probe_pad.o"
     "$CXX" -O2 $RPATH "$BUILD/host_probe_pad.o" -o "$BUILD/host_probe_pad"
     echo "BUILD pad control=$BUILD/host_probe_pad (one pad row carries data instead of zeros)"
+    # The third control the q_hat band needs: `gdn_sumsq` back to one ascending f32 accumulator,
+    # which is the defect that put `q_hat` one ULP outside its licence. The band was re-derived, not
+    # widened (D-23), so the only thing that makes the q_hat row's ACCEPTED verdict a check rather
+    # than a restatement is a build that fails it at the UNCHANGED band.
+    "$CXX" -O2 -I"$HERE" -std=c++11 $FP -DGDN_BROKEN_SUMSQ_ASC32 \
+          -c "$HERE/host_probe.cpp" -o "$BUILD/host_probe_sumsq.o"
+    "$CXX" -O2 $RPATH "$BUILD/host_probe_sumsq.o" -o "$BUILD/host_probe_sumsq"
+    echo "BUILD sumsq control=$BUILD/host_probe_sumsq (row of squares accumulated in f32, the pre-fix order)"
 fi
 if [ "${1:-}" = "--check" ]; then
     echo "BUILD note --check: compile only; no device was touched and no timing was taken"
