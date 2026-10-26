@@ -12,6 +12,58 @@
   "softmax_denominator_reassoc_ulp": 19,
   "weights_vs_pinned_f32_ulp": 5
  },
+ "bands_pair_counts": {
+  "exp_route_ulp": {
+   "comparisons": 131072,
+   "signed_zero": 0,
+   "straddling_zero": 0
+  },
+  "logit_dot_route_disagreement_elements": {
+   "comparisons": 131072,
+   "signed_zero": 0,
+   "straddling_zero": 0
+  },
+  "logit_dot_route_ulp": {
+   "comparisons": 131072,
+   "signed_zero": 0,
+   "straddling_zero": 0
+  },
+  "logit_ref_vs_pinned_elements": {
+   "comparisons": 32768,
+   "signed_zero": 0,
+   "straddling_zero": 0
+  },
+  "logit_ref_vs_pinned_ulp": {
+   "comparisons": 32768,
+   "signed_zero": 0,
+   "straddling_zero": 0
+  },
+  "n_rows_probed": {
+   "comparisons": 128,
+   "signed_zero": 0,
+   "straddling_zero": 0
+  },
+  "pinned_weight_to_bf16_boundary_f32ulp": {
+   "comparisons": 1024,
+   "signed_zero": 0,
+   "straddling_zero": 0
+  },
+  "renorm_sum_reassoc_ulp": {
+   "comparisons": 3072,
+   "signed_zero": 0,
+   "straddling_zero": 0
+  },
+  "softmax_denominator_reassoc_ulp": {
+   "comparisons": 196608,
+   "signed_zero": 0,
+   "straddling_zero": 0
+  },
+  "weights_vs_pinned_f32_ulp": {
+   "comparisons": 8192,
+   "signed_zero": 0,
+   "straddling_zero": 0
+  }
+ },
  "binary_sha256": "76d6771dbdd1b18800f3605078f32b14bbd38fd9c901180f4469fd9ca9f749d9",
  "cases": 3224,
  "cast_after_elements_differing_by_row": {
@@ -146,8 +198,8 @@
  },
  "checks": [
   {
-   "detail": "hidden_size=2048 moe_intermediate_size=512 mtp_num_hidden_layers=1 num_experts=256 num_hidden_layers=40 shared_expert_intermediate_size=512 top_k=8",
-   "n": 7,
+   "detail": "three-way equality over 10 claims (manifest geometry, config text_config, this gate's E=256/K=8/H=2048), plus blocks_dumped, the manifest's own 41-block arithmetic and the three route-form injections: hidden_size=2048 moe_intermediate_size=512 mtp_num_hidden_layers=1 num_experts=256 num_hidden_layers=40 shared_expert_intermediate_size=512 top_k=8",
+   "n": 10,
    "name": "manifest-geometry-matches-config",
    "ok": true
   },
@@ -158,9 +210,21 @@
    "ok": true
   },
   {
-   "detail": "every declared byte count equals shape x itemsize",
-   "n": 104,
+   "detail": "105 records: every declared byte count equals shape x itemsize, every declared element count equals prod(shape), every file on disk is as long as its record says, and counts.dumps == the records present",
+   "n": 105,
    "name": "manifest-selfconsistent-sizes",
+   "ok": true
+  },
+  {
+   "detail": "injections the predicate failed to refuse: none (the honest manifest+config passes; 10 claims compared, which must be 10) \u2014 first refusal each: ['the config claims 255 experts -> [\"config text_config.num_experts=255, the gate\\'s constants say 256\"]', 'the manifest claims top_k 7 -> [\"manifest geometry top_k=7, the gate\\'s constants say 8\"]', 'the geometry the gate iterates is 1024-wide -> [\"manifest geometry hidden_size=1024, the gate\\'s constants say 2048\"]', 'the renormalise link\\'s injection is renamed away -> [\"the documented route (fp32 softmax -> top-k -> renormalise, then the R5 cast) is only claimed if each link can be falsified; these injections are gone from MODES: [\\'no_renorm\\']\"]']",
+   "n": 4,
+   "name": "witness-manifest-geometry-fires",
+   "ok": true
+  },
+  {
+   "detail": "injections the predicate failed to refuse, naming the record it should have named: none (the honest manifest passes; 105 records + the count clause compared, which must be 105) \u2014 first refusal each: [\"layer0.topk_weights: its byte count grows by 512 -> ['layer0.topk_weights: declares 1024 bytes for shape [32, 8] of torch.bfloat16; shape x itemsize is 512']\", \"layer0.topk_ids: its shape gains a row -> ['layer0.topk_ids: declares 2048 bytes for shape [32, 9] of torch.int64; shape x itemsize is 2304']\", 'layer0.topk_weights_f32: its dtype is retyped to torch.float64 -> [\"layer0.topk_weights_f32: dtype \\'torch.float64\\' is not one this gate can price\"]', \"counts.dumps is retyped by -1 -> ['counts.dumps=103, the manifest carries 104 records']\"]",
+   "n": 4,
+   "name": "witness-manifest-sizes-fires",
    "ok": true
   },
   {
@@ -170,9 +234,21 @@
    "ok": true
   },
   {
-   "detail": "rows=128 synth=12 bands=10 p3=24 sha256-verified-dumps=104",
+   "detail": "bands whose maximum was taken over zero comparisons: none \u2014 the probe prints its own population per band (comparisons, straddling pairs, signed-zero pairs) and a band with no population is refused rather than quoted",
+   "n": 10,
+   "name": "bands-derived-from-counted-populations",
+   "ok": true
+  },
+  {
+   "detail": "the oracle's own tables re-derived rather than trusted: 128 rows + 12 synthetic checked for self-consistency (id sets, the count each row claims, straddle margins, one bf16 round from f32 weights to cast weights, and rule-vs-oracle agreement on tie-free fixtures); bands=10 p3=24 sha256-verified-dumps=104",
    "n": 140,
    "name": "oracle-arm",
+   "ok": true
+  },
+  {
+   "detail": "injections the predicate failed to refuse, naming the row it should have named: none (the honest tables passes; 140 rows + synth compared, which must be 140) \u2014 first refusal each: [\"a rule id is changed and the row still claims it agrees with the pinned arm everywhere -> ['row 0 (layer0 token 0): n_rule_ne_pin=0, but its own ids differ in 1 positions']\", \"a row's n_rule_ne_pin is incremented past what its ids show -> ['row 0 (layer0 token 0): n_rule_ne_pin=1, but its own ids differ in 0 positions']\", 'a straddle row is given a nonzero 8th/9th margin -> [\"row 24 (layer0 token 24): a straddle row carries margin_pin=7; the 8th and 9th probabilities are the same pattern on a straddle, so tie_of\\'s margin there is 0\"]', 'a tie-free synthetic\\'s rule ids are reversed against the oracle\\'s own topk -> [\"synth 10000: on a tie-free row the documented rule and the oracle\\'s own topk must agree \u2014 [207, 206, 205, 204, 203, 202, 201, 200] vs [200, 201, 202, 203, 204, 205, 206, 207] (a tie-free disagreement is a second bug wearing A-03\\'s clothes)\"]', \"a row's cast column stops being one bf16 round of its f32 weights -> ['row 0 (layer0 token 0): the cast weights are not one bf16 round of the f32 weights the row carries \u2014 R5 rounded twice, or the two columns came from different rows']\"]",
+   "n": 5,
+   "name": "witness-oracle-agreement-fires",
    "ok": true
   },
   {
@@ -361,7 +437,7 @@
  "expect_units_note": "this lane's unit is the field comparison (cases x 6 fields); the driver takes --expect-cases only, so expect_units is the gate's own declaration (the SAMPLE line), not a driver flag",
  "field_comparisons": 19344,
  "findings": [],
- "gate_sha256": "d4a76990b6733944fe3728904f6fc0e927e7e25b1694ae9606caaa086f5d7b47",
+ "gate_sha256": "1ece2b6497710adce62dfc7a09b8492b254505a4c1576a120bb89f5285480d96",
  "hip_sha256": "12f5220aa491d83ee6c6f27ed020ed10c96cf5db259f40ea348f32e7a70f016f",
  "host_probe_sha256": "da0d13bf616d40ff42491b6f8f8bd851febbdbd08f4bd6b9afbd44f6e33b611c",
  "kernels_header_sha256": "322fe09397278d4732dd6f5f947f0bfeddc5ece49f18dcfe6569b5158e8e4ea8",
@@ -369,7 +445,7 @@
  "mode": "host",
  "modes_that_never_fired": [],
  "notes": [],
- "oracle_arm_sha256": "1ab09d8a8a1ea3bfa10fdfbb96680ad6e31aae74212990850b5bdab3959b14b3",
+ "oracle_arm_sha256": "bb1f9add8aec4e7616f4f38804fa888094bfb40ba99cebfa5bfabfcf5ba86e71",
  "oracle_module_sha256": "fc1ae931eebdc9465d131178e88f2edfd58ce5cdd2dd1e229f80dc098324ac94",
  "out_floats": 8330816,
  "prob_sum_bound": 3.045843642361689e-05,

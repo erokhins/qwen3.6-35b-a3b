@@ -29,6 +29,7 @@ Discipline
   (`pitfalls/40-gates-and-admissions.md` §"A gate whose parser can parse nothing prints PASS").
 """
 import argparse
+import copy
 import hashlib
 import json
 import math
@@ -53,6 +54,7 @@ WORK = os.path.join(HERE, "work")
 EV = os.path.join(HERE, "evidence")
 DAY = "2026-10-26"
 MANIFEST = os.path.join(REPO, "checkpoints", "dump-manifest-2026-10-26.json")
+CONFIG = os.path.join(REPO, "checkpoints", "Qwen3.6-35B-A3B.config.json")
 HEADER = os.path.join(HERE, "moe_router_kernels.h")
 BLOCKS = ["layer0", "layer1", "layer39", "mtp0"]
 E, K, H = 256, 8, 2048
@@ -571,11 +573,21 @@ def read_oracle(v, work):
     if len(synth) != got.get("synth"):
         raise GateError("oracle_synth.tsv holds %d records, the oracle printed %s"
                         % (len(synth), got.get("synth")))
-    floors = {}
-    for nm, n, val in parse_tsv(os.path.join(work, "oracle_floor.tsv"), 3):
+    floors, floor_pop = {}, {}
+    for nm, n, val, nstraddle, nszero in parse_tsv(os.path.join(work, "oracle_floor.tsv"), 5):
         floors[nm] = int(val)
+        floor_pop[nm] = (int(n), int(nstraddle), int(nszero))
     if not floors:
         raise GateError("the floor probe produced no bands; every band would be vacuous")
+    # Each band must say how many comparisons its maximum came from. A `n` of 0 means the line was
+    # never reached — the same empty-parse failure mode as a report with no rows, wearing a band's
+    # clothes: the figure looks derived and nothing was measured (`pitfalls/40` §"count reachability").
+    uncounted = sorted(k for k, (n, _s, _z) in floor_pop.items() if n <= 0)
+    v.check("bands-derived-from-counted-populations", not uncounted, len(floor_pop),
+            "bands whose maximum was taken over zero comparisons: %s — the probe prints its own "
+            "population per band (comparisons, straddling pairs, signed-zero pairs) and a band with "
+            "no population is refused rather than quoted"
+            % (uncounted or "none"))
     p3 = parse_tsv(os.path.join(work, "oracle_p3.tsv"), 8)
     # the same producer/reader equality the rows and synth tables get, and no silent empty parse: an
     # oracle run with --skip-p3, or a table that was never written, is a finding, not a zero
@@ -637,7 +649,152 @@ def read_oracle(v, work):
         o["margin"] = 0 if v8 == v9 else int(round((v8 - v9) / math.ulp(v8)))
         o["id_asc"] = int(all(o["rule_ids"][k] < o["rule_ids"][k + 1] for k in range(K - 1)))
         o["pair_identity"] = int(all(o["rule_ids"][k] % K == k for k in range(K)))
-    return orows, osynth, floors, p3, text
+    return orows, osynth, floors, p3, text, floor_pop
+
+
+def oracle_agreement(orows, osynth):
+    """(violations, compared): the oracle arm's own tables, each row judged against the arm it claims.
+
+    This replaced `v.check("oracle-arm", True, ...)`. Every clause is recomputed here from the parsed
+    columns and compared with what the row states about itself:
+
+      * `n_rule_ne_pin` is a count OF something — the positions where the row's own rule ids differ
+        from the pinned arm's. A row whose count disagrees with its own ids is a row nobody can use.
+      * both arms' ids are K distinct experts inside [0, E). A top-k that repeats an expert is not a
+        top-k, and it empties the immunity classes downstream rather than wronging them.
+      * a straddle row (tie class 2 or 3) carries margin 0: `oracle_arm.tie_of` returns 0 there by
+        definition, because the 8th and 9th probabilities are the same bit pattern. A straddle with a
+        nonzero margin had its class and its margin computed from different data.
+      * the R5 relation INSIDE the row: the cast weights are exactly one bf16 round of the f32 weights
+        the row itself carries, through the same `bf16_round` the device's cast is judged by. Nothing
+        else checks the oracle's own pair — `judge_reference` compares the DEVICE's wpre with the
+        oracle's wcast, which agrees just as happily when the oracle's pair is inconsistent.
+      * the synthetic fixtures: the documented rule and the oracle's own torch topk must agree
+        wherever there is no tie to break. Where they disagree is the A-03 finding, which
+        `report_predictions` prints; asserting agreement there would be asserting the lane's own
+        conclusion away, and asserting disagreement would be reading a result back into the fixture.
+    """
+    bad, compared = [], 0
+    for key in sorted(orows):
+        o = orows[key]
+        compared += 1
+        tag = "row %s (%s token %d)" % (key, o["block"], o["token"])
+        ids, pin = list(o["rule_ids"]), list(o["pinned_ids"])
+        if len(ids) != K or len(pin) != K:
+            bad.append("%s: %d rule ids and %d pinned ids; the geometry says %d"
+                       % (tag, len(ids), len(pin), K))
+            continue
+        if any(not (0 <= e < E) for e in ids + pin):
+            bad.append("%s: an expert id outside [0,%d)" % (tag, E))
+        if len(set(ids)) != K:
+            bad.append("%s: the rule arm repeated an expert: %s" % (tag, ids))
+        if len(set(pin)) != K:
+            bad.append("%s: the pinned arm repeated an expert: %s" % (tag, pin))
+        ne = sum(1 for i in range(K) if ids[i] != pin[i])
+        if ne != o["n_rule_ne_pin"]:
+            bad.append("%s: n_rule_ne_pin=%s, but its own ids differ in %d positions"
+                       % (tag, o["n_rule_ne_pin"], ne))
+        if o["tie"] not in (0, 1, 2, 3):
+            bad.append("%s: tie class %r is outside the four tie_of defines" % (tag, o["tie"]))
+        if o["tie"] in (2, 3) and o["margin_pin"] != 0:
+            bad.append("%s: a straddle row carries margin_pin=%r; the 8th and 9th probabilities are "
+                       "the same pattern on a straddle, so tie_of's margin there is 0" % (tag,
+                                                                                           o["margin_pin"]))
+        if o["margin_pin"] < -1 or o["margin_ref"] < -1:
+            bad.append("%s: margin %r/%r — the only negative tie_of can emit is -1, meaning the "
+                       "spacing itself was 0" % (tag, o["margin_pin"], o["margin_ref"]))
+        if [bf16_round(b) for b in o["rule_wpre_bits"]] != list(o["rule_wcast_bits"]):
+            bad.append("%s: the cast weights are not one bf16 round of the f32 weights the row "
+                       "carries — R5 rounded twice, or the two columns came from different rows"
+                       % tag)
+    for key in sorted(osynth):
+        o = osynth[key]
+        compared += 1
+        tag = "synth %s" % key
+        ids = list(o["rule_ids"])
+        if (len(ids) != K or len(set(ids)) != K
+                or any(not (0 <= e < E) for e in ids)):
+            bad.append("%s: the fixture's rule ids are not %d distinct experts inside [0,%d): %s"
+                       % (tag, K, E, ids))
+        if [bf16_round(b) for b in o["rule_wpre_bits"]] != list(o["rule_wcast_bits"]):
+            bad.append("%s: the fixture's cast weights are not one bf16 round of its f32 weights" % tag)
+        if o["tie"] == 0 and ids != list(o["oracle_ids"]):
+            bad.append("%s: on a tie-free row the documented rule and the oracle's own topk must "
+                       "agree — %s vs %s (a tie-free disagreement is a second bug wearing A-03's "
+                       "clothes)" % (tag, ids, o["oracle_ids"]))
+    return bad, compared
+
+
+def witness_oracle_agreement(v, orows, osynth):
+    """Five named injections, each into ONE parsed oracle row, plus the honest control.
+
+    Every arm asserts that the violation names the row it perturbed, so a predicate that reports
+    *something* is not enough — it has to have noticed the row that was actually changed. Two
+    populations the gate does not control are named here rather than papered over: with no straddle
+    row, or no tie-free synthetic, an arm cannot be built and the witness says which."""
+    honest, n = oracle_agreement(orows, osynth)
+    arms = []
+
+    def arm(label, key, mutate, want):
+        in_rows = key in orows
+        table = copy.deepcopy(orows if in_rows else osynth)
+        mutate(table[key])
+        bad, _ = (oracle_agreement(table, osynth) if in_rows
+                  else oracle_agreement(orows, table))
+        hit = [b for b in bad if str(want) in b]
+        arms.append((label, bool(hit), (hit or bad)[:1]))
+
+    def flip_first_rule_id(o):
+        o["rule_ids"][0] = (o["rule_ids"][0] + 1) % E
+
+    def bump_count(o):
+        o["n_rule_ne_pin"] = o["n_rule_ne_pin"] + 1
+
+    def move_margin(o):
+        o["margin_pin"] = 7
+
+    def swap_synth_ids(o):
+        o["rule_ids"] = list(reversed(o["rule_ids"]))
+
+    def unround_cast(o):
+        o["rule_wcast_bits"][0] = o["rule_wcast_bits"][0] + 1
+
+    clean = [k for k in sorted(orows) if orows[k]["n_rule_ne_pin"] == 0]
+    straddle = [k for k in sorted(orows) if orows[k]["tie"] in (2, 3)]
+    tiefree_synth = [k for k in sorted(osynth) if osynth[k]["tie"] == 0
+                     and list(osynth[k]["rule_ids"]) == list(osynth[k]["oracle_ids"])]
+    if clean:
+        arm("a rule id is changed and the row still claims it agrees with the pinned arm everywhere",
+            clean[0], flip_first_rule_id, "row %s" % clean[0])
+    else:
+        arms.append(("no row with n_rule_ne_pin == 0 exists to perturb", False, []))
+    if clean:
+        arm("a row's n_rule_ne_pin is incremented past what its ids show", clean[0], bump_count,
+            "row %s" % clean[0])
+    else:
+        arms.append(("no row exists to increment a count on", False, []))
+    if straddle:
+        arm("a straddle row is given a nonzero 8th/9th margin", straddle[0], move_margin,
+            "row %s" % straddle[0])
+    else:
+        arms.append(("no straddle row exists to perturb (see a03-population-nonempty)", False, []))
+    if tiefree_synth:
+        arm("a tie-free synthetic's rule ids are reversed against the oracle's own topk",
+            tiefree_synth[0], swap_synth_ids, "synth %s" % tiefree_synth[0])
+    else:
+        arms.append(("no tie-free synthetic exists whose ids the two routes agree on", False, []))
+    if clean:
+        arm("a row's cast column stops being one bf16 round of its f32 weights", clean[0],
+            unround_cast, "row %s" % clean[0])
+    else:
+        arms.append(("no row exists to break the R5 relation on", False, []))
+    slipped = [name for name, fired, _ in arms if not fired]
+    v.check("witness-oracle-agreement-fires", not slipped and not honest
+            and n == len(orows) + len(osynth), len(arms),
+            "injections the predicate failed to refuse, naming the row it should have named: %s (the "
+            "honest tables %s; %d rows + synth compared, which must be %d) — first refusal each: %s"
+            % (slipped or "none", "passes" if not honest else "REFUSED: %s" % honest[:1], n,
+               len(orows) + len(osynth), ["%s -> %s" % (nm, d) for nm, _f, d in arms][:5]))
 
 
 # -----------------------------------------------------------------------------------------------
@@ -1301,55 +1458,245 @@ def parse_tsv_from_string(text, ncol):
 # -----------------------------------------------------------------------------------------------
 # the manifest is the authority on the dumps; its own recorded agreement is re-derived, not trusted
 # -----------------------------------------------------------------------------------------------
+# Three of this gate's rows used to be `v.check(name, True, ...)`: green rows naming an assertion they
+# did not make, which is worse than an honest note (`pitfalls/40` §"a check whose predicate is True").
+# Each claim below is a function of the data its check names, returns (violations, compared) so the
+# row prints a number and not a hope, and has a `witness_*` sibling that injects its own named fault —
+# a predicate nobody has watched refuse has been hoped for, not tested.
+
+# (manifest geometry key, config text_config key, what this gate's own constants claim). The CONFIG is
+# the authority on the routing shape — 256 experts, top_k 8, hidden 2048 — and the gate's E/K/H are
+# the thing being checked, so retyping a constant here is caught rather than propagated.
+GEOM_CLAIMS = (("hidden_size", "hidden_size", H),
+               ("num_experts", "num_experts", E),
+               ("top_k", "num_experts_per_tok", K),
+               ("moe_intermediate_size", "moe_intermediate_size", 512),
+               ("shared_expert_intermediate_size", "shared_expert_intermediate_size", 512),
+               ("num_hidden_layers", "num_hidden_layers", 40),
+               ("mtp_num_hidden_layers", "mtp_num_hidden_layers", 1))
+# The documented route is fp32 softmax -> top-k -> renormalise, then the R5 cast. Each link of it has
+# a named injection, which is what makes the form disprovable rather than asserted; if one is renamed
+# away the geometry check says so instead of quietly losing the ability to falsify the form.
+FORM_INJECTIONS = ("softmax_bf16", "no_renorm", "cast_after")
+ITEMSIZE = {"torch.bfloat16": 2, "torch.float32": 4, "torch.int64": 8}
+
+
+def geometry_claims(man, cfg):
+    """(violations, compared): the routing geometry, three ways — manifest, config, gate constants.
+
+    Compares every entry of `GEOM_CLAIMS` against BOTH authorities (a manifest that agrees with the
+    gate and disagrees with the config is a finding, and so is a manifest and config that agree with
+    each other and not with the code that iterates 256 experts), then the dumped block set, then the
+    manifest's own block arithmetic (41 blocks = its num_hidden_layers + mtp_num_hidden_layers, never
+    typed), then the presence of the three form injections.
+    """
+    g = man.get("geometry", {})
+    t = cfg.get("text_config", {})
+    bad, compared = [], 0
+    for mk, ck, gate_val in GEOM_CLAIMS:
+        compared += 1
+        mv, cv = g.get(mk), t.get(ck)
+        if mv != gate_val:
+            bad.append("manifest geometry %s=%r, the gate's constants say %r" % (mk, mv, gate_val))
+        if cv != gate_val:
+            bad.append("config text_config.%s=%r, the gate's constants say %r" % (ck, cv, gate_val))
+    compared += 1
+    if list(g.get("blocks_dumped") or []) != BLOCKS:
+        bad.append("manifest blocks_dumped=%s, the gate iterates BLOCKS=%s"
+                   % (g.get("blocks_dumped"), BLOCKS))
+    compared += 1
+    want_paths = g.get("num_hidden_layers", -1) + g.get("mtp_num_hidden_layers", -1)
+    if g.get("blocks_in_text_path") != want_paths:
+        bad.append("manifest blocks_in_text_path=%r, its own num_hidden_layers+mtp_num_hidden_layers "
+                   "say %r" % (g.get("blocks_in_text_path"), want_paths))
+    compared += 1
+    gone = [n for n in FORM_INJECTIONS if n not in MODES]
+    if gone:
+        bad.append("the documented route (fp32 softmax -> top-k -> renormalise, then the R5 cast) is "
+                   "only claimed if each link can be falsified; these injections are gone from MODES: "
+                   "%s" % gone)
+    return bad, compared
+
+
+def size_claims(man):
+    """(violations, compared): every byte figure the manifest states, against the record's own shape
+    and against the file on disk.
+
+    The three legs are the ones `pitfalls/30` §"Read a dump's dtype off its file size" names: a 1 MiB
+    file read as the wrong dtype still prints a plausible ndiff, so `bytes == prod(shape) x itemsize`,
+    `elements == prod(shape)` and the on-disk length are each checked per record, and the manifest's
+    own `counts` block is checked against the number of records it actually carries (a manifest that
+    does not believe its own count is a manifest whose 104 rows were not all read).
+    """
+    bad, compared = [], 0
+    for r in man["dumps"]:
+        compared += 1
+        n = 1
+        for s in r["shape"]:
+            n *= s
+        item = ITEMSIZE.get(r["dtype"])
+        if item is None:
+            bad.append("%s: dtype %r is not one this gate can price" % (r["name"], r["dtype"]))
+            continue
+        if r["bytes"] != n * item:
+            bad.append("%s: declares %s bytes for shape %s of %s; shape x itemsize is %d"
+                       % (r["name"], r["bytes"], r["shape"], r["dtype"], n * item))
+        if r.get("elements") not in (None, n):
+            bad.append("%s: declares %s elements, shape %s holds %d"
+                       % (r["name"], r.get("elements"), r["shape"], n))
+        path = os.path.join(REPO, r["file"])
+        if not os.path.exists(path):
+            bad.append("%s: names %s, which is not on disk" % (r["name"], r["file"]))
+            continue
+        on_disk = os.path.getsize(path)
+        if on_disk != r["bytes"]:
+            bad.append("%s: %d bytes on disk, the manifest declares %d"
+                       % (r["name"], on_disk, r["bytes"]))
+    counts = man.get("counts") or {}
+    compared += 1
+    if counts.get("dumps") != len(man["dumps"]):
+        bad.append("counts.dumps=%r, the manifest carries %d records"
+                   % (counts.get("dumps"), len(man["dumps"])))
+    if counts.get("expected") != counts.get("dumps"):
+        bad.append("counts.expected=%r != counts.dumps=%r — the manifest does not agree with its own "
+                   "record count" % (counts.get("expected"), counts.get("dumps")))
+    return bad, compared
+
+
+def witness_manifest_geometry(v, man, cfg):
+    """Four named in-memory injections, the honest control, and a non-vacuity claim on the fixture.
+
+    The shape of this witness is `witness_p3_report`'s: fabricate the lie, require the predicate to
+    refuse it, and require the honest data to pass — so a predicate that always returns [] cannot
+    survive its own witness.
+    """
+    honest, n = geometry_claims(man, cfg)
+    arms = []
+
+    def perturb(label, mutate):
+        m, c = copy.deepcopy(man), copy.deepcopy(cfg)
+        mutate(m, c)
+        bad, _ = geometry_claims(m, c)
+        arms.append((label, bool(bad) and bad != honest, bad[:1]))
+
+    perturb("the config claims 255 experts", lambda m, c: c["text_config"].__setitem__("num_experts",
+                                                                                        255))
+    perturb("the manifest claims top_k 7", lambda m, c: m["geometry"].__setitem__("top_k", 7))
+    perturb("the geometry the gate iterates is 1024-wide", lambda m, c:
+            m["geometry"].__setitem__("hidden_size", 1024))
+    modes_saved = list(MODES)
+    try:
+        MODES.remove("no_renorm")
+        bad, _ = geometry_claims(man, cfg)
+        arms.append(("the renormalise link's injection is renamed away", bool(bad), bad[:1]))
+    finally:
+        MODES[:] = modes_saved
+    slipped = [name for name, fired, _ in arms if not fired]
+    v.check("witness-manifest-geometry-fires", not slipped and not honest
+            and n == len(GEOM_CLAIMS) + 3, len(arms),
+            "injections the predicate failed to refuse: %s (the honest manifest+config %s; %d claims "
+            "compared, which must be %d) — first refusal each: %s"
+            % (slipped or "none", "passes" if not honest else "REFUSED: %s" % honest[:1], n,
+               len(GEOM_CLAIMS) + 3, ["%s -> %s" % (nm, d) for nm, _f, d in arms][:4]))
+
+
+def witness_manifest_sizes(v, man):
+    """Four named injections into the manifest's own records: a size, a shape, a dtype and the record
+    count. Each must be named in the violation list by the record it touched, and the honest manifest
+    must be clean — so a `size_claims` that stopped looking at the records cannot pass its own
+    witness, and neither can one that flags everything."""
+    honest, n = size_claims(man)
+    by_name = {r["name"]: r for r in man["dumps"]}
+    targets = ("layer0.topk_weights", "layer0.topk_ids", "layer0.topk_weights_f32")
+    absent = [t for t in targets if t not in by_name]
+    if absent:
+        raise GateError("witness-manifest-sizes cannot build its injections: the manifest has no "
+                        "record named %s" % absent)
+    arms = []
+
+    def perturb(label, mutate, want):
+        m = copy.deepcopy(man)
+        mutate(m)
+        bad, _ = size_claims(m)
+        hit = [b for b in bad if want in b]
+        arms.append((label, bool(hit), (hit or bad)[:1]))
+
+    def grow(name, delta):
+        def f(m):
+            for r in m["dumps"]:
+                if r["name"] == name:
+                    r["bytes"] += delta
+        return f
+
+    def grow_shape(name):
+        def f(m):
+            for r in m["dumps"]:
+                if r["name"] == name:
+                    r["shape"] = list(r["shape"][:-1]) + [int(r["shape"][-1]) + 1]
+        return f
+
+    def retype(name, dtype):
+        def f(m):
+            for r in m["dumps"]:
+                if r["name"] == name:
+                    r["dtype"] = dtype
+        return f
+
+    def recount(d):
+        def f(m):
+            m["counts"]["dumps"] = int(m["counts"]["dumps"]) + d
+        return f
+
+    perturb("%s: its byte count grows by 512" % targets[0], grow(targets[0], 512), targets[0])
+    perturb("%s: its shape gains a row" % targets[1], grow_shape(targets[1]), targets[1])
+    perturb("%s: its dtype is retyped to torch.float64" % targets[2],
+            retype(targets[2], "torch.float64"), targets[2])
+    perturb("counts.dumps is retyped by -1", recount(-1), "counts.dumps")
+    slipped = [name for name, fired, _ in arms if not fired]
+    v.check("witness-manifest-sizes-fires", not slipped and not honest and n == len(man["dumps"]) + 1,
+            len(arms),
+            "injections the predicate failed to refuse, naming the record it should have named: %s "
+            "(the honest manifest %s; %d records + the count clause compared, which must be %d) — "
+            "first refusal each: %s"
+            % (slipped or "none", "passes" if not honest else "REFUSED: %s" % honest[:1], n,
+               len(man["dumps"]) + 1, ["%s -> %s" % (nm, d) for nm, _f, d in arms][:4]))
+
+
 def load_manifest(v):
     man = json.load(open(MANIFEST))
     D = {r["name"]: r for r in man["dumps"]}
-    g = man["geometry"]
-    want = {"hidden_size": H, "num_experts": E, "top_k": K, "moe_intermediate_size": 512,
-            "shared_expert_intermediate_size": 512, "num_hidden_layers": 40,
-            "mtp_num_hidden_layers": 1}
-    for k, w in want.items():
-        if g.get(k) != w:
-            raise GateError("manifest geometry %s=%s, the gate's constants say %s" % (k, g.get(k), w))
-    cfg = json.load(open(os.path.join(REPO, "checkpoints/Qwen3.6-35B-A3B.config.json")))
-    t = cfg["text_config"]
-    for k in want:
-        key = {"hidden_size": "hidden_size", "num_experts": "num_experts", "top_k": "num_experts_per_tok",
-               "moe_intermediate_size": "moe_intermediate_size",
-               "shared_expert_intermediate_size": "shared_expert_intermediate_size",
-               "num_hidden_layers": "num_hidden_layers",
-               "mtp_num_hidden_layers": "mtp_num_hidden_layers"}[k]
-        if t[key] != g[k]:
-            raise GateError("manifest %s=%s disagrees with the config's %s=%s"
-                            % (k, g[k], key, t[key]))
-    v.check("manifest-geometry-matches-config", True, len(want),
-            " ".join("%s=%s" % (k, g[k]) for k in sorted(want)))
+    cfg = json.load(open(CONFIG))
+    bad, n_geom = geometry_claims(man, cfg)
+    v.check("manifest-geometry-matches-config", not bad, n_geom,
+            "three-way equality over %d claims (manifest geometry, config text_config, this gate's "
+            "E=%d/K=%d/H=%d), plus blocks_dumped, the manifest's own 41-block arithmetic and the "
+            "three route-form injections: %s%s"
+            % (n_geom, E, K, H, " ".join("%s=%s" % (k, man["geometry"][k])
+                                         for k in sorted(man["geometry"]) if k in
+                                         [c[0] for c in GEOM_CLAIMS]),
+               (" — VIOLATIONS: %s" % bad[:4]) if bad else ""))
+    if bad:
+        raise GateError("the routing geometry the gate runs on is not the geometry the config "
+                        "describes: %s" % bad[:4])
     named = ["input", "mlp.gate.weight", "router_logits", "topk_ids", "topk_weights",
              "topk_weights_f32", "expert_raw", "routed_sum"]
     have = set(n.split(".", 1)[1] for n in D if n.split(".", 1)[0] in BLOCKS)
     v.check("manifest-dump-census", set(named) <= have, len(named),
             "missing arms: %s" % (sorted(set(named) - have) or "none"))
-    for r in man["dumps"]:
-        n = 1
-        for s in r["shape"]:
-            n *= s
-        item = {"torch.bfloat16": 2, "torch.float32": 4, "torch.int64": 8}[r["dtype"]]
-        if r["bytes"] != n * item:
-            raise GateError("%s: declares %s bytes for shape %s of %s" % (r["name"], r["bytes"],
-                                                                          r["shape"], r["dtype"]))
-        if r.get("elements") not in (None, n):
-            raise GateError("%s: declares %s elements, shape %s holds %d"
-                            % (r["name"], r.get("elements"), r["shape"], n))
-        on_disk = os.path.getsize(os.path.join(REPO, r["file"]))
-        if on_disk != r["bytes"]:
-            raise GateError("%s: %d bytes on disk, the manifest declares %d"
-                            % (r["name"], on_disk, r["bytes"]))
-    v.check("manifest-selfconsistent-sizes", True, len(man["dumps"]),
-            "every declared byte count equals shape x itemsize")
+    sbad, n_rec = size_claims(man)
+    v.check("manifest-selfconsistent-sizes", not sbad, n_rec,
+            "%d records: every declared byte count equals shape x itemsize, every declared element "
+            "count equals prod(shape), every file on disk is as long as its record says, and "
+            "counts.dumps == the records present%s"
+            % (n_rec, (" — VIOLATIONS: %s" % sbad[:4]) if sbad else ""))
+    if sbad:
+        raise GateError("the manifest does not describe its own dumps: %s" % sbad[:4])
     missing = [r["name"] for r in man["dumps"] if not os.path.exists(os.path.join(REPO, r["file"]))]
     if missing:
         raise GateError("manifest names %d dumps that are not on disk: %s"
                         % (len(missing), missing[:4]))
+    witness_manifest_geometry(v, man, cfg)
+    witness_manifest_sizes(v, man)
     return man, D
 
 
@@ -1676,7 +2023,10 @@ def finish(v, label, roster, roster_checked=False):
 
 DEVICE_ROSTER = [
     "manifest-geometry-matches-config", "manifest-dump-census", "manifest-selfconsistent-sizes",
-    "manifest-sha256", "oracle-arm", "plan-shape", "driver-result", "driver-plan-parse",
+    "witness-manifest-geometry-fires", "witness-manifest-sizes-fires",
+    "manifest-sha256", "oracle-arm", "witness-oracle-agreement-fires",
+    "bands-derived-from-counted-populations",
+    "plan-shape", "driver-result", "driver-plan-parse",
     "driver-planchannel", "driver-report-rows", "driver-selftest", "driver-selftest-roster",
     "host-structural-probes", "host-probe-roster", "host-device-arms", "witness-comparator-flip",
     "witness-cast-orders-differ", "witness-class-MATCH", "witness-class-ALT",
@@ -1702,6 +2052,28 @@ HOST_ROSTER = [c for c in DEVICE_ROSTER
                             "driver-selftest", "driver-selftest-roster")]
 
 
+def check_oracle_arm(v, orows, osynth, bands, p3, n_hash):
+    """The `oracle-arm` row, in one function so the external witness
+    (`specification/evidence/router_constant_predicate_witness.py`) can drive the same code path with
+    one perturbed oracle row instead of reimplementing this line.
+
+    It replaced `v.check("oracle-arm", True, ...)`: the predicate is `oracle_agreement`, and the gate
+    refuses to run on tables that do not agree with the arm they claim, rather than judging the kernel
+    against a reference that contradicts itself.
+    """
+    obad, n_ow = oracle_agreement(orows, osynth)
+    v.check("oracle-arm", not obad, n_ow,
+            "the oracle's own tables re-derived rather than trusted: %d rows + %d synthetic checked "
+            "for self-consistency (id sets, the count each row claims, straddle margins, one bf16 "
+            "round from f32 weights to cast weights, and rule-vs-oracle agreement on tie-free "
+            "fixtures); bands=%d p3=%d sha256-verified-dumps=%d%s"
+            % (len(orows), len(osynth), len(bands), len(p3), n_hash,
+               (" — VIOLATIONS: %s" % obad[:4]) if obad else ""))
+    if obad:
+        raise GateError("the oracle arm's tables do not agree with the arm they claim to represent: %s"
+                        % obad[:4])
+
+
 def prepare(args, v):
     """Everything both the host-only and the device mode need, with no device work in it."""
     global _REACH
@@ -1714,10 +2086,9 @@ def prepare(args, v):
     check_header_enum()
     man, D = load_manifest(v)
     n_hash = check_manifest_hashes(man, D, v)
-    orows, osynth, bands, p3, otext = read_oracle(v, WORK)
-    v.check("oracle-arm", True, len(orows) + len(osynth),
-            "rows=%d synth=%d bands=%d p3=%d sha256-verified-dumps=%d"
-            % (len(orows), len(osynth), len(bands), len(p3), n_hash))
+    orows, osynth, bands, p3, otext, floor_pop = read_oracle(v, WORK)
+    check_oracle_arm(v, orows, osynth, bands, p3, n_hash)
+    witness_oracle_agreement(v, orows, osynth)
     if args.max_rows is not None and not 1 <= args.max_rows <= 32:
         raise GateError("--max-rows must be 1..32, got %d" % args.max_rows)
     max_rows = 32 if args.max_rows is None else args.max_rows
@@ -1752,6 +2123,7 @@ def prepare(args, v):
                              "declaration (the SAMPLE line), not a driver flag",
     }
     return {"plan": plan, "man": man, "orows": orows, "osynth": osynth, "bands": bands,
+            "bands_pop": floor_pop,
             "p3": p3, "plan_path": plan_path, "slab_path": slab_path, "host_out": host_out,
             "prob_bound": prob_bound, "max_rows": max_rows, "counters": counters}
 
@@ -1924,6 +2296,12 @@ def write_evidence(plan, man, bands, j, st, args, v, mode):
                                 == st["counters"]["driver_records_parsed"]),
         "out_floats": plan.out_floats,
         "bands": bands,
+        # The population behind each band, from the probe's own counters: (comparisons, pairs that
+        # straddled zero, signed-zero pairs). Quoting a band without its denominator is how the
+        # 2026-10-26 ruler bug stayed dormant — `logit_dot_route_ulp=65536` was same-sign, and only
+        # the straddle count says so.
+        "bands_pair_counts": {k: {"comparisons": c, "straddling_zero": s, "signed_zero": z}
+                              for k, (c, s, z) in sorted(st["bands_pop"].items())},
         "classes": pop,
         "tally": {"%s/%s/%s" % (MODES[m], f, CLS_NAME[c] if isinstance(c, int) else c): n
                   for (m, f, c), n in sorted(tally.items(), key=lambda kv: str(kv[0]))},
@@ -1939,7 +2317,8 @@ def write_evidence(plan, man, bands, j, st, args, v, mode):
 
 
 SELFTEST_ROSTER = ["manifest-geometry-matches-config", "manifest-dump-census",
-                   "manifest-selfconsistent-sizes", "witness-parsers", "driver-selftest",
+                   "manifest-selfconsistent-sizes", "witness-manifest-geometry-fires",
+                   "witness-manifest-sizes-fires", "witness-parsers", "driver-selftest",
                    "driver-selftest-roster", "witness-bands-reject", "cast-is-robust-not-lucky",
                    "witness-prob-sum-bound", "witness-prob-bound-tight", "reach-table-shape"]
 

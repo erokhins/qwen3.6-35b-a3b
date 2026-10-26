@@ -1,0 +1,11 @@
+# name n max_ulp
+exp_route_ulp 1 19
+logit_dot_route_disagreement_elements 1 5
+logit_dot_route_ulp 1 65536
+logit_ref_vs_pinned_elements 1 0
+logit_ref_vs_pinned_ulp 1 0
+n_rows_probed 1 128
+pinned_weight_to_bf16_boundary_f32ulp 1 164
+renorm_sum_reassoc_ulp 1 2
+softmax_denominator_reassoc_ulp 1 19
+weights_vs_pinned_f32_ulp 1 5

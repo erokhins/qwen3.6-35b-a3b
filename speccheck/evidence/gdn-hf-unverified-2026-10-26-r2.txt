@@ -1,0 +1,51 @@
+# speccheck/evidence/gdn-hf-unverified-2026-10-26-r2.txt — the UNVERIFIED / CLOSED lists as they
+# read after `--cross-form` landed.
+
+`--compare-hf` and `--selftest` both print these two lists from `HF_UNVERIFIED` and `HF_CLOSED`
+in `speccheck/gdn_ref.py`. Row 5 used to read "banded agreement as a VERDICT … no `--cross-form`
+section exists, so outside the probe no PASS credits a band". That sentence became false when the
+section landed, so the entry was rewritten rather than deleted: it is still an UNVERIFIED entry,
+narrowed to what the new section does not reach — the 12 unbanded stages, the 82 candidate pairs
+the licence withholds, the 329 adjudicated rows that measured arm-to-arm bit-identity, and the
+measured fact that a real §04.7 gated-norm defect scaled to 1/2**2 sits inside the `normed`
+margin. The capture this replaces is
+`speccheck/evidence/gdn-compare-hf-2026-10-26.txt`; the numbers above are from
+`speccheck/evidence/gdn-cross-form-2026-10-26.txt`.
+
+```
+command: /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python speccheck/gdn_ref.py --compare-hf
+rc=0 (the tail line this build prints for `--compare-hf` alone is `SELFTEST PASS`, which is
+pre-existing behaviour of `main()`'s fallthrough and is not a claim that the injection matrix ran
+in this particular invocation — run `--selftest` for that). CPU only; no clock read.
+```
+
+---- the two lists, verbatim ----
+
+## UNVERIFIED — explicitly, because silence would read as agreement
+  NOT ESTABLISHED: agreement on a real activation
+      why: both sides are fed `gdn_input`, the A-01 RMS-1 seeded fixture; it does not carry the (1+w) modulation of a real input_layernorm output, so every agreement figure here is a synthetic-input statistic
+      closes when: the dense path lands and a real hidden_states is pinned by tools/dump_reference.py's successor
+  NOT ESTABLISHED: the fused kernels the box does not have
+      why: causal_conv1d and flash-linear-attention are not installed, so the reference ran its own torch fallbacks; which function objects ran is printed with the section
+      closes when: a kernel-bearing build is compared on the same pinned rows
+  NOT ESTABLISHED: chunked continuation (T > 1 with a state present, §04b.1 row 4)
+      why: the comparison covers chunked-from-zero prefill and single-token recurrent decode; no pinned case hands a live state to the chunked scan
+      closes when: a rollback/chunked-continuation fixture is pinned
+  NOT ESTABLISHED: the engine's conv-window policy (A-09: k_conv vs k_conv-1 columns)
+      why: conv_window is compared against the reference's own k_conv-column cache, which is the reference's choice and not the engine's; the engine's 3-column window is a different tensor and is not checked here
+      closes when: the engine's residency layout is gated against a dump of its own window
+  NOT ESTABLISHED: banded (not bit-exact) agreement as a VERDICT, past the seven banded stages
+      why: `--cross-form` now exists: it loads the band through `load_band()`, adjudicates every licensed arm-to-arm row with `band_check_row()`, re-measures the licence rather than trusting the file, and carries its own denominators and sabotage witnesses (`speccheck/results-gdn.md` §The cross-form verdict). What is STILL not established is the reach of that verdict: it covers the seven stages `--floor-probe` floored, it withholds 82 of the 1218 candidate pairs because a bf16 pair that measured ndiff 0 bounds nothing, 329 of the adjudicated rows measured arm-to-arm bit-identity and so added no numeric evidence, and the ladder there measures that a real §04.7 gated-norm defect scaled to 1/2**2 sits INSIDE the `normed` margin. It is a bound on legitimate cross-form spread, not a defect detector, and the other 12 stages have no band at all
+      closes when: the 12 upstream stages gain a second legal implementation so a floor is measurable there, and the engine's own kernels are gated against these rows bit-for-bit where no band is involved
+  NOT ESTABLISHED: a banded floor for any of the 12 stages upstream of the scan
+      why: they are computed by code the F32 arms and the f64 anchor share, so their distance to the anchor is 0 by construction; `--floor-probe` prints each by name rather than flooring it, because a floor measured on shared code is a check that cannot fail
+      closes when: one of those stages gains a second legal implementation (a kernel, or a re-associated producer), which is what makes a floor measurable
+
+## CLOSED, and re-witnessed rather than deleted — a closure nobody can re-check is an opinion
+  CLOSED: the MTP draft block's mixer
+      was : listed UNVERIFIED with `closes_when: file 09 is in scope with its own pinned dump` — which asked this lane to pin a tensor family the checkpoint does not have
+      by  : the draft block has no GDN block to pin. `specification/09-mtp-draft-layer.md §09.3` is the prose (`the draft layer is a full-attention layer`); the instrument is `specification/derive.py §--check`, which asserts no `mtp.*` key contains `linear_attn`. Re-derived here from the committed safetensors index on every run by `_witness_draft_block_has_no_gdn()`, together with the positive half (the index DOES carry `mtp.layers.0.self_attn.*`) so the negative is not the empty-file case (`pitfalls/40` §a check that produces no output cannot fail). MTP itself stays in scope (DECISIONS.md D-05); what is closed is the claim that the GDN lane owes it a mixer dump, which it does not
+      live witness this run: 0 `mtp.*linear_attn*` keys of 1045; 6 `mtp.layers.0.self_attn.*` keys present as the positive control
+      reopens if: a checkpoint whose `mtp.*` keys include `linear_attn`, which the witness turns back into a FAIL rather than a silent gap
+
+SELFTEST PASS — three arms over the derived matrix, and every HF row bit-identical with its positive controls firing; no timing taken

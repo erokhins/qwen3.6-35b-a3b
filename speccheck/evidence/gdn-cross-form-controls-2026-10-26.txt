@@ -1,0 +1,315 @@
+# speccheck/evidence/gdn-cross-form-controls-2026-10-26.txt — the guards of `--cross-form`,
+# each watched to refuse.
+
+`--cross-form` prints `CROSS-FORM PASS` over 1,136 adjudicated rows, so every guard standing
+between it and that line is a guard nobody has seen fire. This file fires eleven of them against
+the REAL section, with the section itself as the subject under test: a mutant copy of
+`speccheck/evidence/gdn-band-2026-10-26.json` for the band-path guards, and a patched
+`load_band`/`band_check_row` for the two guards that only a stub can reach. The pinned band file
+is opened read-only and nothing under `data/` or `checkpoints/` is written by anything here.
+
+```
+command: /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python tmp/w22_crossform_controls.py
+rc=0 — controls fired 11/11. CPU only; no clock read, no timing taken.
+```
+
+Why each one is here, and which failure mode it forecloses:
+
+| # | control | the failure it forecloses |
+|---|---|---|
+| 1 | band file absent | a gate with no cited band source running anyway (`AGENTS.md` §Standing rules) |
+| 2 | `band_derivation` renamed | honouring a file written by a different derivation |
+| 3 | `normed.max_abs` raised 10× "for safety" | a typed band entering through the back door — `load_band()`'s `probe × factor` arithmetic refuses it |
+| 4 | a `scratch_artifact` record on the credited path | crediting a verdict from a `--band-out` scratch copy |
+| 5 | `load_band()` handed back an object that is not the file's `band` member | the adjudication and the provenance read being two different files |
+| 6 | a licence added for a pair the probe withheld because an arm came back `ndiff 0` on bf16 | trusting the licence file: `load_band()` accepts this mutant (its coverage is real), so only the section's own re-measurement can catch it — and it does: *"licensed but measured nothing"* |
+| 7 | a licence deleted from a pair that does measure a difference | the other direction: the file and the bytes disagreeing in the convenient direction — *"licence withheld from a row that measures a difference"* |
+| 8 | a licence for `layer0/pinned/decode9`, a pass the grid does not produce | a licence whose case never ran being counted as adjudicated evidence |
+| 9 | every licence for layer0 deleted, run with `--blocks layer0` | an empty table printing PASS |
+| 10 | `band_check_row` stubbed to **accept** everything | the accept side being a constant: the reject direction of the sabotage must, and does, fail |
+| 11 | `band_check_row` stubbed to **refuse** everything | the reject side being a constant: the accept direction of the sabotage must, and does, fail |
+
+Controls 6 and 7 are the pair the brief asked to keep firing: the licence is a claim about
+measurements the probe made, and the consuming section is the one that checks it against the bytes
+in both directions. Controls 10 and 11 are `pitfalls/40` §"stub the predicate: if no case changes
+colour, the check was decoration", applied to the adjudicator itself — and 10 says something on its
+own besides waking the sabotage up: with everything accepted, the hiding-room ladder immediately
+reports all four §04.7 gated-norm defects as "inside the band", which is the shape of the finding
+the lane would have shipped had the ladder not been there.
+
+A control counts as fired only if the section returned at least one failure AND the named refusal
+text is present in the failures or the printed output; for the non-early controls it additionally
+requires that the population table was reached, so a control cannot pass by crashing early.
+
+---- the driver, in full ----
+
+```python
+#!/usr/bin/env python3
+"""tmp/w22_crossform_controls.py — witness that `--cross-form`'s refusals can fire.
+
+`--cross-form` prints CROSS-FORM PASS over 1136 adjudicated rows. Every one of its guards is
+therefore a guard nobody has seen refuse, which is the failure mode `pitfalls/40` is a catalogue
+of. Each control here runs the REAL section against a MUTANT COPY of
+`speccheck/evidence/gdn-band-2026-10-26.json` (or against a patched function), and requires the
+specific refusal to appear. The pinned band file is opened read-only; nothing under `data/` or
+`checkpoints/` is written.
+
+  1 MISSING        — the band file is not there: the section refuses and says which file.
+  2 DERIVATION     — `band_derivation` renamed: refused unread, by load_band().
+  3 WIDENED        — one stage's max_abs raised 10x "for safety": refused by load_band()'s
+                     `probe x factor` arithmetic. The AGENTS.md standing rule, made to fire.
+  4 SCRATCH        — a `scratch_artifact` record on the credited path: the section refuses to
+                     credit a verdict from a scratch band.
+  5 SPLIT READ     — load_band() returns an object that is not the file's `band` member: the
+                     section's two-read equality guard fires.
+  6 PHANTOM LICENCE— a licence added for a pair the probe withheld because one arm came back
+                     ndiff 0 on bf16: load_band() accepts it (its coverage is real), so the
+                     SECTION must catch it by re-measuring — "licensed but measured nothing".
+  7 STRIPPED LICENCE- a licence removed from a pair that does measure a difference: "licence
+                     withheld from a row that measures a difference".
+  8 GHOST PASS     — a licence for a pass the pass grid does not produce, whose coverage entry
+                     load_band() cannot see through: "could not run that case ... never ran".
+  9 EMPTY BLOCK    — every licence for layer0 deleted, run with --blocks layer0: the section
+                     must refuse rather than print PASS over 0 adjudicated rows.
+ 10 STUB ALWAYS YES— `band_check_row` stubbed to accept everything: the reject direction of the
+                     sabotage witnesses must fail. Proves the ACCEPT side is not a constant.
+ 11 STUB ALWAYS NO- `band_check_row` stubbed to refuse everything: the accept direction of the
+                     sabotage witnesses must fail (and the rows with it). Proves the REJECT side
+                     is not a constant.
+
+Controls 1-5 and 9 expect rc=1 with an early refusal; 6-8 expect rc=1 with the named
+licence finding; 10-11 expect rc=1 with the named sabotage finding. A control that produces no
+output cannot fail, so each one also requires its record counts to have been printed (except the
+early refusals, which print the refusal instead).
+
+CPU only; no clock is read. W22 lane.
+"""
+import io
+import json
+import sys
+import types
+from contextlib import redirect_stdout
+from pathlib import Path
+
+REPO = Path("/home/erokhins/erokhins_projects/qwen3.6-35b-a3b")
+sys.path.insert(0, str(REPO / "speccheck"))
+import gdn_ref as G  # noqa: E402
+
+SRC = REPO / "speccheck" / "evidence" / "gdn-band-2026-10-26.json"
+WORK = REPO / "tmp" / "w22_crossform_mutants"
+WORK.mkdir(parents=True, exist_ok=True)
+DOC = json.loads(SRC.read_text())
+REAL_BAND_PATH = G.BAND_PATH
+REAL_LOAD_BAND = G.load_band
+REAL_CHECK_ROW = G.band_check_row
+
+RESULTS = []
+
+
+def args_for(blocks="layer0,layer1"):
+    return types.SimpleNamespace(blocks=blocks, only_fixture="", only_fault="",
+                                 threads_used=8)
+
+
+def run_section(band_path=None, blocks="layer0,layer1", patch=None):
+    """Run the real section, return (fails, captured_output)."""
+    G.BAND_PATH = Path(band_path) if band_path else REAL_BAND_PATH
+    if patch:
+        patch()
+    buf = io.StringIO()
+    try:
+        with redirect_stdout(buf):
+            g = G.load_gdn_geometry()
+            fails = G.section_cross_form(g, args_for(blocks))
+    finally:
+        G.BAND_PATH = REAL_BAND_PATH
+        G.load_band = REAL_LOAD_BAND
+        G.band_check_row = REAL_CHECK_ROW
+    return fails, buf.getvalue()
+
+
+def mutant(name, mutate):
+    doc = json.loads(json.dumps(DOC))
+    mutate(doc)
+    p = WORK / name
+    p.write_text(json.dumps(doc, indent=1, sort_keys=False) + "\n")
+    return p
+
+
+def check(tag, want_substrings, fails, out, need_counts=True):
+    joined = "\n".join(fails) + "\n" + out
+    missing = [w for w in want_substrings if w not in joined]
+    counts_ok = (not need_counts) or ("populations — printed lines" in out)
+    refused_early = "REFUSED by load_band()" in out
+    ok = not missing and (counts_ok or refused_early) and bool(fails)
+    print(f"  {tag:<18} {'FIRED' if ok else 'DID NOT FIRE'}  "
+          f"fails={len(fails)} missing={missing if missing else '-'} "
+          f"early_refusal={refused_early}")
+    for f in fails[:3]:
+        print(f"       ! {f[:170]}")
+    RESULTS.append((tag, ok))
+    return ok
+
+
+def main():
+    print("# w22 cross-form controls — the section that prints CROSS-FORM PASS, made to refuse")
+    print(f"# band file (read-only here): {SRC.relative_to(REPO)}")
+
+    # ---- 1 MISSING
+    out_path = WORK / "does-not-exist.json"
+    if out_path.exists():
+        out_path.unlink()
+    fails, out = run_section(band_path=out_path)
+    check("1 missing file", ["does not exist: run", "REFUSED by load_band()"], fails, out,
+          need_counts=False)
+
+    # ---- 2 DERIVATION
+    p = mutant("derivation.json", lambda d: d.update(
+        {"band_derivation": "vibes-on-floor-probe"}))
+    fails, out = run_section(band_path=p)
+    check("2 derivation", ["was written by a different derivation"], fails, out,
+          need_counts=False)
+
+    # ---- 3 WIDENED 10x
+    def widen(d):
+        e = d["band"]["normed"]
+        e["max_abs"] = e["max_abs"] * 10.0
+    p = mutant("widened.json", widen)
+    fails, out = run_section(band_path=p)
+    check("3 widened 10x", ["is not the derived", "never typed"], fails, out,
+          need_counts=False)
+
+    # ---- 4 SCRATCH artifact on the credited path
+    p = mutant("scratch.json", lambda d: d.update(
+        {"scratch_artifact": {"written_to": "tmp/x.json", "why": "mutant"}}))
+    fails, out = run_section(band_path=p)
+    check("4 scratch copy", ["scratch_artifact", "no verdict"], fails, out,
+          need_counts=False)
+
+    # ---- 5 the two reads disagree (load_band hands back something else)
+    def patch_split():
+        def bad(path):
+            b = REAL_LOAD_BAND(path)
+            b = dict(b)
+            e = dict(b["normed"])
+            e["max_abs"] = e["max_abs"] * 2.0     # not what the file says
+            b["normed"] = e
+            return b
+        G.load_band = bad
+    fails, out = run_section(patch=patch_split)
+    check("5 split read", ["is not the object load_band() returned"], fails, out,
+          need_counts=False)
+
+    # ---- 6 a licence for a row that measured nothing (re-measured by the section)
+    # Find a withheld pair from a clean run's own audit table and hand it a licence.
+    fails, out = run_section()
+    withheld = None
+    for line in out.splitlines():
+        parts = line.split()
+        if (line.startswith("  layer") and len(parts) >= 10 and "withheld" in line
+                and "ndiff 0" in line):
+            withheld = (parts[1], parts[4], parts[3])      # pass, stage, arms
+            break
+    assert withheld, "no withheld pair found in a clean run; the audit has nothing to audit"
+    pk, stage, arms = withheld
+
+    def add_licence(d):
+        d["band"][stage]["licensed_rows"].append(f"{pk}|{arms}")
+    p = mutant("phantom_licence.json", add_licence)
+    fails, out = run_section(band_path=p)
+    check("6 phantom licence", ["licensed but measured nothing"], fails, out)
+
+    # ---- 7 a licence stripped from a row that does measure a difference
+    judged = None
+    for line in out.splitlines():
+        parts = line.split()
+        if (line.startswith("  layer") and len(parts) >= 14 and parts[4] == "normed"
+                and parts[-1] == "ACCEPT"):
+            judged = (parts[1], parts[4], parts[3])
+            break
+    assert judged, "no adjudicated normed row found to strip"
+    pk2, stage2, arms2 = judged
+
+    def strip_licence(d):
+        d["band"][stage2]["licensed_rows"].remove(f"{pk2}|{arms2}")
+    p = mutant("stripped_licence.json", strip_licence)
+    fails, out = run_section(band_path=p)
+    check("7 stripped licence", ["withheld from a row that measures a difference"], fails, out)
+
+    # ---- 8 a licence for a pass the grid does not produce
+    def ghost(d):
+        e = d["band"]["q_hat"]
+        e["passes"].append("layer0/pinned/decode9")
+        e["licensed_rows"].append("layer0/pinned/decode9|chunked|substitution")
+        e["licensed_rows"].sort()
+    p = mutant("ghost_pass.json", ghost)
+    fails, out = run_section(band_path=p)
+    check("8 ghost pass", ["could not run that case", "never ran"], fails, out)
+
+    # ---- 9 every licence for one block deleted, run on that block alone
+    def empty_block(d):
+        for st, e in d["band"].items():
+            e["licensed_rows"] = [k for k in e["licensed_rows"]
+                                  if not k.startswith("layer0/")]
+    p = mutant("empty_layer0.json", empty_block)
+    fails, out = run_section(band_path=p, blocks="layer0")
+    check("9 empty block", ["0 rows are licensed for the blocks selected"], fails, out,
+          need_counts=False)
+
+    # ---- 10/11 the adjudicator stubbed both ways: the sabotage must notice
+    def patch_yes():
+        G.band_check_row = lambda band, stage, ag: (True, "stubbed to accept")
+    fails, out = run_section(patch=patch_yes)
+    check("10 stub accepts all", ["said ACCEPT, required REJECT"], fails, out)
+
+    def patch_no():
+        G.band_check_row = lambda band, stage, ag: (False, "stubbed to refuse")
+    fails, out = run_section(patch=patch_no)
+    check("11 stub refuses all", ["said REJECT, required ACCEPT"], fails, out)
+
+    bad = [t for t, ok in RESULTS if not ok]
+    print(f"\n  controls fired {len(RESULTS) - len(bad)}/{len(RESULTS)}"
+          + ("" if not bad else f"  FAILED: {bad}"))
+    print("# CPU only; no clock read, no timing taken.")
+    return 1 if bad else 0
+
+
+BANDNAME = SRC.name
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+---- the run, verbatim ----
+
+# w22 cross-form controls — the section that prints CROSS-FORM PASS, made to refuse
+# band file (read-only here): speccheck/evidence/gdn-band-2026-10-26.json
+  1 missing file     FIRED  fails=1 missing=- early_refusal=True
+       ! --cross-form has no band to apply: /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tmp/w22_crossform_mutants/does-not-exist.json does not exist: run `speccheck/gdn_ref.p
+  2 derivation       FIRED  fails=1 missing=- early_refusal=True
+       ! --cross-form has no band to apply: /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tmp/w22_crossform_mutants/derivation.json was written by a different derivation ('vibe
+  3 widened 10x      FIRED  fails=1 missing=- early_refusal=True
+       ! --cross-form has no band to apply: /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/tmp/w22_crossform_mutants/widened.json: normed.max_abs = 0.3125 is not the derived 0.0
+  4 scratch copy     FIRED  fails=1 missing=- early_refusal=False
+       ! tmp/w22_crossform_mutants/scratch.json carries a `scratch_artifact` record: --band-out wrote a scratch copy onto the pinned band path, and no verdict is credited from a s
+  5 split read       FIRED  fails=1 missing=- early_refusal=False
+       ! speccheck/evidence/gdn-band-2026-10-26.json: the `band` member re-read from the file is not the object load_band() returned; the file moved under the run, so the verdict 
+  6 phantom licence  FIRED  fails=1 missing=- early_refusal=False
+       ! licensed but measured nothing: layer0/pinned/decode0|pinned|reassoc on `core_attn` is licensed by the band file, yet on re-measurement one arm is a bf16 tensor bit-identi
+  7 stripped licence FIRED  fails=1 missing=- early_refusal=False
+       ! licence withheld from a row that measures a difference: layer0/pinned/prefill|chunked|chunked32 on `normed` — both arms differ from the anchor by more than the bf16 quant
+  8 ghost pass       FIRED  fails=1 missing=- early_refusal=False
+       ! the band licenses `layer0/pinned/decode9|chunked|substitution` for `q_hat` on a selected block but this section could not run that case: a licence whose case never ran li
+  9 empty block      FIRED  fails=1 missing=- early_refusal=False
+       ! 0 rows are licensed for the blocks selected: a band that licenses nothing cannot produce a verdict, and an empty table must never print PASS (pitfalls/40)
+  10 stub accepts all FIRED  fails=14 missing=- early_refusal=False
+       ! layer0/norm_plus_one: a full-strength §04.7 gated-norm defect whose entire contract is `normed`+`y` sits INSIDE the band (maxabs 1.481e+01 against 3.125e-02) — the band l
+       ! layer0/norm_gate_first: a full-strength §04.7 gated-norm defect whose entire contract is `normed`+`y` sits INSIDE the band (maxabs 1.005e+01 against 3.125e-02) — the band
+       ! layer0/norm_weight_f32: a full-strength §04.7 gated-norm defect whose entire contract is `normed`+`y` sits INSIDE the band (maxabs 6.250e-02 against 3.125e-02) — the band
+  11 stub refuses all FIRED  fails=1146 missing=- early_refusal=False
+       ! cross-form layer0/pinned/prefill|chunked|chunked32 on `q_hat` is outside the band this lane already derived: stubbed to refuse — the triangle inequality failed, which is 
+       ! cross-form layer0/pinned/prefill|chunked|pinned on `q_hat` is outside the band this lane already derived: stubbed to refuse — the triangle inequality failed, which is a f
+       ! cross-form layer0/pinned/prefill|chunked|reassoc on `q_hat` is outside the band this lane already derived: stubbed to refuse — the triangle inequality failed, which is a 
+
+  controls fired 11/11
+# CPU only; no clock read, no timing taken.

@@ -42,18 +42,23 @@ import gguf_header_types as G  # tokenizer only; its BPW table is deliberately N
 #   Q5_K: half2 dm(4) + scales[12] + qh[QK_K/8](32)         + qs[128]              = 176
 #   Q6_K: dm[16] + scales[16] + qh[QK_K/4](64)              + ql[128]              = 210
 #   Q8_0: half d(2)                                          + qs[QK8_0](32)        = 34  (per 32)
+#   Q4_0:    half d(2)                                       + qs[QK4_0/2](16)      = 18  (per 32)
+#   IQ4_NL:  half d(2)                                       + qs[QK4_NL/2](16)     = 18  (per 32)
+# The last two rows were corrected locally on 2026-10-26 (Q4_0 was 34 B against a struct of 18, and
+# IQ4_NL carried block_iq4_xs' 144 B per 256); the arithmetic, the header lines and why the file-size
+# witness could not see either row are in tools/PROVENANCE.md §gguf_width_table.py.
 BLK = {
     "F32":    (1,   4,  "4 = sizeof(float)"),
     "F16":    (1,   2,  "2 = sizeof(ggml_half)"),
     "BF16":   (1,   2,  "2 = sizeof(ggml_bfloat16)"),
     "Q8_0":   (32,  34, "2*sizeof(ggml_half) + QK8_0"),
-    "Q4_0":   (32,  34, "sizeof(ggml_half) + QK"),
+    "Q4_0":   (32,  18, "sizeof(ggml_half) + QK4_0/2"),
     "Q4_K":   (256, 144, "2*sizeof(ggml_half) + K_SCALE_SIZE + QK_K/2"),
     "Q5_K":   (256, 176, "2*sizeof(ggml_half) + K_SCALE_SIZE + QK_K/2 + QK_K/8"),
     "Q6_K":   (256, 210, "2*sizeof(ggml_half) + QK_K/16 + QK_K/4 + QK_K/2"),
     "Q2_K":   (256,  84, "sizeof(ggml_half) + QK_K/16 + QK_K/4"),
     "Q3_K":   (256, 110, "QK_K*3/8 + QK_K/16 + 2*(QK_K/32) + sizeof(ggml_half)"),
-    "IQ4_NL": (256, 144, "sizeof(ggml_half)*2 + QK_K/2"),
+    "IQ4_NL": (32,  18, "sizeof(ggml_half) + QK4_NL/2"),
     "IQ4_XS": (256, 136, "sizeof(ggml_half)*2 + QK_K/2 + 8"),
     "MXFP4":  (32,   17, "1 scale byte per 32 + 16 nibble bytes"),
 }

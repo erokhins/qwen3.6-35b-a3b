@@ -19,7 +19,12 @@ device words against:
   oracle_floor.tsv   the floor probes: what legal re-associations of the reference's OWN fp32 math
                      cost, which is where every band gate.py uses comes from
                      (specification/10-reference-dumps-and-gates.md §"Bands are derived, not
-                     invented"). Nothing here reads a device.
+                     invented"). Each row carries its own population — the number of element
+                     comparisons the maximum was taken over, how many of those pairs straddled zero,
+                     and how many were a signed-zero pair — because a band with no denominator is a
+                     hope, and because those two counts are what show whether a figure could have been
+                     affected by the 2026-10-26 repair of this file's ULP ruler. Nothing here reads a
+                     device.
   oracle_p3.tsv      prediction 3: is `gate_up_proj` really [E, 2I, H] with `gate, up = chunk(2)`?
                      Answered by recomputing pinned `expert_raw` from the shard three ways — halves
                      as read, halves swapped, stack transposed — and reporting which one reproduces
@@ -39,10 +44,12 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(REPO, "speccheck"))
+sys.path.insert(0, os.path.join(REPO, "tools"))
 
 import numpy as np                                          # noqa: E402
 import torch                                                # noqa: E402
 import moe_ref                                              # noqa: E402
+import ulp_policy                                           # noqa: E402  the repo's one ULP ruler
 
 MANIFEST = os.path.join(REPO, "checkpoints", "dump-manifest-2026-10-26.json")
 BLOCKS = ["layer0", "layer1", "layer39", "mtp0"]
@@ -131,13 +138,101 @@ def bf16_round_bits(f32):
     return r.astype(np.uint16)
 
 
+# --------------------------------------------------------------------- the one ruler of record
+# `tools/ulp_policy.py` is the ruler; this section is its vectorised form, not a second opinion. The
+# body this replaced was the third sign-magnitude ruler in the repo and the one that DERIVES every
+# band in work/oracle_floor.tsv:
+#
+#     ai = np.where(ai < 0, 0x80000000 - ai, ai)      # on a SIGNED int32 view
+#
+# Write the shared ruler's key as `b | sign` for a positive image and `~b` for a negative one; the old
+# body's key was `b` for a positive image and `2^31 + 1 + key(b)` for a negative one. Two consequences,
+# both MEASURED (not argued) in
+# `specification/evidence/oracle_ruler_repair_witness.py`:
+#
+#   * same-sign pairs: both members carry the same offset, so the difference is the true step count.
+#     The old body agreed with the ruler of record on all 283,554 same-sign pairs of the witness's
+#     derived corpus — which is why no band moved when this was fixed.
+#   * a pair straddling zero: the offsets no longer cancel and the body returns the COMPLEMENT of the
+#     true distance, `2^32 + 1 - d`, not `d`. That is an order reversal about zero, not an off-by-one:
+#     `+0`/`-0` (d = 1, the one distance fixed by the format) read 4,294,967,296 where the ruler says 1,
+#     and `+1.0`/`-1.0` (d = 2,130,706,433) read 2,164,260,864. Any small cross-zero rounding step read
+#     as ~4.29e9, so a straddling pair in a probe population would have blown a band UP rather than
+#     quietly tightening it. `gate.py`'s pre-D-17 body (the same expression on an UNSIGNED view) was a
+#     different bug and really did read one step short — the two must not be conflated.
+# Repaired 2026-10-26 against `tools/ulp_policy.py`, which is not edited.
+_RULER32 = ulp_policy.Ruler("f32")          # f32 facts derive from `struct`; nothing here types 8/23
+_F32_SIGN = _RULER32.sign                   # 0x80000000, derived from the format
+_F32_MASK = _RULER32.mask                   # 0xFFFFFFFF, ditto
+
+
+def f32_images(a):
+    """The f32 BIT IMAGES of `a`, as unsigned int64 — `view`, never `astype`.
+
+    `astype(np.int32)` on a float array truncates the number instead of reinterpreting its bits; the
+    same trap is commented on in `floor_probe` below, and a comparator built on it reports enormous
+    distances while looking perfectly plausible (`pitfalls/30` §Read a dump's dtype off its file size).
+    """
+    return np.asarray(a, dtype=np.float32).view(np.int32).astype(np.int64) & _F32_MASK
+
+
+def order_keys(images):
+    """The monotone key `tools/ulp_policy.py` §Ruler.order_key computes, elementwise.
+
+    Sign-magnitude ordering: a negative image maps to its bitwise complement, a positive one takes the
+    sign bit — so -0 sits one step BELOW +0, the two signed zeros are adjacent, and the difference of
+    two keys is the number of representable steps between them. The test is on the BIT (`img & sign`),
+    never on `img < 0` of an unsigned array, which is never true and collapses +v onto -v
+    (`pitfalls/30` §A — that is how a ULP gate passes vacuously).
+    """
+    return np.where(images & _F32_SIGN, (~images) & _F32_MASK,
+                    images | _F32_SIGN).astype(np.int64)
+
+
+def is_nan_image(images):
+    """Which images are NaN, from the shared ruler's own field widths (no typed 8 or 23 here)."""
+    return ((((images >> _RULER32.mant) & _RULER32.exp_mask) == _RULER32.exp_mask)
+            & ((images & ((1 << _RULER32.mant) - 1)) != 0))
+
+
 def ulpdist(a, b):
-    """ULP distance between two f32 arrays, monotone-index form (works across the sign flip)."""
-    ai = np.asarray(a, dtype=np.float32).view(np.int32).astype(np.int64)
-    bi = np.asarray(b, dtype=np.float32).view(np.int32).astype(np.int64)
-    ai = np.where(ai < 0, 0x80000000 - ai, ai)
-    bi = np.where(bi < 0, 0x80000000 - bi, bi)
-    return np.abs(ai - bi)
+    """Steps between two f32 arrays, in the sign-magnitude-ordered bit image — the shared ruler.
+
+    Agrees with `tools/ulp_policy.py` §Ruler.classify on every pair it counts, and REFUSES the pairs
+    it answers `None` for: a pair involving a NaN has no step count, and every call site here takes
+    `.max()` of the result, so a sentinel would widen a band with a number that means nothing. NaN
+    reaching a band is a finding, not a large value — that is the same reason `gate.py`'s
+    `ulpdist_bits` returns None rather than a count.
+    """
+    ai, bi = f32_images(a), f32_images(b)
+    nan = is_nan_image(ai) | is_nan_image(bi)
+    if nan.any():
+        idx = np.flatnonzero(nan)[:4].tolist()
+        raise AssertionError(
+            "ulpdist was asked for the distance across %d NaN image(s) at flat indices %s "
+            "(a=%s b=%s): the ruler of record answers None there, and this probe's .max() would "
+            "report that as a band. A NaN in a floor-probe input is a finding about the probe, not a "
+            "bigger band"
+            % (int(nan.sum()), idx, np.take(ai, idx), np.take(bi, idx)))
+    return np.abs(order_keys(ai) - order_keys(bi))
+
+
+def pair_census(a, b):
+    """(n_pairs, n_straddling_zero, n_signed_zero) for one elementwise comparison.
+
+    The straddle count is what makes the 2026-10-26 ruler repair auditable PER BAND instead of by
+    assertion: the old body was exact on same-sign pairs and returned `2^32 + 1 - d` on straddling
+    ones, so a band whose population holds no straddling pair is a band the repair could not have
+    moved — "`logit_dot_route_ulp` is a same-sign measurement, which is why the bug was dormant"
+    became a number in `oracle_floor.tsv` rather than a sentence in a report. Signed zeros are counted
+    separately because d = 1 there is fixed by the format itself, which makes it the one pair a reader
+    can check without trusting either ruler.
+    """
+    ai, bi = f32_images(a), f32_images(b)
+    sa, sb = (ai & _F32_SIGN) != 0, (bi & _F32_SIGN) != 0
+    za = (ai == 0) | (ai == _F32_SIGN)
+    zb = (bi == 0) | (bi == _F32_SIGN)
+    return (int(ai.size), int((sa != sb).sum()), int((za & zb & (ai != bi)).sum()))
 
 
 # ------------------------------------------------------------------------ the documented rule,
@@ -276,6 +371,43 @@ def dot_orders(x, wg, ref_bits):
     return bits
 
 
+def reference_route(x_t, wg_t, g):
+    """The reference's `ref` form on bf16 torch tensors, as (probs, bf16 LOGIT BIT IMAGES).
+
+    The dtype/shape assertion lives here because the row table and the floor probe must be given the
+    SAME guarantee: a `route()` that handed back f32 logits would have the probe measuring the logits
+    before the reference stores them, i.e. a different function, and the band would come out of the
+    wrong stage. `.view(torch.uint16)`, never `.numpy()` on a bf16 tensor — the bit-image rule
+    (`pitfalls/30` §Tensor.to casts, .view bitcasts).
+    """
+    r = moe_ref.route(x_t, wg_t, g, moe_ref.Form.named("ref"))
+    if (r["logits"].dtype is not torch.bfloat16
+            or tuple(r["logits"].shape) != (x_t.shape[0], g.num_experts)):
+        raise AssertionError("route() returned %s %s; the reference form stores bf16 logits"
+                             % (r["logits"].dtype, tuple(r["logits"].shape)))
+    return r["probs"].numpy(), r["logits"].view(torch.uint16).numpy()
+
+
+def probe_inputs(D, g):
+    """The floor probe's inputs, per block, in the 8-tuple `floor_probe` consumes.
+
+    Split out of `main()` so the probe can be run by anything that needs it — in particular
+    `specification/evidence/oracle_ruler_repair_witness.py`, which runs it TWICE over these same
+    inputs (once with the repaired ruler, once with the pre-repair body) and diffs the bands. That is
+    how "the repair moved no band" becomes a measurement on identical inputs rather than a comparison
+    of an archived table with a fresh one.
+    """
+    out = []
+    for blk in BLOCKS:
+        x, xb = read_arr(D[blk + ".input"])
+        wg, wgb = read_arr(D[blk + ".mlp.gate.weight"])
+        lg, lgb = read_arr(D[blk + ".router_logits"])
+        twf = read_arr(D[blk + ".topk_weights_f32"])[0]
+        probs_ref, logits_ref_bits = reference_route(u16_to_torch_bf16(xb), u16_to_torch_bf16(wgb), g)
+        out.append((blk, lg, twf, probs_ref, lgb, x, wg, logits_ref_bits))
+    return out
+
+
 def tie_of(probs_row, K):
     """(tie_class, margin_ulp) for one row, read off the probabilities alone.
       0 no bit-identical pair among the top K+1
@@ -301,23 +433,41 @@ def tie_of(probs_row, K):
 
 def floor_probe(rows, K):
     """rows: (tag, logits_bits, pinned_wpre, ref_probs, ref_logits, x, wg) per block.
-    Returns the widest disagreement any LEGAL route pair shows at each stage."""
+
+    Returns (widest disagreement any LEGAL route pair shows at each stage, per-stage population).
+    The population dict holds, for each figure, the number of element comparisons it was taken over,
+    how many of those pairs straddled zero, and how many were a signed-zero pair. Those counters are
+    incremented on the same line as the max they belong to, so a band and its denominator cannot
+    drift apart, and `gate.py` refuses to run with a band measured over zero comparisons: a figure
+    with no population behind it is not a measurement (`pitfalls/40` §"count reachability").
+    """
     out = {"softmax_denominator_reassoc_ulp": 0, "exp_route_ulp": 0,
            "renorm_sum_reassoc_ulp": 0, "weights_vs_pinned_f32_ulp": 0,
            "pinned_weight_to_bf16_boundary_f32ulp": 1 << 30,
            "logit_dot_route_disagreement_elements": 0, "logit_dot_route_ulp": 0,
            "logit_ref_vs_pinned_elements": 0, "logit_ref_vs_pinned_ulp": 0,
            "n_rows_probed": 0}
+    pop = {k: [0, 0, 0] for k in out}
+
+    def widen(key, dist, a=None, b=None):
+        """Record one comparison and its population together, at the line that produced it."""
+        out[key] = max(out[key], int(dist))
+        if a is None:
+            return
+        n, straddle, szero = pair_census(a, b)
+        pop[key][0] += n
+        pop[key][1] += straddle
+        pop[key][2] += szero
+
     for tag, lg, wpre_pin, probs_ref, pin_bits, x, wg, ref_bits in rows:
         routes = softmax_orders(lg, K)
         base = routes["expf32/seq"]
         for name, p in routes.items():
             d = int(ulpdist(p, base).max())
             if not name.endswith("/seq"):
-                out["softmax_denominator_reassoc_ulp"] = max(
-                    out["softmax_denominator_reassoc_ulp"], d)
+                widen("softmax_denominator_reassoc_ulp", d, p, base)
             if name.startswith("expf64"):
-                out["exp_route_ulp"] = max(out["exp_route_ulp"], d)
+                widen("exp_route_ulp", d, p, base)
         # R4's own 8-term sum, re-associated, on the reference probabilities
         ids = rule_topk(probs_ref, K)
         pre = np.take_along_axis(probs_ref, ids, axis=1).astype(np.float32)
@@ -345,14 +495,13 @@ def floor_probe(rows, K):
             if nm == "seq":
                 continue
             w = (pre / sv[:, None]).astype(np.float32)
-            out["renorm_sum_reassoc_ulp"] = max(out["renorm_sum_reassoc_ulp"],
-                                                int(ulpdist(w, pre / s[:, None]).max()))
+            ref_w = pre / s[:, None]
+            widen("renorm_sum_reassoc_ulp", int(ulpdist(w, ref_w).max()), w, ref_w)
         # every route's weights against the pinned f32 arm, and the pinned arm's distance to a
         # bf16 rounding boundary (the figure the zero-tolerance claim on R5 rests on)
         for name, p in routes.items():
             _, _, w = rule_route(p, K)
-            out["weights_vs_pinned_f32_ulp"] = max(out["weights_vs_pinned_f32_ulp"],
-                                                   int(ulpdist(w, wpre_pin).max()))
+            widen("weights_vs_pinned_f32_ulp", int(ulpdist(w, wpre_pin).max()), w, wpre_pin)
         v = np.asarray(wpre_pin, dtype=np.float32).view(np.uint32).astype(np.uint64)   # bits, not
         # a value cast: astype(uint32) on a float array TRUNCATES the number instead of reinterpreting
         # its bits, which is the pitfalls/30 trap and here it would silently report a huge margin.
@@ -360,6 +509,7 @@ def floor_probe(rows, K):
         out["pinned_weight_to_bf16_boundary_f32ulp"] = min(
             out["pinned_weight_to_bf16_boundary_f32ulp"],
             int(np.minimum(np.abs(rem - 0x8000), 0x8000).min()))
+        pop["pinned_weight_to_bf16_boundary_f32ulp"][0] += int(rem.size)
         # R1: how far apart legal summation orders leave the STORED bf16 logits, and how far the
         # reference's own F.linear sits from the pinned dump
         step = 1                                     # every row the gate judges is probed too
@@ -370,18 +520,19 @@ def floor_probe(rows, K):
         for nm, v2 in bits.items():
             if nm == "f32_seq":
                 continue
+            pop["logit_dot_route_disagreement_elements"][0] += int(v2.size)
             out["logit_dot_route_disagreement_elements"] = max(
                 out["logit_dot_route_disagreement_elements"], int((v2 != ref).sum()))
-            out["logit_dot_route_ulp"] = max(
-                out["logit_dot_route_ulp"],
-                int(ulpdist(u16_to_f32(v2), u16_to_f32(ref)).max()))
+            f2, fref = u16_to_f32(v2), u16_to_f32(ref)
+            widen("logit_dot_route_ulp", int(ulpdist(f2, fref).max()), f2, fref)
+        pop["logit_ref_vs_pinned_elements"][0] += int(bits["ref_linear"].size)
         out["logit_ref_vs_pinned_elements"] = max(
             out["logit_ref_vs_pinned_elements"], int((bits["ref_linear"] != pin).sum()))
-        out["logit_ref_vs_pinned_ulp"] = max(
-            out["logit_ref_vs_pinned_ulp"],
-            int(ulpdist(u16_to_f32(bits["ref_linear"]), u16_to_f32(pin)).max()))
+        f_lin, f_pin = u16_to_f32(bits["ref_linear"]), u16_to_f32(pin)
+        widen("logit_ref_vs_pinned_ulp", int(ulpdist(f_lin, f_pin).max()), f_lin, f_pin)
         out["n_rows_probed"] += int(np.ceil(x.shape[0] / step))
-    return out
+        pop["n_rows_probed"][0] += int(np.ceil(x.shape[0] / step))
+    return out, pop
 
 
 # -----------------------------------------------------------------------------------------------
@@ -414,7 +565,6 @@ def main():
                    "rule_ids pinned_ids rule_wpre_hex pinned_wpre_hex rule_wcast_hex "
                    "pinned_wcast_hex pinned_routed_hex castafter_routed_hex n_rule_ne_pin\n")
     n_rows = 0
-    floor_rows = []
     tie_hist = {}
     tie_hist_ref = {}
     margins = []
@@ -431,16 +581,7 @@ def main():
         T = x.shape[0]
         x_t = u16_to_torch_bf16(xb)
         wg_t = u16_to_torch_bf16(wgb)
-        form = moe_ref.Form.named("ref")
-        r = moe_ref.route(x_t, wg_t, g, form)
-        probs_ref = r["probs"].numpy()
-        logits_ref = r["logits"].numpy() if r["logits"].dtype is not torch.bfloat16 \
-            else r["logits"].view(torch.uint16).numpy()
-        if tuple(r["logits"].shape) != (T, E) or r["logits"].dtype is not torch.bfloat16:
-            raise AssertionError("route() returned %s %s; the reference form stores bf16 logits"
-                                 % (r["logits"].dtype, tuple(r["logits"].shape)))
-        logits_ref_bits = logits_ref              # already a bf16 bit image, not a value
-        ids_orc = r["topk_ids"].numpy()
+        probs_ref, logits_ref_bits = reference_route(x_t, wg_t, g)   # the bit images, not the values
         rule_ids, rule_pre, rule_w = rule_route(probs_ref, K)
         rule_wcast = bf16_round_bits(rule_w)
         # cast-after's routed output, for the ALT comparison gate.py makes against mode 3
@@ -448,7 +589,6 @@ def main():
         ca_w = ca["topk_weights"].numpy().astype(np.float32)
         ca_ids, _, _ = rule_route(ca["probs"].numpy(), K)
         ca_routed = combine_bits(raw, ca_w, rule_wcast, ca_ids, K, H, cast="after")
-        floor_rows.append((blk, lg, twf, probs_ref, lgb, x, wg, logits_ref_bits))
         probs_pin = torch.softmax(torch.from_numpy(np.ascontiguousarray(lg)), dim=-1,
                                   dtype=torch.float32).numpy()
         for t in range(T):
@@ -495,13 +635,17 @@ def main():
              min(nzr) if nzr else -1, sum(1 for m in margins_ref if m == 0)))
 
     # ---- the floor probe ----------------------------------------------------------------------
-    fl = floor_probe(floor_rows, K)
+    # Built from `probe_inputs`, the one place that defines what the probe consumes, so the repair
+    # witness can run this exact probe with either ruler.
+    floor_rows = probe_inputs(D, g)
+    fl, pop = floor_probe(floor_rows, K)
     with open(os.path.join(a.work, "oracle_floor.tsv"), "w") as fh:
-        fh.write("# name n max_ulp\n")
+        fh.write("# name n max_ulp n_straddling_zero n_signed_zero\n")
         n_f = 0
         for k, v in sorted(fl.items()):
-            fh.write("%s 1 %d\n" % (k, v))
-            print("FLOOR name=%s n=1 max_ulp=%d" % (k, v))
+            fh.write("%s %d %d %d %d\n" % (k, pop[k][0], v, pop[k][1], pop[k][2]))
+            print("FLOOR name=%s n=%d max_ulp=%d n_straddling_zero=%d n_signed_zero=%d"
+                  % (k, pop[k][0], v, pop[k][1], pop[k][2]))
             n_f += 1
     print("ORACLESECTION section=floor records=%d" % n_f)
 

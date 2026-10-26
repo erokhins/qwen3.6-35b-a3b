@@ -1,0 +1,35 @@
+RULER of_record=tools/ulp_policy.py format=f32 bits=32 mant=23 exp=8 bias=127 sign=0x80000000
+POPULATION pairs=290297 clean=289168 nan=1129 straddling=5612 signed_zero=2 involving_inf=12 derived_from=every_bf16_image(widened) x {+-1,flip,binade} + f32 exponents x mants x {flip,+-1,+-2}
+CHECK name=the pair population contains every class the repair is about ok=1 n=290297 a population with no straddling pair could not show the old body's complement law at all, and one with no NaN could not show the refusal
+CHECK name=the repaired ulpdist equals the shared ruler on every pair it counts ok=1 n=289168 289168 finite-and-infinite pairs compared against Ruler.classify; first disagreement: None
+CHECK name=the repaired ulpdist REFUSES exactly the pairs the ruler answers None for ok=1 n=400 400 NaN-involving pairs asked one at a time, all raised (a sentinel here would widen a band with a number that means nothing); pairs it counted anyway: none
+LAW old = 2^32+1-d on straddling pairs: holds on 5610 of 5610 (of which the signed-zero pair class accounts for 2 of 2); old == d on 283556 same-sign pairs, violations 0
+HEADLINE pair=+0/-0                    ruler=1 historic=4294967296 repaired=1 repaired_matches_ruler=1
+CHECK name=the repaired ruler states +0/-0 the way the ruler of record does ok=1 n=1 historic body said 4294967296 where tools/ulp_policy.py says 1 — this is the pair class the bands were blind to
+HEADLINE pair=+1.0/-1.0                ruler=2130706433 historic=2164260864 repaired=2130706433 repaired_matches_ruler=1
+CHECK name=the repaired ruler states +1.0/-1.0 the way the ruler of record does ok=1 n=2130706433 historic body said 2164260864 where tools/ulp_policy.py says 2130706433 — this is the pair class the bands were blind to
+HEADLINE pair=+smallest-subnormal/-0   ruler=2 historic=4294967295 repaired=2 repaired_matches_ruler=1
+CHECK name=the repaired ruler states +smallest-subnormal/-0 the way the ruler of record does ok=1 n=2 historic body said 4294967295 where tools/ulp_policy.py says 2 — this is the pair class the bands were blind to
+CHECK name=the old body's straddling-pair error law fires and has no exception ok=1 n=5612 every pair whose members have opposite signs was returned as 2^32+1-d rather than d, signed zeros included (they are the pair whose true distance the format fixes at 1, so this class is checkable without trusting either ruler)
+CHECK name=the old body is the IDENTITY on same-sign pairs, which is why no band moved ok=1 n=283556 283556 same-sign pairs, 0 of them measured wrong by the old body — if that second number were not 0 the bands would have been wrong for a second, unrelated reason
+BANDDELTA name=exp_route_ulp old=19 new=19 delta=+0 pairs=131072 straddling=0 signed_zero=0 verdict=unchanged (no straddling pair in its population)
+BANDDELTA name=logit_dot_route_disagreement_elements old=5 new=5 delta=+0 pairs=131072 straddling=0 signed_zero=0 verdict=unchanged (no straddling pair in its population)
+BANDDELTA name=logit_dot_route_ulp old=65536 new=65536 delta=+0 pairs=131072 straddling=0 signed_zero=0 verdict=unchanged (no straddling pair in its population)
+BANDDELTA name=logit_ref_vs_pinned_elements old=0 new=0 delta=+0 pairs=32768 straddling=0 signed_zero=0 verdict=unchanged (no straddling pair in its population)
+BANDDELTA name=logit_ref_vs_pinned_ulp old=0 new=0 delta=+0 pairs=32768 straddling=0 signed_zero=0 verdict=unchanged (no straddling pair in its population)
+BANDDELTA name=n_rows_probed old=128 new=128 delta=+0 pairs=128 straddling=0 signed_zero=0 verdict=unchanged (no straddling pair in its population)
+BANDDELTA name=pinned_weight_to_bf16_boundary_f32ulp old=164 new=164 delta=+0 pairs=1024 straddling=0 signed_zero=0 verdict=unchanged (no straddling pair in its population)
+BANDDELTA name=renorm_sum_reassoc_ulp old=2 new=2 delta=+0 pairs=3072 straddling=0 signed_zero=0 verdict=unchanged (no straddling pair in its population)
+BANDDELTA name=softmax_denominator_reassoc_ulp old=19 new=19 delta=+0 pairs=196608 straddling=0 signed_zero=0 verdict=unchanged (no straddling pair in its population)
+BANDDELTA name=weights_vs_pinned_f32_ulp old=5 new=5 delta=+0 pairs=8192 straddling=0 signed_zero=0 verdict=unchanged (no straddling pair in its population)
+CHECK name=re-running the probe with the old body moves no band on this artifact ok=1 n=10 bands that moved: none — a non-empty list means the figure contained a pair whose members have opposite signs, and the fix is to re-derive and re-examine the verdicts that quote it, never to widen a band by hand
+CHECK name=the table on disk is the table this probe just derived ok=1 n=10 work/oracle_floor.tsv must be the probe's own output (name, comparisons, max_ulp, straddling, signed-zero) and not a hand-edited band file
+DELTA archived_before=oracle-floor-before-ruler-repair-2026-10-26.tsv bands=10 changed_vs_before=none
+CHECK name=every band delta against the archived pre-repair table is printed and zero ok=1 n=10 bands whose max_ulp differs from the archived pre-repair table: none — that table was written by the old body, so a non-empty list is a real band move and the verdicts quoting those bands must be re-examined, not the band widened
+DORMANT band=logit_dot_route_ulp max_ulp=65536 pairs=131072 straddling_pairs_in_population=0 (recomputed here, independently of oracle_arm.pair_census)
+DORMANT widest_pair=layer0/f32_rev a=0xb9cd0000(-0.0003910064697265625) b=0xb9cc0000(-0.00038909912109375) steps=65536 same_sign=1
+WOULDPRINT negate one member: a=0x39cd0000(0.0003910064697265625) b=0xb9cc0000 straddles_zero=1 ruler=1939406849 repaired=1939406849 historic=2355560448 law_says=2355560448 law_holds=1
+WOULDPRINT had a straddling pair of the band's own size existed, the old body would have printed 2^32+1-65536 = 4294901761 where the ruler says 65536 — five orders of magnitude above the band that was actually reported (65536), which is the sense in which the bug was dormant
+CHECK name=logit_dot_route_ulp is a same-sign measurement, shown rather than stated ok=1 n=0 0 straddling pairs in 131072 comparisons of that band's own population, recomputed here from the bit images rather than read from oracle_arm.pair_census; the band's own value is second evidence, because a straddle of size d would have been reported as 2^32+1-d
+CHECK name=the straddling twin prints what the old body WOULD have said, by the complement law ok=1 n=2355560448 the band's own widest pair with one member negated: the ruler and the repaired body say 1939406849, the historic body said 2355560448 = 2^32+1-1939406849 — an order reversal about zero, not a rounding nudge
+RESULT PASS oracle ruler repair witness checks=13 findings=0
