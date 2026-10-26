@@ -1,0 +1,7 @@
+guard refused tag=device-flag-absent, device calls unchanged at 0
+slabs=['weights.tables', 'weights.exact'] peak=540344320
+staged=12 of 13 rows; draft rows refused=1
+not-staged-and-not-refused: none
+device calls=1; H2D=12 D2H=12 malloc=2
+every H2D destination == slab_base + slab_off of a staged row: True (12 copies, 12 distinct addresses)
+after free_all: device allocations left=1 pinned=0
