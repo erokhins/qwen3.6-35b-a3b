@@ -1048,3 +1048,43 @@ same PASS. `engine/probe_lock_check_vacuity.py` feeds each pattern probes it mus
 `HIP_LIBRARY = "/opt/rocm/lib/…"` and the lockdir path do not), and neither fires on the driver itself. Note
 `import ctypes` is deliberately **not** prohibited — the HIP library is `dlopen`ed only inside `HipStaging.__init__`,
 which the CPU path never constructs — so the prohibition targets importing a HIP/ROCm module, not touching ctypes.
+
+### D-25 — what the M2 device arm ships, and what a log is allowed to prove — **DECIDED (agent, 2026-10-26)**
+
+Six agent decisions from the M2 device-arm slice, consolidated here from `engine/HANDOFF.md` §`DECIDED (agent,
+2026-10-26)`, which holds the full reasoning. None is a user decision; none touches a band, factor or licence.
+
+1. **Width veto compares declared types, not materialized dtypes.** `Loader.handle(name)["type_name"]` against
+   `PolicyA.WIDTH` — a Q8_0 tensor legitimately materialises as `float32` after dequant, so comparing a torch dtype to
+   a declared quant type can only ever fail (this was a live checker bug, not a hypothetical).
+2. **Activation dtype comes from `text_config.dtype`, not from a band.** `topk_weights` is banding-exempt because its
+   dtype is declared by the model; the rejected alternative was to band `topk_weights`, which would have manufactured
+   a tolerance for a fact the config already states.
+3. **Device claims require a device; a log can only be a precondition.** `--device` refuses with
+   `tag=live-device-path-absent`; evidence-parsing lives in `--staged-evidence` and prints `PRECONDITION … ADMITTED`.
+   See `pitfalls/40` §"A device claim assembled by parsing another tool's log".
+4. **The residual-glue rows stay emitted and unlicensed** with `referent=absent`, because no manifest pins the layer-0
+   residual stream. Creating that fixture is reserved to the user, so M2's terminal verdict is `QUALIFIED`, not `PASS`.
+5. **There is no controls-only mode in this gate.** The old `--selftest` starved the controls of the real plan; the
+   controls now run inside the real witness, which is why `controls=9 fired=9` means something.
+6. **Compiled-pair zero tolerance extends to the device TUs** — `PAIR … record.f32 bytes=22,532 ndiff_bytes=0` and
+   `PAIR … router_record.f32 bytes=3,232 ndiff_bytes=0`, host twin vs `hipcc` arm, `-ffp-contract=off` both sides.
+
+**The correction that matters more than the decisions.** An earlier commit (`890fb88`) cited
+`TOPKFORM form=weights-f32-carry ndiff=0` as a leg confirming prediction 4 (cast-before-multiply). It is not a leg:
+that value is produced by `engine/block_forward.py`, the same torch program that produced the
+`layer0.topk_weights_f32` referent, so `ndiff=0` is an identity and not a test. The independent leg is
+`layer0.routed_sum` **refusing** the f32 carry — `ndiff 1326, max_ulp 32416` against cast-first's `0` on the same 2048
+pinned values (`engine/HANDOFF.md` §`DISCLOSURE-TOPKFORM-F32-CARRY`, cited verbatim there). What the device arm adds is
+three genuinely distinct forms inside one record: `RTFORM` cast-first `ndiff=0`, f32-carry `ndiff=8 max_ulp=2`
+(which `prototype/moe_router/moe_router_kernels.h` §R5 predicts for an independent fp32 route and does **not** require
+to be zero), leak-form `ndiff=4 max_ulp=1`. A row that reads 0 is enforcing R5, not landing on 0 by coincidence — and
+the arm's `topk_ids`/`topk_weights` rows are ACCEPTED at `ndiff=0` under the spec §10.6 exactness licence, the first
+licensed numerical evidence from a device-side arm.
+
+Also recorded because it is the interesting negative: a bf16 round-trip of the router span changes **0 of 524,288**
+values (`RTVOID … verdict=VOID-ON-THIS-ARTIFACT`), so the "lossy copy" control could never have fired and was
+reported rather than kept; the F32 premise is carried structurally (loader type + element count + byte length + the
+plan's `elt!=4` refusal) and, for row sensitivity, by a one-ULP low-bit flip that moves **246 of 256** fp32 logits in
+the arm's own `logits_f32` while the bf16 `router_logits` row moves 0 of 256 — bf16 rounding hides 2⁻²⁴, which is
+exactly why the fp32 field carries that claim.

@@ -131,3 +131,8 @@ prototype/lm_head/work/selftest/
 # files); everything else the lanes drop in here -- tampered band fixtures, one-off probe scripts, per-run logs --
 # stays uncommitted, the same rule that keeps work/device-window/ binaries out of the tree.
 prototype/gdn/work/
+engine/device/m2_se_host
+engine/device/m2_se_arm
+engine/device/m2_rt_host
+engine/device/m2_rt_arm
+engine/device/*.o
