@@ -85,23 +85,32 @@ HIDDEN i=65 src=synth kind=head_only
 HIDDEN i=66 src=synth kind=head_only
 HIDDEN i=67 src=synth kind=head_only
 HIDDEN vectors=68 real=32 synth=36 h=2048 head_dim=256
-ORACLEFILL regions_filled=1884 words=1884 words_total=27488 band_nonzero=1884 band_nonpositive=0 gamma_from_K=h_used
-BANDFORMULA u=2^-24 gamma_K=K*u/(1-K*u) band=gamma_K*fsum(|h_k||w_k|) K=h_used terms=h_used
-BAND idx=0 K=2048 gamma=0.000122085215 sigma=0.666342841 band=8.13506093e-05 exact=-0.05327053 table=0 path=0 assoc=0 mode=0 b0=0 bcount=4 word=0
-BAND idx=1 K=2048 gamma=0.000122085215 sigma=0.666342841 band=8.13506093e-05 exact=-0.05327053 table=0 path=0 assoc=0 mode=0 b0=0 bcount=1 word=16
-BAND idx=2 K=2048 gamma=0.000122085215 sigma=0.526225763 band=6.42443856e-05 exact=0.00910212193 table=0 path=0 assoc=0 mode=0 b0=1 bcount=1 word=20
-BAND idx=3 K=2048 gamma=0.000122085215 sigma=0.73913891 band=9.0237933e-05 exact=0.0294862594 table=0 path=0 assoc=0 mode=0 b0=2 bcount=1 word=24
-BAND idx=4 K=2048 gamma=0.000122085215 sigma=0.594441474 band=7.25725154e-05 exact=-0.0126093253 table=0 path=0 assoc=0 mode=0 b0=3 bcount=1 word=28
-BAND idx=5 K=2048 gamma=0.000122085215 sigma=0.666342841 band=8.13506093e-05 exact=-0.05327053 table=0 path=1 assoc=0 mode=0 b0=0 bcount=4 word=32
-BAND idx=6 K=2048 gamma=0.000122085215 sigma=0.459490844 band=5.60970388e-05 exact=0.0110164983 table=0 path=1 assoc=0 mode=0 b0=1 bcount=4 word=48
-BAND idx=7 K=2048 gamma=0.000122085215 sigma=0.666342841 band=8.13506093e-05 exact=-0.05327053 table=0 path=0 assoc=1 mode=0 b0=0 bcount=4 word=64
-BAND idx=8 K=2048 gamma=0.000122085215 sigma=0.666342841 band=8.13506093e-05 exact=-0.05327053 table=0 path=0 assoc=2 mode=0 b0=0 bcount=4 word=80
-BAND idx=9 K=2048 gamma=0.000122085215 sigma=0.245151323 band=2.99293521e-05 exact=-0.0165942889 table=1 path=0 assoc=0 mode=0 b0=0 bcount=4 word=96
-BAND idx=10 K=2048 gamma=0.000122085215 sigma=0.245151323 band=2.99293521e-05 exact=-0.0165942889 table=1 path=0 assoc=0 mode=0 b0=0 bcount=1 word=112
-BAND idx=11 K=2048 gamma=0.000122085215 sigma=0.194043294 band=2.36898174e-05 exact=-0.0149319218 table=1 path=0 assoc=0 mode=0 b0=1 bcount=1 word=116
-BAND idx=12 K=2048 gamma=0.000122085215 sigma=0.271286224 band=3.31200371e-05 exact=0.0183904152 table=1 path=0 assoc=0 mode=0 b0=2 bcount=1 word=120
-BAND idx=13 K=2048 gamma=0.000122085215 sigma=0.215972165 band=2.63670083e-05 exact=-0.00419327756 table=1 path=0 assoc=0 mode=0 b0=3 bcount=1 word=124
-BAND idx=14 K=2048 gamma=0.000122085215 sigma=0.245151323 band=2.99293521e-05 exact=-0.0165942889 table=1 path=1 assoc=0 mode=0 b0=0 bcount=4 word=128
-BAND idx=15 K=2048 gamma=0.000122085215 sigma=0.166179556 band=2.02880669e-05 exact=-0.005369714 table=1 path=1 assoc=0 mode=0 b0=1 bcount=4 word=144
+BANDCENSUS tag=oracle families=8 words_banded=1884 term_pairs=3858432 products_inexact=11201 u=2^-24 rule=gamma_index(K,products_inexact)=(K-1 if inexact==0 else 2K-1)
+BANDFAMILY tag=oracle table=0 enc=0 K=2048 words=976 term_pairs=1998848 products_inexact=0 gamma_index=2047 gamma=0.000122025596
+BANDFAMILY tag=oracle table=1 enc=0 K=2048 words=180 term_pairs=368640 products_inexact=0 gamma_index=2047 gamma=0.000122025596
+BANDFAMILY tag=oracle table=2 enc=1 K=2048 words=200 term_pairs=409600 products_inexact=7727 gamma_index=4095 gamma=0.00024414061
+BANDFAMILY tag=oracle table=3 enc=1 K=2048 words=180 term_pairs=368640 products_inexact=3474 gamma_index=4095 gamma=0.00024414061
+BANDFAMILY tag=oracle table=4 enc=0 K=2048 words=64 term_pairs=131072 products_inexact=0 gamma_index=2047 gamma=0.000122025596
+BANDFAMILY tag=oracle table=5 enc=0 K=2048 words=80 term_pairs=163840 products_inexact=0 gamma_index=2047 gamma=0.000122025596
+BANDFAMILY tag=oracle table=6 enc=0 K=2048 words=104 term_pairs=212992 products_inexact=0 gamma_index=2047 gamma=0.000122025596
+BANDFAMILY tag=oracle table=7 enc=1 K=2048 words=100 term_pairs=204800 products_inexact=0 gamma_index=2047 gamma=0.000122025596
+ORACLEFILL regions_filled=1884 words=1884 words_total=27488 band_nonzero=1884 band_nonpositive=0 gamma_index_by_table=0:2047,1:2047,2:4095,3:4095,4:2047,5:2047,6:2047,7:2047
+BANDFORMULA u=2^-24 gamma_n=n*u/(1-n*u) band=gamma_index*fsum(|h_k||w_k|) gamma_index=(K-1 if the family's products are all exact else 2K-1) K=h_used terms=h_used
+BAND idx=0 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.666342841 band=8.13108825e-05 exact=-0.05327053 table=0 path=0 assoc=0 mode=0 b0=0 bcount=4 word=0
+BAND idx=1 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.666342841 band=8.13108825e-05 exact=-0.05327053 table=0 path=0 assoc=0 mode=0 b0=0 bcount=1 word=16
+BAND idx=2 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.526225763 band=6.42130125e-05 exact=0.00910212193 table=0 path=0 assoc=0 mode=0 b0=1 bcount=1 word=20
+BAND idx=3 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.73913891 band=9.01938662e-05 exact=0.0294862594 table=0 path=0 assoc=0 mode=0 b0=2 bcount=1 word=24
+BAND idx=4 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.594441474 band=7.25370753e-05 exact=-0.0126093253 table=0 path=0 assoc=0 mode=0 b0=3 bcount=1 word=28
+BAND idx=5 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.666342841 band=8.13108825e-05 exact=-0.05327053 table=0 path=1 assoc=0 mode=0 b0=0 bcount=4 word=32
+BAND idx=6 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.459490844 band=5.60696443e-05 exact=0.0110164983 table=0 path=1 assoc=0 mode=0 b0=1 bcount=4 word=48
+BAND idx=7 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.666342841 band=8.13108825e-05 exact=-0.05327053 table=0 path=0 assoc=1 mode=0 b0=0 bcount=4 word=64
+BAND idx=8 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.666342841 band=8.13108825e-05 exact=-0.05327053 table=0 path=0 assoc=2 mode=0 b0=0 bcount=4 word=80
+BAND idx=9 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.245151323 band=2.99147364e-05 exact=-0.0165942889 table=1 path=0 assoc=0 mode=0 b0=0 bcount=4 word=96
+BAND idx=10 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.245151323 band=2.99147364e-05 exact=-0.0165942889 table=1 path=0 assoc=0 mode=0 b0=0 bcount=1 word=112
+BAND idx=11 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.194043294 band=2.36782487e-05 exact=-0.0149319218 table=1 path=0 assoc=0 mode=0 b0=1 bcount=1 word=116
+BAND idx=12 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.271286224 band=3.31038632e-05 exact=0.0183904152 table=1 path=0 assoc=0 mode=0 b0=2 bcount=1 word=120
+BAND idx=13 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.215972165 band=2.63541322e-05 exact=-0.00419327756 table=1 path=0 assoc=0 mode=0 b0=3 bcount=1 word=124
+BAND idx=14 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.245151323 band=2.99147364e-05 exact=-0.0165942889 table=1 path=1 assoc=0 mode=0 b0=0 bcount=4 word=128
+BAND idx=15 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.166179556 band=2.02781594e-05 exact=-0.005369714 table=1 path=1 assoc=0 mode=0 b0=1 bcount=4 word=144
 BANDSUMMARY cases_with_honest_words=115 printed=16
 RESULT PASS oracle arm filled=1884/27488 words slab=557568 B hidden=68

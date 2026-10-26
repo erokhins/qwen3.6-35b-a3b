@@ -91,31 +91,61 @@ HIDDEN i=65 src=synth kind=head_only
 HIDDEN i=66 src=synth kind=head_only
 HIDDEN i=67 src=synth kind=head_only
 HIDDEN vectors=68 real=32 synth=36 h=2048 head_dim=256
-ORACLEFILL regions_filled=1884 words=1884 words_total=27488 band_nonzero=1884 band_nonpositive=0 gamma_from_K=h_used
-BANDFORMULA u=2^-24 gamma_K=K*u/(1-K*u) band=gamma_K*fsum(|h_k||w_k|) K=h_used terms=h_used
-BAND idx=0 K=2048 gamma=0.000122085215 sigma=0.666342841 band=8.13506093e-05 exact=-0.05327053 table=0 path=0 assoc=0 mode=0 b0=0 bcount=4 word=0
-BAND idx=1 K=2048 gamma=0.000122085215 sigma=0.666342841 band=8.13506093e-05 exact=-0.05327053 table=0 path=0 assoc=0 mode=0 b0=0 bcount=1 word=16
-BAND idx=2 K=2048 gamma=0.000122085215 sigma=0.526225763 band=6.42443856e-05 exact=0.00910212193 table=0 path=0 assoc=0 mode=0 b0=1 bcount=1 word=20
-BAND idx=3 K=2048 gamma=0.000122085215 sigma=0.73913891 band=9.0237933e-05 exact=0.0294862594 table=0 path=0 assoc=0 mode=0 b0=2 bcount=1 word=24
-BAND idx=4 K=2048 gamma=0.000122085215 sigma=0.594441474 band=7.25725154e-05 exact=-0.0126093253 table=0 path=0 assoc=0 mode=0 b0=3 bcount=1 word=28
-BAND idx=5 K=2048 gamma=0.000122085215 sigma=0.666342841 band=8.13506093e-05 exact=-0.05327053 table=0 path=1 assoc=0 mode=0 b0=0 bcount=4 word=32
-BAND idx=6 K=2048 gamma=0.000122085215 sigma=0.459490844 band=5.60970388e-05 exact=0.0110164983 table=0 path=1 assoc=0 mode=0 b0=1 bcount=4 word=48
-BAND idx=7 K=2048 gamma=0.000122085215 sigma=0.666342841 band=8.13506093e-05 exact=-0.05327053 table=0 path=0 assoc=1 mode=0 b0=0 bcount=4 word=64
-BAND idx=8 K=2048 gamma=0.000122085215 sigma=0.666342841 band=8.13506093e-05 exact=-0.05327053 table=0 path=0 assoc=2 mode=0 b0=0 bcount=4 word=80
-BAND idx=9 K=2048 gamma=0.000122085215 sigma=0.245151323 band=2.99293521e-05 exact=-0.0165942889 table=1 path=0 assoc=0 mode=0 b0=0 bcount=4 word=96
-BAND idx=10 K=2048 gamma=0.000122085215 sigma=0.245151323 band=2.99293521e-05 exact=-0.0165942889 table=1 path=0 assoc=0 mode=0 b0=0 bcount=1 word=112
-BAND idx=11 K=2048 gamma=0.000122085215 sigma=0.194043294 band=2.36898174e-05 exact=-0.0149319218 table=1 path=0 assoc=0 mode=0 b0=1 bcount=1 word=116
-BAND idx=12 K=2048 gamma=0.000122085215 sigma=0.271286224 band=3.31200371e-05 exact=0.0183904152 table=1 path=0 assoc=0 mode=0 b0=2 bcount=1 word=120
-BAND idx=13 K=2048 gamma=0.000122085215 sigma=0.215972165 band=2.63670083e-05 exact=-0.00419327756 table=1 path=0 assoc=0 mode=0 b0=3 bcount=1 word=124
-BAND idx=14 K=2048 gamma=0.000122085215 sigma=0.245151323 band=2.99293521e-05 exact=-0.0165942889 table=1 path=1 assoc=0 mode=0 b0=0 bcount=4 word=128
-BAND idx=15 K=2048 gamma=0.000122085215 sigma=0.166179556 band=2.02880669e-05 exact=-0.005369714 table=1 path=1 assoc=0 mode=0 b0=1 bcount=4 word=144
+BANDCENSUS tag=oracle families=8 words_banded=1884 term_pairs=3858432 products_inexact=11201 u=2^-24 rule=gamma_index(K,products_inexact)=(K-1 if inexact==0 else 2K-1)
+BANDFAMILY tag=oracle table=0 enc=0 K=2048 words=976 term_pairs=1998848 products_inexact=0 gamma_index=2047 gamma=0.000122025596
+BANDFAMILY tag=oracle table=1 enc=0 K=2048 words=180 term_pairs=368640 products_inexact=0 gamma_index=2047 gamma=0.000122025596
+BANDFAMILY tag=oracle table=2 enc=1 K=2048 words=200 term_pairs=409600 products_inexact=7727 gamma_index=4095 gamma=0.00024414061
+BANDFAMILY tag=oracle table=3 enc=1 K=2048 words=180 term_pairs=368640 products_inexact=3474 gamma_index=4095 gamma=0.00024414061
+BANDFAMILY tag=oracle table=4 enc=0 K=2048 words=64 term_pairs=131072 products_inexact=0 gamma_index=2047 gamma=0.000122025596
+BANDFAMILY tag=oracle table=5 enc=0 K=2048 words=80 term_pairs=163840 products_inexact=0 gamma_index=2047 gamma=0.000122025596
+BANDFAMILY tag=oracle table=6 enc=0 K=2048 words=104 term_pairs=212992 products_inexact=0 gamma_index=2047 gamma=0.000122025596
+BANDFAMILY tag=oracle table=7 enc=1 K=2048 words=100 term_pairs=204800 products_inexact=0 gamma_index=2047 gamma=0.000122025596
+ORACLEFILL regions_filled=1884 words=1884 words_total=27488 band_nonzero=1884 band_nonpositive=0 gamma_index_by_table=0:2047,1:2047,2:4095,3:4095,4:2047,5:2047,6:2047,7:2047
+BANDFORMULA u=2^-24 gamma_n=n*u/(1-n*u) band=gamma_index*fsum(|h_k||w_k|) gamma_index=(K-1 if the family's products are all exact else 2K-1) K=h_used terms=h_used
+BAND idx=0 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.666342841 band=8.13108825e-05 exact=-0.05327053 table=0 path=0 assoc=0 mode=0 b0=0 bcount=4 word=0
+BAND idx=1 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.666342841 band=8.13108825e-05 exact=-0.05327053 table=0 path=0 assoc=0 mode=0 b0=0 bcount=1 word=16
+BAND idx=2 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.526225763 band=6.42130125e-05 exact=0.00910212193 table=0 path=0 assoc=0 mode=0 b0=1 bcount=1 word=20
+BAND idx=3 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.73913891 band=9.01938662e-05 exact=0.0294862594 table=0 path=0 assoc=0 mode=0 b0=2 bcount=1 word=24
+BAND idx=4 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.594441474 band=7.25370753e-05 exact=-0.0126093253 table=0 path=0 assoc=0 mode=0 b0=3 bcount=1 word=28
+BAND idx=5 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.666342841 band=8.13108825e-05 exact=-0.05327053 table=0 path=1 assoc=0 mode=0 b0=0 bcount=4 word=32
+BAND idx=6 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.459490844 band=5.60696443e-05 exact=0.0110164983 table=0 path=1 assoc=0 mode=0 b0=1 bcount=4 word=48
+BAND idx=7 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.666342841 band=8.13108825e-05 exact=-0.05327053 table=0 path=0 assoc=1 mode=0 b0=0 bcount=4 word=64
+BAND idx=8 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.666342841 band=8.13108825e-05 exact=-0.05327053 table=0 path=0 assoc=2 mode=0 b0=0 bcount=4 word=80
+BAND idx=9 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.245151323 band=2.99147364e-05 exact=-0.0165942889 table=1 path=0 assoc=0 mode=0 b0=0 bcount=4 word=96
+BAND idx=10 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.245151323 band=2.99147364e-05 exact=-0.0165942889 table=1 path=0 assoc=0 mode=0 b0=0 bcount=1 word=112
+BAND idx=11 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.194043294 band=2.36782487e-05 exact=-0.0149319218 table=1 path=0 assoc=0 mode=0 b0=1 bcount=1 word=116
+BAND idx=12 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.271286224 band=3.31038632e-05 exact=0.0183904152 table=1 path=0 assoc=0 mode=0 b0=2 bcount=1 word=120
+BAND idx=13 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.215972165 band=2.63541322e-05 exact=-0.00419327756 table=1 path=0 assoc=0 mode=0 b0=3 bcount=1 word=124
+BAND idx=14 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.245151323 band=2.99147364e-05 exact=-0.0165942889 table=1 path=1 assoc=0 mode=0 b0=0 bcount=4 word=128
+BAND idx=15 K=2048 gamma_index=2047 gamma=0.000122025596 sigma=0.166179556 band=2.02781594e-05 exact=-0.005369714 table=1 path=1 assoc=0 mode=0 b0=1 bcount=4 word=144
 BANDSUMMARY cases_with_honest_words=115 printed=16
 RESULT PASS oracle arm filled=1884/27488 words slab=557568 B hidden=68
 CHECK name=the oracle filled exactly the honest cases' words ok=1 n=1884 oracle=1884/1884 total=27488 expected=1884 band_nonpositive=0
 CHECK name=the oracle and the gate agree on the artifact widths (parsed == printed) ok=1 n=2 oracle=['Q6_K', 'Q8_0'] gate=['Q6_K', 'Q8_0']
+BANDCENSUS tag=lane honest_cases=115 words_banded=1884 term_pairs=3858432 products_inexact=11201 families=8 rule=gamma_index(K,products_inexact)=(K-1 if inexact==0 else 2K-1) u=2^-24
+BANDFAMILY tag=lane table=0 enc=0 kind=real real=1 K=2048 words=976 term_pairs=1998848 products_inexact=0 gamma_index=2047 gamma=0.000122025596
+BANDFAMILY tag=lane table=1 enc=0 kind=real real=1 K=2048 words=180 term_pairs=368640 products_inexact=0 gamma_index=2047 gamma=0.000122025596
+BANDFAMILY tag=lane table=2 enc=1 kind=real real=1 K=2048 words=200 term_pairs=409600 products_inexact=7727 gamma_index=4095 gamma=0.00024414061
+BANDFAMILY tag=lane table=3 enc=1 kind=real real=1 K=2048 words=180 term_pairs=368640 products_inexact=3474 gamma_index=4095 gamma=0.00024414061
+BANDFAMILY tag=lane table=4 enc=0 kind=real real=1 K=2048 words=64 term_pairs=131072 products_inexact=0 gamma_index=2047 gamma=0.000122025596
+BANDFAMILY tag=lane table=5 enc=0 kind=tied_copy real=1 K=2048 words=80 term_pairs=163840 products_inexact=0 gamma_index=2047 gamma=0.000122025596
+BANDFAMILY tag=lane table=6 enc=0 kind=synth real=0 K=2048 words=104 term_pairs=212992 products_inexact=0 gamma_index=2047 gamma=0.000122025596
+BANDFAMILY tag=lane table=7 enc=1 kind=synth real=0 K=2048 words=100 term_pairs=204800 products_inexact=0 gamma_index=2047 gamma=0.000122025596
 CONTROL no-fire neutralising case=190 inj-q8-synth-drop-last-k (mode 6 -> CORRECT): the run MUST go red
 CHECK name=deriving the classes changed the expect column and nothing else ok=1 n=33 33 records differ, unexpected columns=[]
 CHECK name=the control's tampering reaches the plan the drivers run ok=1 n=1 case 190 lines differing=1
+BANDPRICE table=0 licensed_gamma_index=2047 licensed_gamma=0.000122025596 products_inexact=0 words=976 priced_licensed=976 priced_narrow(K-1)=0 priced_wide(2K-1)=0 priced_other=0
+BANDPRICE table=1 licensed_gamma_index=2047 licensed_gamma=0.000122025596 products_inexact=0 words=180 priced_licensed=180 priced_narrow(K-1)=0 priced_wide(2K-1)=0 priced_other=0
+BANDPRICE table=2 licensed_gamma_index=4095 licensed_gamma=0.00024414061 products_inexact=7727 words=200 priced_licensed=200 priced_narrow(K-1)=0 priced_wide(2K-1)=0 priced_other=0
+BANDPRICE table=3 licensed_gamma_index=4095 licensed_gamma=0.00024414061 products_inexact=3474 words=180 priced_licensed=180 priced_narrow(K-1)=0 priced_wide(2K-1)=0 priced_other=0
+BANDPRICE table=4 licensed_gamma_index=2047 licensed_gamma=0.000122025596 products_inexact=0 words=64 priced_licensed=64 priced_narrow(K-1)=0 priced_wide(2K-1)=0 priced_other=0
+BANDPRICE table=5 licensed_gamma_index=2047 licensed_gamma=0.000122025596 products_inexact=0 words=80 priced_licensed=80 priced_narrow(K-1)=0 priced_wide(2K-1)=0 priced_other=0
+BANDPRICE table=6 licensed_gamma_index=2047 licensed_gamma=0.000122025596 products_inexact=0 words=104 priced_licensed=104 priced_narrow(K-1)=0 priced_wide(2K-1)=0 priced_other=0
+BANDPRICE table=7 licensed_gamma_index=2047 licensed_gamma=0.000122025596 products_inexact=0 words=100 priced_licensed=100 priced_narrow(K-1)=0 priced_wide(2K-1)=0 priced_other=0
+CHECK name=the band file equals gamma_index(products_inexact) * fsum(|h_k w_k|) recomputed from these bytes ok=0 n=1884 verified=1884 expected=1884 words=1900 mismatches=0 first=[]
+CHECK name=every banded word was priced, none is un-banded, and no band is below one ulp of its own answer ok=0 n=1900 sigmas=1884 words=1900 unbanded=16 below_ulp=0 first_unbanded=[(190, 27456), (190, 27457), (190, 27458)] first_below_ulp=[]
+CHECK name=no family whose dot products are all exact is priced with the gamma_{2K-1} index ok=1 n=0 exact_family_mispriced=[] foreign_form=[]
+CHECK name=no family with a measurably inexact dot product is priced with the narrow gamma index ok=1 n=0 first=[]
 PLAN file=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/plan.tsv p_records=1 tables_parsed=8 cases_parsed=192 h=2048 head_dim=256 vocab=248320 n_hidden=68 ids=11 out_floats=27488 slab_bytes=557568
 RUN arm=host cases=192 skipped=0 items=1186 out_floats=27488
 OUT file=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/prototype/lm_head/work/host_out.f32 floats=27488 bytes=109952
@@ -251,7 +281,7 @@ CHECK name=host case=16 honest-q8-lmhead-dense-batched oxor==recount ok=1 n=16 d
 CHECK name=host case=16 honest-q8-lmhead-dense-batched osum==recount ok=1 n=16 driver=0.109462817 recount=0.109462817
 CHECK name=host case=16 honest-q8-lmhead-dense-batched read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=16 honest-q8-lmhead-dense-batched no write left `out` ok=1 n=1 bover=0
-CHECK name=host case=16 honest-q8-lmhead-dense-batched BAND inside the derived band ok=1 n=16 worst=0.001 x band outside=0 
+CHECK name=host case=16 honest-q8-lmhead-dense-batched BAND inside the derived band ok=1 n=16 worst=0.000 x band outside=0 
 CHECK name=host case=16 honest-q8-lmhead-dense-batched declared class is legal and matches the derivation ok=1 n=1 plan=BAND derived=BAND
 CHECK name=host case=17 honest-q8-lmhead-perrow0 R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=17 honest-q8-lmhead-perrow0 oxor==recount ok=1 n=4 driver=0x064306D7 recount=0x064306D7
@@ -305,7 +335,7 @@ CHECK name=host case=23 honest-q8-lmhead-dense-rev oxor==recount ok=1 n=16 drive
 CHECK name=host case=23 honest-q8-lmhead-dense-rev osum==recount ok=1 n=16 driver=0.10946304 recount=0.10946304
 CHECK name=host case=23 honest-q8-lmhead-dense-rev read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=23 honest-q8-lmhead-dense-rev no write left `out` ok=1 n=1 bover=0
-CHECK name=host case=23 honest-q8-lmhead-dense-rev BAND inside the derived band ok=1 n=16 worst=0.002 x band outside=0 
+CHECK name=host case=23 honest-q8-lmhead-dense-rev BAND inside the derived band ok=1 n=16 worst=0.001 x band outside=0 
 CHECK name=host case=23 honest-q8-lmhead-dense-rev declared class is legal and matches the derivation ok=1 n=1 plan=BAND derived=BAND
 CHECK name=host case=24 honest-q8-lmhead-dense-split8 R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=24 honest-q8-lmhead-dense-split8 oxor==recount ok=1 n=16 driver=0x82E7084A recount=0x82E7084A
@@ -319,7 +349,7 @@ CHECK name=host case=25 honest-q8-embd-dense-batched oxor==recount ok=1 n=16 dri
 CHECK name=host case=25 honest-q8-embd-dense-batched osum==recount ok=1 n=16 driver=-0.0732176043 recount=-0.0732176043
 CHECK name=host case=25 honest-q8-embd-dense-batched read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=25 honest-q8-embd-dense-batched no write left `out` ok=1 n=1 bover=0
-CHECK name=host case=25 honest-q8-embd-dense-batched BAND inside the derived band ok=1 n=16 worst=0.001 x band outside=0 
+CHECK name=host case=25 honest-q8-embd-dense-batched BAND inside the derived band ok=1 n=16 worst=0.000 x band outside=0 
 CHECK name=host case=25 honest-q8-embd-dense-batched declared class is legal and matches the derivation ok=1 n=1 plan=BAND derived=BAND
 CHECK name=host case=26 honest-q8-embd-perrow0 R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=26 honest-q8-embd-perrow0 oxor==recount ok=1 n=4 driver=0x80094763 recount=0x80094763
@@ -896,7 +926,7 @@ CHECK name=host case=99 inj-q8-lmhead-half-accum osum==recount ok=1 n=16 driver=
 CHECK name=host case=99 inj-q8-lmhead-half-accum read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=99 inj-q8-lmhead-half-accum no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=99 inj-q8-lmhead-half-accum has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
-CHECK name=host case=99 inj-q8-lmhead-half-accum FIRED beyond the band ok=1 n=16 differing=16 beyond-band=16 worst=28.3 x band | bf16-rounding every product moves a word beyond its own band (worst 28.3 x)
+CHECK name=host case=99 inj-q8-lmhead-half-accum FIRED beyond the band ok=1 n=16 differing=16 beyond-band=16 worst=14.1 x band | bf16-rounding every product moves a word beyond its own band (worst 14.1 x)
 CHECK name=host case=99 inj-q8-lmhead-half-accum declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
 CHECK name=host case=100 honest-inj-q8-lmhead-half-accum-baseline R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=100 honest-inj-q8-lmhead-half-accum-baseline oxor==recount ok=1 n=16 driver=0x00000000 recount=0x00000000
@@ -911,15 +941,15 @@ CHECK name=host case=101 inj-q8-lmhead-half-accum osum==recount ok=1 n=16 driver
 CHECK name=host case=101 inj-q8-lmhead-half-accum read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=101 inj-q8-lmhead-half-accum no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=101 inj-q8-lmhead-half-accum has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
-CHECK name=host case=101 inj-q8-lmhead-half-accum FIRED beyond the band ok=1 n=16 differing=16 beyond-band=2 worst=1.03 x band | bf16-rounding every product moves a word beyond its own band (worst 1.03 x)
-CHECK name=host case=101 inj-q8-lmhead-half-accum declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
+CHECK name=host case=101 inj-q8-lmhead-half-accum INSIDE: moved but never beyond the band ok=1 n=16 differing=16 beyond-band=0 worst=0.514 x band | bf16-rounding every product moves every word but never past its own band (worst 0.514 x)
+CHECK name=host case=101 inj-q8-lmhead-half-accum declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=INSIDE
 CHECK name=host case=102 inj-q8-lmhead-half-accum R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=102 inj-q8-lmhead-half-accum oxor==recount ok=1 n=16 driver=0x00000000 recount=0x00000000
 CHECK name=host case=102 inj-q8-lmhead-half-accum osum==recount ok=1 n=16 driver=0.8125 recount=0.8125
 CHECK name=host case=102 inj-q8-lmhead-half-accum read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=102 inj-q8-lmhead-half-accum no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=102 inj-q8-lmhead-half-accum has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
-CHECK name=host case=102 inj-q8-lmhead-half-accum FIRED beyond the band ok=1 n=16 differing=16 beyond-band=16 worst=18.2 x band | bf16-rounding every product moves a word beyond its own band (worst 18.2 x)
+CHECK name=host case=102 inj-q8-lmhead-half-accum FIRED beyond the band ok=1 n=16 differing=16 beyond-band=16 worst=9.11 x band | bf16-rounding every product moves a word beyond its own band (worst 9.11 x)
 CHECK name=host case=102 inj-q8-lmhead-half-accum declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
 CHECK name=host case=103 honest-inj-q8-lmhead-half-accum-baseline R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=103 honest-inj-q8-lmhead-half-accum-baseline oxor==recount ok=1 n=16 driver=0x00000000 recount=0x00000000
@@ -949,7 +979,7 @@ CHECK name=host case=106 inj-q8-lmhead-drop-last-k osum==recount ok=1 n=16 drive
 CHECK name=host case=106 inj-q8-lmhead-drop-last-k read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=106 inj-q8-lmhead-drop-last-k no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=106 inj-q8-lmhead-drop-last-k has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
-CHECK name=host case=106 inj-q8-lmhead-drop-last-k FIRED beyond the band ok=1 n=16 differing=16 beyond-band=9 worst=8.19 x band | the dropped k [2047] has h[k]==0 for every batch row: 0
+CHECK name=host case=106 inj-q8-lmhead-drop-last-k FIRED beyond the band ok=1 n=16 differing=16 beyond-band=6 worst=4.1 x band | the dropped k [2047] has h[k]==0 for every batch row: 0
 CHECK name=host case=106 inj-q8-lmhead-drop-last-k declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
 CHECK name=host case=107 inj-q8-lmhead-drop-last-k R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=107 inj-q8-lmhead-drop-last-k oxor==recount ok=1 n=16 driver=0x00000000 recount=0x00000000
@@ -972,7 +1002,7 @@ CHECK name=host case=109 inj-q8-lmhead-drop-last-k osum==recount ok=1 n=16 drive
 CHECK name=host case=109 inj-q8-lmhead-drop-last-k read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=109 inj-q8-lmhead-drop-last-k no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=109 inj-q8-lmhead-drop-last-k has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
-CHECK name=host case=109 inj-q8-lmhead-drop-last-k FIRED beyond the band ok=1 n=16 differing=16 beyond-band=15 worst=8.12 x band | the dropped k [0] has h[k]==0 for every batch row: 0
+CHECK name=host case=109 inj-q8-lmhead-drop-last-k FIRED beyond the band ok=1 n=16 differing=16 beyond-band=8 worst=4.06 x band | the dropped k [0] has h[k]==0 for every batch row: 0
 CHECK name=host case=109 inj-q8-lmhead-drop-last-k declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
 CHECK name=host case=110 inj-q8-lmhead-row-stride-head-dim R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=110 inj-q8-lmhead-row-stride-head-dim oxor==recount ok=1 n=16 driver=0x00000000 recount=0x00000000
@@ -980,7 +1010,7 @@ CHECK name=host case=110 inj-q8-lmhead-row-stride-head-dim osum==recount ok=1 n=
 CHECK name=host case=110 inj-q8-lmhead-row-stride-head-dim read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=110 inj-q8-lmhead-row-stride-head-dim no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=110 inj-q8-lmhead-row-stride-head-dim has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
-CHECK name=host case=110 inj-q8-lmhead-row-stride-head-dim FIRED beyond the band ok=1 n=16 differing=12 beyond-band=12 worst=2.11e+03 x band | all rows are row 0 (0) and h[k]==0 for k in [256,2048) (1)
+CHECK name=host case=110 inj-q8-lmhead-row-stride-head-dim FIRED beyond the band ok=1 n=16 differing=12 beyond-band=12 worst=1.06e+03 x band | all rows are row 0 (0) and h[k]==0 for k in [256,2048) (1)
 CHECK name=host case=110 inj-q8-lmhead-row-stride-head-dim declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
 CHECK name=host case=111 honest-inj-q8-lmhead-row-stride-head-dim-baseline R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=111 honest-inj-q8-lmhead-row-stride-head-dim-baseline oxor==recount ok=1 n=16 driver=0x00000000 recount=0x00000000
@@ -995,14 +1025,14 @@ CHECK name=host case=112 inj-q8-lmhead-row-stride-head-dim osum==recount ok=1 n=
 CHECK name=host case=112 inj-q8-lmhead-row-stride-head-dim read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=112 inj-q8-lmhead-row-stride-head-dim no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=112 inj-q8-lmhead-row-stride-head-dim has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
-CHECK name=host case=112 inj-q8-lmhead-row-stride-head-dim FIRED beyond the band ok=1 n=16 differing=16 beyond-band=16 worst=918 x band | all rows are row 0 (0) and h[k]==0 for k in [256,2048) (0)
+CHECK name=host case=112 inj-q8-lmhead-row-stride-head-dim FIRED beyond the band ok=1 n=16 differing=16 beyond-band=16 worst=459 x band | all rows are row 0 (0) and h[k]==0 for k in [256,2048) (0)
 CHECK name=host case=112 inj-q8-lmhead-row-stride-head-dim declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
 CHECK name=host case=113 honest-inj-q8-lmhead-row-stride-head-dim-baseline R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=113 honest-inj-q8-lmhead-row-stride-head-dim-baseline oxor==recount ok=1 n=16 driver=0x852539B4 recount=0x852539B4
 CHECK name=host case=113 honest-inj-q8-lmhead-row-stride-head-dim-baseline osum==recount ok=1 n=16 driver=0.225584125 recount=0.225584125
 CHECK name=host case=113 honest-inj-q8-lmhead-row-stride-head-dim-baseline read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=113 honest-inj-q8-lmhead-row-stride-head-dim-baseline no write left `out` ok=1 n=1 bover=0
-CHECK name=host case=113 honest-inj-q8-lmhead-row-stride-head-dim-baseline BAND inside the derived band ok=1 n=16 worst=0.001 x band outside=0 
+CHECK name=host case=113 honest-inj-q8-lmhead-row-stride-head-dim-baseline BAND inside the derived band ok=1 n=16 worst=0.000 x band outside=0 
 CHECK name=host case=113 honest-inj-q8-lmhead-row-stride-head-dim-baseline declared class is legal and matches the derivation ok=1 n=1 plan=BAND derived=BAND
 CHECK name=host case=114 inj-q8-lmhead-batch-slot-stride R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=114 inj-q8-lmhead-batch-slot-stride oxor==recount ok=1 n=4 driver=0x064306D7 recount=0x064306D7
@@ -1017,7 +1047,7 @@ CHECK name=host case=115 honest-inj-q8-lmhead-batch-slot-stride-baseline oxor==r
 CHECK name=host case=115 honest-inj-q8-lmhead-batch-slot-stride-baseline osum==recount ok=1 n=4 driver=0.0461230739 recount=0.0461230739
 CHECK name=host case=115 honest-inj-q8-lmhead-batch-slot-stride-baseline read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=115 honest-inj-q8-lmhead-batch-slot-stride-baseline no write left `out` ok=1 n=1 bover=0
-CHECK name=host case=115 honest-inj-q8-lmhead-batch-slot-stride-baseline BAND inside the derived band ok=1 n=4 worst=0.001 x band outside=0 
+CHECK name=host case=115 honest-inj-q8-lmhead-batch-slot-stride-baseline BAND inside the derived band ok=1 n=4 worst=0.000 x band outside=0 
 CHECK name=host case=115 honest-inj-q8-lmhead-batch-slot-stride-baseline declared class is legal and matches the derivation ok=1 n=1 plan=BAND derived=BAND
 CHECK name=host case=116 inj-q8-lmhead-batch-slot-stride R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=116 inj-q8-lmhead-batch-slot-stride oxor==recount ok=1 n=16 driver=0x82E708F1 recount=0x82E708F1
@@ -1025,7 +1055,7 @@ CHECK name=host case=116 inj-q8-lmhead-batch-slot-stride osum==recount ok=1 n=16
 CHECK name=host case=116 inj-q8-lmhead-batch-slot-stride read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=116 inj-q8-lmhead-batch-slot-stride no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=116 inj-q8-lmhead-batch-slot-stride has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
-CHECK name=host case=116 inj-q8-lmhead-batch-slot-stride FIRED beyond the band ok=1 n=16 differing=12 beyond-band=11 worst=328 x band | bcount=4, injected slot=h=2048, honest slot=n_out=4
+CHECK name=host case=116 inj-q8-lmhead-batch-slot-stride FIRED beyond the band ok=1 n=16 differing=12 beyond-band=11 worst=164 x band | bcount=4, injected slot=h=2048, honest slot=n_out=4
 CHECK name=host case=116 inj-q8-lmhead-batch-slot-stride declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
 CHECK name=host case=117 inj-q8-lmhead-batch-reloops R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=117 inj-q8-lmhead-batch-reloops oxor==recount ok=1 n=4 driver=0x064306D7 recount=0x064306D7
@@ -1050,7 +1080,7 @@ CHECK name=host case=119 inj-q8-lmhead-tied-alias osum==recount ok=1 n=16 driver
 CHECK name=host case=119 inj-q8-lmhead-tied-alias read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=119 inj-q8-lmhead-tied-alias no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=119 inj-q8-lmhead-tied-alias has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
-CHECK name=host case=119 inj-q8-lmhead-tied-alias FIRED beyond the band ok=1 n=16 differing=16 beyond-band=15 worst=869 x band | peer table 3 is a disjoint range (untied)
+CHECK name=host case=119 inj-q8-lmhead-tied-alias FIRED beyond the band ok=1 n=16 differing=16 beyond-band=15 worst=435 x band | peer table 3 is a disjoint range (untied)
 CHECK name=host case=119 inj-q8-lmhead-tied-alias declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
 CHECK name=host case=120 inj-q8-lmhead-cross-table-read R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=120 inj-q8-lmhead-cross-table-read oxor==recount ok=1 n=16 driver=0x82E708F1 recount=0x82E708F1
@@ -1068,7 +1098,7 @@ CHECK name=host case=121 inj-q8-lmhead-gather-row-off-1 read-set == recount ok=1
 CHECK name=host case=121 inj-q8-lmhead-gather-row-off-1 no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=121 inj-q8-lmhead-gather-row-off-1 has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
 CHECK name=host case=121 inj-q8-lmhead-gather-row-off-1 only the successor rows that escape the table count as cross ok=1 n=0 cross=0 expected=0 (0 of 4 ids escape v_rows=32)
-CHECK name=host case=121 inj-q8-lmhead-gather-row-off-1 FIRED beyond the band ok=1 n=16 differing=16 beyond-band=15 worst=1.08e+03 x band | successor rows byte-identical for all 4 gathered rows: 0
+CHECK name=host case=121 inj-q8-lmhead-gather-row-off-1 FIRED beyond the band ok=1 n=16 differing=16 beyond-band=15 worst=541 x band | successor rows byte-identical for all 4 gathered rows: 0
 CHECK name=host case=121 inj-q8-lmhead-gather-row-off-1 declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
 CHECK name=host case=122 inj-q8-lmhead-q8-drop-scale R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=122 inj-q8-lmhead-q8-drop-scale oxor==recount ok=1 n=16 driver=0x0041DC9C recount=0x0041DC9C
@@ -1076,7 +1106,7 @@ CHECK name=host case=122 inj-q8-lmhead-q8-drop-scale osum==recount ok=1 n=16 dri
 CHECK name=host case=122 inj-q8-lmhead-q8-drop-scale read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=122 inj-q8-lmhead-q8-drop-scale no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=122 inj-q8-lmhead-q8-drop-scale has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
-CHECK name=host case=122 inj-q8-lmhead-q8-drop-scale FIRED beyond the band ok=1 n=16 differing=16 beyond-band=16 worst=2.37e+06 x band | every block delta equals 1.0: 0
+CHECK name=host case=122 inj-q8-lmhead-q8-drop-scale FIRED beyond the band ok=1 n=16 differing=16 beyond-band=16 worst=1.18e+06 x band | every block delta equals 1.0: 0
 CHECK name=host case=122 inj-q8-lmhead-q8-drop-scale declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
 CHECK name=host case=123 inj-bf16-embd-half-accum R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=123 inj-bf16-embd-half-accum oxor==recount ok=1 n=16 driver=0x00000000 recount=0x00000000
@@ -1271,7 +1301,7 @@ CHECK name=host case=147 inj-q8-embd-half-accum osum==recount ok=1 n=16 driver=0
 CHECK name=host case=147 inj-q8-embd-half-accum read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=147 inj-q8-embd-half-accum no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=147 inj-q8-embd-half-accum has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
-CHECK name=host case=147 inj-q8-embd-half-accum FIRED beyond the band ok=1 n=16 differing=16 beyond-band=16 worst=24.5 x band | bf16-rounding every product moves a word beyond its own band (worst 24.5 x)
+CHECK name=host case=147 inj-q8-embd-half-accum FIRED beyond the band ok=1 n=16 differing=16 beyond-band=16 worst=12.3 x band | bf16-rounding every product moves a word beyond its own band (worst 12.3 x)
 CHECK name=host case=147 inj-q8-embd-half-accum declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
 CHECK name=host case=148 honest-inj-q8-embd-half-accum-baseline R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=148 honest-inj-q8-embd-half-accum-baseline oxor==recount ok=1 n=16 driver=0x00000000 recount=0x00000000
@@ -1286,15 +1316,15 @@ CHECK name=host case=149 inj-q8-embd-half-accum osum==recount ok=1 n=16 driver=-
 CHECK name=host case=149 inj-q8-embd-half-accum read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=149 inj-q8-embd-half-accum no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=149 inj-q8-embd-half-accum has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
-CHECK name=host case=149 inj-q8-embd-half-accum FIRED beyond the band ok=1 n=16 differing=16 beyond-band=3 worst=1.25 x band | bf16-rounding every product moves a word beyond its own band (worst 1.25 x)
-CHECK name=host case=149 inj-q8-embd-half-accum declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
+CHECK name=host case=149 inj-q8-embd-half-accum INSIDE: moved but never beyond the band ok=1 n=16 differing=16 beyond-band=0 worst=0.626 x band | bf16-rounding every product moves every word but never past its own band (worst 0.627 x)
+CHECK name=host case=149 inj-q8-embd-half-accum declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=INSIDE
 CHECK name=host case=150 inj-q8-embd-half-accum R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=150 inj-q8-embd-half-accum oxor==recount ok=1 n=16 driver=0x00000000 recount=0x00000000
 CHECK name=host case=150 inj-q8-embd-half-accum osum==recount ok=1 n=16 driver=-0.0660247803 recount=-0.0660247803
 CHECK name=host case=150 inj-q8-embd-half-accum read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=150 inj-q8-embd-half-accum no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=150 inj-q8-embd-half-accum has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
-CHECK name=host case=150 inj-q8-embd-half-accum FIRED beyond the band ok=1 n=16 differing=16 beyond-band=12 worst=12.5 x band | bf16-rounding every product moves a word beyond its own band (worst 12.5 x)
+CHECK name=host case=150 inj-q8-embd-half-accum FIRED beyond the band ok=1 n=16 differing=16 beyond-band=12 worst=6.26 x band | bf16-rounding every product moves a word beyond its own band (worst 6.26 x)
 CHECK name=host case=150 inj-q8-embd-half-accum declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
 CHECK name=host case=151 honest-inj-q8-embd-half-accum-baseline R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=151 honest-inj-q8-embd-half-accum-baseline oxor==recount ok=1 n=16 driver=0x00000000 recount=0x00000000
@@ -1324,7 +1354,7 @@ CHECK name=host case=154 inj-q8-embd-drop-last-k osum==recount ok=1 n=16 driver=
 CHECK name=host case=154 inj-q8-embd-drop-last-k read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=154 inj-q8-embd-drop-last-k no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=154 inj-q8-embd-drop-last-k has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
-CHECK name=host case=154 inj-q8-embd-drop-last-k FIRED beyond the band ok=1 n=16 differing=16 beyond-band=6 worst=5.18 x band | the dropped k [2047] has h[k]==0 for every batch row: 0
+CHECK name=host case=154 inj-q8-embd-drop-last-k FIRED beyond the band ok=1 n=16 differing=16 beyond-band=4 worst=2.59 x band | the dropped k [2047] has h[k]==0 for every batch row: 0
 CHECK name=host case=154 inj-q8-embd-drop-last-k declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
 CHECK name=host case=155 inj-q8-embd-drop-last-k R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=155 inj-q8-embd-drop-last-k oxor==recount ok=1 n=16 driver=0x00000000 recount=0x00000000
@@ -1347,7 +1377,7 @@ CHECK name=host case=157 inj-q8-embd-drop-last-k osum==recount ok=1 n=16 driver=
 CHECK name=host case=157 inj-q8-embd-drop-last-k read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=157 inj-q8-embd-drop-last-k no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=157 inj-q8-embd-drop-last-k has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
-CHECK name=host case=157 inj-q8-embd-drop-last-k FIRED beyond the band ok=1 n=16 differing=16 beyond-band=10 worst=11 x band | the dropped k [0] has h[k]==0 for every batch row: 0
+CHECK name=host case=157 inj-q8-embd-drop-last-k FIRED beyond the band ok=1 n=16 differing=16 beyond-band=7 worst=5.5 x band | the dropped k [0] has h[k]==0 for every batch row: 0
 CHECK name=host case=157 inj-q8-embd-drop-last-k declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
 CHECK name=host case=158 honest-inj-q8-embd-drop-last-k-baseline R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=158 honest-inj-q8-embd-drop-last-k-baseline oxor==recount ok=1 n=16 driver=0x05A22063 recount=0x05A22063
@@ -1362,7 +1392,7 @@ CHECK name=host case=159 inj-q8-embd-row-stride-head-dim osum==recount ok=1 n=16
 CHECK name=host case=159 inj-q8-embd-row-stride-head-dim read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=159 inj-q8-embd-row-stride-head-dim no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=159 inj-q8-embd-row-stride-head-dim has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
-CHECK name=host case=159 inj-q8-embd-row-stride-head-dim FIRED beyond the band ok=1 n=16 differing=12 beyond-band=12 worst=2.9e+03 x band | all rows are row 0 (0) and h[k]==0 for k in [256,2048) (1)
+CHECK name=host case=159 inj-q8-embd-row-stride-head-dim FIRED beyond the band ok=1 n=16 differing=12 beyond-band=12 worst=1.45e+03 x band | all rows are row 0 (0) and h[k]==0 for k in [256,2048) (1)
 CHECK name=host case=159 inj-q8-embd-row-stride-head-dim declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
 CHECK name=host case=160 honest-inj-q8-embd-row-stride-head-dim-baseline R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=160 honest-inj-q8-embd-row-stride-head-dim-baseline oxor==recount ok=1 n=16 driver=0x00000000 recount=0x00000000
@@ -1377,14 +1407,14 @@ CHECK name=host case=161 inj-q8-embd-row-stride-head-dim osum==recount ok=1 n=16
 CHECK name=host case=161 inj-q8-embd-row-stride-head-dim read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=161 inj-q8-embd-row-stride-head-dim no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=161 inj-q8-embd-row-stride-head-dim has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
-CHECK name=host case=161 inj-q8-embd-row-stride-head-dim FIRED beyond the band ok=1 n=16 differing=16 beyond-band=16 worst=1.22e+03 x band | all rows are row 0 (0) and h[k]==0 for k in [256,2048) (0)
+CHECK name=host case=161 inj-q8-embd-row-stride-head-dim FIRED beyond the band ok=1 n=16 differing=16 beyond-band=16 worst=610 x band | all rows are row 0 (0) and h[k]==0 for k in [256,2048) (0)
 CHECK name=host case=161 inj-q8-embd-row-stride-head-dim declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
 CHECK name=host case=162 honest-inj-q8-embd-row-stride-head-dim-baseline R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=162 honest-inj-q8-embd-row-stride-head-dim-baseline oxor==recount ok=1 n=16 driver=0x041F354E recount=0x041F354E
 CHECK name=host case=162 honest-inj-q8-embd-row-stride-head-dim-baseline osum==recount ok=1 n=16 driver=-0.0457371303 recount=-0.0457371303
 CHECK name=host case=162 honest-inj-q8-embd-row-stride-head-dim-baseline read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=162 honest-inj-q8-embd-row-stride-head-dim-baseline no write left `out` ok=1 n=1 bover=0
-CHECK name=host case=162 honest-inj-q8-embd-row-stride-head-dim-baseline BAND inside the derived band ok=1 n=16 worst=0.001 x band outside=0 
+CHECK name=host case=162 honest-inj-q8-embd-row-stride-head-dim-baseline BAND inside the derived band ok=1 n=16 worst=0.000 x band outside=0 
 CHECK name=host case=162 honest-inj-q8-embd-row-stride-head-dim-baseline declared class is legal and matches the derivation ok=1 n=1 plan=BAND derived=BAND
 CHECK name=host case=163 inj-q8-embd-batch-slot-stride R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=163 inj-q8-embd-batch-slot-stride oxor==recount ok=1 n=4 driver=0x80094763 recount=0x80094763
@@ -1399,7 +1429,7 @@ CHECK name=host case=164 honest-inj-q8-embd-batch-slot-stride-baseline oxor==rec
 CHECK name=host case=164 honest-inj-q8-embd-batch-slot-stride-baseline osum==recount ok=1 n=4 driver=-0.0283716905 recount=-0.0283716905
 CHECK name=host case=164 honest-inj-q8-embd-batch-slot-stride-baseline read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=164 honest-inj-q8-embd-batch-slot-stride-baseline no write left `out` ok=1 n=1 bover=0
-CHECK name=host case=164 honest-inj-q8-embd-batch-slot-stride-baseline BAND inside the derived band ok=1 n=4 worst=0.001 x band outside=0 
+CHECK name=host case=164 honest-inj-q8-embd-batch-slot-stride-baseline BAND inside the derived band ok=1 n=4 worst=0.000 x band outside=0 
 CHECK name=host case=164 honest-inj-q8-embd-batch-slot-stride-baseline declared class is legal and matches the derivation ok=1 n=1 plan=BAND derived=BAND
 CHECK name=host case=165 inj-q8-embd-batch-slot-stride R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=165 inj-q8-embd-batch-slot-stride oxor==recount ok=1 n=16 driver=0x05A220E4 recount=0x05A220E4
@@ -1407,7 +1437,7 @@ CHECK name=host case=165 inj-q8-embd-batch-slot-stride osum==recount ok=1 n=16 d
 CHECK name=host case=165 inj-q8-embd-batch-slot-stride read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=165 inj-q8-embd-batch-slot-stride no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=165 inj-q8-embd-batch-slot-stride has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
-CHECK name=host case=165 inj-q8-embd-batch-slot-stride FIRED beyond the band ok=1 n=16 differing=12 beyond-band=12 worst=1.18e+03 x band | bcount=4, injected slot=h=2048, honest slot=n_out=4
+CHECK name=host case=165 inj-q8-embd-batch-slot-stride FIRED beyond the band ok=1 n=16 differing=12 beyond-band=12 worst=592 x band | bcount=4, injected slot=h=2048, honest slot=n_out=4
 CHECK name=host case=165 inj-q8-embd-batch-slot-stride declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
 CHECK name=host case=166 inj-q8-embd-batch-reloops R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=166 inj-q8-embd-batch-reloops oxor==recount ok=1 n=4 driver=0x80094763 recount=0x80094763
@@ -1432,7 +1462,7 @@ CHECK name=host case=168 inj-q8-embd-tied-alias osum==recount ok=1 n=16 driver=0
 CHECK name=host case=168 inj-q8-embd-tied-alias read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=168 inj-q8-embd-tied-alias no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=168 inj-q8-embd-tied-alias has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
-CHECK name=host case=168 inj-q8-embd-tied-alias FIRED beyond the band ok=1 n=16 differing=16 beyond-band=16 worst=2.39e+03 x band | peer table 2 is a disjoint range (untied)
+CHECK name=host case=168 inj-q8-embd-tied-alias FIRED beyond the band ok=1 n=16 differing=16 beyond-band=16 worst=1.19e+03 x band | peer table 2 is a disjoint range (untied)
 CHECK name=host case=168 inj-q8-embd-tied-alias declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
 CHECK name=host case=169 inj-q8-embd-cross-table-read R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=169 inj-q8-embd-cross-table-read oxor==recount ok=1 n=16 driver=0x05A220E4 recount=0x05A220E4
@@ -1450,7 +1480,7 @@ CHECK name=host case=170 inj-q8-embd-gather-row-off-1 read-set == recount ok=1 n
 CHECK name=host case=170 inj-q8-embd-gather-row-off-1 no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=170 inj-q8-embd-gather-row-off-1 has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
 CHECK name=host case=170 inj-q8-embd-gather-row-off-1 only the successor rows that escape the table count as cross ok=1 n=0 cross=0 expected=0 (0 of 4 ids escape v_rows=32)
-CHECK name=host case=170 inj-q8-embd-gather-row-off-1 FIRED beyond the band ok=1 n=16 differing=16 beyond-band=16 worst=789 x band | successor rows byte-identical for all 4 gathered rows: 0
+CHECK name=host case=170 inj-q8-embd-gather-row-off-1 FIRED beyond the band ok=1 n=16 differing=16 beyond-band=16 worst=395 x band | successor rows byte-identical for all 4 gathered rows: 0
 CHECK name=host case=170 inj-q8-embd-gather-row-off-1 declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
 CHECK name=host case=171 inj-q8-embd-q8-drop-scale R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=171 inj-q8-embd-q8-drop-scale oxor==recount ok=1 n=16 driver=0x82660236 recount=0x82660236
@@ -1458,7 +1488,7 @@ CHECK name=host case=171 inj-q8-embd-q8-drop-scale osum==recount ok=1 n=16 drive
 CHECK name=host case=171 inj-q8-embd-q8-drop-scale read-set == recount ok=1 n=11 mismatch=[] trace=1
 CHECK name=host case=171 inj-q8-embd-q8-drop-scale no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=171 inj-q8-embd-q8-drop-scale has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
-CHECK name=host case=171 inj-q8-embd-q8-drop-scale FIRED beyond the band ok=1 n=16 differing=16 beyond-band=16 worst=2.84e+06 x band | every block delta equals 1.0: 0
+CHECK name=host case=171 inj-q8-embd-q8-drop-scale FIRED beyond the band ok=1 n=16 differing=16 beyond-band=16 worst=1.42e+06 x band | every block delta equals 1.0: 0
 CHECK name=host case=171 inj-q8-embd-q8-drop-scale declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
 CHECK name=host case=172 inj-bf16-tied-a-tied-alias R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=172 inj-bf16-tied-a-tied-alias oxor==recount ok=1 n=16 driver=0x0C0102A4 recount=0x0C0102A4
@@ -1500,7 +1530,7 @@ CHECK name=host case=176 inj-q8-lmhead-gather-row-off-1 read-set == recount ok=1
 CHECK name=host case=176 inj-q8-lmhead-gather-row-off-1 no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=176 inj-q8-lmhead-gather-row-off-1 has an honest twin ok=1 n=1 no mode==CORRECT case with this geometry exists
 CHECK name=host case=176 inj-q8-lmhead-gather-row-off-1 only the successor rows that escape the table count as cross ok=1 n=1 cross=1 expected=1 (1 of 1 ids escape v_rows=32)
-CHECK name=host case=176 inj-q8-lmhead-gather-row-off-1 FIRED beyond the band ok=1 n=4 differing=4 beyond-band=4 worst=637 x band | successor row 32 of table 2 leaves the table: the words come from a foreign range and the cross counter must move
+CHECK name=host case=176 inj-q8-lmhead-gather-row-off-1 FIRED beyond the band ok=1 n=4 differing=4 beyond-band=4 worst=319 x band | successor row 32 of table 2 leaves the table: the words come from a foreign range and the cross counter must move
 CHECK name=host case=176 inj-q8-lmhead-gather-row-off-1 declared class is legal and matches the derivation ok=1 n=1 plan=AUTO derived=FIRES
 CHECK name=host case=177 honest-inj-q8-lmhead-gather-row-off-1-baseline R line echoes the plan ok=1 n=17 mismatches=[]
 CHECK name=host case=177 honest-inj-q8-lmhead-gather-row-off-1-baseline oxor==recount ok=1 n=4 driver=0x867DD525 recount=0x867DD525
@@ -1617,8 +1647,8 @@ CHECK name=host case=191 honest-inj-q8-synth-drop-last-k-baseline read-set == re
 CHECK name=host case=191 honest-inj-q8-synth-drop-last-k-baseline no write left `out` ok=1 n=1 bover=0
 CHECK name=host case=191 honest-inj-q8-synth-drop-last-k-baseline BAND inside the derived band ok=1 n=16 worst=0.000 x band outside=0 
 CHECK name=host case=191 honest-inj-q8-synth-drop-last-k-baseline declared class is legal and matches the derivation ok=1 n=1 plan=BAND derived=BAND
-POPULATION host BAND=61 EXACT=55 FIRES=43 IMMUNE=23 BYTES=9 INSIDE=1 inj=76
-INJECTIONS host judged=75 fired=51 immune=24 immune-held=24
+POPULATION host BAND=61 EXACT=55 FIRES=41 IMMUNE=23 BYTES=9 INSIDE=3 inj=76
+INJECTIONS host judged=73 fired=49 immune=24 immune-held=24
 INJECTION arm=inj-bf16-lmhead-half-accum fired=1
 INJECTION arm=inj-bf16-lmhead-drop-last-k fired=1
 INJECTION arm=inj-bf16-lmhead-drop-last-k fired=1
@@ -1629,7 +1659,6 @@ INJECTION arm=inj-bf16-lmhead-batch-reloops fired=1
 INJECTION arm=inj-bf16-lmhead-tied-alias fired=1
 INJECTION arm=inj-bf16-lmhead-cross-table-read fired=1
 INJECTION arm=inj-bf16-lmhead-gather-row-off-1 fired=1
-INJECTION arm=inj-q8-lmhead-half-accum fired=1
 INJECTION arm=inj-q8-lmhead-half-accum fired=1
 INJECTION arm=inj-q8-lmhead-half-accum fired=1
 INJECTION arm=inj-q8-lmhead-drop-last-k fired=1
@@ -1653,7 +1682,6 @@ INJECTION arm=inj-bf16-embd-batch-reloops fired=1
 INJECTION arm=inj-bf16-embd-tied-alias fired=1
 INJECTION arm=inj-bf16-embd-cross-table-read fired=1
 INJECTION arm=inj-bf16-embd-gather-row-off-1 fired=1
-INJECTION arm=inj-q8-embd-half-accum fired=1
 INJECTION arm=inj-q8-embd-half-accum fired=1
 INJECTION arm=inj-q8-embd-half-accum fired=1
 INJECTION arm=inj-q8-embd-drop-last-k fired=1
@@ -1695,9 +1723,11 @@ IMMUNITY arm=inj-q8-synth-gather-row-off-1 held=1
 IMMUNITY arm=inj-bf16-synth-half-accum held=1
 IMMUNITY arm=inj-bf16-synth-drop-last-k held=1
 SUBBAND arm=inj-bf16-lmhead-half-accum inside=1
-CHECK name=host injection denominator matches the plan ok=1 n=76 plan=76 judged=76 (fired=51 immune=24 inside=1) never_judged=[] judged_but_not_injection=[]
-CHECK name=host every arm judged INSIDE the band really moved and really stayed inside ok=1 n=1 wrong: none
-CHECK name=host every injection that must fire fired ok=1 n=51 did not fire: none
+SUBBAND arm=inj-q8-lmhead-half-accum inside=1
+SUBBAND arm=inj-q8-embd-half-accum inside=1
+CHECK name=host injection denominator matches the plan ok=1 n=76 plan=76 judged=76 (fired=49 immune=24 inside=3) never_judged=[] judged_but_not_injection=[]
+CHECK name=host every arm judged INSIDE the band really moved and really stayed inside ok=1 n=3 wrong: none
+CHECK name=host every injection that must fire fired ok=1 n=49 did not fire: none
 CHECK name=host every derived-immune case really is immune ok=1 n=24 moved anyway: none
 ALTREACH modes_with_injections=9 immune-somewhere=6 fireable-somewhere=9 immune-only=none
 CHECK name=host every mode that is immune somewhere is fireable somewhere ok=1 n=9 immune-only modes: none
@@ -1731,5 +1761,5 @@ CHECK name=host the cross-table-read witness moves `cross` on every untied arm o
 DISJOINT tag=host real_tables=5 overlaps=0 lmhead_files=['model-00026-of-00026.safetensors'] embd_files=['model-00001-of-00026.safetensors'] same_file=0
 CHECK name=host the real tables occupy disjoint slab ranges ok=1 n=5 disjoint
 CHECK name=host lm_head and the embeddings come from DIFFERENT shard files (the untiedness) ok=1 n=2 lm_head=['/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/models/qwen36-src/model-00026-of-00026.safetensors'] embeddings=['/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/models/qwen36-src/model-00001-of-00026.safetensors']
-CHECKS ran=1514 failed=1 host case=190 inj-q8-synth-drop-last-k declared class is legal and matches the derivation
-RESULT FAIL lm_head host-only checks=1514 findings=1
+CHECKS ran=1518 failed=3 the band file equals gamma_index(products_inexact) * fsum(|h_k w_k|) recomputed from these bytes,every banded word was priced, none is un-banded, and no band is below one ulp of its own answer,host case=190 inj-q8-synth-drop-last-k declared class is legal and matches the derivation
+RESULT FAIL lm_head host-only checks=1518 findings=3
