@@ -472,3 +472,16 @@ read 2.3 GB/s there) and no first-run figure from this window is quotable.
 - Restart cost: `down: stopped in 3s`, `up: ready in 70s` (entries 3-4 of `evidence/halogen-restart.log`).
 Provenance: main agent, third device window of 2026-10-26; full detail and the verbatim lines in
 `evidence/device-window-2026-10-26c.md`.
+
+## M1 established — window `2026-10-26d` (main agent, engine down, lock held, blocking)
+
+- Artifact-to-device staging executed on real hardware: 463 of 464 plan runs staged, each read back with
+  `hipMemcpyDtoH` and sha256-compared to the digest the artifact region independently produces.
+  `RESULT PASS mode=device checks=40 findings=0 controls=10 fired=10 readback=463/463 verified=464 residue=0
+  uncovered=0 device=on`; **463 DISTINCT device digests**, 463 MATCH, 1 refused.
+- `AGENTS.md` ladder: **M1 met**. The two device controls corrupt/short-change REAL device memory and both fired
+  RED (`device-corrupt`: 1 byte at run 343 `weights.exact` `slab_off+0`; `device-short-d2h`: 1023 of 1024 B, caught
+  by the count rule and not the digest).
+- Not established and not implied: the 464th run (MTP draft block, `draft-requantizer-absent`), any timing
+  (M4/M5, >= 48 t/s per D-22), and any device codegen of our kernels.
+Provenance: main agent, fourth device window of 2026-10-26; detail in `evidence/device-window-2026-10-26d.md`.
