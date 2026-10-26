@@ -5,12 +5,12 @@
 #   ./build.sh --check    compile only, run nothing (the same compiles, still no device)
 #   ./build.sh --clean    remove build/ and all binaries
 #
-# Two pairs today: `m2_se_*` (the shared expert) and `m2_rt_*` (the router). Each pair is one header of
-# arithmetic plus one `.inc` of run order, included by both compilers. `engine/block_device.py` runs
-# each pair on one host-visible plan and requires byte-identical records, so a host/device disagreement
-# is attributable to the device compiler instead of to two spellings (`prototype/gdn/build.sh` and
-# `prototype/shared_expert/build.sh` are the pattern, and `pitfalls/40`
-# §a-check-whose-reference-side-is-derived-from-the-thing-under-test is the reason).
+# Two pairs today: `m2_se_*` (the shared expert) and `m2_rt_*` (the router), plus `m2_g_*` (the
+# routed-expert gather). Each pair is one header of arithmetic plus one `.inc` of run order, included by
+# both compilers. `engine/block_device.py` runs each pair on one host-visible plan and requires
+# byte-identical records, so a host/device disagreement is attributable to the device compiler instead of
+# to two spellings (`prototype/gdn/build.sh` and `prototype/shared_expert/build.sh` are the pattern, and
+# `pitfalls/40` §a-check-whose-reference-side-is-derived-from-the-thing-under-test is the reason).
 #
 # NON-OPTIONAL BUILD FACTS (pitfalls/50 §“Build and toolchain facts that are not optional”):
 #   * `-O3` and `-Wl,-rpath,/opt/rocm/lib` on the HIP link lines, and exactly one offload arch —
@@ -19,9 +19,9 @@
 #   * `-ffp-contract=off -fno-fast-math` on BOTH arms. The declared dot in
 #     `shared_expert_kernels.h` states one mul then one add per step; letting either compiler fuse them
 #     into an FMA makes the pair comparison a question about contraction rather than about codegen.
-#   * the prototype lanes' headers are INCLUDED, never copied: `-I prototype/shared_expert` and
-#     `-I prototype/moe_router`. The lanes are read-only material for M2, and a copy would be a second
-#     ruler that goes stale on its own schedule.
+#   * the prototype lanes' headers are INCLUDED, never copied: `-I prototype/shared_expert`,
+#     `-I prototype/moe_router` and `-I prototype/moe_gather`. The lanes are read-only material for M2,
+#     and a copy would be a second ruler that goes stale on its own schedule.
 #
 # Compiling is CPU work: this script touches no device, takes no lock, reads no timer, and never
 # launches a binary. Execution — host or device — belongs to `engine/block_device.py`.
@@ -35,11 +35,13 @@ CXX=${CXX:-g++}
 ARCH=${Q36_GPU_ARCH:-gfx1151}
 RPATH="-Wl,-rpath,/opt/rocm/lib"
 FP="-ffp-contract=off -fno-fast-math"
-INC="-I$HERE -I$ROOT/prototype/shared_expert -I$ROOT/prototype/moe_router"
+INC="-I$HERE -I$ROOT/prototype/shared_expert -I$ROOT/prototype/moe_router -I$ROOT/prototype/moe_gather"
 BIN_HIP="$BUILD/m2_se_arm"
 BIN_HOST="$BUILD/m2_se_host"
 RT_HIP="$BUILD/m2_rt_arm"
 RT_HOST="$BUILD/m2_rt_host"
+G_HIP="$BUILD/m2_g_arm"
+G_HOST="$BUILD/m2_g_host"
 
 case "${1:-}" in
   --clean)
@@ -57,6 +59,12 @@ fi
 if [ ! -f "$ROOT/prototype/moe_router/moe_router_kernels.h" ]; then
     echo "BUILD FAIL missing prototype/moe_router/moe_router_kernels.h; R2..R5 are included from that"
     echo "     lane verbatim, so a missing header means the router arm has no softmax to run"
+    exit 1
+fi
+if [ ! -f "$ROOT/prototype/moe_gather/moe_gather_kernels.h" ]; then
+    echo "BUILD FAIL missing prototype/moe_gather/moe_gather_kernels.h; the Q4_K/Q5_K decoders, the bf16"
+    echo "     primitives, mg_silu and the ascending-id combine order are included from that lane verbatim,"
+    echo "     so a missing header means the gather arm has no decoder and no combine"
     exit 1
 fi
 
@@ -78,6 +86,14 @@ echo "BUILD ok router_host_twin=$RT_HOST"
 "$HIPCC" -x hip --offload-arch="$ARCH" -O3 $FP $INC -c "$HERE/m2_rt_arm.hip" -o "$BUILD/m2_rt_arm.o"
 "$HIPCC" -O3 $RPATH "$BUILD/m2_rt_arm.o" -o "$RT_HIP"
 echo "BUILD ok router_hip_arm=$RT_HIP"
+
+"$CXX" -O2 -std=c++11 -Wall -Wextra $FP $INC -c "$HERE/m2_g_host.cpp" -o "$BUILD/m2_g_host.o"
+"$CXX" -O2 $RPATH "$BUILD/m2_g_host.o" -o "$G_HOST"
+echo "BUILD ok gather_host_twin=$G_HOST"
+
+"$HIPCC" -x hip --offload-arch="$ARCH" -O3 $FP $INC -c "$HERE/m2_g_arm.hip" -o "$BUILD/m2_g_arm.o"
+"$HIPCC" -O3 $RPATH "$BUILD/m2_g_arm.o" -o "$G_HIP"
+echo "BUILD ok gather_hip_arm=$G_HIP"
 
 if [ "${1:-}" = "--check" ]; then
     echo "BUILD note --check: compiled only; no binary was executed, no device was touched,"

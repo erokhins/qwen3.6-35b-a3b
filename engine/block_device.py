@@ -55,6 +55,8 @@ silently (`pitfalls/50`) — and reads no clock. A check enforces that no rate t
 output. Ask for `--device` and, if this process cannot prove it performed the act, it refuses by name.
 """
 
+import os
+import subprocess
 import argparse
 import hashlib
 import math
@@ -1331,9 +1333,12 @@ def checks(v, ctx, rows, tally, text, parsed, arm_runs):
     v.check("stage-rows-equal-derived-population", len(rows) == per_arm and per_arm > 0,
             "rows=%d derived=%d (the shared-expert stages the layer-0 manifest names)"
             % (len(rows), per_arm))
-    v.check("parsed-record-count-equals-printed", len(parsed) == len(rows) and len(parsed) > 0,
-            "parsed=%d printed=%d (a parser matching nothing would print 0 and pass)"
-            % (len(parsed), len(rows)))
+    v.check("parsed-record-count-equals-printed",
+            len(parsed) == len(rows) + len(ctx.get("g_rows", [])) and len(parsed) > 0,
+            "parsed=%d printed=%d (shared-expert and router rows=%d, gather rows on two width paths=%d); "
+            "a parser matching nothing would print 0 and pass"
+            % (len(parsed), len(rows) + len(ctx.get("g_rows", [])), len(rows),
+               len(ctx.get("g_rows", []))))
     v.check("arm-stages-equal-manifest-population",
             sorted(population["arm_declared"]) == sorted(population["all"]),
             "this path declares %s; the manifest's shared-expert stages are %s — a rename on either "
@@ -1419,11 +1424,853 @@ def checks(v, ctx, rows, tally, text, parsed, arm_runs):
             % (ctx["dumps"].files_read, ctx["dumps"].bytes_read))
 
 
+# ----------------------------------------------------------------------------------------------
+# The routed-expert gather vertical: two width paths, one driver pass.
+#
+# WHY THIS VERTICAL IS DRIVEN SEPARATELY FROM `population["all"]`. The shared-expert and router rows
+# exist once, on the policy-A arm, because that is the only arm the band population admits. The gather
+# exists twice by construction: the rows that can be licensed live on the bf16 path (`expert_raw` under
+# the moe_gather floor probe, `routed_sum` under specification/10 §10.6's routed-sum row) and the shape
+# the engine ships lives on the policy-A path, where no band measures it. Emitting one and calling the
+# other "plumbing" would lose half the point, so both are emitted, tagged, and the policy-A pair lands
+# UNLICENSED with the reason that is actually true (`policy-a-width-band-absent`).
+#
+# ARMS COUNTED BY WIDTH, NOT ONLY BY EXECUTION PATH. `PATH_LEGS` above counts host-vs-device; `G_LEGS`
+# counts ref_bf16-vs-policy_a, because a gather control that only ever bent the bf16 plan would license
+# nothing the shipping path does. A control that claims a width it executed zero legs on is reported by
+# `gather-control-legs-cover-the-width-under-claim`, and where a mode is structurally unreachable on one
+# width (`mode-unreachable-here`: re-chunking a fused [2I,H] span that policy A does not have) the control
+# says so and the refusal is what the check requires, instead of a leg being faked.
+# ----------------------------------------------------------------------------------------------
+
+G_STAGES = ("expert_raw", "routed_sum")
+G_ROLES = DA.G_ROLES
+G_ART_TENSOR = DA.G_ART_TENSOR
+G_WIDTH_ARM = {"ref_bf16": "ref_bf16", "policy_a": "policy_a"}
+G_LEGS = {"ref_bf16": 0, "policy_a": 0}
+
+
+def g_arm(width, binary, plan, slab, out, device=False, fault=None, label=None):
+    """`arm_leg` with the width path tallied too, so a control's width claim can be audited.
+
+    The witness counters are folded here rather than at the call sites: every gather arm act in the run
+    goes through this function, so the run's totals cannot leave out a control's variant and make the
+    device bill read smaller than the acts that were executed.
+    """
+    rec = arm_leg(binary, plan, slab, out, device=device, fault=fault, label=label)
+    G_LEGS[width] = G_LEGS.get(width, 0) + 1
+    run = rec["run"]
+    WITNESS["hip_calls_arm"] += int(run["hip_calls"])
+    WITNESS["launches"] += int(run["launches"])
+    WITNESS["allocs"] += int(run["allocs"])
+    WITNESS["bytes_to_device"] += int(run["bytes_to_device"])
+    WITNESS["bytes_from_device"] += int(run["bytes_from_device"])
+    return rec
+
+
+def g_legs_since(snapshot):
+    """The arm acts a control executed since `snapshot`, under BOTH axes it can claim: the execution path
+    the arm reported (`host_cpubody`/`device`) and the width path whose plan was bent.
+
+    One dict over both axes is what lets a single `claims=` list name either kind and have
+    `control-legs-cover-the-path-under-claim` and
+    `gather-control-legs-cover-the-width-under-claim` read the same evidence.
+    """
+    exec_snap, width_snap = snapshot
+    legs = dict((p, n - exec_snap.get(p, 0)) for p, n in PATH_LEGS.items()
+                if n - exec_snap.get(p, 0))
+    for w, n in G_LEGS.items():
+        if n - width_snap.get(w, 0):
+            legs[w] = n - width_snap.get(w, 0)
+    return legs
+
+
+def g_claims(ctx):
+    """What a gather control declares it covered: both width paths, plus the execution path that ran.
+
+    One tuple for both checks: `control-legs-cover-the-path-under-claim` reads the execution names out of it
+    and `gather-control-legs-cover-the-width-under-claim` reads the width names, and both require a counted
+    arm act behind every name. A control whose only leg is a refusal (no arm ran to completion) declares no
+    claims at all and is listed as such, instead of a refusal being dressed up as a leg.
+    """
+    return tuple(DA.G_PATHS) + (("device",) if ctx["device"] else ("host_cpubody",))
+
+
+def g_widen_f32(x_bytes):
+    """The pinned bf16 activation image widened to f32 — the basis policy A's matmul actually holds.
+
+    This is a representation change, not an arithmetic one: bf16 to f32 is exact, so the two paths are
+    fed the same numbers and only the weights and roundings differ. Doing it here, once, is what lets the
+    plan's `elt=` claim be the only width statement about x.
+    """
+    bits = np.frombuffer(x_bytes, dtype=np.uint16).astype(np.uint32) << 16
+    return bits.view(np.float32).tobytes()
+
+
+def g_stage_bytes(g, units):
+    """(bytes, spans) the plan implies, derived off the units instead of typed by hand.
+
+    `spans` counts distinct source ranges, keyed on (file, start, length) as the units were built, before any
+    slab remapping. On the reference path the gate and up units name one range (the [2I, H] pair block), so it
+    is 16 spans for K=8; on policy A the three matrices live in three different gguf tensors, so it is 24.
+    That difference is prediction 3's number: a scheduler deciding whether to merge spans before issuing the
+    gather reads exactly this quantity, and it is a property of the artifact layout, not of this driver.
+    """
+    return (sum(u["bytes"] for u in units),
+            len(set((u["src_name"], u["span_off"], u["span_bytes"]) for u in units)))
+
+
+def gather_prepare(args, ctx):
+    """Build both width paths: residency, slab, plan, and the census read off the plan before any run.
+
+    The expert ids and both weight vectors come out of the ROUTER arm's own record, not off the pins, so
+    the gather is judged on the selection the compiled router actually produced — which is also what makes
+    prediction 1's host-sync question answerable later instead of assumed. Selection, weights, and every
+    span are printed, because a census the driver computed but never printed is a census nobody can audit.
+    """
+    g = DA.parse_g_layout()
+    rt_fields = ctx["rt_fields"]
+    ids = [int(v) for v in rt_fields["ids"]]
+    wcast = [float(v) for v in rt_fields["wcast"]]
+    wpre = [float(v) for v in rt_fields["wpre"]]
+    if len(ids) != g["MG_K"]:
+        raise Refused("g-slots-mismatch", "the router arm returned %d ids and the gather geometry says "
+                      "K=%d; the two arms would be describing different rows" % (len(ids), g["MG_K"]))
+    L = ctx["st"]["L"]
+    source = SR.ByteSource(L, why="M2 routed-expert gather span read")
+    out = {}
+    try:
+        ref_spans = DA.g_ref_spans(g, BF.SHARD_INDEX, BF.ROOT / "models" / "qwen36-src")
+        paths = {
+            "ref_bf16": dict(units=DA.g_ref_units(g, ref_spans, ids), x=ctx["x_bytes"], elt=2),
+            "policy_a": dict(units=DA.g_policy_units(g, L, source, L.art.path, ids),
+                             x=g_widen_f32(ctx["x_bytes"]), elt=4),
+        }
+        for width in DA.G_PATHS:
+            p = paths[width]
+            # Read off the units BEFORE the slab remaps them to slab coordinates: the span count a scheduler
+            # needs is the count of distinct ranges in the artifact, not in this driver's scratch file.
+            want_bytes, want_spans = g_stage_bytes(g, p["units"])
+            slab_bytes, off = DA.g_slab(g, p["units"], p["x"], ids, wcast, wpre, p["elt"])
+            wdir = ctx["work"] / ("gather_" + width)
+            wdir.mkdir(parents=True, exist_ok=True)
+            slab_path, plan_path = wdir / "slab.bin", wdir / "plan.txt"
+            slab_path.write_bytes(slab_bytes)
+            n_units = DA.write_g_plan(plan_path, width, g, p["units"], len(slab_bytes), off, p["elt"])
+            whole_bytes = ({"gate": ref_spans["gate_up"]["bytes"],
+                            "up": ref_spans["gate_up"]["bytes"],
+                            "down": ref_spans["down"]["bytes"]} if width == "ref_bf16" else
+                           dict((role, L.by_name[G_ART_TENSOR[role]].row) for role in G_ROLES))
+            plan_text = plan_path.read_text()
+            whole_plan = wdir / "plan_whole_tensor.txt"
+            whole_plan.write_text(plan_text)
+            DA.write_g_plan(whole_plan, width, g, p["units"], len(slab_bytes), off, p["elt"],
+                            whole_bytes=whole_bytes)
+            cen = DA.g_census(g, p["units"], ids)
+            print("GWIDTH path=%s arm=%s x_elt=%d x_basis=%s experts=%s units=%d spans=%d "
+                  "bytes=%d bytes_per_expert=%s slab_bytes=%d plan_units=%d"
+                  % (width, G_WIDTH_ARM[width], p["elt"],
+                     "pinned-bf16-image" if p["elt"] == 2 else "f32-widened-from-the-pinned-bf16",
+                     ",".join(str(i) for i in ids), n_units, want_spans, want_bytes,
+                     ",".join("%d:%dB" % (e, b) for e, b in sorted(cen["bytes_per_expert"].items())),
+                     len(slab_bytes), n_units))
+            print("GSOURCE path=%s %s" % (width, " ".join(
+                "%s=%s(%s)" % (role, src, kind) for role, src, kind in
+                sorted(set((u["role"], Path(u["src_name"]).name if "/" in u["src_name"]
+                            else u["src_name"], u["kind"]) for u in p["units"])))))
+            out[width] = dict(g=g, units=p["units"], off=off, elt=p["elt"], slab=slab_path,
+                              plan=plan_path, whole_plan=whole_plan, slab_bytes=len(slab_bytes),
+                              census=cen, want_spans=want_spans, want_bytes=want_bytes,
+                              whole_bytes=whole_bytes,
+                              ids=ids, dir=wdir)
+    finally:
+        source.close()
+    return out
+
+
+def g_stages(fields, g):
+    """The gather record as stage tensors, in the shapes the pins hold ([1,K,H] and [1,H])."""
+    return dict(expert_raw=torch.from_numpy(fields["raw"].copy()).reshape(1, g["MG_K"], g["MG_H"]),
+                routed_sum=torch.from_numpy(fields["routed"].copy()).reshape(1, g["MG_H"]))
+
+
+def run_gather_arms(v, ctx):
+    """Run both width paths through the two compilers, print the census, and hand back the stages.
+
+    Four runs in a CPU witness (two paths x two compilers), eight in a device window. Every path prints
+    its own `PAIR` line, because a single aggregate ndiff over two shapes is the aggregate-that-hides-one
+    that `pitfalls/40` §bans. The record the rows are read from is the hipcc arm's host path in a CPU
+    witness and the device arm's in a window, exactly as the shared-expert and router rows do.
+    """
+    args = ctx["args"]
+    runs, stages_by_width, censuses = {}, {}, {}
+    for width in DA.G_PATHS:
+        p = ctx["gpaths"][width]
+        g = p["g"]
+        twin = g_arm(width, args.g_host_binary, p["plan"], p["slab"], p["dir"] / "out_host.bin",
+                     label="g_%s_host_twin" % width)
+        hip = g_arm(width, args.g_arm_binary, p["plan"], p["slab"], p["dir"] / "out_hip.bin",
+                    label="g_%s_hip_hostpath" % width)
+        runs["g_%s_host_twin" % width], runs["g_%s_hip_hostpath" % width] = twin, hip
+        nbytes, ndiff = DA.pair_bytes(p["dir"] / "out_host.bin", p["dir"] / "out_hip.bin")
+        print("PAIR pair=g_%s_host_twin_vs_hip_hostpath file=gather_record.f32 bytes=%d "
+              "ndiff_bytes=%d cases=1 zero_tolerance=1 verdict=%s"
+              % (width, nbytes, ndiff, "IDENTICAL" if ndiff == 0 else "DIFFERS"))
+        p["pair"] = (nbytes, ndiff)
+        rec_hip, nan_hip = DA.g_record(p["dir"] / "out_hip.bin", g)
+        rec_twin, _ = DA.g_record(p["dir"] / "out_host.bin", g)
+        p["fields"], p["nan"] = rec_hip, nan_hip
+        p["arm_census"] = hip["run"].get("census")
+        stages_by_width[width] = g_stages(rec_hip, g)
+        arm_cen = DA.parse_census(hip["run"].get("census"))
+        censuses[width] = DA.g_census(g, p["units"], p["ids"], arm=arm_cen)
+        print("GATHERCENSUS path=%s slots=%d distinct_experts=%d units=%d spans=%d bytes=%d "
+              "bytes_per_expert=%s whole_tensor_reads=%d arm_units=%d arm_spans=%d arm_total=%d "
+              "arm_whole_reads=%d note_conflict=%d disagree=%s arm_census=\"%s\""
+              % (width, p["census"]["slots"], p["census"]["distinct"], p["census"]["units"],
+                 p["want_spans"], p["want_bytes"],
+                 ",".join("%d:%dB" % (e, b) for e, b in sorted(p["census"]["bytes_per_expert"].items())),
+                 p["census"]["whole_tensor_reads"], censuses[width]["arm_units"],
+                 censuses[width]["arm_spans"], censuses[width]["arm_bytes"],
+                 censuses[width]["arm_whole_reads"], censuses[width]["note_conflict"],
+                 censuses[width]["disagree"] or "none",
+                 hip["run"].get("census")))
+        if ctx["device"]:
+            dev = g_arm(width, args.g_arm_binary, p["plan"], p["slab"], p["dir"] / "out_device.bin",
+                        device=True, label="g_%s_hip_device" % width)
+            runs["g_%s_hip_device" % width] = dev
+            d_fields, d_nan = DA.g_record(p["dir"] / "out_device.bin", g)
+            d_cen = DA.parse_census(dev["run"].get("census"))
+            d_bytes, d_diff = DA.pair_bytes(p["dir"] / "out_device.bin", p["dir"] / "out_hip.bin")
+            print("PAIR pair=g_%s_hip_device_vs_hip_hostpath file=gather_record.f32 bytes=%d "
+                  "ndiff_bytes=%d cases=1 zero_tolerance=1 verdict=%s"
+                  % (width, d_bytes, d_diff, "IDENTICAL" if d_diff == 0 else "DIFFERS"))
+            print("GATHERCENSUS path=%s slot=device distinct_experts=%d arm_units=%d arm_total=%d "
+                  "whole_reads=%d disagree=%s arm_census=\"%s\""
+                  % (width, d_cen["distinct_experts"], d_cen["unit_reads"], d_cen["total"],
+                     d_cen["whole_reads"],
+                     DA.g_census(g, p["units"], p["ids"], arm=d_cen)["disagree"] or "none",
+                     dev["run"].get("census")))
+            p["fields"], p["nan"] = d_fields, d_nan
+            p["arm_census"] = dev["run"].get("census")
+            stages_by_width[width] = g_stages(d_fields, g)
+            p["pair"] = (d_bytes, d_diff)
+    return runs, stages_by_width, censuses
+
+
+def emit_gather_rows(dumps, band, limits, stages_by_width, provenance):
+    """Four STAGE rows: two licenced stages on each width path, judged by the licensors that already exist.
+
+    Nothing here invents a limit. `expert_raw` is judged by the moe_gather floor probe's own element count
+    and `routed_sum` by exactness, both read through `engine/block_gate.py::MOE_BANDS`; on the policy-A
+    path both land UNLICENSED with reason `policy-a-width-band-absent`, which is the honest state of the
+    world and the reason this vertical exists: it reports the number the shipping shape produces without
+    pretending a band covers it.
+    """
+    rows = []
+    print("PROVENANCE stages=%s widths=%s source=%s note=the ids and weights the gather used are the "
+          "router arm's own record, not the pins, so this is a chain of compiled arms and not a replay"
+          % (",".join(G_STAGES), ",".join(DA.G_PATHS), provenance))
+    for width in DA.G_PATHS:
+        arm = G_WIDTH_ARM[width]
+        for stage in G_STAGES:
+            rows.append(BG.stage_row(dumps, arm, stage, stages_by_width[width]))
+    tally = BG.adjudicate(rows, band, limits, None)
+    for row in rows:
+        BG.print_row(row)
+    WITNESS["rows_emitted"] += len(rows)
+    return rows, tally
+
+
+def g_plan_variant(p, text):
+    """Write one variant plan beside the honest one and return its path."""
+    path = p["dir"] / "plan_variant.txt"
+    path.write_text(text)
+    return path
+
+
+def g_run_variant(ctx, width, plan_path, out_name, label, fault=None, device=None):
+    """Run one variant plan through the arm that produced the rows under test.
+
+    The binary is the hipcc arm — its host path in a CPU witness, its device path in a window — so a
+    perturbation leg is executed by the same codegen whose honest record is being compared, which is the
+    lesson of window e2 rather than a stylistic choice.
+    """
+    p = ctx["gpaths"][width]
+    want_device = ctx["device"] if device is None else device
+    return g_arm(width, ctx["args"].g_arm_binary, plan_path, p["slab"], p["dir"] / out_name,
+                 device=want_device, fault=fault, label=label)
+
+
+def control_gather_swap(v, ctx):
+    """Prediction 3, executed: `gate_up_proj` is [E, 2I, H] with `gate, up = chunk(2)` along the OUTPUT
+    dim, and a kernel written for two separate [I, H] matrices has to be checked for a stride/offset swap
+    rather than re-derived.
+
+    Two spellings of the swap, because the two layouts make two different mistakes possible:
+      * `halves_swapped` — exchange the gate and up UNITS. Reachable on both paths: on policy A they are
+        two artifact tensors, on the reference path two views of one fused span.
+      * `input_chunk` — re-chunk the same 2I*H elements along the INPUT dim ([I, 2H]). This one is only
+        expressible where the pair really is one span, so on the policy-A plan the arm refuses it with
+        `mode-unreachable-here` and the refusal, not a leg, is what the control requires there.
+    Both paths must show the swap moving `expert_raw` further from the pin than the honest read does, and
+    it has to move the halves themselves (`gate`/`up` fields), not only the sum — a sum can be insensitive
+    to a swap that the halves make visible.
+    """
+    snap = (dict(PATH_LEGS), dict(G_LEGS))
+    rows, refused = [], []
+    for width in DA.G_PATHS:
+        p = ctx["gpaths"][width]
+        honest_raw = p["fields"]["raw"]
+        honest_gate = p["fields"]["gate"]
+        plan = g_plan_variant(p, p["plan"].read_text().replace("mode=correct", "mode=halves_swapped"))
+        rec = g_run_variant(ctx, width, plan, "out_swap.bin", "g_%s_swap" % width)
+        fields, _ = DA.g_record(rec["wrote"]["path"], p["g"])
+        moved_raw = int(np.count_nonzero(fields["raw"] != honest_raw))
+        moved_gate = int(np.count_nonzero(fields["gate"] != honest_gate))
+        rows.append((width, moved_raw, moved_gate))
+        if width == "ref_bf16":
+            plan2 = g_plan_variant(p, p["plan"].read_text().replace("mode=correct",
+                                                                    "mode=input_chunk"))
+            rec2 = g_run_variant(ctx, width, plan2, "out_chunk.bin", "g_ref_chunk")
+            f2, _ = DA.g_record(rec2["wrote"]["path"], p["g"])
+            rows.append(("ref_bf16.input_chunk", int(np.count_nonzero(f2["raw"] != honest_raw)),
+                         int(np.count_nonzero(f2["gate"] != honest_gate))))
+        else:
+            plan2 = g_plan_variant(p, p["plan"].read_text().replace("mode=correct",
+                                                                    "mode=input_chunk"))
+            try:
+                g_run_variant(ctx, width, plan2, "out_chunk.bin", "g_policy_chunk")
+                refused.append("policy_a:NOT-REFUSED")
+            except DA.Refused as exc:
+                refused.append("policy_a:%s" % ("mode-unreachable-here"
+                                                if "mode-unreachable-here" in str(exc) else exc.tag))
+    all_moved = all(m > 0 for _, m, _ in rows)
+    v.control("gather-gate-up-swap-reddens", all_moved and "NOT-REFUSED" not in refused,
+              "swapped halves moved raw elements / gate elements per path: %s; the input-dim re-chunk leg "
+              "on the path that has a fused span moved %s, and on the path that has two separate tensors "
+              "the arm refused with %s (a mode a layout cannot express is refused, never reported as "
+              "fired). Prediction 3 was that a SwiGLU kernel written for two [I,H] matrices has to be "
+              "checked for the swap; these are the legs that check it"
+              % ("; ".join("%s moved_raw=%d moved_gate=%d" % r for r in rows),
+                 [m for n, m, _ in rows if "chunk" in n][0] if rows else "?",
+                 ",".join(refused)),
+              legs=g_legs_since(snap), claims=g_claims(ctx))
+
+
+def control_no_device_act_guard(v, ctx):
+    """The `no device acts` predicate has to be capable of failing, and this shows it with a fabricated act.
+
+    The check above passes by reading counters that are all zero, and "all zero" is also what a counter that
+    is never incremented, never printed, or read off the wrong dict looks like — the first version of that
+    check threw `KeyError: 'run'` and so never ran at all. So the predicate is run here over three fabricated
+    records whose only difference from the real ones is the counter: one that launched, one that moved bytes
+    to the device, and one whose `RUN` line does not report `launches` at all. All three must be read as
+    offences, and the honest set must read clean, or the check is decoration.
+
+    No arm runs here; the legs are driver-side, so the control declares no path claims.
+    """
+    honest = dict((k, dict(run_facts(r))) for k, r in ctx["all_runs"].items())
+    victim = sorted(honest)[0]
+    fabricated = {
+        "launches=1": dict(honest[victim], launches=1),
+        "bytes_to_device=1GiB": dict(honest[victim], bytes_to_device=1073741824),
+        "launches-absent": dict((k, x) for k, x in honest[victim].items() if k != "launches"),
+    }
+    bad = dict((name, no_device_act_offences({victim: rec})) for name, rec in fabricated.items())
+    clean = no_device_act_offences(ctx["all_runs"])
+    for name in sorted(fabricated):
+        print("GWITNESS guard=no-device-acts fabricated=%s offences=%s" % (name, bad[name] or "NONE"))
+    fired = (not clean and all(bad[n] for n in bad))
+    v.control("control-witness-guard-can-redden", fired,
+              "the same predicate the check runs, over the honest set and three fabrications: honest=%s; "
+              "%s. Every fabrication is read as an offence, including the record that simply omits the "
+              "counter — a RUN line that does not report a number cannot certify that the number was zero"
+              % (clean or "clean",
+                 "; ".join("%s -> %s" % (n, ",".join(bad[n])) for n in sorted(bad))))
+
+
+def control_gather_census(v, ctx):
+    """Prediction 2, executed: the gather has to be provably a gather.
+
+    Four legs per width path:
+      * agreement — the census the ARM printed has to match the census the driver computed from the plan it
+        wrote, per expert_index and in the aggregate (units, spans, distinct experts, bytes). The count is
+        not the driver's opinion of what it asked for, and the first witness earned this leg by catching the
+        arm printing `unit_reads=4` against a 24-unit plan;
+      * refusal — a plan whose units claim the whole stacked routed tensor is REFUSED outright
+        (`whole-tensor-unit-refused`), so the arm cannot be handed the whole-tensor read the census exists to
+        catch. The byte claims in that refused plan come from the safetensors headers and the loader's
+        records, never typed here;
+      * the counter's non-zero leg — `fault=whole-note`, which the parser accepts only when the plan declares
+        it by name, notes a whole-tensor read for EVERY unit. The census has to count it
+        (`whole_reads == unit_reads`, not a per-run constant of 1) and the same comparison that passed on the
+        honest plan has to redden on it. Before this leg existed, `whole_reads=0` was vacuous in exactly the
+        sense `pitfalls/40` §a-counter-that-reads-0 names: a counter that counts nothing reports no
+        violations;
+      * the driver's half — a doctored arm census (short `unit_reads`, one expert missing: the shape the
+        first witness actually produced) has to produce disagreement in this file, with no device involved,
+        so the agreement leg is known to be able to fail.
+
+    A zero denominator is a named finding of its own: an empty census agreeing with an empty census is the
+    empty parse wearing a census costume, so it reports as `census-denominator-zero`, never as a pass.
+    """
+    snap = (dict(PATH_LEGS), dict(G_LEGS))
+    agree, refused, whole_leg, driver_leg, zerod, costs = [], [], [], [], [], []
+    for width in DA.G_PATHS:
+        p = ctx["gpaths"][width]
+        cen = DA.parse_census(p["arm_census"])
+        d = DA.g_census(p["g"], p["units"], p["ids"], arm=cen)
+        agree.append((width, d["disagree"], d, cen))
+        zerod.append((width, [k for k, n in (("units", d["units"]), ("spans", d["spans"]),
+                                             ("distinct_experts", d["distinct"]),
+                                             ("arm_units", cen["unit_reads"]),
+                                             ("arm_spans", cen["spans"]), ("arm_bytes", cen["total"]))
+                              if not n]))
+        costs.append((width, sum(p["whole_bytes"][u["role"]] for u in p["units"]), d["bytes_total"]))
+        try:
+            g_run_variant(ctx, width, p["whole_plan"], "out_whole.bin", "g_%s_whole" % width)
+            refused.append("%s:NOT-REFUSED" % width)
+        except DA.Refused as exc:
+            refused.append("%s:%s" % (width, "whole-tensor-unit-refused"
+                                      if "whole-tensor-unit-refused" in str(exc) else exc.tag))
+        rec = g_run_variant(ctx, width, p["plan"], "out_wholenote.bin", "g_%s_whole_note",
+                            fault="whole-note")
+        wcen = DA.parse_census(rec["run"].get("census"))
+        wd = DA.g_census(p["g"], p["units"], p["ids"], arm=wcen)
+        whole_leg.append((width, wcen["whole_reads"], cen["unit_reads"], bool(wd["disagree"]),
+                          wd["disagree"][:2]))
+        experts = sorted(cen["bytes_by_expert"])
+        doctored = dict(cen, unit_reads=max(0, cen["unit_reads"] - 20),
+                        bytes_by_expert=dict((k, x) for k, x in cen["bytes_by_expert"].items()
+                                             if k != experts[0]))
+        dd = DA.g_census(p["g"], p["units"], p["ids"], arm=doctored)["disagree"]
+        driver_leg.append((width, bool(dd), dd[:2]))
+
+    reasons = []
+    for w, dis, d, cen in agree:
+        if dis:
+            reasons.append("%s:census-disagree(%s)" % (w, ",".join(dis[:4])))
+    for w, zero in zerod:
+        if zero:
+            reasons.append("%s:census-denominator-zero(%s)" % (w, ",".join(zero)))
+    for w, wr, ur, seen, sub in whole_leg:
+        if wr != ur:
+            reasons.append("%s:whole-counter-did-not-count-units(%d/%d)" % (w, wr, ur))
+        if not seen:
+            reasons.append("%s:whole-read-injection-not-detected" % w)
+    for w, hit, sub in driver_leg:
+        if not hit:
+            reasons.append("%s:driver-census-comparison-dead" % w)
+    if any("NOT-REFUSED" in r for r in refused):
+        reasons.append("whole-tensor-plan-accepted")
+    for r in reasons:
+        v.red.append("census-" + r)
+    for w, wr, ur, seen, sub in whole_leg:
+        print("GWHOLE path=%s arm_whole_reads=%d arm_unit_reads=%d honest_whole_reads=0 "
+              "comparison_reddened=%s first_findings=%s"
+              % (w, wr, ur, "yes" if seen else "no", ",".join(sub) or "none"))
+    v.control("gather-census-proves-slices-not-whole-tensor", not reasons,
+              "driver-vs-arm agreement per path: %s; zero-denominator legs: %s; a plan claiming the whole "
+              "stacked tensor was refused with %s — that plan's byte claims, read off the safetensors "
+              "headers and the loader's records, would cost %s per token against the %s the honest plan "
+              "reads. The declared whole-note injection was counted per unit and reddened the same "
+              "comparison (GWHOLE lines above), and the driver-half fabrication disagreed as %s. Named "
+              "failures, empty on a clean run: %s"
+              % ("; ".join("%s units=%d/%d spans=%d/%d distinct=%d disagree=%s"
+                           % (w, c["unit_reads"], d["units"], c["spans"], d["spans"],
+                              c["distinct_experts"],
+                              ",".join(dis) or "none") for w, dis, d, c in agree),
+                 "none" if not any(z for _, z in zerod) else str(zerod),
+                 ",".join(refused),
+                 ",".join("%s:%dB" % (w, c) for w, c, _ in costs),
+                 ",".join("%s:%dB" % (w, b) for w, _, b in costs),
+                 "; ".join("%s=%s" % (w, ",".join(sub) or "NONE") for w, hit, sub in driver_leg),
+                 "; ".join(reasons) or "none"),
+              legs=g_legs_since(snap), claims=g_claims(ctx))
+
+
+def control_gather_poison(v, ctx):
+    """An unwritten slot has to stay loud on both paths and both widths.
+
+    `mode=poison_nan` reddens every field; `fault=skip-raw` and `fault=skip-routed` redden exactly the
+    fields the skipped stage owns, which is the attribution leg — a poison that reddens everything cannot
+    tell you which stage went missing, and that is the only thing a missing stage needs you to know.
+    """
+    snap = (dict(PATH_LEGS), dict(G_LEGS))
+    lines, ok = [], True
+    for width in DA.G_PATHS:
+        p = ctx["gpaths"][width]
+        honest_nan = p["nan"]
+        plan = g_plan_variant(p, p["plan"].read_text().replace("mode=correct", "mode=poison_nan"))
+        rec = g_run_variant(ctx, width, plan, "out_gpoison.bin", "g_%s_poison" % width)
+        _, nan_all = DA.g_record(rec["wrote"]["path"], p["g"])
+        r2 = g_run_variant(ctx, width, p["plan"], "out_gskipraw.bin", "g_%s_skip_raw", fault="skip-raw")
+        _, nan_raw = DA.g_record(r2["wrote"]["path"], p["g"])
+        r3 = g_run_variant(ctx, width, p["plan"], "out_gskiprouted.bin", "g_%s_skip_routed",
+                           fault="skip-routed")
+        _, nan_rt = DA.g_record(r3["wrote"]["path"], p["g"])
+        full = dict(gate=8 * 512, up=8 * 512, s=8 * 512, raw=8 * 2048, routed=2048)
+        whole_poison = all(nan_all[k] == n for k, n in full.items())
+        attributed = (nan_raw["raw"] == full["raw"] and nan_raw["gate"] == 0
+                      and nan_rt["routed"] == full["routed"] and nan_rt["gate"] == 0)
+        honest_clean = all(v == 0 for v in honest_nan.values())
+        ok = ok and whole_poison and attributed and honest_clean
+        lines.append("%s poison=%s skip-raw=%s skip-routed=%s honest=%s"
+                     % (width, {k: nan_all[k] for k in ("gate", "raw", "routed")},
+                        {k: nan_raw[k] for k in ("gate", "raw", "routed")},
+                        {k: nan_rt[k] for k in ("gate", "raw", "routed")}, honest_nan))
+    v.control("gather-poison-census-nonzero-and-attributed", ok,
+              "NaN counts per field (gate/raw/routed shown): %s. The honest records carry none, the "
+              "poison mode fills all five fields, and each skip fault fills the field its own stage owns "
+              "and no other, so an unwritten slot is loud and attributable on both widths"
+              % "; ".join(lines),
+              legs=g_legs_since(snap), claims=g_claims(ctx))
+
+
+def control_gather_order_and_form(v, ctx):
+    """The combine's choices have to be load-bearing, on both widths: ascending-expert-id order, the
+    accumulator the path uses, and the cast-before-the-multiply that prediction 4 says is a different
+    number.
+
+    Four legs per path: `rank_accum` (sum in slot order instead of ascending expert id), `acc_bf16` /
+    `acc_f32` (force the OTHER path's accumulator, which on a near-tie row is allowed to move the argmax
+    and on this row must move something or the choice is decoration), `cast_after` (keep the fp32 weight
+    the reference threw away — prediction 4's mistake, this time on the PRODUCT, the half pass 3 §8.4
+    named unreachable until a `routed_sum` row existed) and `expert_rotate` (the neighbour expert's bytes
+    answering under this slot's id).
+
+    TWO RULERS, because the honest arm is only the closest thing to the pin on the licensed path. Every leg
+    must move the field its mode claims to move — that is what "load-bearing" means, and it is the half that
+    was already firing (the first witness's `rank_accum` leg moved 1263 elements). On `ref_bf16`, where
+    `routed_sum` is byte-exact against the pin and `expert_raw` sits inside a licence of 5, a mistake that
+    moves the field must also land FURTHER from the pin than the honest arm; on `policy_a` the honest
+    distance to a bf16 pin is set by the storage width (ndiff 16139 on `expert_raw`), so a different
+    mistake can legitimately land nearer and distance-to-pin says nothing there.
+
+    THE CLAUSE THAT WAS WRONG, written down so nobody fixes it back: the second clause used to read
+    `nd >= honest_nd` and was applied to both paths. Against an honest `routed_sum` ndiff of 0 that "‍>=" is
+    satisfied by any value at all, so the licensed half of the claim was vacuous, and against policy A's
+    width-sized honest distance the same comparison demanded something the path cannot promise, so the leg
+    read SILENT while its own movement counter said the mistake had fired. Strictly-further on the licensed
+    path, movement on both, and no comparison to a pin that the path is not licensed against.
+    """
+    snap = (dict(PATH_LEGS), dict(G_LEGS))
+    lines, ok = [], True
+    for width in DA.G_PATHS:
+        p = ctx["gpaths"][width]
+        arm = G_WIDTH_ARM[width]
+        honest_nd, _ = ndiff_vs_pin(ctx["dumps"], "routed_sum",
+                                    g_stages(p["fields"], p["g"]))
+        honest_raw_nd, _ = ndiff_vs_pin(ctx["dumps"], "expert_raw",
+                                        g_stages(p["fields"], p["g"]))
+        for mode in ("rank_accum", "cast_after", "expert_rotate",
+                     "acc_f32" if width == "ref_bf16" else "acc_bf16"):
+            plan = g_plan_variant(p, p["plan"].read_text().replace("mode=correct", "mode=" + mode))
+            rec = g_run_variant(ctx, width, plan, "out_%s.bin" % mode, "g_%s_%s" % (width, mode))
+            fields, _ = DA.g_record(rec["wrote"]["path"], p["g"])
+            nd, _ = ndiff_vs_pin(ctx["dumps"], "routed_sum", g_stages(fields, p["g"]))
+            ndraw, _ = ndiff_vs_pin(ctx["dumps"], "expert_raw", g_stages(fields, p["g"]))
+            if mode == "expert_rotate":
+                moved = int(np.count_nonzero(fields["raw"] != p["fields"]["raw"]))
+                nd_now, nd_honest = ndraw, honest_raw_nd
+            else:
+                moved = int(np.count_nonzero(fields["routed"] != p["fields"]["routed"]))
+                nd_now, nd_honest = nd, honest_nd
+            licensed = (width == "ref_bf16")
+            further = (nd_now > nd_honest) if licensed else True
+            ok = ok and moved > 0 and further
+            lines.append("%s.%s field-moved=%d pin-distance %d>%s%s" % (
+                width, mode, moved, nd_now, nd_honest,
+                "" if licensed else " [policy A: movement is the ruler, not pin distance]"))
+    v.control("gather-combine-choices-are-load-bearing", ok,
+              "%s. Every one of these is a mistake the engine could actually make and each one moves the "
+              "field it claims to; on the licensed path it also has to land further from the pin than the "
+              "honest arm, and on policy A that last comparison is deliberately not made — the honest arm is "
+              "not licensed against those pins there, so distance to them is not a licence the mistake could "
+              "fail. No limit here is invented: the comparison is against the same pins the rows are judged "
+              "on, which is what licenses calling the honest arm closer"
+              % "; ".join(lines),
+              legs=g_legs_since(snap), claims=g_claims(ctx))
+
+
+def control_gather_width_substitution(v, ctx):
+    """The two width paths must not be interchangeable, and the arm has to be the one that says so.
+
+    A policy-A plan declaring a bf16 expert span, and a reference plan declaring a quantized one, are both
+    refused before a byte is decoded (`path-kinds`). This is the structural half of "which shape is this
+    arm running?": the earlier passes refused a wrong `elt=` on the router for the same reason, and a
+    policy-A row produced out of a bf16 copy would be the exact forgery this slice has to make
+    impossible — the shipping widths are a user decision (D-01), so a plan that quietly substitutes them
+    is reporting on an artifact that does not exist.
+    """
+    snap = (dict(PATH_LEGS), dict(G_LEGS))
+    seen, ok = [], True
+    for width in DA.G_PATHS:
+        p = ctx["gpaths"][width]
+        text = p["plan"].read_text()
+        other = "bf16" if width == "policy_a" else "q4k"
+        bad_text = re.sub(r"UNIT role=gate([^\n]*)kind=[a-z0-9]+",
+                          r"UNIT role=gate\1kind=" + other, text, count=1)
+        bad = g_plan_variant(p, bad_text)
+        try:
+            g_run_variant(ctx, width, bad, "out_kindswap.bin", "g_%s_kindswap" % width)
+            seen.append("%s:NOT-REFUSED" % width)
+            ok = False
+        except DA.Refused as exc:
+            named = "path-kinds" in str(exc)
+            ok = ok and named
+            seen.append("%s:%s" % (width, "path-kinds" if named else exc.tag))
+    v.control("gather-width-substitution-refused", ok,
+              "substituting the other path's storage kind into one UNIT line was refused by both paths as "
+              "%s. The plan's declared path fixes which kinds are admissible, so a policy-A row cannot be "
+              "manufactured from a bf16 copy of the experts (D-01 is the user's, not this arm's to "
+              "re-interpret)" % ",".join(seen),
+              legs=g_legs_since(snap), claims=())
+
+
+def control_gather_read_back(v, ctx):
+    """In a device window: the bytes the device holds for one expert span are the bytes the file holds.
+
+    Same purpose as `stage_run.device_read_back` for the shared expert: bind the kernel's input to the
+    artifact, 16 bytes at the first gathered span, before any row is believed.
+
+    In a CPU witness this control is reported VOID and not registered, because a read-back that read host
+    memory and were called a device read-back is the substitution this lane exists to refuse.
+    """
+    if not ctx["device"]:
+        print("GVOID control=gather-device-unit-read-back reason=no-device-act-in-this-run "
+              "note=not registered as a control here: a host read of host bytes is not a device read-back")
+        return
+    snap = (dict(PATH_LEGS), dict(G_LEGS))
+    ok, lines = True, []
+    for width in DA.G_PATHS:
+        p = ctx["gpaths"][width]
+        u = p["units"][0]
+        plan = g_plan_variant(p, p["plan"].read_text().replace(
+            "read_off=-1 read_len=0", "read_off=%d read_len=16" % u["off"]))
+        rec = g_run_variant(ctx, width, plan, "out_readback.bin", "g_%s_readback" % width, device=True)
+        want = u["_bytes"][:16].hex()
+        got = re.search(r"UNITREADBACK path=device off=%d bytes=16 hex=([0-9a-f]+)" % u["off"],
+                        rec["stdout"])
+        match = bool(got) and got.group(1) == want
+        ok = ok and match
+        lines.append("%s %s=%s" % (width, "match" if match else "MISMATCH",
+                                    (got.group(1) if got else "ABSENT")[:16]))
+    v.control("gather-device-unit-read-back", ok,
+              "first gathered span, first 16 bytes, device vs file: %s" % "; ".join(lines),
+              legs=g_legs_since(snap), claims=g_claims(ctx))
+
+
+def control_gather_device_refusal(v, ctx):
+    """`--device` is a device act or a named refusal, never a host run wearing one.
+
+    Two legs on the g++ twin, neither of which touches a GPU: asked for `--device` it must fail with
+    `device-path-absent-in-this-binary` rather than run its CPU body, and asked for the device-only
+    allocation fault it must fail with `fault-device-only` rather than fake the leg. Together they are the
+    CPU-witness half of the rule that a device claim must be an act; the other half, the hipcc arm's
+    oversize allocation actually failing, can only be witnessed in a window and is reported VOID here.
+    """
+    args, work = ctx["args"], ctx["work"]
+    p = ctx["gpaths"]["ref_bf16"]
+    out = work / "g_refuse_device.bin"
+    seen = []
+    try:
+        DA.run_arm(args.g_host_binary, p["plan"], p["slab"], out, device=True, label="g_refuse_device")
+        seen.append("device-ask:NOT-REFUSED")
+    except DA.Refused as exc:
+        seen.append("device-ask:%s" % ("device-path-absent-in-this-binary"
+                                       if "device-path-absent-in-this-binary" in str(exc) else exc.tag))
+    try:
+        DA.run_arm(args.g_host_binary, p["plan"], p["slab"], out, fault="alloc-oversize",
+                   label="g_refuse_oversize")
+        seen.append("alloc-oversize:NOT-REFUSED")
+    except DA.Refused as exc:
+        seen.append("alloc-oversize:%s" % ("fault-device-only" if "fault-device-only" in str(exc)
+                                           else exc.tag))
+    if not ctx["device"]:
+        print("GVOID control-leg=gather-alloc-oversize-actually-fails reason=needs-a-device-window "
+              "note=the host twin refuses to run this leg at all, which is the leg above")
+    fired = all("NOT-REFUSED" not in s and s.split(":")[1] in
+                ("device-path-absent-in-this-binary", "fault-device-only") for s in seen)
+    v.control("gather-device-ask-refuses-instead-of-substituting", fired,
+              "the g++ twin answered %s. No host body is offered for a device claim, so a `--device` "
+              "report can only come from the arm that launches" % ", ".join(seen))
+
+
+def checks_g(v, ctx, g_runs, g_rows, g_tally, censuses):
+    """Everything the gather vertical is allowed to claim, expressed over parsed reports."""
+    if not ctx.get("gpaths"):
+        return
+    g_slots = ctx["gpaths"][DA.G_PATHS[0]]["g"]["MG_K"]
+    per_width_rows = len(G_STAGES) * len(DA.G_PATHS)
+    v.check("gather-rows-equal-licensed-stages", len(g_rows) == per_width_rows,
+            "rows=%d expected=%d: %s on each of %s. Both stages exist on both width paths by design: "
+            "one is what a band can license, the other is what the engine ships"
+            % (len(g_rows), per_width_rows, ",".join(G_STAGES), ",".join(DA.G_PATHS)))
+    v.check("gather-policy-a-rows-unlicensed-by-name",
+            all("policy-a-width-band-absent" in r["band"] for r in g_rows
+                if r["arm"] == "policy_a"),
+            "the policy-A pair prints UNLICENSED with reason `policy-a-width-band-absent`, and nothing "
+            "above counts them as accepted: no band measures a quantized arm against bf16 pins, and the "
+            "floor probe that would license it has never been run")
+    v.check("gather-licence-names-its-source",
+            all((r["licence"] or "").startswith(("floor-probe", "spec-10.6"))
+                for r in g_rows if r["arm"] == "ref_bf16"),
+            "the licensed rows print where the limit came from: %s — a number with no licensor is not a "
+            "band" % ",".join("%s:%s" % (r["stage"], r["licence"]) for r in g_rows
+                              if r["arm"] == "ref_bf16"))
+    v.check("gather-census-agrees-with-the-plan",
+            all(not c["disagree"] for c in censuses.values()) and bool(censuses)
+            and all(c["units"] > 0 and c["spans"] > 0 and c["arm_units"] > 0 and c["arm_spans"] > 0
+                    and c["note_conflict"] == 0 for c in censuses.values()),
+            "per expert_index, driver-vs-arm agreement over all %d paths, with a non-zero denominator on "
+            "both sides and no note conflict: %s. A whole-tensor read would move distinct_experts, bytes per "
+            "expert, or both, and prediction 2's scheduler decision is made on those numbers; a census that "
+            "counted nothing, or an arm whose census note was overwritten, would satisfy the agreement "
+            "trivially and so is refused here rather than allowed to pass "
+            % (len(censuses), "; ".join("%s units=%d/%d spans=%d/%d bytes=%d whole=%d conflict=%d"
+                                        % (w, c["arm_units"] or -1, c["units"], c["arm_spans"] or -1,
+                                           c["spans"], c["bytes_total"], c["whole_tensor_reads"],
+                                           c["note_conflict"] or 0)
+                                        for w, c in sorted(censuses.items()))))
+    v.check("gather-distinct-experts-equals-top-k",
+            bool(censuses) and all(c["distinct"] == c["slots"] == g_slots for c in censuses.values()),
+            "every path touched exactly K=%d distinct expert indices for K slots: a gather that walked the "
+            "whole expert axis would report 256 here instead, and an empty census would report nothing at "
+            "all, which is refused rather than skipped"
+            % g_slots)
+    bad = [w for w, p in ctx["gpaths"].items() if any(p["nan"].values())]
+    v.check("gather-honest-record-has-no-unwritten-slot", not bad,
+            "the honest records carry no NaN in any field on either path (offending: %s); the poison "
+            "control is what shows that count can be non-zero" % (",".join(bad) or "none"))
+    v.check("gather-compiled-pair-byte-identical-per-path",
+            all(p["pair"][1] == 0 and p["pair"][0] > 0 for p in ctx["gpaths"].values()),
+            "per width path, g++ twin vs hipcc: %s at zero tolerance. One aggregate would let one path "
+            "cancel the other's difference" % ",".join("%s bytes=%d ndiff=%d"
+                                                      % (w, p["pair"][0], p["pair"][1])
+                                                      for w, p in sorted(ctx["gpaths"].items())))
+    v.check("gather-unlicensed-counted-not-absorbed",
+            g_tally["unlicensed"] == len([r for r in g_rows if r["arm"] == "policy_a"]),
+            "the gather tally carries licensed=%d accepted=%d rejected=%d unlicensed=%d; the policy-A "
+            "rows are counted as unlicensed rather than dropped, and PASS remains unreachable while any "
+            "row is unlicensed" % (g_tally["licensed"], g_tally["accepted"], g_tally["rejected"],
+                                   g_tally["unlicensed"]))
+    v.check("gather-device-path-claims-executed-on-device",
+            (not ctx["device"]) or all(r["run"]["launches"] > 0 for k, r in g_runs.items()
+                                       if "device" in k),
+            "in a device run every gather device arm reported launches>0 (%d device arms); in a CPU window "
+            "the same --device ask on the g++ twin is refused with a named tag instead of a host run, and "
+            "this check is vacuous here and says so" % len([k for k in g_runs if "device" in k]))
+    # What the gather controls are allowed to claim, on the width axis. The general
+    # `control-legs-cover-the-path-under-claim` already refuses any control that claims a name it executed no
+    # arm act under; this one asserts the gather-specific half: a control that speaks about width paths has
+    # to speak about BOTH of them and have a counted leg under each, because a control that only ever bent
+    # the bf16 plan licenses nothing the shipping path does. A control whose only leg is a named refusal
+    # declares nothing and is listed as such, rather than a refusal being counted as a leg.
+    declared, refusal_only, thin = [], [], []
+    for name, d in sorted(v.control_paths.items()):
+        if not name.startswith("gather-"):
+            continue
+        widths = [c for c in d["claims"] if c in DA.G_PATHS]
+        if not widths:
+            refusal_only.append(name)
+            continue
+        declared.append(name)
+        if len(widths) < len(DA.G_PATHS):
+            thin.append("%s declares only %s of %s" % (name, ",".join(widths), "|".join(DA.G_PATHS)))
+        for w in widths:
+            if d["legs"].get(w, 0) <= 0:
+                thin.append("%s claims %s and executed 0 legs on it" % (name, w))
+    v.check("gather-control-legs-cover-the-width-under-claim", bool(declared) and not thin,
+            "%d gather controls declared width paths, each with the legs it claims: %s. Controls whose only "
+            "leg is a named refusal, which declares no path because no arm ran to completion: %s. The width "
+            "tally is counted by `g_arm` off the plan the run used, the same way window e2's lesson made the "
+            "host/device claim cost something. Failures, if any: %s"
+            % (len(declared),
+               "; ".join("%s[%s]" % (n, ",".join("%s:%d" % (w, v.control_paths[n]["legs"].get(w, 0))
+                                                 for w in v.control_paths[n]["claims"]
+                                                 if w in DA.G_PATHS)) for n in declared) or "none",
+               ",".join(refusal_only) or "none",
+               "; ".join(thin) or "none"))
+
+
+G_ART_TENSOR_ROLES = G_ROLES
+
+
+NO_DEVICE_FIELDS = ("hip_calls", "launches", "bytes_to_device", "bytes_from_device")
+
+
+def run_facts(rec):
+    """The `RUN` block of an arm record, whichever wrapper shape the caller kept it in.
+
+    `arm_runs`, `rt_runs` and `g_runs` do not store the same shape — some entries are the record, some wrap
+    it as `{"rec": …}` — and the first version of `cpu-witness-reports-no-device-acts` assumed one of them
+    and died with `KeyError: 'run'` *inside the safety check*. A check that raises has not run, which is the
+    same failure class as an empty parse printing PASS (`pitfalls/40`), so the shape is normalised here and
+    an entry with no RUN block is a refusal rather than a silent skip.
+    """
+    r = rec.get("rec", rec) if isinstance(rec, dict) else {}
+    run = r.get("run", r) if isinstance(r, dict) else {}
+    if not isinstance(run, dict) or not run:
+        raise Refused("run-record-shape",
+                      "an arm record reached the device-act check with no RUN block to read: %r" % (rec,))
+    return run
+
+
+def no_device_act_offences(runs):
+    """Every (label, field) where a run that was not supposed to touch a device reported one.
+
+    A missing counter counts as an offence, not as a zero: a `RUN` line that does not report `launches`
+    cannot certify that there were none, and the difference between "absent" and "0" is exactly what
+    `pitfalls/40` §a-check-that-can-print-nothing-cannot-fail is about. Non-empty is a finding; the
+    control `control_no_device_act_guard` shows this function can produce one.
+    """
+    bad = []
+    for label in sorted(runs):
+        run = run_facts(runs[label])
+        for k in NO_DEVICE_FIELDS:
+            v = run.get(k)
+            try:
+                if v is None or int(v):
+                    bad.append("%s.%s=%s" % (label, k, "absent" if v is None else v))
+            except (TypeError, ValueError):
+                bad.append("%s.%s=%s" % (label, k, v))
+    return bad
+
+
+def gpu_context_witness(when):
+    """An independent statement that this process has no GPU context, read off the kernel, not off us.
+
+    The arm's own counters can say `hip_calls=0` for two different reasons — nothing happened, or the
+    counter is not incremented — so the kernel's view is sampled too: `/sys/class/kfd/kfd/proc` lists the
+    pids that hold a KFD queue, and `rocm-smi --showpids` is the instrument `devices/measured-facts.md`
+    §"what each instrument can see" records as able to see compute processes at all. Both are read-only
+    queries over sysfs; neither opens a device, and `--device` never reaches here with a claim to make — in
+    a device run the same lines are printed and read the other way on purpose.
+    """
+    try:
+        kfd = sorted(p.name for p in Path("/sys/class/kfd/kfd/proc").iterdir())
+    except OSError as exc:
+        kfd = ["unreadable:%s" % exc.errno]
+    self_present = str(os.getpid()) in kfd
+    smi = "unavailable"
+    try:
+        proc = subprocess.run(["rocm-smi", "--showpids"], capture_output=True, text=True, timeout=60)
+        smi = " ".join(proc.stdout.split())[:200] if proc.returncode == 0 else "exit-%d" % proc.returncode
+    except (OSError, subprocess.SubprocessError) as exc:
+        smi = "unavailable:%s" % type(exc).__name__
+    print("GPUWITNESS when=%s pid=%d kfd_proc_dirs=%s this_pid_has_kfd_context=%s rocm_smi_showpids=%s"
+          % (when, os.getpid(), ",".join(kfd) or "none", "yes" if self_present else "no", smi))
+    return dict(when=when, kfd=kfd, self_present=self_present)
+
+
 def run(out, args):
     v = Verifier()
     work = Path(args.work)
     work.mkdir(parents=True, exist_ok=True)
     device = bool(args.device)
+    gpu_before = gpu_context_witness("before")
     layout = DA.parse_se_layout()
     rt = DA.parse_rt_layout()
     cfg = BF.load_geometry()
@@ -1589,6 +2436,16 @@ def run(out, args):
     stages.update(rt_stages(rt_fields, rt))
     ctx["rt_fields"], ctx["rt_nan"] = rt_fields, rt_nan
     rows, tally = emit_rows(dumps, band, limits, population, stages, provenance)
+    # The routed-expert gather: both width paths, staged from the router arm's own selection.
+    ctx["gpaths"] = gather_prepare(args, ctx)
+    g_runs, g_stages, g_censuses = run_gather_arms(v, ctx)
+    g_rows, g_tally = emit_gather_rows(dumps, band, limits, g_stages, provenance)
+    ctx["g_runs"], ctx["g_rows"], ctx["g_censuses"] = g_runs, g_rows, g_censuses
+    ctx["all_runs"] = dict([("se/" + k, v) for k, v in arm_runs.items()]
+                           + [("rt/" + k, v) for k, v in rt_runs.items()]
+                           + [("g/" + k, v) for k, v in g_runs.items()])
+    for key in ("licensed", "accepted", "rejected", "unlicensed"):
+        tally[key] += g_tally[key]
     print("RTRECORD file=%s floats=%d fields=%s ids=%s wcast=%s read_by=%s"
           % (rt_record_path.name, rt["RT_FLOATS"], ",".join(rt["order"]),
              ",".join(str(int(x)) for x in rt_fields["ids"]),
@@ -1609,9 +2466,37 @@ def run(out, args):
     control_rt_wpre_scope(v, ctx)
     control_rt_f32_span(v, ctx)
     control_rt_poison(v, ctx)
+    control_gather_swap(v, ctx)
+    control_gather_census(v, ctx)
+    control_no_device_act_guard(v, ctx)
+    control_gather_poison(v, ctx)
+    control_gather_order_and_form(v, ctx)
+    control_gather_width_substitution(v, ctx)
+    control_gather_device_refusal(v, ctx)
+    control_gather_read_back(v, ctx)
     control_claim_scan(v, ctx)
+    gpu_after = gpu_context_witness("after")
+    v.check("cpu-witness-had-no-gpu-context",
+            (not device and not gpu_before["self_present"] and not gpu_after["self_present"])
+            or device,
+            "the kernel's own view, sampled before and after every arm act: this pid appeared in "
+            "/sys/class/kfd/kfd/proc at neither sample (before=%s after=%s). This is the independent half "
+            "of `no device act`; the arm counters are the other half, and a counter that is merely not "
+            "incremented would satisfy one and not this"
+            % (gpu_before["kfd"], gpu_after["kfd"]))
+    offences = no_device_act_offences(ctx["all_runs"])
+    v.check("cpu-witness-reports-no-device-acts",
+            device or not offences,
+            "with no --device flag, every arm that ran reported hip_calls=0 launches=0 "
+            "bytes_to_device=0 bytes_from_device=0, and a counter the arm did not print at all is read as "
+            "an offence rather than a zero (%d arms checked, offending: %s). A non-zero count here would "
+            "mean a host body reached a device, which is the same defect as the reverse substitution and "
+            "gets the same named check; `control-witness-guard-can-redden` is the leg that shows this "
+            "predicate is not vacuous"
+            % (len(ctx["all_runs"]), ",".join(offences) or "none"))
     checks(v, ctx, rows, tally, out.text(), parsed, arm_runs)
     checks_rt(v, ctx, rt_runs)
+    checks_g(v, ctx, g_runs, g_rows, g_tally, g_censuses)
 
     if st["hip"] is not None:
         st["hip"].free_all()
@@ -1651,6 +2536,8 @@ def main(argv=None):
     ap.add_argument("--host-binary", default=str(DA.HOST_BIN))
     ap.add_argument("--rt-arm-binary", default=str(DA.RT_ARM_BIN))
     ap.add_argument("--rt-host-binary", default=str(DA.RT_HOST_BIN))
+    ap.add_argument("--g-arm-binary", default=str(DA.G_ARM_BIN))
+    ap.add_argument("--g-host-binary", default=str(DA.G_HOST_BIN))
     ap.add_argument("--work", default=str(WORK_DEFAULT))
     args = ap.parse_args(argv)
 

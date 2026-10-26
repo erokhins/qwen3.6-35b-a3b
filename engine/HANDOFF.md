@@ -1166,3 +1166,153 @@ fixture, or halogen. Each names the number or failure that forced it.
    `rocm-smi` reads, the build step, and the driver invocation itself. Those belong to the main agent's
    window.
 5. **The routed-expert gather and the GDN decode step are still not built** (unchanged from pass 3 §8).
+
+## PASS 5 (2026-10-26, the routed-expert gather) — two width paths through one kernel; the census that prices prediction 2; the swap that had to redden
+
+### 1. What was built
+
+Five new files in `engine/device/`, two extended:
+
+| file | what it is |
+|---|---|
+| `m2_g_kernels.h` | the shared item body. `m2g_item1..4` are the four dependent stages (gate|up matmul → SwiGLU → down matmul → weighted combine) over one (slot, row) item, folding into a caller-owned `struct M2GItem`. **No atomics, no barriers** — the device arm folds into `M2GCounters` with `atomicAdd` inside its own `__global__` bodies, and the host twin folds with plain `+=`. Same split `m2_se_kernels.h` established, so one body is compiled by g++ and hipcc without the shared code knowing which. |
+| `m2_g_io.h` | the plan parser and the structural refuse-list. `m2g_read_plan` plus named refusals: `path-kinds`, `whole-tensor-unit-refused`, `mode-unknown`, `mode-unreachable-here`, `fused-span`, `fused-pair`, `unit-span-width`, `unit-geometry`, `expert-index`, `span-out-of-range`, `slots-not-geometry`, `elt-mismatch-for-path`. Also `m2g_census_report` (one `;`-separated, space-free token — a space would be read as a second `key=value` by the driver). |
+| `m2_g_main.inc` | the `main()` both binaries share: reads the plan, runs, writes the record, prints `HOST`/`PLAN`/`RUN`/`WROTE`/`RESULT`/`CENSUS`, and the corrupt-byte fault. |
+| `m2_g_host.cpp` | the g++ twin (CPU body only). Carries `struct M2GRunStats` and refuses `--device` by name. |
+| `m2_g_arm.hip` | the hipcc arm: five `__global__` kernels (`k0_poison`, `k1_gateup`, `k2_silu`, `k3_down`, `k4_combine`), the plan uploaded as a struct pointer (a `M2GPlan` is ~2.7 KB and kernel params are 4 KB), H2D of slab + corrupt byte, D2H read-back, `UNITREADBACK` (device-only leg), and the `alloc-oversize` fault. |
+| `engine/device_arm.py` | `parse_g_layout`, `g_ref_spans`, `g_ref_units`, `g_policy_units`, `g_slab`, `write_g_plan`, `g_record`, `parse_census`, `g_census`, `g_read_file_span`, `g_span_digest`. |
+| `engine/block_device.py` | the vertical: `gather_prepare`, `run_gather_arms`, `emit_gather_rows`, five controls, `checks_g`, width-leg accounting (`G_LEGS`, `g_arm`, `g_legs_since`, `g_claims`), and two new witness checks. |
+
+The selection is **not** handed to the gather from the pins: `gather_prepare` takes `ids`, `wcast`, `wpre` out of the router arm's own record, so the two compiled arms form a chain (`RTRECORD → gather`) and the pins stay outside both.
+
+### 2. What the CPU witness printed (first execution of this vertical, `engine/work/bd-gather.log`)
+
+Both width paths ran through both compilers, host path only, no device act:
+
+```
+PAIR pair=g_ref_bf16_host_twin_vs_hip_hostpath file=gather_record.f32 bytes=122880 ndiff_bytes=0 verdict=IDENTICAL
+PAIR pair=g_policy_a_host_twin_vs_hip_hostpath file=gather_record.f32 bytes=122880 ndiff_bytes=0 verdict=IDENTICAL
+STAGE arm=ref_bf16  stage=expert_raw  n=16384 ndiff=1     licence=floor-probe…  (licensed limit 5)
+STAGE arm=ref_bf16  stage=routed_sum  n=2048  ndiff=0     licence=spec-10.6…    (exact)
+STAGE arm=policy_a  stage=expert_raw  n=16384 ndiff=16139  verdict=UNLICENSED policy-a-width-band-absent
+STAGE arm=policy_a  stage=routed_sum  n=2048  ndiff=2014   verdict=UNLICENSED policy-a-width-band-absent
+```
+
+The licensed half of the vertical is therefore already the expected shape: one expert output inside the
+reassociation floor (`ndiff=1 ≤ 5`, `legitimate_reassociation_layer0` from `prototype/moe_gather`), the
+weighted sum **exact** against the pin, and the shipping width refusing to be judged by a band that measures
+bf16 against bf16 — UNLICENSED by name, not absorbed into the pass count.
+
+Prediction 2's number, from the plan side of the census (`GWIDTH`/`GATHERCENSUS`; the arm side of these two
+lines was wrong on this first run and §3 is the correction):
+
+```
+path=ref_bf16  distinct_experts=8 units=24 spans=16 bytes=50331648 per_expert=6291456B whole_tensor_reads=0
+path=policy_a  distinct_experts=8 units=24 spans=3  bytes=15204352 per_expert=1900544B whole_tensor_reads=0
+```
+
+8 experts for K=8 slots, 6291456 B/expert bf16 — the 6.0 MiB AGENTS.md prediction 2 quotes — and
+1900544 B/expert policy A (Q4_K gate 589824 + Q4_K up 589824 + Q5_K down 720896). Per-token gather read
+50331648 B bf16 / 15204352 B policy A. `whole_tensor_reads=0` on both paths, and the bf16 stacked tensors
+that a whole-tensor read would touch are the real 2 GiB/1 GiB figures read out of the safetensors headers,
+never typed (`g_ref_spans`, `write_g_plan(..., whole_bytes=…)`).
+
+Controls already RED on first run: `gather-gate-up-swap-reddens` (swapping the halves moved 16310/16384 raw
+elements on the bf16 path, and the input-dim re-chunk leg was refused on the path with no fused span),
+`gather-width-substitution-refused` (both paths refused the other width's kind with `path-kinds`),
+`gather-poison-census-nonzero-and-attributed`, `gather-device-ask-refuses-instead-of-substituting`, and
+`cpu-witness-had-no-gpu-context` PASS (`/sys/class/kfd/kfd/proc` never contained this pid; supervisor
+condition 1 satisfied by the printed `GPUWITNESS` lines).
+
+### 3. The four defects that run surfaced, and what closed them (`engine/work/bd-gather4.log`)
+
+All four were in the checks and the census, not in the arithmetic: the two compiled binaries agreed
+byte-for-byte before and after every fix, and `expert_raw`/`routed_sum` came out with the same ndiff they had
+in §2. The witness now runs to completion: `RESULT mode=cpu checks=40 findings=0 controls=17 fired=17`,
+zero `fired=SILENT`, `band_digest=27a68c7e82c9aa05` unchanged.
+
+1. **The arm's census under-counted, and the claim it was used to prove was therefore vacuous.**
+   `m2g_run` tallied every unit of the row into one item whose note array held 4, and `m2g_item_note`
+   `return`ed silently past the capacity — so `unit_reads=4`/`total=8 MiB` for a plan that reads 50 MiB, and
+   `whole_reads=0`, the line "the gather reads slices, not whole tensors", was being read off a counter that
+   had dropped 20 of 24 units. A counter that counts nothing reports no violations; that is the whole
+   objection, and the fix has three parts: (a) the note belongs to the unit — `m2g_unit_gateup`/
+   `m2g_unit_down` run one unit's rows with an item of their own, which is also the device's note shape, so
+   neither path can tally two units into one item; (b) a second, different note into one item now increments
+   `note_conflict`, printed in the census as `note_conflict=0` and required to stay zero, instead of being
+   dropped; (c) the census leg is witnessed non-zero — see 5 below. Both paths now report
+   `arm_units=24 arm_spans=16`/`24 arm_total=50331648`/`15204352 disagree=none note_conflict=0`.
+2. **`policy_a` reported `spans=3` instead of 24.** `g_policy_units` set `span_off`/`span_bytes` once per
+   family; they are now the expert's own range from `Loader.expert_range` (`file_off`, `length`), so the
+   distinct-span count — the quantity a scheduler merges spans on — is 16 on the reference layout (fused
+   pair = one span) and 24 on policy A (three tensors), and the driver and the arm now agree on it.
+3. **`KeyError: 'run'` inside `cpu-witness-reports-no-device-acts`.** `ctx["all_runs"]` merged three dicts
+   with two different record shapes. Fixed by normalising (`run_facts`) rather than by defaulting the
+   predicate away, because a check that raises has not run — the same class as an empty parse printing PASS.
+   A record with no RUN block is now a named refusal, and a counter the arm did not print counts as an
+   offence rather than a zero. The predicate is witnessed by `control-witness-guard-can-redden` over three
+   fabrications (a launch, a 1 GiB H2D, and a RUN line omitting `launches`), all three of which it reads:
+   `GWITNESS guard=no-device-acts fabricated=launches=1 offences=['g/g_policy_a_hip_hostpath.launches=1']`.
+4. **`gather-combine-choices-are-load-bearing` read SILENT while its own legs fired.** Its second clause was
+   `nd >= honest_nd`, applied to both paths: against an honest `routed_sum` ndiff of 0 that `>=` is satisfied
+   by anything (vacuous on the licensed half), and against policy A's width-sized honest distance to a bf16
+   pin it demanded something the path cannot promise — `policy_a.rank_accum` moves 1232 elements with pin
+   distance exactly `2014>2014`. The clause is now two rulers: every leg must move the field its mode claims
+   (`field-moved>0`), and only on the licensed path must it land *strictly* further from the pin.
+5. **The census's whole-tensor counter is now seen counting.** `fault=whole-note` notes a whole-tensor read
+   per unit rather than a flat +1, so the injection reads `whole_reads=24` against `unit_reads=24`, and the
+   same driver-vs-arm comparison that passes on the honest plan reddens on it:
+   `GWHOLE path=ref_bf16 arm_whole_reads=24 arm_unit_reads=24 honest_whole_reads=0 comparison_reddened=yes
+   first_findings=whole=24/0` (same line for `policy_a`). The arm still refuses a whole-tensor *plan* by name
+   in both paths, and the cost such a plan claims is computed from metadata, not typed: 21474836480 B/token
+   on the reference path and 3892314112 B/token on policy A, against the 50331648 B and 15204352 B actually
+   read. A zero denominator is its own named finding (`census-denominator-zero`) rather than a pass.
+
+Also repaired on the way, because the clean witness exposed it: `gather-control-legs-cover-the-width-under-claim`
+read a `widths` key no control ever set, so it could only ever print `none` and FAIL. It now asserts what its
+own detail claims — every gather control that declares width paths declares both of them with a counted leg
+under each, and controls whose only leg is a named refusal are listed instead of counted as legs.
+
+Still not proven by any of this: any device act. `UNITREADBACK`, the `alloc-oversize` fault leg and every
+device-path leg remain VOID here, and `--device` is still window-gated.
+
+### 4. Next session's commands, in order
+
+```sh
+# 1. commit by topic: the gather arm sources, then the driver vertical (nothing was committed or staged
+#    by the passes that wrote §1-§3; the working tree is the only copy of this work)
+ engine/device/build.sh                      # both gather binaries rebuild clean as of this pass
+ engine/device/build/m2_g_host --help        # sanity: the twin exists and refuses --device
+# 2. re-run the CPU witness after any edit to the gather sources; the line to watch is
+#    RESULT mode=cpu … findings=0 controls=17 fired=17 … band_digest=27a68c7e82c9aa05
+ /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python engine/block_device.py \
+     --work engine/work/m2dev 2>&1 | tee engine/work/bd-gather4.log
+# 3. only then the device window, main agent, zero workers, halogen down, gpu_lock held
+ … engine/block_device.py --work engine/work/m2dev-win --device
+```
+
+The witness is CPU-only work and stays allowed without a window: hipcc **compilation** and host-path
+execution create no GPU context (supervisor's ruling, recorded as an agent decision in `DECISIONS.md`).
+`--device` remains window-gated.
+
+### 5. Agent decisions made in this pass (all `DECIDED (agent, 2026-10-26)`)
+
+* **No atomics or barriers in shared code.** The gather's four stages are separate launches and each folds
+  into a caller-owned struct; the device keeps `atomicAdd`, the host keeps `+=`. A barrier version made the
+  shared header un-compilable by g++ and would have made the twin a different program.
+* **The plan is uploaded as a pointer, not by value.** `sizeof(M2GPlan)` ≈ 2.7 KB against a 4 KB kernel-param
+  ceiling; a by-value plan would have broken the first time the unit list grew.
+* **The census token is `;`-separated and space-free**, because `run_arm` parses whitespace-separated
+  `key=value` facts and a space inside a value would silently become a second fact.
+* **`g_ref_spans` reads safetensors headers only** (`data_offsets`, dtype checked `BF16`). Loading the tensor
+  to find its offset would make the census's whole-tensor counter lie.
+* **Policy A's activation basis is the bf16 image widened to f32** (`g_widen_f32`), a representation change,
+  not an arithmetic one, so the two width paths differ in storage width and nothing else. Importing
+  llama.cpp's activation quantization (`vec_dot_type`) would trade our 1-ULP question for a 2⁻⁸ input
+  perturbation and is D-17 territory — not imported.
+* **Whole-tensor sizes come from metadata** (loader rows / shard headers) in every refusal and every line.
+
+### 6. Still out of scope for this pass
+
+GDN decode step, M2 device arm's remaining blocks, M3 and beyond, any timing. The gather is a gather: it
+proves which bytes are read and what they produce, and says nothing about how fast.

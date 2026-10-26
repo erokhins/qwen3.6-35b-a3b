@@ -27,7 +27,9 @@ silently — `pitfalls/50`), and no clock is read anywhere in this file.
 import ast
 import ctypes
 import hashlib
+import json
 import re
+import struct
 import subprocess
 from pathlib import Path
 
@@ -500,3 +502,433 @@ def rt_record(path, rt):
         bits = field.view(np.uint32)
         nan[name] = int(np.count_nonzero((bits & np.uint32(0x7FFFFFFF)) == np.uint32(0x7FC00000)))
     return out, nan
+
+
+# ----------------------------------------------------------------------------------------------
+# The routed-expert gather slice: two width paths, one plan format, one record.
+# ----------------------------------------------------------------------------------------------
+
+G_ARM_BIN = BUILD / "m2_g_arm"
+G_HOST_BIN = BUILD / "m2_g_host"
+G_HEADER = HERE / "device" / "m2_g_kernels.h"
+MG_HEADER = ROOT / "prototype" / "moe_gather" / "moe_gather_kernels.h"
+G_PATHS = ("ref_bf16", "policy_a")
+
+# The three routed families, named once. The artifact spelling is policy A's; the HF spelling is the
+# reference path's, and the two are not interchangeable: one expert is a Q4_K span in the first and a
+# bf16 matrix image in the second, which is why `m2_g_io.h` refuses a plan that mixes them.
+G_ART_TENSOR = {"gate": "blk.0.ffn_gate_exps.weight", "up": "blk.0.ffn_up_exps.weight",
+                "down": "blk.0.ffn_down_exps.weight"}
+G_HF_TENSOR = {"gate_up": "model.language_model.layers.0.mlp.experts.gate_up_proj",
+               "down": "model.language_model.layers.0.mlp.experts.down_proj"}
+G_KIND_BY_ART_TYPE = {"Q4_K": "q4k", "Q5_K": "q5k", "Q6_K": "q6k"}
+G_ROLES = ("gate", "up", "down")
+
+
+def parse_g_layout():
+    """The gather's geometry from the prototype lane's header and its record layout from the engine's.
+
+    Same discipline as `parse_rt_layout`: `MG_H/MG_I/MG_K/MG_E/MG_QK_K` and the three block byte counts
+    come from `prototype/moe_gather/moe_gather_kernels.h`, the field offsets from
+    `engine/device/m2_g_kernels.h`, and neither is typed in here. The tiling check is the point — the
+    five fields must cover the record with no hole and no overlap, and each field's length must be what
+    the geometry implies — because a record that lies about its own shape produces a plausible-looking
+    stage row out of garbage bytes.
+    """
+    proto = _c_defines(MG_HEADER.read_text(), "MG_")
+    eng = _c_defines(G_HEADER.read_text(), "M2G_")
+    env = _c_resolve(proto, {}, MG_HEADER.name)
+    for name in ("MG_H", "MG_I", "MG_K", "MG_E", "MG_TWO_I", "MG_QK_K", "MG_Q4K_BYTES",
+                 "MG_Q5K_BYTES", "MG_Q6K_BYTES"):
+        if name not in env:
+            raise Refused("g-layout-unparsed",
+                          "%s does not define %s as an integer constant this file can read" %
+                          (MG_HEADER, name))
+    _c_resolve(eng, env, G_HEADER.name)
+    h, i, k = env["MG_H"], env["MG_I"], env["MG_K"]
+    want = [("M2G_OFF_GATE", k * i), ("M2G_OFF_UP", k * i), ("M2G_OFF_S", k * i),
+            ("M2G_OFF_RAW", k * h), ("M2G_OFF_ROUTED", h)]
+    fields = {}
+    for name, length in want:
+        if name not in eng:
+            raise Refused("g-layout-unparsed", "%s does not define %s; the record layout is read from "
+                                               "that file, not re-typed here" % (G_HEADER, name))
+        fields[name] = (_c_eval(eng[name], env, G_HEADER.name), length)
+    if "M2G_FLOATS" not in eng:
+        raise Refused("g-layout-unparsed", "%s defines no M2G_FLOATS; the record has no end" % G_HEADER)
+    total = _c_eval(eng["M2G_FLOATS"], env, G_HEADER.name)
+    seq = sorted(fields.items(), key=lambda kv: kv[1][0])
+    short = {"M2G_OFF_GATE": "gate", "M2G_OFF_UP": "up", "M2G_OFF_S": "s", "M2G_OFF_RAW": "raw",
+             "M2G_OFF_ROUTED": "routed"}
+    bad, cursor = [], 0
+    for name, (off, ln) in seq:
+        if off != cursor:
+            bad.append("%s@%d(expected %d)" % (name, off, cursor))
+        cursor = off + ln
+    if bad or total != cursor or len(seq) != 5:
+        raise Refused("g-layout-inconsistent",
+                      "the gather record's fields do not tile it: bad=%s, fields end at %d but "
+                      "M2G_FLOATS=%d (fields=%d)" % (bad or "none", cursor, total, len(seq)))
+    block_bytes = {"q4k": env["MG_Q4K_BYTES"], "q5k": env["MG_Q5K_BYTES"], "q6k": env["MG_Q6K_BYTES"]}
+    return dict(MG_H=h, MG_I=i, MG_K=k, MG_E=env["MG_E"], MG_TWO_I=env["MG_TWO_I"],
+                MG_QK_K=env["MG_QK_K"], BLOCK_BYTES=block_bytes, G_FLOATS=total,
+                fields=dict((short[n], fields[n]) for n, _ in seq),
+                order=[short[n] for n, _ in seq])
+
+
+def _g_pad(buf, align=8):
+    """Pad a slab builder to `align`, so an f32 or i32 field is never handed a misaligned offset."""
+    while len(buf) % align:
+        buf += b"\0"
+    return buf
+
+
+def g_span_digest(buf):
+    """The digest of a slab's bytes — the same hash the staging path uses, so a span bound printed here is
+    comparable with the one `stage_run` printed for the same bytes."""
+    return hashlib.sha256(bytes(buf)).hexdigest()
+
+
+def g_record(path, g):
+    """The arm's gather record: per-field float lists and the unwritten-slot census, size-checked first.
+
+    The NaN census is returned alongside the fields because it is the load-bearing half: a slot the arm
+    never wrote reads the poison pattern on both paths, and a bulk memset that silently cleared it is the
+    defect class this repo has already been bitten by (`engine/HANDOFF.md` on the `lm_head` sentinel).
+    """
+    words = np.fromfile(str(path), dtype="<f4")
+    if words.size != g["G_FLOATS"]:
+        raise Refused("g-record-size", "%s holds %d floats; the layout read from %s says %d"
+                      % (Path(path).name, words.size, G_HEADER.name, g["G_FLOATS"]))
+    out, nan = {}, {}
+    for name, (off, ln) in g["fields"].items():
+        field = words[off:off + ln]
+        out[name] = field.copy()
+        bits = field.view(np.uint32)
+        nan[name] = int(np.count_nonzero((bits & np.uint32(0x7FFFFFFF)) == np.uint32(0x7FC00000)))
+    return out, nan
+
+
+def g_ref_spans(g, shard_index, shard_dir, layer=0):
+    """Where each routed expert's bf16 matrix bytes live in the HF shards, from the shard headers only.
+
+    No tensor is loaded: the safetensors header's `data_offsets` give the byte range, and one expert is
+    one contiguous slice of it (the expert axis is the outer one, so the slice is `e * expert_bytes`
+    into the tensor). The dtype is checked to be BF16 here rather than assumed, because the reference
+    path's licence rests on these being the bytes the pinned dumps were made from — the same argument
+    `residency_router` makes for the router's F32 matrix. The shard index and directory come in as
+    arguments: `engine/block_forward.py` owns those paths and this file does not re-state them.
+    """
+    index = json.loads(Path(shard_index).read_text())["weight_map"]
+    out = {}
+    for which, hf in G_HF_TENSOR.items():
+        name = hf.replace(".layers.0.", ".layers.%d." % layer)
+        shard = Path(shard_dir) / index[name]
+        with open(shard, "rb") as fh:
+            n = struct.unpack("<Q", fh.read(8))[0]
+            head = json.loads(fh.read(n))
+        meta = head.get(name)
+        if meta is None:
+            raise Refused("g-ref-tensor-absent", "%s is not in %s" % (name, shard.name))
+        if meta["dtype"] != "BF16":
+            raise Refused("g-ref-width-not-bf16",
+                          "%s is %s in %s; the reference path is licensed on the bf16 image the pins "
+                          "were made from, so a different storage width is a different artifact"
+                          % (name, meta["dtype"], shard.name))
+        begin, end = meta["data_offsets"]
+        out[which] = dict(path=str(shard), name=name, dtype=meta["dtype"], shape=list(meta["shape"]),
+                          data_start=8 + n + begin, bytes=end - begin)
+    e, two_i, h, i = g["MG_E"], g["MG_TWO_I"], g["MG_H"], g["MG_I"]
+    if out["gate_up"]["shape"] != [e, two_i, h]:
+        raise Refused("g-ref-geometry", "gate_up_proj is %s; prediction 3 says [E,2I,H]=[%d,%d,%d], and "
+                                        "a different axis order is a different gather"
+                      % (out["gate_up"]["shape"], e, two_i, h))
+    if out["down"]["shape"] != [e, h, i]:
+        raise Refused("g-ref-geometry", "down_proj is %s; expected [E,H,I]=[%d,%d,%d]"
+                      % (out["down"]["shape"], e, h, i))
+    for which, rows, cols in (("gate_up", two_i, h), ("down", h, i)):
+        per = rows * cols * 2
+        if out[which]["bytes"] != e * per:
+            raise Refused("g-ref-span-width", "%s spans %d B for %d experts; %d B per expert implies %d"
+                          % (which, out[which]["bytes"], e, per, e * per))
+        out[which]["expert_bytes"] = per
+        out[which]["rows"], out[which]["cols"] = rows, cols
+    return out
+
+
+def g_read_file_span(path, off, length, why):
+    """One byte span out of a shard, with its digest — the same shape as `read_span` for the artifact."""
+    with open(path, "rb") as fh:
+        fh.seek(off)
+        got = fh.read(length)
+    if len(got) != length:
+        raise Refused("span-short", "%s: asked %d B at %d of %s, got %d B" % (why, length, off,
+                                                                             Path(path).name, len(got)))
+    return got, hashlib.sha256(got).hexdigest(), len(got)
+
+
+def g_ref_units(g, spans, ids):
+    """The reference path's unit list: one fused gate|up span and one down span per selected expert.
+
+    The gate and up units name the SAME span (fused=1) at different offsets, which is what the artifact
+    actually is ([2I,H], gate first, §11.4 and AGENTS.md prediction 3), and `m2_g_io.h` refuses the pair
+    unless both views agree on `span_off`/`span_bytes` and disagree on `off`.
+    """
+    units = []
+    i, h = g["MG_I"], g["MG_H"]
+    gu, dn = spans["gate_up"], spans["down"]
+    half = gu["expert_bytes"] // 2
+    for slot, e in enumerate(ids):
+        for role in ("gate", "up"):
+            units.append(dict(role=role, slot=slot, expert=int(e), kind="bf16", elt=2, rows=i, cols=h,
+                              blocks=0, fused=1, whole=0,
+                              off=gu["data_start"] + int(e) * gu["expert_bytes"]
+                                 + (0 if role == "gate" else half),
+                              bytes=half,
+                              span_off=gu["data_start"] + int(e) * gu["expert_bytes"],
+                              span_bytes=gu["expert_bytes"],
+                              src=gu["path"], src_name=gu["name"]))
+        units.append(dict(role="down", slot=slot, expert=int(e), kind="bf16", elt=2, rows=h, cols=i,
+                          blocks=0, fused=0, whole=0,
+                          off=dn["data_start"] + int(e) * dn["expert_bytes"],
+                          bytes=dn["expert_bytes"],
+                          span_off=dn["data_start"] + int(e) * dn["expert_bytes"],
+                          span_bytes=dn["expert_bytes"],
+                          src=dn["path"], src_name=dn["name"]))
+    return units
+
+
+def g_policy_units(g, loader, source, art_path, ids):
+    """Policy A's unit list: one artifact expert span per slot per family, from `Loader.expert_range`.
+
+    The addresses are the loader's, so the gather and the loader cannot disagree about where an expert
+    begins (`Loader.expert_range` cross-checks itself against `layout.expert_slice` for exactly that
+    reason). The kind word comes from the record's own ggml type, never from a table of what policy A is
+    expected to hold, so an artifact re-quantized to a different width shows up as a `path-kinds` refusal
+    in the arm instead of as a row that silently means something else. Bytes come through
+    `read_span`/`ByteSource`, the same audit-gated door M1 staged through.
+
+    `span_off`/`span_bytes` are the EXPERT's own range, not the family's: the census counts distinct spans
+    and a per-family span made 24 expert reads look like 3 spans, which is the quantity prediction 3's
+    scheduler decision is priced on. The reference path gets this from `g_ref_units` (one span per fused
+    [2I,H] pair, one per expert down); policy A has three tensors, so it is three spans per slot.
+    """
+    units = []
+    i, h = g["MG_I"], g["MG_H"]
+    geom = {"gate": (i, h), "up": (i, h), "down": (h, i)}
+    for role in G_ROLES:
+        name = G_ART_TENSOR[role]
+        rec = loader.by_name.get(name)
+        if rec is None:
+            raise Refused("g-tensor-absent", "%s is not in the resident set, so there is nothing to "
+                                            "gather and no licence to read" % name)
+        rows, cols = geom[role]
+        blocks = (rows * cols) // g["MG_QK_K"]
+        for slot, e in enumerate(ids):
+            r = loader.expert_range(name, int(e))
+            kind = G_KIND_BY_ART_TYPE.get(r["type_name"])
+            if kind is None:
+                raise Refused("g-kind-unknown",
+                              "%s expert %d is stored %s, which this arm has no decoder for; the arm "
+                              "would refuse it too, later and less clearly" % (name, e, r["type_name"]))
+            if r["length"] != blocks * g["BLOCK_BYTES"][kind]:
+                raise Refused("g-span-width", "%s expert %d spans %d B; %d blocks of %d at %s is %d B"
+                              % (name, e, r["length"], blocks, g["MG_QK_K"], kind,
+                                 blocks * g["BLOCK_BYTES"][kind]))
+            data, sha, got = read_span(source, art_path, r["file_off"], r["length"],
+                                       "%s expert %d" % (name, e))
+            units.append(dict(role=role, slot=slot, expert=int(e), kind=kind, elt=1, rows=rows,
+                              cols=cols, blocks=blocks, fused=0, whole=0, off=r["file_off"],
+                              bytes=r["length"], span_off=r["file_off"], span_bytes=r["length"],
+                              file_off=r["file_off"],
+                              file_sha=sha, file_read=got, type_name=r["type_name"], src_name=name,
+                              _bytes=data))
+    return units
+
+
+def g_slab(g, units, x_bytes, ids, wcast, wpre, elt_x):
+    """Concatenate the gathered spans and the router arm's selection into one slab; assign offsets.
+
+    The slab is an address arrangement, not a tensor: each unit's bytes go in at its own offset, and a
+    fused pair shares one span (written once, from the gate unit's bytes). `off`/`span_off` are then
+    rewritten to slab coordinates, so the plan describes exactly the bytes the arm will read.
+    """
+    if len(x_bytes) != g["MG_H"] * elt_x:
+        raise Refused("g-x-width", "the activation image is %d B; path %s stores %d B/elt for H=%d, so "
+                      "it must be %d B — the activation is not a field to guess at"
+                      % (len(x_bytes), elt_x, elt_x, g["MG_H"], g["MG_H"] * elt_x))
+    buf = bytearray()
+    off, seen_span, span_sha = {}, {}, {}
+    for u in units:
+        key = (u["src_name"], u.get("span_off"), u.get("span_bytes"))
+        if u["fused"]:
+            # One span, two views. It is read once, whole, from its own file coordinates, and both the
+            # gate and the up unit are then offsets inside it — which is the only honest way to address a
+            # fused [2I,H] block, and the arrangement `m2_g_io.h` makes the plan prove.
+            if key not in seen_span:
+                _g_pad(buf)
+                seen_span[key] = len(buf)
+                data, sha, got = g_read_file_span(u["src"], u["span_off"], u["span_bytes"],
+                                                  "%s expert %d fused pair" % (u["src_name"],
+                                                                               u["expert"]))
+                buf += data
+                span_sha[key] = (sha, got)
+            span = seen_span[key]
+            u["off"] = span + (u["bytes"] if u["role"] == "up" else 0)
+            u["span_off"] = span
+            u["file_sha"], u["file_read"] = span_sha[key]
+        else:
+            data = u.get("_bytes")
+            if data is None:
+                data, sha, got = g_read_file_span(u["src"], u["off"], u["bytes"],
+                                                  "%s expert %d" % (u["src_name"], u["expert"]))
+                u["file_sha"], u["file_read"] = sha, got
+            else:
+                u.setdefault("file_sha", hashlib.sha256(data).hexdigest())
+                u.setdefault("file_read", len(data))
+            _g_pad(buf)
+            u["off"] = u["span_off"] = len(buf)
+            u["span_bytes"] = u["bytes"]
+            buf += data
+        off[(u["slot"], u["role"])] = u["off"]
+    _g_pad(buf)
+    o_x = len(buf)
+    buf += x_bytes
+    _g_pad(buf)
+    o_ids = len(buf)
+    buf += struct.pack("<%di" % len(ids), *ids)
+    _g_pad(buf)
+    o_wcast = len(buf)
+    buf += struct.pack("<%df" % len(wcast), *wcast)
+    _g_pad(buf)
+    o_wpre = len(buf)
+    buf += struct.pack("<%df" % len(wpre), *wpre)
+    return bytes(buf), dict(x=(o_x, len(x_bytes)), ids=o_ids, wcast=o_wcast, wpre=o_wpre,
+                            spans=seen_span)
+
+
+def write_g_plan(path, path_word, g, units, slab_bytes, off, elt_x, mode="correct", fault="none",
+                 corrupt_off=-1, read_off=-1, read_len=0, whole_bytes=None):
+    """The gather plan: one M2GPLAN line, the activation and the router arm's selection, one UNIT line
+    per (slot, role), and the FORM line. Nothing else, because nothing else is the arm's to know.
+
+    `whole_bytes` is the control that has to be refused: given a role→bytes map holding the real stacked
+    tensor sizes, every unit is rewritten to claim the whole routed tensor instead of one expert, and
+    `m2_g_io.h` refuses such a plan by name (`whole-tensor-unit-refused`). The sizes come from the
+    metadata, never typed, because a refusal that quotes an invented byte count is a refusal of a fiction.
+    A gather that *could* read a whole tensor is the failure AGENTS.md prediction 2 is about, so the arm is
+    made structurally unable to, and the census's whole-tensor counter is witnessed non-zero separately by
+    the `whole-note` fault leg.
+    """
+    h, i = g["MG_H"], g["MG_I"]
+    lines = ["M2GPLAN version=1 path=%s slots=%d slab_bytes=%d" % (path_word, g["MG_K"], slab_bytes),
+             "X span_off=%d bytes=%d cols=%d elt=%d" % (off["x"][0], off["x"][1], h, elt_x),
+             "IDS span_off=%d slots=%d" % (off["ids"], g["MG_K"]),
+             "WCAST span_off=%d slots=%d" % (off["wcast"], g["MG_K"]),
+             "WPRE span_off=%d slots=%d" % (off["wpre"], g["MG_K"])]
+    for u in units:
+        claim = u["bytes"] if whole_bytes is None else whole_bytes[u["role"]]
+        # A fused gate|up pair names ONE span (the [2I,H] expert block) and two unit views inside it, so
+        # `span_bytes` is not the unit's own byte count — collapsing the two is what made the honest plan
+        # look like a half-span fused unit and got it refused.
+        span_bytes = u["span_bytes"] if whole_bytes is None else claim
+        lines.append("UNIT role=%s slot=%d expert=%d off=%d bytes=%d rows=%d cols=%d kind=%s elt=%d "
+                     "blocks=%d fused=%d whole=%d span_off=%d span_bytes=%d"
+                     % (u["role"], u["slot"], u["expert"], u["off"], claim,
+                        h if u["role"] == "down" else i, i if u["role"] == "down" else h,
+                        u["kind"], u["elt"], u["blocks"],
+                        0 if whole_bytes else u["fused"], 1 if whole_bytes else 0,
+                        u["span_off"], span_bytes))
+    lines.append("FORM mode=%s fault=%s corrupt_off=%d read_off=%d read_len=%d"
+                 % (mode, fault, corrupt_off, read_off, read_len))
+    Path(path).write_text("\n".join(lines) + "\n")
+    return len(units)
+
+
+def parse_census(text):
+    """The arm's census token back into a dict, refusing to pretend a missing field is a zero.
+
+    Every key the arm prints is required here: `pitfalls/40` §a-check-that-can-print-nothing-cannot-fail
+    is the reason a census parsed with `.get(k, 0)` would be worse than no census at all — a truncated
+    report would read as `whole_reads=0` and the whole-tensor check would pass on an arm that printed
+    nothing. `bytes_by_expert` comes back as {expert: (units, bytes)} and must be non-empty.
+    """
+    want = ("slots", "unit_reads", "want_units", "distinct_experts", "want_experts", "whole_reads",
+            "elt_reads", "route_n", "route_bad", "note_conflict", "total", "want_bytes", "spans")
+    got, per = {}, {}
+    for chunk in (text or "").strip().strip('"').split(";"):
+        if "=" not in chunk:
+            continue
+        k, v = chunk.split("=", 1)
+        if k == "bytes_gathered":
+            for item in v.split(","):
+                if ":" in item and "/" in item:
+                    e, rest = item.split(":", 1)
+                    n, b = rest.split("/")
+                    per[int(e)] = (int(n), int(b.rstrip("B")))
+            continue
+        got[k] = v.rstrip("B")
+    missing = [k for k in want if k not in got]
+    if missing:
+        raise Refused("census-unparsed",
+                      "the arm's census carried none of %s; a census this file cannot parse cannot "
+                      "refuse anything either (census=%r)" % (",".join(missing), text))
+    if not per:
+        raise Refused("census-empty",
+                      "the arm reported a census with no per-expert rows at all: %r. A counter that "
+                      "printed nothing is not a counter reading zero" % (text,))
+    out = dict((k, int(got[k])) for k in want)
+    out["bytes_by_expert"] = per
+    return out
+
+
+def g_census(g, units, ids, arm=None):
+    """The driver-side read census, keyed on expert_index, from the plan the driver itself wrote.
+
+    Three claims, all of which a whole-tensor read would break and none of which a summary count would
+    show: the number of distinct expert indices gathered equals the number of slots (a gather that read
+    every expert would show 256 here); every unit's span is one expert's matrix, never the stacked tensor;
+    and the bytes per expert are the quantized or bf16 size the artifact says, not a rounded guess.
+    `arm` is the arm's own census dict when a run produced one, and the two are required to agree — the
+    count must not be merely the driver's opinion of what it asked for.
+    """
+    per_expert, spans = {}, {}
+    for u in units:
+        pe = per_expert.setdefault(u["expert"], dict(units=0, bytes=0, roles=[]))
+        pe["units"] += 1
+        pe["bytes"] += u["bytes"]
+        pe["roles"].append(u["role"])
+        spans.setdefault((u["src_name"], u["span_off"], u["span_bytes"]), 0)
+    whole = [u for u in units if u["bytes"] > 8 * 1024 * 1024]
+    rows, disagree = [], []
+    for e in sorted(per_expert):
+        pe = per_expert[e]
+        rows.append(dict(expert=e, units=pe["units"], bytes=pe["bytes"], roles=",".join(pe["roles"])))
+        if arm is not None:
+            a = arm["bytes_by_expert"].get(e)
+            if a is None:
+                disagree.append("%d:absent-in-arm" % e)
+            elif a != (pe["units"], pe["bytes"]):
+                disagree.append("%d:driver=%d/%d arm=%d/%d" % (e, pe["units"], pe["bytes"], a[0], a[1]))
+    if arm is not None:
+        if arm["distinct_experts"] != len(per_expert):
+            disagree.append("distinct=%d/%d" % (arm["distinct_experts"], len(per_expert)))
+        if arm["unit_reads"] != len(units):
+            disagree.append("units=%d/%d" % (arm["unit_reads"], len(units)))
+        if arm["spans"] != len(spans):
+            disagree.append("spans=%d/%d" % (arm["spans"], len(spans)))
+        if arm["whole_reads"] != len(whole):
+            disagree.append("whole=%d/%d" % (arm["whole_reads"], len(whole)))
+        if arm["total"] != sum(u["bytes"] for u in units):
+            disagree.append("bytes=%d/%d" % (arm["total"], sum(u["bytes"] for u in units)))
+        if arm["note_conflict"]:
+            disagree.append("note_conflict=%d" % arm["note_conflict"])
+    return dict(distinct=len(per_expert), slots=len(ids), units=len(units), spans=len(spans),
+                bytes_total=sum(u["bytes"] for u in units),
+                bytes_per_expert={e: per_expert[e]["bytes"] for e in per_expert},
+                whole_tensor_reads=len(whole), rows=rows, disagree=disagree,
+                arm_bytes=(arm["total"] if arm else None),
+                arm_units=(arm["unit_reads"] if arm else None),
+                arm_spans=(arm["spans"] if arm else None),
+                arm_whole_reads=(arm["whole_reads"] if arm else None),
+                note_conflict=(arm["note_conflict"] if arm else None))
