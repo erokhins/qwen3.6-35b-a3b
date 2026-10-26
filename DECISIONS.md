@@ -1157,3 +1157,26 @@ installed `transformers` forward without the weights on the GPU (`speccheck/resu
 full 40-block chain at `T=32` is CPU-only work and is timed only in host wall-clock — no device
 rate enters any document from it.
 
+**Outcome (P1, 2026-10-27, verified by the main agent, not by the lane's word).**
+`tools/dump_chain.py` produced `checkpoints/dump-manifest-chain-2026-10-26.json` (28 records,
+4 blocks `layer0→layer1→layer38→layer39`) and `data/dumps/2026-10-26-chain/`. The main agent
+re-audited it with an **independent** implementation (`tools/verify_chain_d25.py`, which imports
+neither the dumper nor its gate): all 28 record digests and lengths re-hashed clean, chain
+equality verified from files on disk (3/3 pairs), block inputs pairwise distinct (4/4), the
+**same predicate rejecting the old fixture** (3 blocks → 1 distinct digest), `missing_layers`
+re-derived from the safetensors index as 36 layers `2..37` and matching the manifest exactly,
+`contiguous:false` on all 28 records with none claiming `true`, and the old pins byte-identical
+(`f82d402d…`) so the run wrote nothing it should not. Witnesses re-hashed rather than read: the
+`layer38` `down_proj` perturbation changes `layer38.out`, `layer39.x` and `layer39.out` and
+leaves every upstream input untouched; zeroing one substituted `down_proj` row changes 9 records
+starting at `layer38.moe_out` and leaves 19 unchanged, which is what makes the substitution
+load-bearing rather than decorative; and the unmodified-HF materialised peer agrees with the
+meta-built chain on **28/28** digests. Measured cost: full 40 blocks ≈2.5 min warm / ≈4.5 min
+cold, ≈97 % of it safetensors materialisation — so P2 is download-bound, not compute-bound.
+Two audit findings in the first pass were **probe bugs, not artifact bugs** (my probe looked for
+`missing_layers` at top level instead of under `block_set`, and for the seed in record names
+instead of `manifest.input`); one printed `OK` beside a hardcoded message claiming the opposite,
+which is the same class of defect this repo bans in gates and which is why verdict strings are
+never cited when bytes can be re-hashed. The chain remains **non-contiguous** and is not the
+model's post-layer-37 activation; M3 still needs shards 3–24.
+
