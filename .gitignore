@@ -113,3 +113,10 @@ prototype/shared_expert/work/*
 prototype/shared_expert/*.s
 prototype/shared_expert/work/isa/*.s
 prototype/shared_expert/*.resolution.txt
+
+# prototype/gdn compiled artefacts -- exact paths only, never a wildcard directory:
+# a directory rule hides a source file the moment someone renames it.
+prototype/gdn/gdn
+prototype/gdn/host_probe
+prototype/gdn/build/
+prototype/gdn/work/hp_asan

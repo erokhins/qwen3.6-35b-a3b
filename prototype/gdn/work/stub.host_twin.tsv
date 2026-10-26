@@ -1,0 +1,2 @@
+CASE idx=0 block=layer0 name=prefill T=32 items=1245184 out_hash=1dc846770f3b623f
+CASE idx=1 block=layer1 name=prefill T=32 items=1245184 out_hash=0a4bb4682d1d5419

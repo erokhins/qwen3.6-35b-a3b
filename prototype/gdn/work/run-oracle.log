@@ -1,0 +1,9 @@
+GEOM {"hidden_size": 2048, "h_k": 16, "h_v": 32, "d_k": 128, "d_v": 128, "k_conv": 4} chunk_width=64 c_arm=64 linear_layers=30 config=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/checkpoints/Qwen3.6-35B-A3B.config.json
+DUMP gdn T=32 records=178 blocks=layer0,layer1 n_chunks=1 pad=32
+BAND file=gdn-band-2026-10-26.json digest=27a68c7e82c9aa0507b9bcd677adc0d5d1b0bc865dd1e86bf495ed90f47392ee stages=7 authoritative=1 keys=core_attn,k_hat,normed,q_hat,scan_out,state,y
+PLAN cases=2 T=32 in_words=1839104 weight_words=16777472 zero_state=1 pad_cols=32
+ORACLECMD /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/speccheck/gdn_ref.py --cross-form --threads 8
+ORACLE rc=0 log=gdn-cross-form-in-lane-2026-10-26.txt lines=2696 digest_line=#   digest      band object sha256 over the canonical encoding hashlib.sha256(js last=CROSS-FORM PASS — the band was read through load_band() and judged only by band_
+COUNTS oracle_rows=2696
+METRICS primary=relL2+ndiff+band_check_row reported_only=maxabs,cos maxabs_load_bearing=0 cos_load_bearing=0 band_source=band_check_row_only
+GATE PARTIAL ran=oracle missing=three-arm,band,exact,controls,witness note=a partial run does not claim PASS: the three-arm claim needs the dump arm, the oracle CLI arm and the kernel arm, and one of them is not in this run

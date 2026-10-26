@@ -1,0 +1,70 @@
+GEOM {"hidden_size": 2048, "h_k": 16, "h_v": 32, "d_k": 128, "d_v": 128, "k_conv": 4} chunk_width=64 c_arm=64 linear_layers=30 config=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/checkpoints/Qwen3.6-35B-A3B.config.json
+DUMP gdn T=32 records=178 blocks=layer0,layer1 n_chunks=1 pad=32
+BAND file=gdn-band-2026-10-26.json digest=27a68c7e82c9aa0507b9bcd677adc0d5d1b0bc865dd1e86bf495ed90f47392ee stages=7 authoritative=1 keys=core_attn,k_hat,normed,q_hat,scan_out,state,y
+PLAN cases=2 T=32 in_words=1839104 weight_words=16777472 zero_state=1 pad_cols=32
+SELFTEST SELFTEST PASS arm=host_twin compiler=g++ checks=21 fails=0
+ARM arm=host_twin cases=2 compiler=g++ hip_calls=0 refused=0 stage_words=4392960
+SELFTEST SELFTEST PASS arm=hip_hostpath compiler=hipcc checks=21 fails=0
+ARM arm=hip_hostpath cases=2 compiler=hipcc hip_calls=0 refused=0 stage_words=4392960
+PAIR pair=host_twin_vs_hip_hostpath file=out.bin bytes=35143680 ndiff_bytes=0 cases=2 per_case_words=4392960 zero_tolerance=1 verdict=IDENTICAL
+PAIR pair=host_twin_vs_hip_hostpath file=echo.bin bytes=3163136 ndiff_bytes=0 cases=2 per_case_words=395392 zero_tolerance=1 verdict=IDENTICAL
+STAGE arm=kernel_vs_dump block=layer0 stage=q_hat n=131072 ndiff=71750 relL2=1.08286e-07 maxabs=2.98023e-08[reported_only] cos=1[reported_only] band=REJECTED meanrel=7.001e-08 1-cos=2.387e-14 perhead=2.980e-08(h84657/131072) verdict=FAIL why=max_abs=2.980e-08 > licensed 2.900e-08
+STAGE arm=kernel_vs_dump block=layer0 stage=k_hat n=131072 ndiff=77522 relL2=1.05655e-07 maxabs=2.38419e-07[reported_only] cos=1[reported_only] band=ACCEPTED meanrel=7.228e-08 1-cos=2.764e-14 perhead=2.384e-07(h20034/131072) verdict=PASS why=all four derived keys inside the probe-derived band
+STAGE arm=kernel_vs_dump block=layer0 stage=scan_out n=131072 ndiff=115475 relL2=2.65751e-07 maxabs=5.58794e-09[reported_only] cos=1[reported_only] band=ACCEPTED meanrel=1.923e-07 1-cos=3.164e-14 perhead=5.588e-09(h97615/131072) verdict=PASS why=all four derived keys inside the probe-derived band
+STAGE arm=kernel_vs_dump block=layer0 stage=core_attn n=131072 ndiff=51 relL2=4.76862e-06 maxabs=4.76837e-07[reported_only] cos=1[reported_only] band=ACCEPTED meanrel=1.448e-07 1-cos=1.137e-11 perhead=4.768e-07(h89425/131072) verdict=PASS why=all four derived keys inside the probe-derived band
+STAGE arm=kernel_vs_dump block=layer0 stage=state n=524288 ndiff=436088 relL2=2.11881e-07 maxabs=1.78814e-07[reported_only] cos=1[reported_only] band=ACCEPTED meanrel=1.609e-07 1-cos=4.585e-14 perhead=1.788e-07(h235087/524288) verdict=PASS why=all four derived keys inside the probe-derived band
+STAGE arm=kernel_vs_dump block=layer0 stage=normed n=131072 ndiff=47 relL2=1.48787e-06 maxabs=6.10352e-05[reported_only] cos=1[reported_only] band=ACCEPTED meanrel=6.706e-08 1-cos=1.100e-12 perhead=6.104e-05(h120532/131072) verdict=PASS why=all four derived keys inside the probe-derived band
+STAGE arm=kernel_vs_dump block=layer0 stage=y n=65536 ndiff=94 relL2=5.94573e-05 maxabs=0.000488281[reported_only] cos=0.999999998[reported_only] band=ACCEPTED meanrel=3.941e-06 1-cos=1.767e-09 perhead=4.883e-04(h45229/65536) verdict=PASS why=all four derived keys inside the probe-derived band
+STAGE arm=kernel_vs_dump block=layer1 stage=q_hat n=131072 ndiff=74172 relL2=1.11736e-07 maxabs=2.98023e-08[reported_only] cos=1[reported_only] band=REJECTED meanrel=7.354e-08 1-cos=3.064e-14 perhead=2.980e-08(h82093/131072) verdict=FAIL why=max_abs=2.980e-08 > licensed 2.900e-08
+STAGE arm=kernel_vs_dump block=layer1 stage=k_hat n=131072 ndiff=77734 relL2=1.05358e-07 maxabs=1.19209e-07[reported_only] cos=1[reported_only] band=ACCEPTED meanrel=7.182e-08 1-cos=2.165e-14 perhead=1.192e-07(h128/131072) verdict=PASS why=all four derived keys inside the probe-derived band
+STAGE arm=kernel_vs_dump block=layer1 stage=scan_out n=131072 ndiff=116942 relL2=3.43893e-07 maxabs=4.65661e-09[reported_only] cos=1[reported_only] band=ACCEPTED meanrel=3.108e-07 1-cos=5.440e-14 perhead=4.657e-09(h51528/131072) verdict=PASS why=all four derived keys inside the probe-derived band
+STAGE arm=kernel_vs_dump block=layer1 stage=core_attn n=131072 ndiff=33 relL2=5.58252e-06 maxabs=2.38419e-07[reported_only] cos=1[reported_only] band=ACCEPTED meanrel=2.969e-07 1-cos=1.558e-11 perhead=2.384e-07(h86263/131072) verdict=PASS why=all four derived keys inside the probe-derived band
+STAGE arm=kernel_vs_dump block=layer1 stage=state n=524288 ndiff=432166 relL2=2.63768e-07 maxabs=1.37836e-07[reported_only] cos=1[reported_only] band=ACCEPTED meanrel=1.516e-07 1-cos=5.729e-14 perhead=1.378e-07(h145459/524288) verdict=PASS why=all four derived keys inside the probe-derived band
+STAGE arm=kernel_vs_dump block=layer1 stage=normed n=131072 ndiff=26 relL2=4.21792e-06 maxabs=6.10352e-05[reported_only] cos=1[reported_only] band=ACCEPTED meanrel=2.118e-07 1-cos=8.894e-12 perhead=6.104e-05(h86263/131072) verdict=PASS why=all four derived keys inside the probe-derived band
+STAGE arm=kernel_vs_dump block=layer1 stage=y n=65536 ndiff=151 relL2=6.15894e-05 maxabs=0.000244141[reported_only] cos=0.999999998[reported_only] band=ACCEPTED meanrel=8.444e-06 1-cos=1.897e-09 perhead=2.441e-04(h38973/65536) verdict=PASS why=all four derived keys inside the probe-derived band
+EXACT arm=kernel block=layer0 field=q_pre n=65536 ndiff=0 maxword=0x0 verdict=BIT_IDENTICAL
+EXACT arm=kernel block=layer0 field=k_pre n=65536 ndiff=0 maxword=0x0 verdict=BIT_IDENTICAL
+EXACT arm=kernel block=layer0 field=v_pre n=131072 ndiff=0 maxword=0x0 verdict=BIT_IDENTICAL
+EXACT arm=kernel block=layer0 field=beta n=1024 ndiff=0 maxword=0x0 verdict=BIT_IDENTICAL
+EXACT arm=kernel block=layer0 field=g_decay n=1024 ndiff=0 maxword=0x0 verdict=BIT_IDENTICAL
+EXACT arm=kernel block=layer0 field=z n=131072 ndiff=0 maxword=0x0 verdict=BIT_IDENTICAL
+EXACT arm=kernel block=layer0 field=norm_weight n=128 ndiff=0 maxword=0x0 verdict=BIT_IDENTICAL
+EXACT arm=kernel block=layer0 field=out_weight n=8388608 n_agree=1 sum_agree=1 sumidx_agree=1 verdict=BIT_IDENTICAL
+EXACT arm=kernel block=layer1 field=q_pre n=65536 ndiff=0 maxword=0x0 verdict=BIT_IDENTICAL
+EXACT arm=kernel block=layer1 field=k_pre n=65536 ndiff=0 maxword=0x0 verdict=BIT_IDENTICAL
+EXACT arm=kernel block=layer1 field=v_pre n=131072 ndiff=0 maxword=0x0 verdict=BIT_IDENTICAL
+EXACT arm=kernel block=layer1 field=beta n=1024 ndiff=0 maxword=0x0 verdict=BIT_IDENTICAL
+EXACT arm=kernel block=layer1 field=g_decay n=1024 ndiff=0 maxword=0x0 verdict=BIT_IDENTICAL
+EXACT arm=kernel block=layer1 field=z n=131072 ndiff=0 maxword=0x0 verdict=BIT_IDENTICAL
+EXACT arm=kernel block=layer1 field=norm_weight n=128 ndiff=0 maxword=0x0 verdict=BIT_IDENTICAL
+EXACT arm=kernel block=layer1 field=out_weight n=8388608 n_agree=1 sum_agree=1 sumidx_agree=1 verdict=BIT_IDENTICAL
+CONTROL arm=stub rows=14 caught=14 survivors=0 derived=14 verdict=RED_ON_DERIVED_COUNT
+CONTROL arm=crossed rows=14 caught=14 survivors=0 derived=14 verdict=RED_ON_DERIVED_COUNT
+CONTROL arm=single_arm arms=2 verdict=REFUSED reason=three-arm agreement needs three arms; found 2 (dump,kernel)
+CONTROL arm=broken_bf16_trunc selftest=FIRE stage_rows=14 red=8 verdict=WITNESSED_FAILING
+WITNESS case=norm_weight_f32_ladder block=layer0 depth=8 ref_n=131072
+LADDER block=layer0 fault=norm_weight_f32 k=0 moved=45906/131072 meanrel=6.280e-04 1-cos=4.656e-06 maxabs=6.250e-02[reported_only] band=REJECTED why=one_minus_cos=4.656e-06 > licensed 2.662e-08
+LADDER block=layer0 fault=norm_weight_f32 k=1 moved=23199/131072 meanrel=3.131e-04 1-cos=2.205e-06 maxabs=3.125e-02[reported_only] band=REJECTED why=one_minus_cos=2.205e-06 > licensed 2.662e-08
+LADDER block=layer0 fault=norm_weight_f32 k=2 moved=190/131072 meanrel=1.944e-06 1-cos=4.037e-09 maxabs=3.906e-03[reported_only] band=ACCEPTED why=all four derived keys inside the probe-derived band
+LADDER block=layer0 fault=norm_weight_f32 k=3 moved=0/131072 meanrel=6.706e-08 1-cos=1.100e-12 maxabs=6.104e-05[reported_only] band=ACCEPTED why=all four derived keys inside the probe-derived band
+LADDER block=layer0 fault=norm_weight_f32 k=4 moved=0/131072 meanrel=6.706e-08 1-cos=1.100e-12 maxabs=6.104e-05[reported_only] band=ACCEPTED why=all four derived keys inside the probe-derived band
+LADDER block=layer0 fault=norm_weight_f32 k=5 moved=0/131072 meanrel=6.706e-08 1-cos=1.100e-12 maxabs=6.104e-05[reported_only] band=ACCEPTED why=all four derived keys inside the probe-derived band
+LADDER block=layer0 fault=norm_weight_f32 k=6 moved=0/131072 meanrel=6.706e-08 1-cos=1.100e-12 maxabs=6.104e-05[reported_only] band=ACCEPTED why=all four derived keys inside the probe-derived band
+LADDER block=layer0 fault=norm_weight_f32 k=7 moved=0/131072 meanrel=6.706e-08 1-cos=1.100e-12 maxabs=6.104e-05[reported_only] band=ACCEPTED why=all four derived keys inside the probe-derived band
+LADDER block=layer0 fault=norm_weight_f32 k=8 moved=0/131072 meanrel=6.706e-08 1-cos=1.100e-12 maxabs=6.104e-05[reported_only] band=ACCEPTED why=all four derived keys inside the probe-derived band
+WITNESS least_scaled_accepted_k=2 moved=190/131072 meanrel=1.944e-06 licensed_meanrel=3.941e-06
+SIDEBY header1=band_check_row(normed) header2=norm_weight_bit_exact
+SIDEBY rung=7 perturb=bf16_lsb_flip words_perturbed=1 words_moved=1 derived_moved=1 exact=RED band=REJECTED n=131072 ndiff=794 relL2=3.57864e-05 maxabs=0.000488281[reported_only] cos=0.999999999[reported_only] why=mean_rel=9.324e-06 > licensed 3.941e-06
+SIDEBY rung=6 perturb=bf16_lsb_flip words_perturbed=2 words_moved=2 derived_moved=2 exact=RED band=REJECTED n=131072 ndiff=1487 relL2=6.81202e-05 maxabs=0.000976562[reported_only] cos=0.999999998[reported_only] why=mean_rel=2.007e-05 > licensed 3.941e-06
+SIDEBY rung=5 perturb=bf16_lsb_flip words_perturbed=4 words_moved=4 derived_moved=4 exact=RED band=REJECTED n=131072 ndiff=2997 relL2=9.21927e-05 maxabs=0.000976562[reported_only] cos=0.999999996[reported_only] why=mean_rel=4.129e-05 > licensed 3.941e-06
+SIDEBY rung=4 perturb=bf16_lsb_flip words_perturbed=8 words_moved=8 derived_moved=8 exact=RED band=REJECTED n=131072 ndiff=5972 relL2=0.000149477 maxabs=0.00195312[reported_only] cos=0.999999989[reported_only] why=mean_rel=8.756e-05 > licensed 3.941e-06
+SIDEBY rung=3 perturb=bf16_lsb_flip words_perturbed=16 words_moved=16 derived_moved=16 exact=RED band=REJECTED n=131072 ndiff=11951 relL2=0.000388805 maxabs=0.0078125[reported_only] cos=0.999999925[reported_only] why=one_minus_cos=7.546e-08 > licensed 2.662e-08
+SIDEBY rung=2 perturb=bf16_lsb_flip words_perturbed=32 words_moved=32 derived_moved=32 exact=RED band=REJECTED n=131072 ndiff=23780 relL2=0.00297708 maxabs=0.0625[reported_only] cos=0.99999572[reported_only] why=one_minus_cos=4.280e-06 > licensed 2.662e-08
+SIDEBY rung=1 perturb=bf16_lsb_flip words_perturbed=64 words_moved=64 derived_moved=64 exact=RED band=REJECTED n=131072 ndiff=47428 relL2=0.00304548 maxabs=0.0625[reported_only] cos=0.999995497[reported_only] why=one_minus_cos=4.503e-06 > licensed 2.662e-08
+SIDEBY rung=0 perturb=bf16_lsb_flip words_perturbed=128 words_moved=128 derived_moved=128 exact=RED band=REJECTED n=131072 ndiff=94875 relL2=0.00750091 maxabs=0.09375[reported_only] cos=0.999985988[reported_only] why=one_minus_cos=1.401e-05 > licensed 2.662e-08
+WITNESS side_by_side_pair_found=NO rung=None note=a band-ACCEPTED norm_weight byte defect and a RED byte-exactness check on the same case
+COUNTS controls=4 exact_field_checks=16 exact_field_red=0 pair_files=2 pair_words=4 stage_rows=14 witness_ladder_rows=9 witness_rungs=8
+METRICS primary=relL2+ndiff+band_check_row reported_only=maxabs,cos maxabs_load_bearing=0 cos_load_bearing=0 band_source=band_check_row_only
+GATE FAIL findings=2
+  - layer0/q_hat outside the derived band: max_abs=2.980e-08 > licensed 2.900e-08
+  - layer1/q_hat outside the derived band: max_abs=2.980e-08 > licensed 2.900e-08
