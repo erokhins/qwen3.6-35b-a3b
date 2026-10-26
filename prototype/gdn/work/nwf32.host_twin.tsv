@@ -1,2 +1,2 @@
-CASE idx=0 block=layer0 name=prefill T=32 carry=-1 items=1000480 out_hash=d9d826249d63dbef
-CASE idx=1 block=layer1 name=prefill T=32 carry=-1 items=1000480 out_hash=18bb930ba1378bcb
+CASE idx=0 block=layer0 name=prefill T=32 carry=-1 items=1000480 out_hash=326d957adb3cca98
+CASE idx=1 block=layer1 name=prefill T=32 carry=-1 items=1000480 out_hash=9c2629a1ec2be838

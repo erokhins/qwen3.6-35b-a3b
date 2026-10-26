@@ -126,3 +126,8 @@ prototype/gdn/work/hp_asan
 # ARE tracked -- a directory rule would hide evidence alongside the scratch.
 prototype/lm_head/work/*.f32
 prototype/lm_head/work/selftest/
+
+# Gate scratch: arm tables that are deliberately tracked are unaffected (gitignore never hides tracked
+# files); everything else the lanes drop in here -- tampered band fixtures, one-off probe scripts, per-run logs --
+# stays uncommitted, the same rule that keeps work/device-window/ binaries out of the tree.
+prototype/gdn/work/

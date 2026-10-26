@@ -1,6 +1,6 @@
-CASE idx=0 block=layer0 name=decode0 T=1 carry=-1 items=682048 out_hash=3144e98b2aeffb43
-CASE idx=1 block=layer0 name=decode1 T=1 carry=-1 items=682048 out_hash=f8f009473a4c4828
-CASE idx=2 block=layer0 name=decode2 T=1 carry=-1 items=682048 out_hash=4872b39831b78108
-CASE idx=3 block=layer1 name=decode0 T=1 carry=-1 items=682048 out_hash=55e28e4a662ead0b
-CASE idx=4 block=layer1 name=decode1 T=1 carry=-1 items=682048 out_hash=eab69f5aabfb2099
-CASE idx=5 block=layer1 name=decode2 T=1 carry=-1 items=682048 out_hash=44f5f3bef8410800
+CASE idx=0 block=layer0 name=decode0 T=1 carry=-1 items=682048 out_hash=dda09d1ef41f6f81
+CASE idx=1 block=layer0 name=decode1 T=1 carry=-1 items=682048 out_hash=bb757b06b281a5a6
+CASE idx=2 block=layer0 name=decode2 T=1 carry=-1 items=682048 out_hash=42c23c578864ef24
+CASE idx=3 block=layer1 name=decode0 T=1 carry=-1 items=682048 out_hash=f6bcc4985997ddc9
+CASE idx=4 block=layer1 name=decode1 T=1 carry=-1 items=682048 out_hash=54cb34b1dbb369c6
+CASE idx=5 block=layer1 name=decode2 T=1 carry=-1 items=682048 out_hash=83fa0771ca475e51
