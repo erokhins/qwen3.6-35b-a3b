@@ -11,7 +11,14 @@
 #                             put back to `S^T` (the oracle's `state_stored_transposed`). Slice 1
 #                             could not see that defect at all, because every state it ran was
 #                             zero, so the witness has to be a build and not a hope.
-#                             Every check in this lane is witnessed failing before it is trusted.
+#                         build/host_probe_pad     -DGDN_BROKEN_PAD — a pad row that carries data
+#                             instead of the zeros §04b.2 mandates (nonzero q, k, v and beta on
+#                             one pad row, and a pad g that decays the state). D-21 makes this
+#                             witness a precondition of crediting a cross-form decode row: the
+#                             pads are synthesised inside the arm, so this is the only mutation
+#                             that can reach them and the only thing that can make the pad census
+#                             leave zero. Every check in this lane is witnessed failing before it
+#                             is trusted.
 #   ./build.sh --clean    remove build/ and both binaries
 #
 # Build facts that are not optional on this box (pitfalls/50-harness-and-shell.md §"Build and
@@ -63,6 +70,10 @@ if [ "${1:-}" = "--broken" ]; then
           -c "$HERE/host_probe.cpp" -o "$BUILD/host_probe_xpose.o"
     "$CXX" -O2 $RPATH "$BUILD/host_probe_xpose.o" -o "$BUILD/host_probe_xpose"
     echo "BUILD xpose control=$BUILD/host_probe_xpose (state read as S^T; invisible at a zero state)"
+    "$CXX" -O2 -I"$HERE" -std=c++11 $FP -DGDN_BROKEN_PAD \
+          -c "$HERE/host_probe.cpp" -o "$BUILD/host_probe_pad.o"
+    "$CXX" -O2 $RPATH "$BUILD/host_probe_pad.o" -o "$BUILD/host_probe_pad"
+    echo "BUILD pad control=$BUILD/host_probe_pad (one pad row carries data instead of zeros)"
 fi
 if [ "${1:-}" = "--check" ]; then
     echo "BUILD note --check: compile only; no device was touched and no timing was taken"

@@ -856,6 +856,32 @@ If it fires, the 84 rows get credited under `recurrent|pinned`; if it cannot fir
 no chunked/recurrent duality for a linear-attention state (its GDN path is recurrent-only), so no
 precedent to import here.
 
+**Outcome, executed and verified by the main agent (2026-10-26).** The condition was met: an arm-internal
+`-DGDN_BROKEN_PAD` moved **4,644,568** bytes on the zero-state prefill plan (`pad_nonzero` 0 → 3712) and
+12,027,499 / 12,395,650 on the two decode plans, and `pad_witness_visible_at_zero_state` reads **VISIBLE**
+where the state-read control reads `INVISIBLE_AT_ZERO` — pads really are read as data, so the bridge claim
+is testable rather than assumed. Crediting therefore proceeded: `LICENCEVERDICT banded_rows=116
+credited=74 unlicensed=24 licensed_form_unprobed=18`, the carry scope at **60 of 84 credited** under
+`recurrent|pinned`, reconciled by a second independent reader (`carry_rows_credited_eq_licence_file
+credited=60 derived_from=geometry+gdn_ref.probe_arms_for+band_file_json`), and `credit_refused_without_pad_witness
+credited_with_witness=60 credited_without_witness=0` — **no row can be credited unless the pad witness fired
+in that same run**. The 24 still-unlicensed rows stay unlicensed: honest residue, not a rounding error.
+`GATE FAIL findings=2` remains, being only the two `q_hat` rows, and `GATE PASS` is still unreachable while
+42 banded rows are uncredited.
+
+Two defects had to be fixed to get there, and neither was the lane's fault to catch: (1) the witness ran
+**after** the judging loop, so classification saw an unfired witness and credited 0; moving it required
+hoisting the honest prefill baseline (`h0`/`cs0`) with it, so the zero-state pad plan and the xpose
+comparison share one reference run rather than two copies. (2) `carried = bool(carry[i])` treated
+`carry=-1` ("state read from file") as carried, contradicting this gate's own established convention
+(`sum(1 for v in carry_idx if v >= 0)`). The obvious one-line fix — `>= 0` — was itself a trap: the
+non-carried plan passes a constant per case, so a bare `>= 0` would have reclassified every non-carried
+case as carried and produced a *different* wrong must-catch set. Both sides were corrected together
+(`[-1] * n` for the non-carried plan), and the must-catch set became `must_catch_rows=30
+should_move_but_did_not=0 moved_though_upstream=0`, derived from `STAGE_CONSUMERS` rather than adjusted to
+pass. Default-path codegen proven unchanged: 179 `STAGE` lines **byte-identical** to
+`evidence/gdn-slice3-gate-2026-10-26.log`, determinism 178/178/178 `IDENTICAL`.
+
 ### D-22 — what does "comparable to llama.cpp" mean numerically? — **DECIDED (agent, 2026-10-26)**
 
 The user set the goal as performance "comparable with llama.cpp" without a number, and a goal without a

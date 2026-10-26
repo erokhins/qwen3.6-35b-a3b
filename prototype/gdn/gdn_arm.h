@@ -206,6 +206,62 @@ static int gdn_selftest(const char *arm, const char *compiler) {
             ++fails;
         }
     }
+    /* THE PAD POLICY (§04b.2) — the witness D-21 makes a precondition of crediting a decode row.
+     * "A C=64 chunked kernel with 63 zero pads implements the recurrent single-token step" is a
+     * claim about words the driver cannot reach: the pads are synthesised in `gdn_item_enter`, not
+     * read from `inputs.bin`, so no driver-side mutation can move them and a check on them written
+     * from outside the arm could never fire. The mutation therefore lives in the arm
+     * (`build.sh --broken` -> `build/host_probe_pad`, `-DGDN_BROKEN_PAD`) and this check is what
+     * that build fails: it runs the REAL item on the REAL first pad row of a head and requires
+     * every word the arm writes there to be exactly zero. The second clause is the non-vacuity
+     * leg — the same fixture's one real row must write something, or a kernel that wrote zeros
+     * everywhere would pass a pad check by writing nothing at all. */
+    ++checks;
+    ++checks;
+    {
+        static float pqh[GDN_C * GDN_D_K], pkh[GDN_C * GDN_D_K], pkb[GDN_C * GDN_D_K];
+        static float pvp[GDN_C * GDN_D_V], pvb[GDN_C * GDN_D_V];
+        static float pq0[GDN_D_K], pk0[GDN_D_K];
+        static uint32_t zin[128];
+        for (int i = 0; i < 128; ++i) zin[i] = 0x3f803f80u;   /* bf16 image 1.0 in the low half */
+        GdnCtx pc;
+        GdnCase kc;
+        memset(&pc, 0, sizeof(pc));
+        memset(&kc, 0, sizeof(kc));
+        memset(pqh, 0, sizeof(pqh)); memset(pkh, 0, sizeof(pkh)); memset(pkb, 0, sizeof(pkb));
+        memset(pvp, 0, sizeof(pvp)); memset(pvb, 0, sizeof(pvb));
+        memset(pq0, 0, sizeof(pq0)); memset(pk0, 0, sizeof(pk0));
+        kc.t = 1;
+        kc.mode = GDN_M_HONEST;
+        pc.q_pre = zin; pc.k_pre = zin; pc.v_pre = zin; pc.beta = zin; pc.g_decay = zin;
+        pc.z = zin; pc.norm_w = zin; pc.out_w = zin;
+        pc.qhat = pqh; pc.khat = pkh; pc.kb = pkb; pc.vpad = pvp; pc.vb = pvb;
+        pc.q_hat = pq0; pc.k_hat = pk0;
+        pc.T = 1;
+        gdn_item_enter(&pc, &kc, 0, 0);        /* the one real row */
+        gdn_item_enter(&pc, &kc, 0, 1);        /* the first PAD row: must stay exactly zero */
+        long pad_nonzero = 0;
+        for (int i = 0; i < GDN_D_K; ++i) {
+            pad_nonzero += (pqh[GDN_D_K + i] != 0.0f);      /* qhat row t=1 */
+            pad_nonzero += (pkh[GDN_D_K + i] != 0.0f);      /* khat row t=1 */
+            pad_nonzero += (pkb[GDN_D_K + i] != 0.0f);      /* kb    row t=1 */
+        }
+        for (int i = 0; i < GDN_D_V; ++i) {
+            pad_nonzero += (pvp[GDN_D_V + i] != 0.0f);
+            pad_nonzero += (pvb[GDN_D_V + i] != 0.0f);
+        }
+        if (pad_nonzero != 0) {
+            printf("SELFTEST FAIL pad_rows_carry_data head=0 pad_row=1 nonzero_words=%ld of %d\n",
+                   pad_nonzero, 3 * GDN_D_K + 2 * GDN_D_V);
+            ++fails;
+        }
+        int real_nonzero = 0;
+        for (int i = 0; i < GDN_D_K; ++i) if (pqh[i] != 0.0f) real_nonzero = 1;
+        if (!real_nonzero) {
+            printf("SELFTEST FAIL pad_fixture_inert the one real row wrote no q_hat either\n");
+            ++fails;
+        }
+    }
     printf("SELFTEST %s arm=%s compiler=%s checks=%d fails=%d\n", fails ? "FAIL" : "PASS", arm,
            compiler, checks, fails);
     return fails ? 1 : 0;

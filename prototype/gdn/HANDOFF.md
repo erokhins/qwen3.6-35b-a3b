@@ -422,3 +422,20 @@ widening a band from here:
   (which proves the 158 pre-existing STAGE rows are byte-identical and only the 20 new rows were
   added). Scratch cleaned from `work/`; nothing staged; nothing outside `prototype/gdn/` written;
   no device run and no timer read, so no timing appears anywhere in this file or in the logs.
+
+## D-21 (2026-10-26): pad-equivalence witness + crediting under the bridge pair
+
+- Status: COMPLETE, gate rc=1 with exactly the two `q_hat` findings (red on purpose). `GATE PASS` stays
+  unreachable while any banded row is uncredited (42 now: 24 unlicensed + 18 form-unprobed).
+- `-DGDN_BROKEN_PAD` in `gdn_kernels.h` (gdn_item_enter / gdn_item_cum) is the only mutation that reaches a
+  pad word, because pads are synthesised inside the item entry. It FIRES: 4,644,568 bytes moved on
+  zero_state_prefill (pad_nonzero 0->3712), 12,027,499 / 12,395,650 on the decode plans; VISIBLE at zero state.
+- Crediting: 60 of 84 decode rows credited under the derived bridge pair `recurrent|pinned`; whole-run
+  credited=74 unlicensed=24 licensed_form_unprobed=18. Two independent readers must agree before any credit.
+- No row can be credited without a fired witness in the same run (credit_refused_without_pad_witness:
+  credited_without_witness=0).
+- Main-agent fixes after the lane stopped at its deadline: witness moved before the judging loop (with h0/cs0
+  hoisted so one honest reference run serves both comparisons), and `carried` corrected to `carry[i] >= 0`
+  WITH `[-1] * n` for the non-carried plan -- see DECISIONS.md D-21 for why the one-line fix alone was a trap.
+- Must not be re-litigated: the 24 unlicensed rows are honest residue. Evidence:
+  evidence/gdn-d21-pad-witness-2026-10-26.log. CPU-only, gpu_lock refs 0, no timing taken.

@@ -113,6 +113,10 @@ HOST = HERE / "host_probe"
 DEVI = HERE / "gdn"
 BROKEN = HERE / "build" / "host_probe_broken"
 XPOSE = HERE / "build" / "host_probe_xpose"
+# D-21's second control build: the same source with `-DGDN_BROKEN_PAD`, which makes one pad row of
+# every head carry data instead of §04b.2's zeros. Arm-internal by necessity — the pads are
+# synthesised inside `gdn_item_enter`, so no driver-side mutation can reach one.
+PAD = HERE / "build" / "host_probe_pad"
 
 # The authoritative band digest: `band_digest(load_band(BAND_PATH))` as measured 2026-10-26. It is
 # pinned here so a silently regenerated band cannot be judged against itself. If `load_band()`
@@ -131,6 +135,11 @@ STATE_AFFECTED = list(G.downstream_closure(("scan_out", "state")))
 # and the manifest names that dependency (§reading_rules.decode_rows). PRED[p] is the pass whose
 # pinned `state` is pass p's incoming state.
 DEC_PASSES = ["decode0", "decode1", "decode2"]
+# The two plans the carry section judges, in the order it judges them: the 42 cached-decode cases
+# with their pinned incoming state, and the same cases chained so each case reads the state the
+# previous one emitted. These strings are the `plan=` field on every LICENCE and CARRYVERDICT line, so
+# a derived denominator and a printed row cannot drift apart.
+CARRY_PLAN_LABELS = ("pinned_state", "arm_carried")
 PRED = {"decode0": "prefill", "decode1": "decode0", "decode2": "decode1"}
 STATE_WORDS = 32 * 128 * 128
 STAGE_IS_BF16 = {"q_hat": False, "k_hat": False, "scan_out": False, "core_attn": True,
@@ -145,6 +154,118 @@ SECTIONS = ["three-arm", "band", "chunkcarry", "carry", "exact", "controls", "wi
 # The arm pair every banded row in this lane measures: this kernel is a chunked scan at the
 # reference width, the reference side is the pinned dump bytes. Keyed the way `gdn_ref` keys it.
 LICENCE_PAIR = ("chunked", "pinned")
+# D-21: the licence a DECODE row may be judged under. `chunked|pinned` has no probe record at a
+# decode pass (§04b.1 gives a cached step the recurrent program), and forcing one there would
+# license a program the model never dispatches. The pair is NOT typed either: the left arm is the
+# recurrent-family arm the dispatch table itself names at a decode pass, the right arm is
+# `gdn_ref.ARM_PINNED`, and `bridge_pair()` refuses rather than guessing if that name is ambiguous.
+VERDICTS = ("LICENSED", "LICENSED_BRIDGED", "LICENSED_FORM_UNPROBED",
+            "UNLICENSED", "UNLICENSED_ARM_NOT_DISPATCHED", "CANNOT_BE_ESTABLISHED")
+
+
+def bridge_pair():
+    """The licence pair for a decode row, read out of the oracle's dispatch table.
+
+    `probe_arms_for("decode", "pinned")` names the arms that exist at a cached step; exactly one of
+    them has `Form.scan == "recurrent"`, and that arm plus `ARM_PINNED` is the pair the licence is
+    looked up under. Two such arms, or none, is a refusal: the whole point of D-21 is that the row
+    is judged under the licence for the program the dispatch RUNS, so choosing between candidates
+    would be this lane picking a ruler instead of reading one."""
+    arms = G.probe_arms_for("decode", "pinned")
+    cand = [a for a in arms if a in G.PROBE_ARMS and G.Form.named(a).scan == "recurrent"]
+    if len(cand) != 1:
+        raise Refuse("the §04b.1 dispatch names %d recurrent-family arms at a decode pass (%s); "
+                     "D-21's licence is the one that exists for the dispatched program and it "
+                     "cannot be named while the choice is ambiguous"
+                     % (len(cand), ",".join(arms)))
+    return (cand[0], G.ARM_PINNED)
+
+
+def licensed_rows_from_file():
+    """The licence population, read by a SECOND and independent reader.
+
+    `Licence.cite` asks `gdn_ref.band_licenses`, which answers from the dict `load_band` built. The
+    reconciliation checks need an expected value that does not come out of that object, or a
+    mutation of it would move the row list and its own expected value together. This reads the band
+    FILE again through `json.loads` and takes `licensed_rows` per stage, so the two sides share the
+    bytes on disk and nothing else."""
+    doc = json.loads(G.BAND_PATH.read_text())
+    return {st: set(ent.get("licensed_rows", []))
+            for st, ent in doc["band"].items()}
+
+
+class PadWitness:
+    """D-21's bridging witness: the state of the `-DGDN_BROKEN_PAD` control in THIS run.
+
+    The claim being bridged is "a C=64 chunked kernel with 63 zero pads implements the recurrent
+    single-token step". The pads are synthesised inside the arm (`gdn_item_enter` writes the zeros,
+    `gdn_item_cum` adds 0.0 for a pad row), so the only mutation that can reach them is the arm's
+    own `#ifdef`; a witness written in the driver could never fire, which is what D-21 forbids.
+    This object records what that mutation did — per plan, at which T, how many bytes of EMITTED
+    output it moved — and answers the one question the crediting rule asks: did it turn the
+    comparison RED on the plans that actually produce a decode row?
+
+    Three states, all named, because D-21's fallback is a named third state and not a silence:
+      FIRED                 its self-test failed, and every plan that produces a banded decode row
+                            — and every case that has pad columns — moved bytes;
+      INVISIBLE             the control ran and moved nothing somewhere it must move: the witness
+                            would be decorative, so it is not counted;
+      CANNOT_BE_ESTABLISHED the control build is absent or its self-test cannot fail, so no
+                            mutation reached the pads and no row may be credited under the bridge.
+    """
+
+    def __init__(self):
+        self.plans = []          # one dict per (plan, T) the control was run over
+        self.selftest = None     # None until the control build has been run
+        self.reason = "the pad control has not run in this process"
+
+    def add_plan(self, label, kind, T, t_real, chunk_width, bytes_total, ndiff_bytes,
+                 produces_rows):
+        self.plans.append(dict(label=label, kind=kind, T=T, t_real=t_real,
+                               pad_cols=chunk_width - t_real, bytes=bytes_total,
+                               ndiff=ndiff_bytes, produces_rows=produces_rows))
+
+    @property
+    def state(self):
+        if self.selftest is None:
+            self.reason = ("the pad control build was never run: %s is not built "
+                           "(`./build.sh --broken`)" % PAD)
+            return "CANNOT_BE_ESTABLISHED"
+        if not self.selftest:
+            self.reason = ("the pad control build passed its own self-test, so the pad checks in "
+                           "the self-test cannot fail and the build is not a control")
+            return "CANNOT_BE_ESTABLISHED"
+        live = [p for p in self.plans if p["produces_rows"]]
+        if not live:
+            self.reason = ("no plan that produces a banded decode row was run under the control, "
+                           "so any red it prints says nothing about the rows being credited")
+            return "CANNOT_BE_ESTABLISHED"
+        silent = [p for p in live if p["ndiff"] == 0]
+        if silent:
+            self.reason = ("the control moved 0 bytes of emitted output on %s: a pad row that "
+                           "carries data did not change a decode row, so the equivalence claim is "
+                           "not witnessed by anything in this run"
+                           % ",".join(p["label"] for p in silent))
+            return "INVISIBLE"
+        inert = [p for p in self.plans if p["pad_cols"] > 0 and p["ndiff"] == 0]
+        if inert:
+            self.reason = ("the control moved 0 bytes on %s although those cases have %d pad "
+                           "columns" % (",".join(p["label"] for p in inert), inert[0]["pad_cols"]))
+            return "INVISIBLE"
+        return "FIRED"
+
+    def fires_on_decode_rows(self):
+        return self.state == "FIRED"
+
+    def describe(self):
+        return ("state=%s selftest=%s plans=[%s] reason=%s"
+                % (self.state, "FIRE" if self.selftest is True else
+                   ("SILENT" if self.selftest is False else "NOT-RUN"),
+                   " ".join("%s:T%d/pad_cols=%d/bytes=%d/ndiff=%d%s" %
+                            (p["label"], p["T"], p["pad_cols"], p["bytes"], p["ndiff"],
+                             "/produces_decode_rows" if p["produces_rows"] else "")
+                            for p in self.plans),
+                   self.reason))
 
 
 class Checks:
@@ -184,19 +305,26 @@ class Checks:
 class Licence:
     """Cites the oracle's own licence table once per banded row, and counts what it found.
     Two independent questions, because they are two different holes:
-      `licensed`     — does `band_licenses` grant the pair (`chunked|pinned`) at THIS pass and
-                       stage? It answers from the band file's own `licensed_rows`, which
+      `licensed`     — does `band_licenses` grant THE PAIR this row is judged under, at THIS pass
+                       and stage? It answers from the band file's own `licensed_rows`, which
                        `load_band` already refused to let anyone hand-edit.
       `form_probed`  — is the FORM that produced this row one the probe actually ran at that pass?
                        Read out of `gdn_ref.probe_arms_for` (the §04b.1 dispatch table) and
                        `gdn_ref.Form.named(a).chunk_width`, so neither the arm list nor the chunk
                        widths are typed here.
-    A row is CREDITED only when both are true. A row that is measured but not credited stays
-    printed with its band verdict — the point of the line is that nobody can read `ACCEPTED` as
-    `credited` without the licence line beside it."""
+    A `chunked|pinned` row is CREDITED only when both are true. A DECODE row is judged under the
+    bridge pair instead (`recurrent|pinned`, D-21) because that is the only licence the dispatch can
+    produce for the program it actually runs, and it is credited only when the licence grants it, the
+    licence arm is one §04b.1 runs at that pass, AND this run's pad-equivalence witness FIRED. The
+    bridge claim is "a C=64 chunked kernel with 63 zero pads implements the recurrent single-token
+    step", and a row may not be credited on a claim nobody in this run tested — which is why the
+    witness is an argument to `classify`, not a comment beside it. A row that is measured but not
+    credited stays printed with its band verdict: nobody can read `ACCEPTED` as `credited` without
+    the licence line beside it."""
 
-    def __init__(self, band, g, verbose=True):
+    def __init__(self, band, g, verbose=True, pad=None):
         self.band = band
+        self.pad = pad
         self.rows = []
         self.mark = 0
         self.chunked_arms = [a for a in G.PROBE_ARMS if G.Form.named(a).scan == "chunked"]
@@ -209,25 +337,57 @@ class Licence:
               % ("|".join(LICENCE_PAIR), ",".join(self.chunked_arms),
                  ",".join(str(w) for w in self.probed_widths)))
 
-    def cite(self, block, pass_, stage, plan, form_width=None):
-        pass_key = "%s/pinned/%s" % (block, pass_)
-        licensed, why = G.band_licenses(self.band, pass_key, stage, *LICENCE_PAIR)
-        kind = "decode" if pass_.startswith("decode") else "prefill"
+    def classify(self, pass_key, stage, pair, form_width=None):
+        """One row's licence state, computed and not printed, so a witness can re-run THIS predicate
+        over a mutated table, a shortened row set, or a withdrawn witness and compare."""
+        pair = tuple(pair)
+        licensed, why = G.band_licenses(self.band, pass_key, stage, *pair)
+        kind = "decode" if pass_key.split("/")[-1].startswith("decode") else "prefill"
         arms = G.probe_arms_for(kind, "pinned")
+        arm_dispatched = int(pair[0] in arms or pair[0] == G.ARM_PINNED)
         scan_ok = LICENCE_PAIR[0] in arms
         width_ok = form_width is None or form_width in self.probed_widths
         form_probed = int(scan_ok and width_ok)
-        verdict = ("LICENSED" if (licensed and form_probed) else
-                   ("LICENSED_FORM_UNPROBED" if licensed else "UNLICENSED"))
-        print("LICENCE row=%s plan=%s pass=%s stage=%s licensed=%d form_probed=%d "
-              "form_chunk_width=%s arms_at_pass=%s verdict=%s credited=%d why=%s"
-              % (G.cross_form_key(pass_key, *LICENCE_PAIR), plan, pass_key, stage,
-                 int(licensed), form_probed,
-                 "reference" if form_width is None else form_width, ",".join(arms), verdict,
-                 int(verdict == "LICENSED"), why))
-        self.rows.append(dict(plan=plan, pass_key=pass_key, stage=stage, verdict=verdict,
-                              licensed=int(licensed), form_probed=form_probed))
-        return verdict
+        bridged = pair != LICENCE_PAIR
+        witnessed = (not bridged) or (self.pad is not None and self.pad.fires_on_decode_rows())
+        if not licensed:
+            verdict = "UNLICENSED"
+        elif not arm_dispatched:
+            verdict = "UNLICENSED_ARM_NOT_DISPATCHED"
+            why = ("the licence names %s, which §04b.1 does not run at a %s pass "
+                   "(arms_at_pass=%s)" % (pair[0], kind, ",".join(arms)))
+        elif bridged and not witnessed:
+            verdict = "CANNOT_BE_ESTABLISHED"
+            why = ("the licence for %s exists at this pass, but the pad-equivalence witness "
+                   "(-DGDN_BROKEN_PAD) did not fire in this run, so the claim that lets a chunked "
+                   "kernel's row stand for a recurrent one is untested here" % "|".join(pair))
+        elif bridged:
+            verdict = "LICENSED_BRIDGED"
+        elif form_probed:
+            verdict = "LICENSED"
+        else:
+            verdict = "LICENSED_FORM_UNPROBED"
+        return dict(licensed=int(licensed), arms=arms, arm_dispatched=arm_dispatched,
+                    form_probed=form_probed, verdict=verdict, why=why,
+                    credited=int(verdict in ("LICENSED", "LICENSED_BRIDGED")))
+
+    def cite(self, block, pass_, stage, plan, form_width=None, pair=None):
+        pair = LICENCE_PAIR if pair is None else tuple(pair)
+        pass_key = "%s/pinned/%s" % (block, pass_)
+        c = self.classify(pass_key, stage, pair, form_width=form_width)
+        print("LICENCE row=%s plan=%s pass=%s stage=%s pair=%s licensed=%d form_probed=%d "
+              "licence_arm_at_pass=%d form_chunk_width=%s arms_at_pass=%s pad_witness=%s "
+              "verdict=%s credited=%d why=%s"
+              % (G.cross_form_key(pass_key, *pair), plan, pass_key, stage, "|".join(pair),
+                 c["licensed"], c["form_probed"], c["arm_dispatched"],
+                 "reference" if form_width is None else form_width, ",".join(c["arms"]),
+                 "n/a" if pair == LICENCE_PAIR else (self.pad.state if self.pad else "ABSENT"),
+                 c["verdict"], c["credited"], c["why"]))
+        self.rows.append(dict(plan=plan, pass_key=pass_key, stage=stage, pair=pair,
+                              verdict=c["verdict"], licensed=c["licensed"],
+                              form_probed=c["form_probed"], arm_dispatched=c["arm_dispatched"],
+                              credited=c["credited"]))
+        return c["verdict"]
 
     def tally(self, label, derived):
         """Count the rows cited since the last tally and refuse an empty or short population: a
@@ -236,11 +396,11 @@ class Licence:
         rows = self.rows[self.mark:]
         self.mark = len(self.rows)
         n = len(rows)
-        by = {v: sum(1 for r in rows if r["verdict"] == v) for v in
-              ("LICENSED", "LICENSED_FORM_UNPROBED", "UNLICENSED")}
+        by = {v: sum(1 for r in rows if r["verdict"] == v) for v in VERDICTS}
+        cred = sum(r["credited"] for r in rows)
         print("LICENCETALLY scope=%s rows=%d derived=%d credited=%d %s"
-              % (label, n, derived, by["LICENSED"],
-                 " ".join("%s=%d" % (k.lower(), v) for k, v in sorted(by.items()))))
+              % (label, n, derived, cred,
+                 " ".join("%s=%d" % (k.lower(), v) for k, v in sorted(by.items()) if v)))
         return n, by
 
 
@@ -652,7 +812,8 @@ def main() -> int:
         if s not in band:
             raise Refuse("stage %s has no band entry" % s)
     chk = Checks(fails)
-    lic = Licence(band, g)
+    pad = PadWitness()
+    lic = Licence(band, g, pad=pad)
 
     # ---------------- the honest plan: one case per block, one chunk, zero initial state -------
     fields = {b: field_words(recs, b, T) for b in blocks}
@@ -759,7 +920,7 @@ def main() -> int:
     if want("carry"):
         ran.append("carry")
         carry_section(band, g, recs, blocks, T, wslots, plan, ins, wts, stage_lines,
-                      fails, counts, lic, chk)
+                      fails, counts, lic, chk, pad)
 
     # ============================================================ the exact read/decode checks
     if want("exact"):
@@ -1049,19 +1210,25 @@ def main() -> int:
     # ------------------------------------------------------------------ verdict
     print("METRICS primary=relL2+ndiff+band_check_row reported_only=maxabs,cos "
           "maxabs_load_bearing=0 cos_load_bearing=0 band_source=band_check_row_only")
-    lic_cred = sum(1 for r in lic.rows if r["verdict"] == "LICENSED")
+    lic_cred = sum(r["credited"] for r in lic.rows)
     lic_unlicensed = sum(1 for r in lic.rows if r["verdict"] == "UNLICENSED")
     lic_unprobed = sum(1 for r in lic.rows if r["verdict"] == "LICENSED_FORM_UNPROBED")
-    lic_uncredited = lic_unlicensed + lic_unprobed
+    lic_unarm = sum(1 for r in lic.rows if r["verdict"] == "UNLICENSED_ARM_NOT_DISPATCHED")
+    lic_unest = sum(1 for r in lic.rows if r["verdict"] == "CANNOT_BE_ESTABLISHED")
+    lic_uncredited = len(lic.rows) - lic_cred
+    counts["pad_witness_fired"] = 1 if pad.fires_on_decode_rows() else 0
     print("LICENCEVERDICT scope=whole_run banded_rows=%d credited=%d unlicensed=%d "
-          "licensed_form_unprobed=%d checks=%d checks_red=%d verdict=%s "
+          "licensed_form_unprobed=%d unlicensed_arm_not_dispatched=%d cannot_be_established=%d "
+          "pad_witness=%s checks=%d checks_red=%d verdict=%s "
           "note=an uncredited row keeps its band verdict and its measurement; what it does not get "
-          "is the word licensed. The fix is a probe record for the pair at that pass, which only "
-          "`speccheck/gdn_ref.py --floor-probe` may write and which §04b.1's dispatch currently "
-          "refuses to run for a chunked arm at a decode pass"
-          % (len(lic.rows), lic_cred, lic_unlicensed, lic_unprobed,
-             len(chk.names), chk.red,
-             "CLEAN" if not lic_uncredited else "QUALIFIED"))
+          "is the word licensed. The prefill rows need a probe record for `chunked|pinned` at that "
+          "pass, which only `speccheck/gdn_ref.py --floor-probe` may write; the decode rows are "
+          "judged under the licence §04b.1 can actually produce for them (%s) and are credited only "
+          "while the arm-internal pad witness fires (D-21)"
+          % (len(lic.rows), lic_cred, lic_unlicensed, lic_unprobed, lic_unarm, lic_unest,
+             pad.state, len(chk.names), chk.red,
+             "CLEAN" if not lic_uncredited else "QUALIFIED",
+             "|".join(bridge_pair())))
     counts["banded_rows_licensed"] = lic_cred
     counts["banded_rows_uncredited"] = lic_uncredited
     counts["named_checks"] = len(chk.names)
@@ -1110,7 +1277,7 @@ def licence_tally(chk, lic, scope, derived, counts):
                         by["UNLICENSED"]))
 
 
-def licence_independent_expect(lic, pass_keys):
+def licence_independent_expect(lic, pass_keys, pair=LICENCE_PAIR):
     """A SECOND derivation of how many of a set of rows cannot be licensed, from the dispatch table
     rather than from the licence file: `probe_arms_for` names the arms that exist at a pass, and a
     pair can only be licensed where both arms were run there. The licence table and this must agree
@@ -1118,7 +1285,7 @@ def licence_independent_expect(lic, pass_keys):
     exp = 0
     for pk in pass_keys:
         kind = "decode" if pk.split("/")[-1].startswith("decode") else "prefill"
-        if LICENCE_PAIR[0] not in G.probe_arms_for(kind, "pinned"):
+        if pair[0] not in G.probe_arms_for(kind, "pinned"):
             exp += 1
     return exp
 
@@ -1157,8 +1324,155 @@ def carry_material(recs, blocks):
     return cases, states, nz
 
 
+def pad_witness_run(chk, pad, runs, wts, chunk_width, counts):
+    """D-21's precondition, run: the arm-internal pad control over every plan whose rows are judged.
+
+    `runs` is a list of dicts with label, kind ("prefill" | "decode"), plan, inputs, res (the honest
+    arm's result over the SAME bytes), cs (the honest arm's parsed CASE lines), T and produces_rows.
+    For each, `build/host_probe_pad` — the same source with `-DGDN_BROKEN_PAD`, one pad row of every
+    head carrying data instead of the zeros §04b.2 mandates — is run over those bytes and the EMITTED
+    output is compared word for word.
+
+    Four checks, each with a derived denominator:
+      `pad_witness_fires`                   the control's self-test failed AND every plan that
+                                            produces a banded decode row moved emitted bytes;
+      `pad_witness_confined`                per (plan, case, stage): bytes moved exactly on the set the
+                                            oracle's own dataflow says a pad row can reach and NOWHERE
+                                            else — `downstream_closure(("state",))` inside a case that
+                                            reads its own incoming state from the file, and the whole
+                                            `STATE_AFFECTED` set for a case whose incoming state is the
+                                            previous case's poisoned `state`. Both directions are
+                                            asserted, so a control that perturbs everything fails it as
+                                            hard as one that perturbs nothing;
+      `pad_witness_visible_at_zero_state`   the polarity, stated and tested: unlike the state-read
+                                            control this one must be VISIBLE with a zero incoming
+                                            state, because §04b.2's padding is a property of the chunk
+                                            and not of the state;
+      `pad_census_moves_under_the_control`  the arm's own `pad_nonzero` counter — printed as a fact
+                                            since slice 3 and never counted, because no mutation could
+                                            reach it — is 0 on every honest case and nonzero on every
+                                            case under the control. That is what turns it from a note
+                                            into a counter.
+    Nothing here reads a timer: every number printed counts bytes or words.
+    """
+    if not PAD.exists():
+        pad.selftest = None
+        chk.check("pad_witness_present", False,
+                  "build=%s exists=0 note=with no arm-internal pad switch no mutation can reach a "
+                  "pad word, so the bridging claim is untestable and no decode row may be credited "
+                  "under the bridge pair; that is D-21's named fallback, CANNOT_BE_ESTABLISHED, and "
+                  "the fix is ./build.sh --broken rather than a row credited on an untested claim"
+                  % PAD)
+        return
+    st = subprocess.run([str(PAD), "--selftest"], capture_output=True, text=True)
+    pad.selftest = st.returncode != 0
+    tail = ((st.stdout + st.stderr).strip().splitlines() or ["<silent>"])[-1]
+    print("SABOTAGE build=host_probe_pad define=GDN_BROKEN_PAD selftest=%s tail=%s "
+          "note=one pad row of every head carries data instead of §04b.2's zeros; the honest build "
+          "never defines it, and its STAGE lines are the same 178 bytes for bytes"
+          % ("FIRE" if pad.selftest else "SILENT", tail[:96]))
+    # must-catch sets, DERIVED from the oracle's dataflow table and not typed: a pad row enters the
+    # emitted stages through the state write's accumulation over all C rows (unmasked) and the carry
+    # multiplier exp(cum[C-1]), both of which read a pad slot as data; the intra-chunk output is
+    # protected because §04b.3 masks `intra_attn` above the diagonal BEFORE the exp, so a pad column
+    # can never reach a real row's output. A carried case additionally reads the poisoned state, and
+    # from there the whole scan closure is reachable.
+    pad_reaches_own = tuple(G.downstream_closure(("state",)))
+    pad_reaches_carried = STATE_AFFECTED
+    if not pad_reaches_own or not set(pad_reaches_own) <= set(pad_reaches_carried):
+        raise Refuse("the oracle's dataflow says a pad row reaches %s inside its own case and %s for "
+                     "a carried one, which is not a subset: the pad control's must-catch set cannot "
+                     "be derived from STAGE_CONSUMERS as written"
+                     % (",".join(pad_reaches_own), ",".join(pad_reaches_carried)))
+    moved_rows, should_move_did_not, should_not_move_did = 0, 0, 0
+    honest_pad_cases, control_pad_cases, cases_with_pads = 0, 0, 0
+    for r in runs:
+        res = run_arm(PAD, "host_twin", r["plan"], r["inputs"], wts, "pad_%s" % r["label"])
+        cs, _, run = parse_arm(res, r["res"]["n_cases"], r["T"])
+        if [c["out_hash"] for c in cs] == [c["out_hash"] for c in r["cs"]]:
+            pass   # identical hashes are what `ndiff_bytes` below measures; nothing is assumed here
+        nd, nb = pair_bytes(r["res"], res, "out")
+        pad.add_plan(r["label"], r["kind"], r["T"], r["T"], chunk_width, nb, nd, r["produces_rows"])
+        for i in range(len(cs)):
+            # `carry[i] >= 0` is the established meaning of "carried" in this gate: plan B builds
+            # carry_idx with -1 for a first-of-block case (state read from file) and the previous
+            # case index otherwise, and its own guard counts `sum(1 for v in carry_idx if v >= 0)`.
+            # bool(-1) is True, so a truthiness test here marked the two first-of-block cases as
+            # carried and judged them against the WIDER carried must-catch set -- which is where
+            # should_move_but_did_not came from. Note the trap in the obvious fix: plan A below
+            # passes a constant per case, so a bare `>= 0` test would silently mark every
+            # non-carried case as carried. Both sides are corrected together.
+            carried = (int(r["carry"][i]) >= 0) if r["carry"] else False
+            must = pad_reaches_carried if carried else pad_reaches_own
+            moved = {}
+            for st_ in STAGES:
+                moved[st_] = int((stage_tensor(res, i, r["T"], st_).reshape(-1)
+                                  != stage_tensor(r["res"], i, r["T"], st_).reshape(-1)).sum())
+                if st_ in must:
+                    moved_rows += 1
+                    if moved[st_] == 0:
+                        should_move_did_not += 1
+                elif moved[st_] != 0:
+                    should_not_move_did += 1
+            if int(cs[i]["pad_nonzero"]) > 0:
+                control_pad_cases += 1
+            if int(r["cs"][i]["pad_nonzero"]) != 0:
+                honest_pad_cases += 1
+            if r["T"] < chunk_width:
+                cases_with_pads += 1
+            print("SABOTAGE_PAD plan=%s case=%d T=%d pad_cols=%d carried=%d must_move=%s %s "
+                  "pad_nonzero_honest=%s pad_nonzero_control=%s plan_ndiff_bytes=%d verdict=%s"
+                  % (r["label"], i, r["T"], chunk_width - r["T"], int(carried),
+                     ",".join(must),
+                     " ".join("moved[%s]=%d" % (s, moved[s]) for s in STAGES),
+                     r["cs"][i]["pad_nonzero"], cs[i]["pad_nonzero"], nd,
+                     "VISIBLE" if nd else "INVISIBLE"))
+    chk.check("pad_witness_fires",
+              bool(pad.selftest) and any(p["produces_rows"] for p in pad.plans)
+              and all(p["ndiff"] > 0 for p in pad.plans if p["produces_rows"]),
+              "selftest=%s %s" % ("FIRE" if pad.selftest else "SILENT", pad.describe()))
+    chk.check("pad_witness_confined",
+              moved_rows > 0 and should_move_did_not == 0 and should_not_move_did == 0,
+              "must_catch_rows=%d should_move_but_did_not=%d moved_though_upstream=%d "
+              "derived_from=gdn_ref.downstream_closure+STAGE_CONSUMERS note=must_move is (%s) inside "
+              "a case that reads its own incoming state and (%s) for a case whose incoming state is "
+              "the previous case's emitted state; every other stage must be byte-identical, which is "
+              "what makes this a pad control and not a blanket perturbation"
+              % (moved_rows, should_move_did_not, should_not_move_did,
+                 ",".join(pad_reaches_own), ",".join(pad_reaches_carried)))
+    zero = [p for p in pad.plans if p["kind"] == "prefill"]
+    chk.check("pad_witness_visible_at_zero_state",
+              bool(zero) and all(p["ndiff"] > 0 for p in zero),
+              "zero_state_plans=%s ndiff_bytes=%s verdict=%s note=the state-read control reads "
+              "INVISIBLE_AT_ZERO_STATE and this one must NOT: §04b.2's padding is a property of the "
+              "chunk, so a pad row that carries data moves the emitted state with no state to carry"
+              % (",".join(p["label"] for p in zero) or "none",
+                 ",".join(str(p["ndiff"]) for p in zero) or "none",
+                 "VISIBLE_AT_ZERO_STATE" if zero and all(p["ndiff"] > 0 for p in zero)
+                 else "INVISIBLE_AT_ZERO_STATE"))
+    chk.check("pad_census_moves_under_the_control",
+              honest_pad_cases == 0 and control_pad_cases == cases_with_pads and cases_with_pads > 0,
+              "honest_cases_with_nonzero_pads=%d control_cases_with_nonzero_pads=%d "
+              "cases_with_pad_cols=%d note=the arm's own GDN_ST_PAD_NONZERO counter is the thing "
+              "slice 3 could print and not count because no driver-side mutation could move it; under "
+              "the arm-internal define it leaves zero on every case that has pad columns, which is "
+              "what makes a pad census a measurement and not a constant"
+              % (honest_pad_cases, control_pad_cases, cases_with_pads))
+    counts["pad_control_plans"] = len(pad.plans)
+    counts["pad_control_must_catch"] = moved_rows
+    counts["pad_control_cases"] = cases_with_pads
+
+
+# The state a pad row reaches inside the case that synthesised it, and the state a pad row reaches
+# once that case's emitted `state` has been carried into the next one. Both are read out of the
+# oracle's dataflow table (`speccheck/gdn_ref.py STAGE_CONSUMERS`) by `pad_witness_run`; the names
+# live here so the crediting rule and the witness cannot drift apart.
+PAD_REACHES_OWN = tuple(G.downstream_closure(("state",)))
+PAD_REACHES_CARRIED = STATE_AFFECTED
+
+
 def carry_section(band, g, recs, blocks, T, wslots, plan, ins, wts, stage_lines, fails, counts,
-                  lic, chk):
+                  lic, chk, pad):
     """Slice 2's own question: does a LIVE state survive the boundary, and can anything here tell?
 
     TWO plans over the same six cases, so the only difference between them is where a case's incoming
@@ -1253,7 +1567,11 @@ def carry_section(band, g, recs, blocks, T, wslots, plan, ins, wts, stage_lines,
         fails.append("%d case(s) of the carried plan disagree about the state they received "
                      "(count or carry index)" % bad)
 
-    # ---- the banded verdicts, both plans, all seven stages
+    # ---- the banded verdicts, both plans, all seven stages. A decode row is judged under the bridge
+    # pair (`recurrent|pinned`) — the licence that exists for the program §04b.1 dispatches at a
+    # cached step — and every other row under `chunked|pinned`.
+    BRIDGE = bridge_pair()
+
     def judge(res, tag, plan_label):
         rows, ok_rows, rejected = 0, 0, set()
         for i, c in enumerate(cases):
@@ -1263,7 +1581,7 @@ def carry_section(band, g, recs, blocks, T, wslots, plan, ins, wts, stage_lines,
                 ok, _ = band_row(band, tag, c["block"], c["name"], st, mine, ref, stage_lines,
                                  fails, lambda b, p, s, w: "%s/%s/%s outside the derived band: %s"
                                                         % (tag, b, p, w))
-                lic.cite(c["block"], c["name"], st, plan=plan_label)
+                lic.cite(c["block"], c["name"], st, plan=plan_label, pair=BRIDGE)
                 rows += 1
                 if ok:
                     ok_rows += 1
@@ -1271,47 +1589,127 @@ def carry_section(band, g, recs, blocks, T, wslots, plan, ins, wts, stage_lines,
                     rejected.add(st)
         return rows, ok_rows, rejected
 
+    # The claim under test is "a C=64 chunked kernel with 63 zero pads implements the recurrent
+    # single-token step", and the only mutation that can reach a pad word is the arm's own
+    # `-DGDN_BROKEN_PAD` (`gdn_kernels.h::gdn_item_enter`, `gdn_kernels.h::gdn_item_cum`), because
+    # the pads are synthesised inside the item entry and never pass through anything a driver writes.
+    # The three plans below are the three ways this lane produces emitted bytes: the zero-state
+    # prefill (where the state-read control is provably blind), the non-carried decode, and the
+    # carried decode. THIS CALL MUST PRECEDE THE JUDGING LOOP: Licence.classify asks the witness
+    # whether the pad control fired, and a witness that fires after `judge` can credit nothing.
+    # The honest prefill baseline is produced here for the same reason: the zero-state pad plan and
+    # the xpose comparison below must both be measured against THIS run, not two separate copies of
+    # what is meant to be one honest reference.
+    h0 = run_arm(HOST, "host_twin", plan, ins, wts, "xzero")
+    cs0, _, _ = parse_arm(h0, len(blocks), T)
+    pad_witness_run(chk, pad, [
+        dict(label="zero_state_prefill", kind="prefill", plan=plan, inputs=ins, res=h0, cs=cs0,
+             T=T, produces_rows=False, carry=None),
+        dict(label=CARRY_PLAN_LABELS[0], kind="decode", plan=planA, inputs=insA, res=resA, cs=csA,
+             T=DEC_T, produces_rows=True, carry=[-1] * n),
+        dict(label=CARRY_PLAN_LABELS[1], kind="decode", plan=planB, inputs=insA, res=resB, cs=csB,
+             T=DEC_T, produces_rows=True, carry=carry_idx),
+    ], wts, g.chunk_width, counts)
+
     mark0 = len(lic.rows)
+    sl0 = len(stage_lines)
     verdicts = []
-    for res, tag, plan_label in ((resA, "kernel_vs_dump", "pinned_state"),
-                                 (resB, "kernel_carried_vs_dump", "arm_carried")):
+    for res, tag, plan_label in ((resA, "kernel_vs_dump", CARRY_PLAN_LABELS[0]),
+                                 (resB, "kernel_carried_vs_dump", CARRY_PLAN_LABELS[1])):
         rows, ok_rows, rejected = judge(res, tag, plan_label)
         if rows != n * len(STAGES):
             fails.append("%s plan produced %d stage rows, derived denominator is %d"
                          % (plan_label, rows, n * len(STAGES)))
         n_cite, by = lic.tally("carry:" + plan_label, n * len(STAGES))
+        cred = by["LICENSED"] + by["LICENSED_BRIDGED"]
         chk.check("licence_cited_carry_%s" % plan_label,
                   n_cite == rows and n_cite > 0,
                   "rows=%d derived=%d credited=%d unlicensed=%d note=the band accepted %d of "
                   "them; crediting is the licence's business, not the band's"
-                  % (n_cite, rows, by["LICENSED"], by["UNLICENSED"], ok_rows))
+                  % (n_cite, rows, cred, by["UNLICENSED"], ok_rows))
         print("CARRYVERDICT plan=%s rows=%d accepted=%d rejected=%d derived=%d "
               "rejected_stages=%s credited=%d unlicensed=%d verdict=%s"
               % (plan_label, rows, ok_rows, rows - ok_rows, n * len(STAGES),
-                 ",".join(sorted(rejected)) or "none", by["LICENSED"], by["UNLICENSED"],
-                 "CREDITED" if by["LICENSED"] == rows else
-                 ("UNLICENSED" if by["LICENSED"] == 0 else "PARTLY_LICENSED")))
+                 ",".join(sorted(rejected)) or "none", cred, by["UNLICENSED"],
+                 "CREDITED" if cred == rows else
+                 ("UNLICENSED" if cred == 0 else "PARTLY_LICENSED")))
         verdicts.append((rows, ok_rows, rejected))
     rowsA, okA, rejA = verdicts[0]
     rowsB, okB, rejB = verdicts[1]
-    # The unlicensed population, derived a SECOND way: `probe_arms_for` names the arms that exist at
-    # a pass (the §04b.1 dispatch table), and a pair can only be licensed where both arms were run.
-    # If the licence file and the dispatch table ever disagree, this is where it surfaces.
+    # ---- D-21: the CREDITED count, derived a second and independent way, with the pad witness as a
+    # precondition on it. Reading (a) is the count the citations produced, through `band_licenses`;
+    # reading (b) rebuilds the population from the run's own geometry (blocks x decode passes x stages
+    # x 2 plans), asks the §04b.1 dispatch table whether the licence arm runs at each pass and the band
+    # FILE — through a second JSON reader, not through the dict `load_band` built — whether that row is
+    # licensed. Neither reading can move without the other noticing, and the predicate that decided
+    # each row is `Licence.classify`, the same one the witnesses below mutate.
+    raw_licensed = licensed_rows_from_file()
+    population = [("%s/pinned/%s" % (b, p), st)
+                  for b in blocks for p in DEC_PASSES for st in STAGES]
+
+    def bridge_expect(pop, licensed_map=None):
+        lmap = raw_licensed if licensed_map is None else licensed_map
+        return sum(1 for pk, st in pop
+                   if BRIDGE[0] in G.probe_arms_for(
+                          "decode" if pk.split("/")[-1].startswith("decode") else "prefill",
+                          "pinned")
+                   and G.cross_form_key(pk, *BRIDGE) in lmap.get(st, ()))
+
     lic_carry = lic.rows[mark0:]
-    lic_expected = licence_independent_expect(lic, [r["pass_key"] for r in lic_carry])
+    expected_cred = bridge_expect(population) * len(CARRY_PLAN_LABELS)
+    got_cred = sum(r["credited"] for r in lic_carry)
+    got_chunked = sum(1 for r in lic_carry if r["verdict"] == "LICENSED")
     lic_unlic = sum(1 for r in lic_carry if r["verdict"] == "UNLICENSED")
+    lic_unarm = sum(1 for r in lic_carry if r["verdict"] == "UNLICENSED_ARM_NOT_DISPATCHED")
+    # The unlicensed population, derived a SECOND way: `probe_arms_for` names the arms that exist at a
+    # pass (the §04b.1 dispatch table), and the band file names the licensed rows. A row is unlicensed
+    # exactly when one of the two refuses it, and the two terms are disjoint — a row whose licence arm
+    # does not run at its pass is never looked up in the file — so the sum is the whole population.
+    lic_expected_unarm = licence_independent_expect(lic, [r["pass_key"] for r in lic_carry], BRIDGE)
+    lic_expected_unfile = len(lic_carry) - expected_cred
     chk.check("carry_rows_unlicensed_eq_dispatch",
-              len(lic_carry) == 2 * n * len(STAGES) and lic_unlic == lic_expected,
-              "unlicensed=%d derived_from_probe_arms_for=%d rows=%d derived=%d note=the §04b.1 "
-              "dispatch gives a cached decode step the recurrent program, so the probe has no "
-              "chunked record at a decode pass and cannot license one"
-              % (lic_unlic, lic_expected, len(lic_carry), 2 * n * len(STAGES)))
-    if lic_unlic:
-        print("LICENCEVERDICT scope=carry rows=%d credited=%d unlicensed=%d verdict=QUALIFIED "
-              "note=band verdicts stand, acceptances are NOT deleted, and no unlicensed row is "
-              "credited as licensed evidence"
-              % (len(lic_carry), sum(1 for r in lic_carry if r["verdict"] == "LICENSED"),
-                 lic_unlic))
+              len(lic_carry) == 2 * n * len(STAGES)
+              and lic_unarm == lic_expected_unarm
+              and lic_unlic == lic_expected_unarm + lic_expected_unfile,
+              "unlicensed=%d derived=%d+%d unlicensed_arm_not_dispatched=%d "
+              "derived_from_dispatch_table=%d rows=%d derived_rows=%d pair=%s "
+              "derived_from=gdn_ref.probe_arms_for+band_file_json note=the dispatch table gives a "
+              "cached decode step the recurrent program, so the bridge arm runs at every decode pass "
+              "and every unlicensed row here comes from the file, not from the dispatch"
+              % (lic_unlic, lic_expected_unarm, lic_expected_unfile, lic_unarm,
+                 lic_expected_unarm, len(lic_carry), 2 * n * len(STAGES), "|".join(BRIDGE)))
+    chk.check("carry_rows_credited_eq_licence_file",
+              len(lic_carry) == len(population) * len(CARRY_PLAN_LABELS)
+              and got_cred == expected_cred and expected_cred > 0,
+              "credited=%d derived_from=geometry+gdn_ref.probe_arms_for+band_file_json=%d "
+              "rows=%d derived_rows=%d pair=%s pad_witness=%s note=the second reading never calls "
+              "band_licenses, so a licence census that agreed with itself and not with the file "
+              "would be caught here"
+              % (got_cred, expected_cred, len(lic_carry),
+                 len(population) * len(CARRY_PLAN_LABELS), "|".join(BRIDGE), pad.state))
+    chk.check("carry_credit_requires_firing_pad_witness",
+              got_cred == 0 or (pad.fires_on_decode_rows() and pad.selftest is True),
+              "credited=%d pad_witness=%s pad_selftest=%s note=a row is credited under the bridge "
+              "pair ONLY while the arm-internal pad control is present and firing; with the "
+              "witness withdrawn the rows go back to uncredited, which is the check the task "
+              "requires and the witness below proves it is load-bearing"
+              % (got_cred, pad.state, pad.selftest))
+    sl1 = len(stage_lines)
+    chk.check("carry_rows_are_printed_not_deleted",
+              sum(1 for ln in stage_lines[sl0:sl1] if ln.startswith("STAGE "))
+              == 2 * n * len(STAGES) and got_chunked == 0,
+              "stage_lines=%d derived=%d credited_under_chunked_pinned=%d uncredited=%d "
+              "note=the 84 rows are still measured and still printed with their band verdicts; the "
+              "only thing D-21 changed is who may be credited, and `chunked|pinned` still licenses "
+              "no decode row"
+              % (sl1 - sl0, 2 * n * len(STAGES), got_chunked, len(lic_carry) - got_cred))
+    if lic_unlic or len(lic_carry) != got_cred:
+        print("LICENCEVERDICT scope=carry rows=%d credited=%d uncredited=%d unlicensed=%d "
+              "licensed_form_unprobed=%d cannot_be_established=%d pad_witness=%s verdict=QUALIFIED "
+              "note=band verdicts stand, acceptances are NOT deleted, and no row is credited without "
+              "a licence row and a firing pad witness behind it"
+              % (len(lic_carry), got_cred, len(lic_carry) - got_cred, lic_unlic,
+                 by["LICENSED_FORM_UNPROBED"], by["CANNOT_BE_ESTABLISHED"], pad.state))
 
     # ---- witnesses that the licence census is a census and not a decoration.
     #  (a) a licence table that silently grants the pair at a decode pass must be NOTICEABLE: the
@@ -1350,13 +1748,67 @@ def carry_section(band, g, recs, blocks, T, wslots, plan, ins, wts, stage_lines,
                 "note=the predicate the honest run above passes must be the one that fails here"
                 % (len(lic_carry), len(short), len(lic_carry), pred_short))
 
+    # ---- D-21's witnesses: the crediting rule has to be able to refuse, and to be able to grant.
+    #  (c) the required one — a row credited while the pad-equivalence witness is absent must be
+    #      impossible, so the SAME classification rows, run through a `Licence` with no witness, has
+    #      to credit nothing. This is not a re-reading of the honest tally: `classify` is called
+    #      again, on the same pass keys, stages and pair, against a witness that is not there.
+    nowitness = Licence(band, g, verbose=False, pad=None)
+    cred_without = sum(nowitness.classify(r["pass_key"], r["stage"], BRIDGE)["credited"]
+                       for r in lic_carry)
+    chk.check("credit_refused_without_pad_witness",
+              expected_cred > 0 and cred_without == 0,
+              "credited_with_witness=%d credited_without_witness=%d derived_from=the_same_classify_"
+              "over_the_same_rows note=if this can only ever see 0==0 it is decoration; the witness "
+              "directly below is what keeps it honest"
+              % (got_cred, cred_without))
+    chk.witness("credit_fires_when_the_witness_is_present", got_cred > 0 and cred_without == 0,
+                "sabotage=withdraw_the_pad_witness credited=%d without=%d fired=%d note=a refusal "
+                "that refuses in both worlds is not a refusal, it is a constant"
+                % (got_cred, cred_without, int(got_cred > 0 and cred_without == 0)))
+    #  (d) the crediting path must actually read the licence table: revoke the first credited row in
+    #      an in-memory copy of the band and the SAME predicate must stop crediting it.
+    first_cred = next((r for r in lic_carry if r["credited"]), None)
+    if first_cred is None:
+        chk.witness("licence_credit_fires_on_a_revoked_row", False,
+                    "sabotage=revoke_a_licensed_row skipped=1 note=no row was credited, so there is "
+                    "no crediting path to mutate — which is the same as the licence table never "
+                    "having been read")
+    else:
+        rkey = G.cross_form_key(first_cred["pass_key"], *BRIDGE)
+        revoke_band = json.loads(json.dumps(band))
+        revoke_band[first_cred["stage"]]["licensed_rows"] = [
+            k for k in revoke_band[first_cred["stage"]].get("licensed_rows", []) if k != rkey]
+        rc = Licence(revoke_band, g, verbose=False, pad=pad).classify(
+            first_cred["pass_key"], first_cred["stage"], BRIDGE)
+        chk.witness("licence_credit_fires_on_a_revoked_row",
+                    rc["credited"] == 0 and rc["verdict"] == "UNLICENSED",
+                    "sabotage=revoke_a_licensed_row row=%s stage=%s pair=%s honest_verdict="
+                    "LICENSED_BRIDGED revoked_verdict=%s fired=%d note=the licence is read through "
+                    "gdn_ref.band_licenses per row, so a table that stopped granting must change the "
+                    "verdict and not merely the printout" % (rkey, first_cred["stage"],
+                                                              "|".join(BRIDGE), rc["verdict"],
+                                                              int(rc["credited"] == 0)))
+        #  (e) and the SECOND reader must be a reader: the same revocation, applied to the raw JSON
+        #      map, has to move the independently derived expected count by exactly one plan's worth.
+        raw_revoked = {st_: (ks - {rkey} if st_ == first_cred["stage"] else set(ks))
+                       for st_, ks in raw_licensed.items()}
+        exp_revoked = bridge_expect(population, raw_revoked) * len(CARRY_PLAN_LABELS)
+        chk.witness("licence_population_fires_on_a_revoked_row",
+                    exp_revoked == expected_cred - len(CARRY_PLAN_LABELS),
+                    "sabotage=revoke_the_same_row_in_the_raw_json expected=%d revoked=%d "
+                    "delta=%d fired=%d note=the reconciliation has two readers precisely so that one "
+                    "of them can be shown to be listening; this is that demonstration"
+                    % (expected_cred, exp_revoked, expected_cred - exp_revoked,
+                       int(exp_revoked == expected_cred - len(CARRY_PLAN_LABELS))))
+
     # ---- the sabotage, witnessed on BOTH kinds of plan
     st = subprocess.run([str(XPOSE), "--selftest"], capture_output=True, text=True)
     xpose_selftest = st.returncode != 0
     rx0 = run_arm(XPOSE, "host_twin", plan, ins, wts, "xpose_zero")
-    h0 = run_arm(HOST, "host_twin", plan, ins, wts, "xzero")
     parse_arm(rx0, len(blocks), T)
-    parse_arm(h0, len(blocks), T)
+    # h0 and cs0 come from above, before the pad witness, so that the zero-state pad plan and this
+    # xpose comparison share one honest reference run.
     nd0, nb0 = pair_bytes(h0, rx0, "out")
     ndA, nbA = (None, 0)
     rxA = run_arm(XPOSE, "host_twin", planA, insA, wts, "xpose_state")
@@ -1459,6 +1911,11 @@ def carry_section(band, g, recs, blocks, T, wslots, plan, ins, wts, stage_lines,
           % (order_rows, order_fail, 2 * n * len(STATE_AFFECTED)))
     counts["carry_rows"] = rowsA + rowsB
     counts["carry_xpose_rows"] = must_red
+
+    # ---- D-21 step 1: the pad-equivalence witness, BEFORE any decode row can be credited.
+    # The pad witness runs BEFORE the judging loop, not after it: Licence.classify consults the
+    # witness, so a witness that fires after the verdict is a witness that credited nothing. See
+    # just above `mark0`.
     counts["carry_order_rows"] = order_rows
 
 

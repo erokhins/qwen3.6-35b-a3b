@@ -284,6 +284,47 @@ GDNDAY_DEV static inline float gdn_sumsq(const float *a, int n) {
 }
 GDNDAY_DEV static inline float gdn_silu(float x) { return x / (1.0f + expf(-x)); }
 
+/* ---- the pad policy, and the ONE place it can be broken (D-21's bridging witness) ------------
+ * §04b.2: "pad `T` up to a multiple of `C`. `q`, `k`, `v` are zero-padded; `beta` and `g` are
+ * **zero**-padded, so a pad column writes nothing (`beta = 0`) and does not decay the state
+ * (`exp(0) = 1`)". Those four literals are the whole of the padding policy, and they are the
+ * premise of the claim D-21 has to witness: "a C=64 chunked kernel with 63 zero pads implements
+ * the recurrent single-token step". A driver-side mutation cannot test them — the pad words are
+ * synthesised here, not read from `inputs.bin`, so nothing outside the arm can move them, and a
+ * check on a quantity no mutation can reach is a check that cannot fail (`pitfalls/40` §A check
+ * whose predicate is `True`). So the mutation lives HERE, behind a compile-time switch, on the
+ * same pattern as `GDN_BROKEN_STATE_TRANSPOSE`: one spelling in the shipped source, one poisoned
+ * alternative compiled only into `build/host_probe_pad` by `./build.sh --broken`.
+ *
+ * The poison is not random: it is the padding policy doing exactly the two things §04b.2 forbids
+ * — a pad column that WRITES (nonzero `v` and `beta`, so `v_new` at a pad row is nonzero and the
+ * delta rule carries a token that does not exist) and a pad column that DECAYS the state (a
+ * nonzero `g` at a pad row moves `cum[C-1]`, which is the carry multiplier of every real row).
+ * One pad row is poisoned, the first one (`t == t_real`), because "63 zero pads" is a claim about
+ * each of them and corrupting one is enough to show the kernel does not tolerate it.
+ *
+ * The default build expands `GDN_PAD_ZERO` to the literal `0.0f` it already contained, so the
+ * shipped codegen is unchanged; `gate.py`'s determinism section is what proves that, and
+ * `evidence/gdn-d21-stage-line.diff` is what proves the STAGE lines did not move. */
+#ifdef GDN_BROKEN_PAD
+GDNDAY_DEV static inline float gdn_pad_poison(int h, int i) {
+    /* Deterministic and index-dependent so no two pad words are equal (a uniform poison could
+     * cancel inside a sum and read as an invisible change), small enough that the control stays a
+     * numerical defect and not an infinity, and derived from the head and the feature index rather
+     * than typed as a constant a reader has to trust. */
+    return (float)(((h * 31 + i * 7) % 13) - 6) * 0.03125f;   /* +-0.031 .. +-0.188 */
+}
+/* ONE pad row is poisoned — the first one. Corrupting a single row of the 63 is the weakest
+ * mutation that can answer the question, so a red result here says the claim depends on the pads
+ * being EXACTLY zero, not on them being broadly wrong. */
+#define GDN_PAD_FIRES(t, t_real) ((t) == (t_real))
+#define GDN_PAD_ZERO(t, t_real, h, i) \
+    (GDN_PAD_FIRES(t, t_real) ? gdn_pad_poison((h), (i)) : 0.0f)
+#else
+#define GDN_PAD_FIRES(t, t_real) 0
+#define GDN_PAD_ZERO(t, t_real, h, i) 0.0f
+#endif
+
 /* ---- item A: §04.4's scan entry for one (head, token) row -----------------------------------
  * V head h reads K head h/EXP (the reference's `repeat_interleave(expansion, dim=2)`). Pad rows
  * (t >= T) are exactly zero (§04b.2). `beta` is applied to K *and* V here (§04b.3). The l2norm is
@@ -297,11 +338,18 @@ GDNDAY_DEV static inline void gdn_item_enter(const GdnCtx *c, const GdnCase *k, 
     long ov = ((long)h * GDN_C + t) * GDN_D_V;
     float qa[GDN_D_K], ka[GDN_D_K];
     for (int i = 0; i < GDN_D_K; ++i) {
-        qa[i] = pad ? 0.0f : gdn_load(c, GF_Q_PRE, sq_ + i);
-        ka[i] = pad ? 0.0f : gdn_load(c, GF_K_PRE, sq_ + i);
+        qa[i] = pad ? GDN_PAD_ZERO(t, k->t, h, i) : gdn_load(c, GF_Q_PRE, sq_ + i);
+        ka[i] = pad ? GDN_PAD_ZERO(t, k->t, h, i) : gdn_load(c, GF_K_PRE, sq_ + i);
     }
+    /* A poisoned pad row is normalised as the row it now pretends to be, so the control is a
+     * numerical defect and not an overflow. The `#else` branch is the shipped line, byte for byte. */
+#ifdef GDN_BROKEN_PAD
+    float sumq = (pad && !GDN_PAD_FIRES(t, k->t)) ? 0.0f : gdn_sumsq(qa, GDN_D_K);
+    float sumk = (pad && !GDN_PAD_FIRES(t, k->t)) ? 0.0f : gdn_sumsq(ka, GDN_D_K);
+#else
     float sumq = pad ? 0.0f : gdn_sumsq(qa, GDN_D_K);
     float sumk = pad ? 0.0f : gdn_sumsq(ka, GDN_D_K);
+#endif
     /* §04.4's l2norm is `x * rsqrt(sum + eps)`. The oracle spells the reciprocal square root as
      * `torch.rsqrt`; the plain-C spelling `1.0f/sqrtf(x)` is NOT the same number, and on q_hat the
      * difference (max_abs 3.7e-08 against a licensed 2.9e-08) is outside the probe's band. Taking
@@ -314,7 +362,8 @@ GDNDAY_DEV static inline void gdn_item_enter(const GdnCtx *c, const GdnCase *k, 
      * which is NOT the same product tree as the recurrent arm's `q / (d_k ** 0.5)` (A-16's
      * footnote). The pinned prefill was made by the chunked arm, so this is the mul branch. */
     const float qs = (float)(1.0 / sqrt(128.0));
-    float bt = pad ? 0.0f : gdn_load(c, GF_BETA, (long)t * GDN_H_V + h);
+    float bt = pad ? GDN_PAD_ZERO(t, k->t, h, GDN_D_K)
+                   : gdn_load(c, GF_BETA, (long)t * GDN_H_V + h);
     for (int i = 0; i < GDN_D_K; ++i) {
         float qv = qa[i] * rq, kv = ka[i] * rk;
         c->qhat[o + i] = qv * qs;
@@ -327,7 +376,7 @@ GDNDAY_DEV static inline void gdn_item_enter(const GdnCtx *c, const GdnCase *k, 
         }
     }
     for (int i = 0; i < GDN_D_V; ++i) {
-        float vv = pad ? 0.0f : gdn_load(c, GF_V_PRE, sv_ + i);
+        float vv = pad ? GDN_PAD_ZERO(t, k->t, h, i) : gdn_load(c, GF_V_PRE, sv_ + i);
         c->vpad[ov + i] = vv;
         c->vb[ov + i] = vv * bt;
     }
@@ -341,6 +390,9 @@ GDNDAY_DEV static inline void gdn_item_cum(const GdnCtx *c, const GdnCase *k, in
          * §Tensor.to casts, .view bitcasts — a `(float)` of the integer bit pattern is the same
          * bug wearing a cast). */
         if (t < k->t) acc += gdn_load(c, GF_G_DECAY, (long)t * GDN_H_V + h);
+#ifdef GDN_BROKEN_PAD
+        else if (GDN_PAD_FIRES(t, k->t)) acc += GDN_PAD_ZERO(t, k->t, h, 0);  /* pads DECAY */
+#endif
         c->cum[(long)h * GDN_C + t] = acc;
     }
 }
