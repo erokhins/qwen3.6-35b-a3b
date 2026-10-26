@@ -3,7 +3,7 @@
 state carry, the state-read sabotage witness, the determinism check and the honesty controls, in
 one CPU-only driver.
 
-    <venv>/bin/python prototype/gdn/gate.py [--only three-arm|band|carry|exact|controls|witness|oracle|determinism]
+    <venv>/bin/python prototype/gdn/gate.py [--only three-arm|band|chunkcarry|carry|exact|controls|witness|oracle|determinism]
     <venv>/bin/python prototype/gdn/gate.py --keep     (keep work/*.bin for inspection)
 
 WHAT THE THREE ARMS ARE
@@ -50,6 +50,30 @@ METRICS, AND WHICH ONES DECIDE
   metric than the honest one (maxabs 0.961426 vs 0.96875), and `cos` prints 1 to nine digits while
   1263 of 1884 `lm_head` words differ in their bit image. An absolute metric that cannot see what is
   being claimed is not conservative, it is blind.
+
+WHAT SLICE 3 ADDS — LICENCE PROVENANCE, AND THE MULTI-CHUNK QUESTION ANSWERED WITH A FIELD NAME
+  Every banded row in this lane compares one of this kernel's forms against the pinned bytes, which
+  is the cross-form pair `chunked|pinned`. A cross-form row may only be CREDITED if the probe
+  licensed that pair at that pass (`speccheck/gdn_ref.py band_licenses`), and slice 2 credited 84
+  decode rows without ever asking. `band` now asks, per row, and prints one `LICENCE` line per
+  banded row with two independent fields: `licensed=` (does the licence table grant
+  `chunked|pinned` at THIS pass and stage) and `form_probed=` (is the form that produced the row
+  one the probe ran at that pass, by scan family and chunk width, both read out of `gdn_ref.Form`).
+  The answer for the decode rows is `UNLICENSED`: `probe_arms_for("decode","pinned")` returns the
+  recurrent family only, because §04b.1 gives a cached decode step the recurrent program, so no
+  probe record for the pair exists at a decode pass and no licence can. Those rows are still
+  measured, still printed, still ACCEPTED by the band — and NOT credited, and `GATE PASS` cannot
+  print while any banded row is uncredited. Nothing was loosened, widened or deleted.
+  `chunkcarry` answers the multi-chunk-prefill question twice. (1) Against pinned bytes it is NOT
+  adjudicable, and the proof is a field name: every pinned pass's `dumps[].shape[1]` is at most 32
+  against `geometry.chunk_width=64`, so `chunks_per_pass=1` for all eight pinned passes and there
+  is no pinned multi-chunk pass to carry across. The census prints that per pass, cross-checks the
+  manifest's T against the T the bytes read back, and refuses to invent a fixture. (2) The carry
+  MECHANISM is then tested at the only width the material allows: the pinned 32-token prefill is
+  split into two equal chunks of `T/2`, chunk 1 reads the state chunk 0 EMITTED IN THE SAME RUN
+  (`carry=`), and the final state is judged against the pinned `prefill.state` through
+  `band_check_row`. Those rows are labelled `LICENSED_FORM_UNPROBED` — the pair is licensed at a
+  prefill pass but chunk width 16 is not a width any probe arm ran — so they are also not credited.
 
 THE q_hat ROWS ARE RED AND STAY RED: they are one f32 ULP over a probe-derived band, and whether to
   match torch's reduction order, re-probe with a non-torch arm, or document the stage out-of-band is
@@ -115,8 +139,109 @@ STAGE_IS_BF16 = {"q_hat": False, "k_hat": False, "scan_out": False, "core_attn":
 FIELDS = ["q_pre", "k_pre", "v_pre", "beta", "g_decay", "z", "norm_weight", "out_weight"]
 ECHO_FIELDS = FIELDS[:7]
 FP_FIELD = "out_weight"
-SECTIONS = ["three-arm", "band", "carry", "exact", "controls", "witness", "oracle",
+SECTIONS = ["three-arm", "band", "chunkcarry", "carry", "exact", "controls", "witness", "oracle",
             "determinism"]
+
+# The arm pair every banded row in this lane measures: this kernel is a chunked scan at the
+# reference width, the reference side is the pinned dump bytes. Keyed the way `gdn_ref` keys it.
+LICENCE_PAIR = ("chunked", "pinned")
+
+
+class Checks:
+    """Named checks with a denominator in the detail and a predicate that is an expression over
+    data. `pitfalls/40` §A check whose predicate is `True`: a counted check that no mutation can
+    turn red is a comment wearing a counter, so every predicate here is computed from a record set,
+    a counter the arm printed, or a band verdict, and every one of the checks added in slice 3 is
+    witnessed FIRING by a sabotage run in the same section that adds it.
+
+    This is deliberately a different object from `fails`: a check FAILS the gate; a `note` printed
+    by a section is a fact reported and kept out of the count (also `pitfalls/40`)."""
+
+    def __init__(self, fails):
+        self.fails = fails
+        self.names = []
+        self.red = 0
+
+    def check(self, name, predicate, detail):
+        ok = bool(predicate)
+        self.names.append(name)
+        if not ok:
+            self.red += 1
+            self.fails.append("check %s: %s" % (name, detail))
+        print("CHECK name=%s verdict=%s %s" % (name, "PASS" if ok else "FAIL", detail))
+        return ok
+
+    def witness(self, name, fired, detail):
+        """A control that is SUPPOSED to fail: the check fired, or the lane cannot claim it can."""
+        self.names.append(name)
+        if not fired:
+            self.red += 1
+            self.fails.append("control %s did not fire: %s" % (name, detail))
+        print("CONTROL check=%s fired=%s %s" % (name, "RED" if fired else "SILENT", detail))
+        return fired
+
+
+class Licence:
+    """Cites the oracle's own licence table once per banded row, and counts what it found.
+    Two independent questions, because they are two different holes:
+      `licensed`     — does `band_licenses` grant the pair (`chunked|pinned`) at THIS pass and
+                       stage? It answers from the band file's own `licensed_rows`, which
+                       `load_band` already refused to let anyone hand-edit.
+      `form_probed`  — is the FORM that produced this row one the probe actually ran at that pass?
+                       Read out of `gdn_ref.probe_arms_for` (the §04b.1 dispatch table) and
+                       `gdn_ref.Form.named(a).chunk_width`, so neither the arm list nor the chunk
+                       widths are typed here.
+    A row is CREDITED only when both are true. A row that is measured but not credited stays
+    printed with its band verdict — the point of the line is that nobody can read `ACCEPTED` as
+    `credited` without the licence line beside it."""
+
+    def __init__(self, band, g, verbose=True):
+        self.band = band
+        self.rows = []
+        self.mark = 0
+        self.chunked_arms = [a for a in G.PROBE_ARMS if G.Form.named(a).scan == "chunked"]
+        self.probed_widths = sorted({(G.Form.named(a).chunk_width or g.chunk_width)
+                                     for a in self.chunked_arms})
+        if not verbose:
+            return
+        print("LICENCEH pair=%s probed_chunked_arms=%s probed_chunk_widths=%s source=gdn_ref."
+              "probe_arms_for,gdn_ref.Form"
+              % ("|".join(LICENCE_PAIR), ",".join(self.chunked_arms),
+                 ",".join(str(w) for w in self.probed_widths)))
+
+    def cite(self, block, pass_, stage, plan, form_width=None):
+        pass_key = "%s/pinned/%s" % (block, pass_)
+        licensed, why = G.band_licenses(self.band, pass_key, stage, *LICENCE_PAIR)
+        kind = "decode" if pass_.startswith("decode") else "prefill"
+        arms = G.probe_arms_for(kind, "pinned")
+        scan_ok = LICENCE_PAIR[0] in arms
+        width_ok = form_width is None or form_width in self.probed_widths
+        form_probed = int(scan_ok and width_ok)
+        verdict = ("LICENSED" if (licensed and form_probed) else
+                   ("LICENSED_FORM_UNPROBED" if licensed else "UNLICENSED"))
+        print("LICENCE row=%s plan=%s pass=%s stage=%s licensed=%d form_probed=%d "
+              "form_chunk_width=%s arms_at_pass=%s verdict=%s credited=%d why=%s"
+              % (G.cross_form_key(pass_key, *LICENCE_PAIR), plan, pass_key, stage,
+                 int(licensed), form_probed,
+                 "reference" if form_width is None else form_width, ",".join(arms), verdict,
+                 int(verdict == "LICENSED"), why))
+        self.rows.append(dict(plan=plan, pass_key=pass_key, stage=stage, verdict=verdict,
+                              licensed=int(licensed), form_probed=form_probed))
+        return verdict
+
+    def tally(self, label, derived):
+        """Count the rows cited since the last tally and refuse an empty or short population: a
+        licence table that was never consulted must not look like a run that consulted it
+        (`pitfalls/40` §a driver whose parser matches nothing prints PASS)."""
+        rows = self.rows[self.mark:]
+        self.mark = len(self.rows)
+        n = len(rows)
+        by = {v: sum(1 for r in rows if r["verdict"] == v) for v in
+              ("LICENSED", "LICENSED_FORM_UNPROBED", "UNLICENSED")}
+        print("LICENCETALLY scope=%s rows=%d derived=%d credited=%d %s"
+              % (label, n, derived, by["LICENSED"],
+                 " ".join("%s=%d" % (k.lower(), v) for k, v in sorted(by.items()))))
+        return n, by
 
 
 class Refuse(Exception):
@@ -310,6 +435,36 @@ def echo_offset(T: int, field: str) -> int:
     return sum(field_n(f, T) for f in ECHO_FIELDS[:ECHO_FIELDS.index(field)])
 
 
+def stage_token_axis(stage: str, ref, T: int):
+    """Which axis of one pinned stage is the token axis — DERIVED, and ambiguous is a refusal.
+
+    `checkpoints/dump-manifest-gdn-2026-10-26.json` §reading_rules.orientations gives
+    q_hat/k_hat/scan_out as `[B,h_v,T,d]` and core_attn/normed as `[B,T,h_v,d_v]`, so one slice axis
+    is wrong for half the stages, and `q_hat` is `[1,32,32,128]` with `h_v == T == 32`: a guessed
+    axis compares heads against tokens and still prints numbers. The oracle's own head-axis table
+    (`gdn_ref.HEAD_AXIS`) removes the head axis from the candidate set; the pass's T removes the
+    feature axes. What is left must be exactly one axis — `state` is `[B,h_v,d_k,d_v]` and so has no
+    token axis at all, which the caller uses to mean 'this stage has no per-chunk reference'."""
+    head = G.HEAD_AXIS.get(stage)
+    cands = [d for d in range(1, ref.ndim) if d != head and int(ref.shape[d]) == T]
+    if len(cands) != 1:
+        if not cands and stage == "state":
+            return None
+        raise Refuse("the token axis of stage %s in shape %s is not derivable (head axis %s, "
+                     "candidates %s for T=%d): slicing it would be a guess"
+                     % (stage, tuple(ref.shape), head, cands, T))
+    return cands[0]
+
+
+def stage_token_slice(stage: str, ref, T: int, lo: int, hi: int):
+    """Rows [lo,hi) of one stage, in the reference's OWN orientation, so `aggregates`' head fold
+    still folds what it was derived to fold."""
+    ax = stage_token_axis(stage, ref, T)
+    idx = [slice(None)] * ref.ndim
+    idx[ax] = slice(lo, hi)
+    return ref[tuple(idx)]
+
+
 # ------------------------------------------------------------------ running an arm
 def run_arm(binary: Path, arm_name: str, plan: Path, inputs: Path, weights: Path, tag: str):
     out = WORK / ("%s.%s.out.bin" % (tag, arm_name))
@@ -433,21 +588,23 @@ def fmt(m) -> str:
             % (m["n"], m["ndiff"], m["relL2"], m["maxabs"], m["cos"]))
 
 
-def band_row(band, tag, block, pass_, stage, mine, ref, stage_lines, fails, fail_msg=None):
+def band_row(band, tag, block, pass_, stage, mine, ref, stage_lines, fails, fail_msg=None,
+             name_key=None):
     """One arm's stage against one pinned stage: the metrics, the oracle's own verdict, one line.
 
     Every banded comparison in the lane goes through here so that `band_check_row` is called the same
-    way for the prefill chunk, for the live-state decode steps and for the sabotage build, and so the
-    determinism check compares a grammar and not three hand-written formats. `maxabs`/`cos` are
-    labelled by `fmt`; the four band keys are the oracle's. Nothing here judges a number: the verdict
-    is `band_check_row`'s. An empty row set cannot pass, because the caller declares the derived
-    denominator and asserts it."""
+    way for the prefill chunk, for the live-state decode steps, for the re-chunked prefill and for
+    the sabotage build, and so the determinism check compares a grammar and not three hand-written
+    formats. `maxabs`/`cos` are labelled by `fmt`; the four band keys are the oracle's. Nothing here
+    judges a number: the verdict is `band_check_row`'s. An empty row set cannot pass, because the
+    caller declares the derived denominator and asserts it."""
     if mine.numel() != ref.numel():
         raise Refuse("%s/%s/%s: the arm emitted %d words, the dump holds %d elements"
                      % (block, pass_, stage, mine.numel(), ref.numel()))
     mine = mine.reshape(ref.shape)
     m = metrics(mine, ref)
-    ag = G.aggregates(mine, ref, name="%s/pinned/%s|%s" % (block, pass_, stage), stage=stage)
+    ag = G.aggregates(mine, ref,
+                      name=name_key or "%s/pinned/%s|%s" % (block, pass_, stage), stage=stage)
     ok, why = G.band_check_row(band, stage, ag)
     line = ("STAGE arm=%s block=%s pass=%s stage=%s %s band=%s meanrel=%.3e 1-cos=%.3e "
             "perhead=%.3e(h%d/%d) verdict=%s why=%s"
@@ -494,6 +651,8 @@ def main() -> int:
     for s in STAGES:
         if s not in band:
             raise Refuse("stage %s has no band entry" % s)
+    chk = Checks(fails)
+    lic = Licence(band, g)
 
     # ---------------- the honest plan: one case per block, one chunk, zero initial state -------
     fields = {b: field_words(recs, b, T) for b in blocks}
@@ -577,6 +736,7 @@ def main() -> int:
                                  stage_lines, fails,
                                  lambda b, p, s, w: "%s/%s outside the derived band: %s"
                                                     % (b, s, w))
+                lic.cite(block, "prefill", st, plan="single_chunk")
                 n_rows += 1
                 if st == "q_hat":
                     print("KNOWN stage=q_hat block=%s pass=prefill measured_maxabs=%.3e "
@@ -587,12 +747,19 @@ def main() -> int:
             fails.append("stage rows %d != derived %d" % (n_rows, len(blocks) * len(STAGES)))
         if n_rows == 0:
             raise Refuse("no stage rows: a banded verdict over nothing is a constant predicate")
+        licence_tally(chk, lic, "band:single_chunk", len(blocks) * len(STAGES), counts)
+
+    # ============================================ the multi-chunk question (slice 3)
+    if want("chunkcarry"):
+        ran.append("chunkcarry")
+        chunk_carry_section(band, man, recs, blocks, T, g, wslots, plan, ins, wts, lic, chk,
+                            fails, counts, stage_lines)
 
     # ============================================================ the live-state carry (slice 2)
     if want("carry"):
         ran.append("carry")
-        carry_section(band, recs, blocks, T, wslots, plan, ins, wts, stage_lines,
-                      fails, counts)
+        carry_section(band, g, recs, blocks, T, wslots, plan, ins, wts, stage_lines,
+                      fails, counts, lic, chk)
 
     # ============================================================ the exact read/decode checks
     if want("exact"):
@@ -877,14 +1044,31 @@ def main() -> int:
     # ============================================================ determinism, as a named check
     if want("determinism"):
         ran.append("determinism")
-        determinism_section(stage_lines, fails, counts)
+        determinism_section(stage_lines, fails, counts, ran)
 
     # ------------------------------------------------------------------ verdict
-    print("COUNTS %s" % " ".join("%s=%d" % kv for kv in sorted(counts.items())))
     print("METRICS primary=relL2+ndiff+band_check_row reported_only=maxabs,cos "
           "maxabs_load_bearing=0 cos_load_bearing=0 band_source=band_check_row_only")
+    lic_cred = sum(1 for r in lic.rows if r["verdict"] == "LICENSED")
+    lic_unlicensed = sum(1 for r in lic.rows if r["verdict"] == "UNLICENSED")
+    lic_unprobed = sum(1 for r in lic.rows if r["verdict"] == "LICENSED_FORM_UNPROBED")
+    lic_uncredited = lic_unlicensed + lic_unprobed
+    print("LICENCEVERDICT scope=whole_run banded_rows=%d credited=%d unlicensed=%d "
+          "licensed_form_unprobed=%d checks=%d checks_red=%d verdict=%s "
+          "note=an uncredited row keeps its band verdict and its measurement; what it does not get "
+          "is the word licensed. The fix is a probe record for the pair at that pass, which only "
+          "`speccheck/gdn_ref.py --floor-probe` may write and which §04b.1's dispatch currently "
+          "refuses to run for a chunked arm at a decode pass"
+          % (len(lic.rows), lic_cred, lic_unlicensed, lic_unprobed,
+             len(chk.names), chk.red,
+             "CLEAN" if not lic_uncredited else "QUALIFIED"))
+    counts["banded_rows_licensed"] = lic_cred
+    counts["banded_rows_uncredited"] = lic_uncredited
+    counts["named_checks"] = len(chk.names)
+    counts["named_checks_red"] = chk.red
+    print("COUNTS %s" % " ".join("%s=%d" % kv for kv in sorted(counts.items())))
     if fails:
-        print("GATE FAIL findings=%d" % len(fails))
+        print("GATE FAIL findings=%d uncredited_banded_rows=%d" % (len(fails), lic_uncredited))
         for f in fails:
             print("  - " + f)
         return 1
@@ -892,13 +1076,51 @@ def main() -> int:
         raise Refuse("no section ran; a gate that checked nothing cannot pass")
     missing = [s for s in SECTIONS if s not in ran]
     if missing:
-        print("GATE PARTIAL ran=%s missing=%s note=a partial run does not claim PASS: the three-arm "
+        print("GATE PARTIAL ran=%s missing=%s uncredited_banded_rows=%d "
+              "note=a partial run does not claim PASS: the three-arm "
               "claim needs the dump arm, the oracle CLI arm and the kernel arm, and one of them is "
-              "not in this run" % (",".join(ran), ",".join(missing)))
+              "not in this run" % (",".join(ran), ",".join(missing), lic_uncredited))
         return 2
-    print("GATE PASS arms=3 stages=%d blocks=%d T=%d band_digest=%s device=none timing=taken=no"
-          % (len(STAGES), len(blocks), T, digest[:16]))
+    if lic_uncredited:
+        print("GATE QUALIFIED arms=3 stages=%d blocks=%d T=%d band_digest=%s device=none "
+              "timing=taken=no banded_rows=%d credited=%d uncredited=%d "
+              "note=GATE PASS is unreachable while any banded row lacks a licence; this is the "
+              "licence state, not a band failure and not a finding"
+              % (len(STAGES), len(blocks), T, digest[:16], len(lic.rows), lic_cred,
+                 lic_uncredited))
+        return 1
+    print("GATE PASS arms=3 stages=%d blocks=%d T=%d band_digest=%s device=none timing=taken=no "
+          "banded_rows=%d credited=%d"
+          % (len(STAGES), len(blocks), T, digest[:16], len(lic.rows), lic_cred))
     return 0
+
+
+def licence_tally(chk, lic, scope, derived, counts):
+    """Count the licence citations this scope printed and refuse a short or empty population.
+
+    The predicate is `cited == derived`, where `derived` is geometry arithmetic the caller declares
+    (blocks x passes x stages x plans) before the rows are walked — never a count of what happened to
+    be printed, which is the same thing and could not fail (`pitfalls/40` §an unnamed denominator)."""
+    n, by = lic.tally(scope, derived)
+    return chk.check("licence_cited_%s" % scope.replace(":", "_"),
+                     n == derived and n > 0,
+                     "rows=%d derived=%d licensed=%d form_unprobed=%d unlicensed=%d "
+                     "note=every banded row must carry its own LICENCE line"
+                     % (n, derived, by["LICENSED"], by["LICENSED_FORM_UNPROBED"],
+                        by["UNLICENSED"]))
+
+
+def licence_independent_expect(lic, pass_keys):
+    """A SECOND derivation of how many of a set of rows cannot be licensed, from the dispatch table
+    rather than from the licence file: `probe_arms_for` names the arms that exist at a pass, and a
+    pair can only be licensed where both arms were run there. The licence table and this must agree
+    without either being read back off the other, which is what makes the count a check."""
+    exp = 0
+    for pk in pass_keys:
+        kind = "decode" if pk.split("/")[-1].startswith("decode") else "prefill"
+        if LICENCE_PAIR[0] not in G.probe_arms_for(kind, "pinned"):
+            exp += 1
+    return exp
 
 
 def _require_three_arms(arms):
@@ -935,7 +1157,8 @@ def carry_material(recs, blocks):
     return cases, states, nz
 
 
-def carry_section(band, recs, blocks, T, wslots, plan, ins, wts, stage_lines, fails, counts):
+def carry_section(band, g, recs, blocks, T, wslots, plan, ins, wts, stage_lines, fails, counts,
+                  lic, chk):
     """Slice 2's own question: does a LIVE state survive the boundary, and can anything here tell?
 
     TWO plans over the same six cases, so the only difference between them is where a case's incoming
@@ -1031,7 +1254,7 @@ def carry_section(band, recs, blocks, T, wslots, plan, ins, wts, stage_lines, fa
                      "(count or carry index)" % bad)
 
     # ---- the banded verdicts, both plans, all seven stages
-    def judge(res, tag):
+    def judge(res, tag, plan_label):
         rows, ok_rows, rejected = 0, 0, set()
         for i, c in enumerate(cases):
             for st in STAGES:
@@ -1040,6 +1263,7 @@ def carry_section(band, recs, blocks, T, wslots, plan, ins, wts, stage_lines, fa
                 ok, _ = band_row(band, tag, c["block"], c["name"], st, mine, ref, stage_lines,
                                  fails, lambda b, p, s, w: "%s/%s/%s outside the derived band: %s"
                                                         % (tag, b, p, w))
+                lic.cite(c["block"], c["name"], st, plan=plan_label)
                 rows += 1
                 if ok:
                     ok_rows += 1
@@ -1047,16 +1271,84 @@ def carry_section(band, recs, blocks, T, wslots, plan, ins, wts, stage_lines, fa
                     rejected.add(st)
         return rows, ok_rows, rejected
 
-    rowsA, okA, rejA = judge(resA, "kernel_vs_dump")
-    rowsB, okB, rejB = judge(resB, "kernel_carried_vs_dump")
-    for rows, ok_rows, rejected, label in ((rowsA, okA, rejA, "pinned_state"),
-                                           (rowsB, okB, rejB, "arm_carried")):
+    mark0 = len(lic.rows)
+    verdicts = []
+    for res, tag, plan_label in ((resA, "kernel_vs_dump", "pinned_state"),
+                                 (resB, "kernel_carried_vs_dump", "arm_carried")):
+        rows, ok_rows, rejected = judge(res, tag, plan_label)
         if rows != n * len(STAGES):
             fails.append("%s plan produced %d stage rows, derived denominator is %d"
-                         % (label, rows, n * len(STAGES)))
-        print("CARRYVERDICT plan=%s rows=%d accepted=%d rejected=%d derived=%d rejected_stages=%s"
-              % (label, rows, ok_rows, rows - ok_rows, n * len(STAGES),
-                 ",".join(sorted(rejected)) or "none"))
+                         % (plan_label, rows, n * len(STAGES)))
+        n_cite, by = lic.tally("carry:" + plan_label, n * len(STAGES))
+        chk.check("licence_cited_carry_%s" % plan_label,
+                  n_cite == rows and n_cite > 0,
+                  "rows=%d derived=%d credited=%d unlicensed=%d note=the band accepted %d of "
+                  "them; crediting is the licence's business, not the band's"
+                  % (n_cite, rows, by["LICENSED"], by["UNLICENSED"], ok_rows))
+        print("CARRYVERDICT plan=%s rows=%d accepted=%d rejected=%d derived=%d "
+              "rejected_stages=%s credited=%d unlicensed=%d verdict=%s"
+              % (plan_label, rows, ok_rows, rows - ok_rows, n * len(STAGES),
+                 ",".join(sorted(rejected)) or "none", by["LICENSED"], by["UNLICENSED"],
+                 "CREDITED" if by["LICENSED"] == rows else
+                 ("UNLICENSED" if by["LICENSED"] == 0 else "PARTLY_LICENSED")))
+        verdicts.append((rows, ok_rows, rejected))
+    rowsA, okA, rejA = verdicts[0]
+    rowsB, okB, rejB = verdicts[1]
+    # The unlicensed population, derived a SECOND way: `probe_arms_for` names the arms that exist at
+    # a pass (the §04b.1 dispatch table), and a pair can only be licensed where both arms were run.
+    # If the licence file and the dispatch table ever disagree, this is where it surfaces.
+    lic_carry = lic.rows[mark0:]
+    lic_expected = licence_independent_expect(lic, [r["pass_key"] for r in lic_carry])
+    lic_unlic = sum(1 for r in lic_carry if r["verdict"] == "UNLICENSED")
+    chk.check("carry_rows_unlicensed_eq_dispatch",
+              len(lic_carry) == 2 * n * len(STAGES) and lic_unlic == lic_expected,
+              "unlicensed=%d derived_from_probe_arms_for=%d rows=%d derived=%d note=the §04b.1 "
+              "dispatch gives a cached decode step the recurrent program, so the probe has no "
+              "chunked record at a decode pass and cannot license one"
+              % (lic_unlic, lic_expected, len(lic_carry), 2 * n * len(STAGES)))
+    if lic_unlic:
+        print("LICENCEVERDICT scope=carry rows=%d credited=%d unlicensed=%d verdict=QUALIFIED "
+              "note=band verdicts stand, acceptances are NOT deleted, and no unlicensed row is "
+              "credited as licensed evidence"
+              % (len(lic_carry), sum(1 for r in lic_carry if r["verdict"] == "LICENSED"),
+                 lic_unlic))
+
+    # ---- witnesses that the licence census is a census and not a decoration.
+    #  (a) a licence table that silently grants the pair at a decode pass must be NOTICEABLE: the
+    #      same classification over the same rows, run against an in-memory copy of the band with
+    #      one such row added, has to disagree with the dispatch-table derivation. The band FILE is
+    #      never touched, and `load_band` would refuse such an edit on disk anyway.
+    poison_band = json.loads(json.dumps(band))
+    pstage = STAGES[0]
+    pkey = "%s/pinned/%s" % (blocks[0], DEC_PASSES[0])
+    poison_band[pstage]["licensed_rows"] = sorted(
+        set(poison_band[pstage].get("licensed_rows", []))
+        | {G.cross_form_key(pkey, *LICENCE_PAIR)})
+    plic = Licence(poison_band, g, verbose=False)
+    for c0 in cases:
+        for st in STAGES:
+            plic.cite(c0["block"], c0["name"], st, plan="licence_sabotage_poisoned_band")
+    p_now_licensed = sum(1 for r in plic.rows if r["verdict"] != "UNLICENSED")
+    p_expected_unlicensed = licence_independent_expect(lic, [r["pass_key"] for r in plic.rows])
+    chk.witness("licence_census_fires_on_a_poisoned_table",
+                p_now_licensed > 0 and (len(plic.rows) - p_now_licensed) != p_expected_unlicensed,
+                "sabotage=in_memory_band_row row=%s|%s|%s stage=%s now_licensed=%d "
+                "unlicensed_vs_dispatch_derived=%d/%d fired=%d note=a band that grew a licence for a "
+                "pair no probe record supports would flip these rows and this census is what would "
+                "see it"
+                % (pkey, LICENCE_PAIR[0], LICENCE_PAIR[1], pstage, p_now_licensed,
+                   len(plic.rows) - p_now_licensed, p_expected_unlicensed,
+                   int(p_now_licensed > 0)))
+    #  (b) the same predicate over a row set with one row dropped must refuse: an acceptance list
+    #      that silently loses a row is the empty-parse failure mode in a smaller hat.
+    short = lic_carry[:-1]
+    short_expected = licence_independent_expect(lic, [r["pass_key"] for r in short])
+    pred_short = (len(short) == len(lic_carry)
+                  and sum(1 for r in short if r["verdict"] == "UNLICENSED") == short_expected)
+    chk.witness("licence_census_fires_on_a_dropped_row", not pred_short,
+                "sabotage=one_of_%d_rows_dropped rows=%d derived=%d predicate=%s fired=1 "
+                "note=the predicate the honest run above passes must be the one that fails here"
+                % (len(lic_carry), len(short), len(lic_carry), pred_short))
 
     # ---- the sabotage, witnessed on BOTH kinds of plan
     st = subprocess.run([str(XPOSE), "--selftest"], capture_output=True, text=True)
@@ -1170,15 +1462,329 @@ def carry_section(band, recs, blocks, T, wslots, plan, ins, wts, stage_lines, fa
     counts["carry_order_rows"] = order_rows
 
 
-def determinism_section(stage_lines, fails, counts):
+def pinned_passes(recs, key="q_pre"):
+    """The (block, pass) pairs the dump pins for one tensor key. `recs` also carries `('name', ...)`
+    keys for the stored weights, so the record key is unpacked by length and not by hope."""
+    return sorted({k[:2] for k in recs if len(k) == 3 and k[2] == key})
+
+
+def chunk_census(recs, chunk_width, label, verify_T=None):
+    """One CHUNKSRC line per pinned pass, and the chunk count DERIVED from the manifest's own field.
+
+    The field is `dumps[].shape[1]` — the token axis of the pass's `q_pre` record — against
+    `geometry.chunk_width`. When `verify_T` is given the manifest's T is also checked against the T
+    of the tensor the dump reader actually handed back, so the census is anchored to bytes and not
+    only to the manifest's claim about them."""
+    pop = pinned_passes(recs)
+    if not pop:
+        raise Refuse("no pinned pass has a q_pre record: there is no pass to count chunks over")
+    chunks = {}
+    for (b, m) in pop:
+        rec = recs[(b, m, "q_pre")]
+        shape = [int(x) for x in rec["shape"]]
+        t_man = shape[1]
+        tb = ""
+        if verify_T is not None:
+            if verify_T[(b, m)] != t_man:
+                raise Refuse("%s/%s: the manifest declares T=%d but the bytes read back T=%d"
+                             % (b, m, t_man, verify_T[(b, m)]))
+            tb = " T_bytes=%d" % verify_T[(b, m)]
+        ch = -(-t_man // chunk_width)
+        chunks[(b, m)] = ch
+        print("CHUNKSRC label=%s block=%s pass=%s manifest_record=%s manifest_field=shape[1] "
+              "shape=%s T_manifest=%d%s chunk_width=%d chunks=%d pad_cols=%d"
+              % (label, b, m, rec.get("name"), shape, t_man, tb, chunk_width, ch,
+                 ch * chunk_width - t_man))
+    return pop, chunks
+
+
+def multichunk_verdict(label, chunks, man, chunk_width):
+    multi = sorted(k for k, v in chunks.items() if v > 1)
+    inp = man.get("input", {})
+    print("MULTICHUNK label=%s passes=%d max_chunks=%d multichunk_passes=%s "
+          "manifest_fields=dumps[].shape[1],input.n_tokens=%s,input.n_decode_steps=%s,"
+          "counts.passes_per_block=%s geometry.chunk_width=%d dispatch.decode=%r verdict=%s "
+          "note=%s"
+          % (label, len(chunks), max(chunks.values()),
+             ",".join("%s/%s" % k for k in multi) or "none",
+             inp.get("n_tokens"), inp.get("n_decode_steps"),
+             man.get("counts", {}).get("passes_per_block"), chunk_width,
+             man.get("dispatch", {}).get("decode"),
+             "ADJUDICATION_REQUIRED" if multi else "NO_PINNED_MULTICHUNK_PASS",
+             ("a pinned pass with T>chunk_width exists; a multi-chunk carry against pinned bytes "
+              "must now be adjudicated and the arm cannot express it (one case = one chunk), so "
+              "this lane would have to grow a chunk loop before crediting one"
+              if multi else
+              "no pinned pass exceeds one chunk, so a multi-chunk PREFILL carry has no pinned "
+              "reference at any interior chunk boundary and no fixture is invented to make one; "
+              "the carry mechanism itself is exercised at T/n_chunks below and across passes in "
+              "`carry`")))
+    return multi
+
+
+def chunk_carry_section(band, man, recs, blocks, T, g, wslots, plan, ins, wts, lic, chk, fails,
+                        counts, stage_lines):
+    """Slice 3's two questions: is there pinned material for a multi-chunk prefill (no, and the
+    manifest names the field that says so), and does a chunk N reading chunk N-1's EMITTED state
+    reproduce pinned bytes (yes, at the only width the material allows).
+
+    The split is `n_chunks = 2` because two is the smallest number of chunks that forces a carry,
+    and the width is `T // n_chunks` because the split is equal and `T` is the manifest's own field
+    — neither is typed. A chunk of `T/2` rows is a shape the engine only ever takes as the LAST
+    chunk of a prefill, so these rows are labelled `LICENSED_FORM_UNPROBED`: the pair
+    `chunked|pinned` IS licensed at a prefill pass, but no probe arm ran chunk width `T/2`, so
+    `band_licenses` must not be read as crediting them. Measured, printed, banded, not credited.
+
+    The pad census is printed as a FACT here and deliberately not counted as a check: the chunk-pad
+    rows are synthesised inside the kernel (`gdn_item_enter` writes 0 for `i >= t`) and are not bytes
+    the driver can reach, so no driver-side mutation can make it leave zero and a check on it would
+    be a check that cannot fail (`pitfalls/40` §A check that can produce no output cannot fail).
+    """
+    # The split rows go into the run's shared STAGE list, which is what `determinism` re-runs and
+    # compares, so these 20 rows are held to the same reproducibility claim as the other 158.
+    split_from = len(stage_lines)
+    split_lines = stage_lines
+    C = g.chunk_width
+    verify = {p: int(dump_tensor(recs, p[0], p[1], "q_pre").shape[1]) for p in pinned_passes(recs)}
+    pop, chunks = chunk_census(recs, C, "manifest", verify_T=verify)
+    derived_passes = len(blocks) * int(man.get("counts", {}).get("passes_per_block", 0))
+    chk.check("chunk_census_covers_pinned_passes",
+              len(pop) == derived_passes and derived_passes > 0,
+              "passes_counted=%d derived_from_manifest_counts=%d note=one CHUNKSRC line per "
+              "(block,pass) that has a q_pre record" % (len(pop), derived_passes))
+    multi = multichunk_verdict("manifest", chunks, man, C)
+    chk.check("chunk_no_pinned_multichunk_pass", len(multi) == 0,
+              "multichunk_passes=%s note=a pinned multi-chunk prefill needs a pass with "
+              "T>chunk_width; if one ever appears this refusal has to become an adjudication"
+              % (",".join("%s/%s" % k for k in multi) or "none"))
+
+    # --- the witness that the census is not decoration: the SAME census over a manifest field that
+    #     claims two chunks must report ADJUDICATION_REQUIRED. Only the in-memory copy of the record
+    #     is mutated; no file is written and no bytes are read for the fake pass.
+    fake_key = (blocks[0], "prefill", "q_pre")
+    fake_rec = dict(recs[fake_key])
+    fake_rec["shape"] = [1, 2 * C] + [int(x) for x in recs[fake_key]["shape"][2:]]
+    fake_recs = dict(recs)
+    fake_recs[fake_key] = fake_rec
+    fake_pop, fake_chunks = chunk_census(fake_recs, C, "sabotage_manifest_field")
+    fake_multi = multichunk_verdict("sabotage_manifest_field", fake_chunks, man, C)
+    chk.witness("chunk_census_fires_on_a_multichunk_pass",
+                fake_multi == [(blocks[0], "prefill")] and fake_pop == pop,
+                "sabotage=shape[1] %d->%d on %s derived_chunks=%d verdict=ADJUDICATION_REQUIRED "
+                "fired=%d note=an absent-material verdict that cannot become a present-material "
+                "verdict is a constant wearing a name"
+                % (recs[fake_key]["shape"][1], 2 * C, fake_key[0],
+                   fake_chunks[(blocks[0], "prefill")], int(bool(fake_multi))))
+
+    # --- the arm's own rule: one case is one chunk, witnessed in BOTH directions so neither a
+    #     parser that refuses everything nor one that accepts everything can pass it (the same
+    #     two-direction argument `speccheck/gdn_ref.py` uses for its accept/reject witnesses).
+    refused = 0
+    for Tbad in (C + 1, 2 * C):
+        badp = WORK / ("plan_bad_T%d.tsv" % Tbad)
+        badp.write_text("#GDNPLAN v2 n_cases=1 T=%d\nCASE idx=0 block=%s name=two_chunk_case T=%d "
+                        "mode=honest wslot=0 carry=-1\n" % (Tbad, blocks[0], Tbad))
+        pr = subprocess.run([str(HOST), "--plan", str(badp), "--inputs", str(ins),
+                             "--weights", str(wts), "--out", str(WORK / "bad_chunk.out.bin"),
+                             "--echo", str(WORK / "bad_chunk.echo.bin")],
+                            capture_output=True, text=True)
+        msg = ((pr.stdout + pr.stderr).strip().splitlines() or ["<silent>"])[-1]
+        refused += 1 if pr.returncode != 0 else 0
+        print("CONTROL arm=bad_plan rule=case_T_over_chunk T=%d chunk_width=%d rc=%d verdict=%s "
+              "reason=%s" % (Tbad, C, pr.returncode, "REFUSED" if pr.returncode else "ACCEPTED",
+                             msg[:110]))
+    ok_plan = subprocess.run([str(HOST), "--plan", str(plan), "--inputs", str(ins),
+                              "--weights", str(wts), "--out", str(WORK / "ok_chunk.out.bin"),
+                              "--echo", str(WORK / "ok_chunk.echo.bin")],
+                             capture_output=True, text=True)
+    print("CONTROL arm=plan_rule rule=one_chunk_case_accepted T=%d rc=%d verdict=%s "
+          "note=the accept leg is what makes the refusal above a chunk rule and not a parser that "
+          "refuses every plan; no number from this run is judged"
+          % (T, ok_plan.returncode, "ACCEPTED" if ok_plan.returncode == 0 else "REFUSED"))
+    chk.check("chunk_case_refused_by_arm", refused == 2 and ok_plan.returncode == 0,
+              "refused_T_over_chunk=%d of=2 accept_leg_rc=%d accept_T=%d note=a plan claiming more "
+              "than one chunk per case must be refused: the scratch is sized for one chunk, so a "
+              "silently-accepted one reads past it" % (refused, ok_plan.returncode, T))
+
+    # ---------------- the split: chunk N reads chunk N-1's EMITTED state, in this same run -------
+    n_chunks = 2
+    if T % n_chunks or not 1 <= T // n_chunks < C:
+        raise Refuse("T=%d cannot be split into %d equal chunks below the reference width %d; no "
+                     "split carry is possible and none is faked" % (T, n_chunks, C))
+    C_SPLIT = T // n_chunks
+    FIELD_KEYS = ["q_pre", "k_pre", "v_pre", "beta", "g_decay", "z"]
+    cases = []
+    for bi, b in enumerate(blocks):
+        base = len(cases)
+        for j in range(n_chunks):
+            fl = []
+            for k in FIELD_KEYS:
+                full = dump_tensor(recs, b, "prefill", k)
+                fl.append(words_of(stage_token_slice(k, full, T,
+                                                     j * C_SPLIT, (j + 1) * C_SPLIT)
+                                   .contiguous().reshape(-1)))
+            cases.append(dict(block=b, name="chunk%d" % j, j=j, T=C_SPLIT, mode="honest",
+                              wslot=bi, carry=(-1 if j == 0 else base), fields=fl))
+    derived_rows = len(blocks) * (len(STATE_AFFECTED) * n_chunks - 1)
+    derived_bit = len(blocks) * n_chunks * (len(STAGES) - len(STATE_AFFECTED))
+    print("SPLIT plan=split_%dchunk blocks=%s T_pass=%d n_chunks=%d chunk_widths_probed=%s "
+          "chunk_width_measured=%d carry=last<-previous-per-block rows_banded_derived=%d "
+          "rows_bitexact_derived=%d note=T/2 is a chunk shape the engine takes only as a final "
+          "chunk, which is why these rows are cited and not credited"
+          % (n_chunks, ",".join(blocks), T, n_chunks,
+             ",".join(str(w) for w in lic.probed_widths), C_SPLIT, derived_rows, derived_bit))
+    sp = WORK / "plan_split.tsv"
+    write_plan(sp, cases)
+    sp_in = WORK / "inputs_split.bin"
+    write_inputs(sp_in, [c["fields"] for c in cases], C_SPLIT, states=[None] * len(cases))
+    res = run_arm(HOST, "host_twin", sp, sp_in, wts, "split")
+    cs, _, run = parse_arm(res, len(cases), C_SPLIT)
+    if int(run["carried"]) != len(blocks) * (n_chunks - 1):
+        fails.append("the split plan reported carried=%s, the plan declares %d carries: without a "
+                     "carry every chunk reads zeros and nothing is being carried"
+                     % (run["carried"], len(blocks) * (n_chunks - 1)))
+    premise_bad, carried_nz = 0, []
+    for i, c in enumerate(cases):
+        src = c["carry"]
+        if src < 0:
+            continue
+        want = int((stage_tensor(res, src, C_SPLIT, "state") != 0).sum())
+        carried_nz.append(want)
+        if want == 0 or int(cs[i]["state_nonzero"]) != want or int(cs[i]["carry"]) != src:
+            premise_bad += 1
+    chk.check("split_carry_premise", premise_bad == 0 and bool(carried_nz) and min(carried_nz) > 0,
+              "carried_cases=%d carried_nonzero_min=%s mismatched=%d note=each carried chunk's "
+              "state_nonzero is checked against the non-zero count of the state its predecessor "
+              "emitted, read back out of the arm's own out.bin"
+              % (len(carried_nz), min(carried_nz) if carried_nz else "none", premise_bad))
+    print("SPLITFACT cases=%d pad_nonzero_per_case=%s state_nonzero_per_case=%s "
+          "note=reported, not counted: the pad rows are synthesised inside the arm and no driver "
+          "mutation can move them"
+          % (len(cases), ",".join(d["pad_nonzero"] for d in cs),
+             ",".join(d["state_nonzero"] for d in cs)))
+
+    # ---- the banded rows: the stages the chunk boundary can reach, against the pinned slice
+    n_rows, skipped = 0, 0
+    state_rows = {}
+    for i, c in enumerate(cases):
+        for st in STATE_AFFECTED:
+            full = dump_tensor(recs, c["block"], "prefill", st)
+            if stage_token_axis(st, full, T) is None:
+                if c["j"] != n_chunks - 1:
+                    skipped += 1
+                    print("SPLITSKIP block=%s chunk=%s stage=%s verdict=NO_PINNED_REFERENCE "
+                          "note=the dump pins the state at the END of a pass, so an interior chunk "
+                          "boundary has nothing to be compared against and none is invented"
+                          % (c["block"], c["name"], st))
+                    continue
+                ref = full
+            else:
+                ref = stage_token_slice(st, full, T, c["j"] * C_SPLIT, (c["j"] + 1) * C_SPLIT)
+            mine = stage_tensor(res, i, C_SPLIT, st)
+            ok, m = band_row(band, "kernel_split_vs_dump", c["block"], c["name"], st, mine, ref,
+                             split_lines, fails,
+                             lambda b, p, s, w: "re-chunked %s/%s outside the derived band: %s"
+                                                % (b, s, w),
+                             name_key="%s/split_%dchunk/%s|%s" % (c["block"], n_chunks,
+                                                                  c["name"], st))
+            lic.cite(c["block"], "prefill", st, plan="split_%dchunk" % n_chunks,
+                     form_width=C_SPLIT)
+            n_rows += 1
+            if st == "state":
+                state_rows[c["block"]] = (ok, m)
+    chk.check("split_banded_rows_eq_derived", n_rows == derived_rows and n_rows > 0,
+              "rows=%d derived=%d skipped_no_reference=%d (=blocks %d x closure %d x chunks %d "
+              "minus interior state %d) note=the closure is gdn_ref.downstream_closure("
+              "scan_out,state), not a typed list"
+              % (n_rows, derived_rows, skipped, len(blocks), len(STATE_AFFECTED), n_chunks,
+                 len(blocks)))
+
+    # ---- the stages the chunk boundary CANNOT reach: zero tolerance against the honest arm's own
+    #      rows. Stronger than a band, and it is what certifies the slicing the rows above depend on.
+    n_bit, bit_bad = 0, 0
+    honest = run_arm(HOST, "host_twin", plan, ins, wts, "split_ref")
+    parse_arm(honest, len(blocks), T)
+    for i, c in enumerate(cases):
+        ni = blocks.index(c["block"])
+        for st in STAGES:
+            if st in STATE_AFFECTED:
+                continue
+            full = dump_tensor(recs, c["block"], "prefill", st)
+            ref = stage_token_slice(st, full, T, c["j"] * C_SPLIT, (c["j"] + 1) * C_SPLIT)
+            mine = stage_tensor(res, i, C_SPLIT, st).reshape(ref.shape)
+            hrow = stage_token_slice(st, stage_tensor(honest, ni, T, st).reshape(full.shape),
+                                     T, c["j"] * C_SPLIT, (c["j"] + 1) * C_SPLIT)
+            view = torch.int16 if mine.dtype is torch.bfloat16 else torch.int32
+            nd = int((hrow.reshape(-1).view(view) != mine.reshape(-1).view(view)).sum())
+            bit_bad += nd != 0
+            n_bit += 1
+            print("CHUNKLOCAL arm=split_vs_single_chunk block=%s chunk=%s stage=%s n=%d "
+                  "ndiff=%d verdict=%s note=q_hat/k_hat sit outside the derived state-read closure, "
+                  "so re-chunking must not move them; their pinned-bytes band verdict is the prefill "
+                  "row of this same run and is not re-judged here"
+                  % (c["block"], c["name"], st, ref.numel(), nd,
+                     "BIT_IDENTICAL" if nd == 0 else "DIFFERS"))
+    chk.check("split_row_local_stages_bit_identical", n_bit == derived_bit and bit_bad == 0,
+              "rows=%d derived=%d differing=%d note=a wrong slice axis moves these by tens of "
+              "thousands of words, so the zero they print certifies the slicing the banded rows "
+              "above lean on" % (n_bit, derived_bit, bit_bad))
+
+    for b in blocks:
+        if b not in state_rows:
+            continue
+        ok, m = state_rows[b]
+        print("CHUNKCARRY block=%s pass=prefill chunks=%d chunk_width=%d carried=last<-previous "
+              "pinned_field=%s.prefill.state relL2=%.6g ndiff=%d/%d band=%s verdict=%s "
+              "note=the state the last chunk emitted IN THIS RUN, from the state the first chunk "
+              "emitted IN THIS RUN, against the pinned bytes"
+              % (b, n_chunks, C_SPLIT, b, m["relL2"], m["ndiff"], m["n"],
+                 "ACCEPTED" if ok else "REJECTED", "RECONSTITUTED" if ok else "NOT_RECONSTITUTED"))
+    licence_tally(chk, lic, "chunkcarry:split_%dchunk" % n_chunks, n_rows, counts)
+
+    # ---- sabotage: substitute a zero state for the carry. If the carry is load-bearing the last
+    #      chunk's state row must go RED; if it prints ACCEPTED then that row was never being
+    #      carried, and the section's headline claim would be about a number nobody read.
+    zp = WORK / "plan_split_zerostate.tsv"
+    write_plan(zp, [dict(c, carry=-1) for c in cases])
+    resz = run_arm(HOST, "host_twin", zp, sp_in, wts, "split_zerostate")
+    parse_arm(resz, len(cases), C_SPLIT)
+    zs_red, zs_rows = 0, 0
+    for bi, b in enumerate(blocks):
+        i = bi * n_chunks + n_chunks - 1
+        ref = dump_tensor(recs, b, "prefill", "state")
+        ok, mz = band_row(band, "zerostate_sabotage_vs_dump", b, "chunk%d" % (n_chunks - 1),
+                          "state", stage_tensor(resz, i, C_SPLIT, "state"), ref, split_lines,
+                          fails, name_key="%s/sabotage_zero_state|state" % b)
+        zs_rows += 1
+        zs_red += 0 if ok else 1
+    zs_detail = " | ".join(l.split(" stage=")[1][:56] for l in split_lines
+                           if l.startswith("STAGE arm=zerostate"))
+    chk.witness("split_carry_is_load_bearing", zs_rows == len(blocks) and zs_red == len(blocks),
+                "sabotage=carry_replaced_by_zero_state rows=%d rejected=%d derived=%d "
+                "note=a state row that survives having its incoming state removed was not being "
+                "carried: %s" % (zs_rows, zs_red, len(blocks), zs_detail[:220]))
+    counts["split_rows"] = n_rows
+    counts["split_bit_rows"] = n_bit
+    counts["chunk_census_passes"] = len(pop)
+    counts["split_stage_lines"] = len(stage_lines) - split_from
+
+
+def determinism_section(stage_lines, fails, counts, ran):
     """Determinism as a check, not a claim.
 
     The lane's premise is that this pipeline is deterministic, so the same command must print the
-    same STAGE lines. This re-runs the numerics sections (`band,carry`) as two further gate processes
-    and compares their STAGE lines against each other AND against the ones this run already printed.
-    A single differing line is a finding: on f32 data with no device, no timer and no thread count
-    knob, a moving digit is a race or an uninitialised read, not rounding."""
-    cmd = [PY, str(HERE / "gate.py"), "--only", "band,carry"]
+    same STAGE lines. This re-runs every section that printed a STAGE line as two further gate
+    processes and compares their STAGE lines against each other AND against the ones this run already
+    printed. The child `--only` list is DERIVED from what this run actually ran, so a partial run
+    compares against a child that does the same work rather than a typed list that would silently
+    compare different populations. A single differing line is a finding: on f32 data with no device,
+    no timer and no thread count knob, a moving digit is a race or an uninitialised read, not
+    rounding."""
+    stage_secs = [s for s in ("band", "chunkcarry", "carry") if s in ran]
+    if not stage_secs:
+        raise Refuse("this run printed no STAGE lines; determinism over nothing is a constant "
+                     "predicate — run with --only including band, chunkcarry or carry")
+    cmd = [PY, str(HERE / "gate.py"), "--only", ",".join(stage_secs)]
     runs = []
     for i in (1, 2):
         p = subprocess.run(cmd, capture_output=True, text=True, cwd=str(REPO))
@@ -1191,7 +1797,7 @@ def determinism_section(stage_lines, fails, counts):
     here_set = list(stage_lines)
     if not here_set:
         raise Refuse("this run printed no STAGE lines; determinism over nothing is a constant "
-                     "predicate — run with --only including band or carry")
+                     "predicate — run with --only including band, chunkcarry or carry")
     same12 = runs[0] == runs[1]
     same_h = all(r == here_set for r in runs)
     diff_at = next((k for k in range(min(len(runs[0]), len(runs[1])))

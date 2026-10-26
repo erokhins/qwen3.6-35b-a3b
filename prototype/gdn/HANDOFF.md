@@ -3,7 +3,131 @@
 Written ~minute 38 of the lane. This file is updated as things execute; it is not a summary
 written at the end, because the previous lane at this slice died at the 90-minute deadline with
 three headers and no executable verdict. Checkpoint log is at the bottom. The slice-2 lane continued
-this file on 2026-10-26 from ~minute 25 of its own deadline.
+this file on 2026-10-26 from ~minute 25 of its own deadline. The slice-3 lane wrote this section at
+~minute 52 of its own deadline, before its full-gate run finished; the numbers it could not yet know
+are marked and filled in below.
+
+## SLICE 3 — every banded row cites its licence, and the multi-chunk question gets a field name
+
+**Why the slice exists.** Slice 2 named two limits as its own: (1) its 84 accepted decode rows are
+cross-form (the manifest dispatches decode as *recurrent*, so what agreed with the pinned bytes was
+a chunked kernel at C=64 with 63 zero pads) and `band_licenses` was never consulted for that pair;
+(2) a multi-chunk prefill had never been checked against pinned bytes. Both are closed here — one by
+a licence citation on every row, one by a census that names the manifest field that makes it
+unadjudicable plus a carry test at the only width the pinned material allows.
+
+**JOB 2's answer, which is the deliverable: UNLICENSED.** `chunked|pinned` is licensed at
+`layer{0,1}/pinned/prefill` for all seven stages and at **no decode pass, for any stage**. The
+reason is not an omission, it is the dispatch table: `gdn_ref.probe_arms_for("decode", "pinned")`
+returns `recurrent, reassoc, pinned` — §04b.1 gives a cached decode step the recurrent program, so
+the probe never ran a chunked arm at a decode pass and `band_from_probe` cannot license a pair it
+never measured. (1,136 licensed rows in the band file, all accounted for; the slice-2 total of 84
+accepted decode rows sits inside the 82-candidate-per-stage refuse set that never had a record.)
+So there was **nothing to cite and nothing to loosen**: the gate now prints, per banded row,
+
+    LICENCE row=layer0/pinned/decode0|chunked|pinned plan=pinned_state pass=layer0/pinned/decode0 \
+        stage=q_hat licensed=0 form_probed=0 form_chunk_width=reference \
+        arms_at_pass=recurrent,reassoc,pinned verdict=UNLICENSED credited=0 \
+        why=no probe record for one of the two arms at this pass
+
+on all 84 rows, plus `LICENCETALLY`/`CARRYVERDICT ... credited=0 unlicensed=42 verdict=UNLICENSED`
+per plan, and `GATE PASS` is now unreachable while any banded row lacks a licence — the gate prints
+`GATE QUALIFIED ... uncredited=N` and exits 1 instead. The acceptances were NOT deleted, the band
+was NOT touched, and the two `q_hat` findings are still the only two findings (`findings=2`). The
+fix is a probe record, which only `--floor-probe` may write, and §04b.1 currently refuses to run a
+chunked arm at a decode pass to get one; that is a user/oracle decision and it is reported, not
+routed around.
+
+The same citation runs on the prefill rows and they come out `LICENSED credited=1` (14 rows), which
+is what makes the counter a measurement and not a constant. A third state exists, named
+`LICENSED_FORM_UNPROBED`, for slice 3's own re-chunked rows — see below.
+
+**JOB 1's answer: the fixture cannot carry multiple chunks, and the field is `dumps[].shape[1]`.**
+Every pinned pass's `q_pre` is `[1,T,...]` with T=32 for the two prefills and T=1 for the six decode
+steps, against `geometry.chunk_width=64`, so `chunks=1` for all eight pinned passes
+(`input.n_tokens=32`, `input.n_decode_steps=3`, `counts.passes_per_block=4`, and `dispatch.decode`
+= "recurrent, cached conv window + recurrent state (§04b.1)"). The census prints one `CHUNKSRC`
+line per pass, cross-checks the manifest's T against the T of the tensor the dump reader handed back
+(so it is anchored to bytes, not only to the manifest's claim), and reports
+`MULTICHUNK ... max_chunks=1 verdict=NO_PINNED_MULTICHUNK_PASS`. No fixture is invented.
+Two things follow, both witnessed:
+* the arm itself refuses a case that claims more than one chunk (`T=65` and `T=128` refused,
+  `T=32` accepted — both directions, so neither a parser that refuses everything nor one that
+  accepts everything can pass it);
+* the census is not decoration: the SAME census over an in-memory copy of the record whose
+  `shape[1]` is set to 128 prints `verdict=ADJUDICATION_REQUIRED` and the absence check goes RED
+  (`CONTROL check=chunk_census_fires_on_a_multichunk_pass fired=RED`).
+
+**And the carry mechanism is still tested against pinned bytes, at the only width available.** The
+pinned 32-token prefill is split into `n_chunks=2` equal chunks of `T//2 = 16` (two because two is
+the smallest number that forces a carry; 16 because the split is equal and 32 is the manifest's
+field — neither is typed). Chunk 1's incoming state is the state chunk 0 **emitted in the same arm
+run** (`carry=0`), and the final state is judged against the pinned `layer{0,1}.prefill.state`:
+
+    CHUNKCARRY block=layer0 pass=prefill chunks=2 chunk_width=16 carried=last<-previous \
+        pinned_field=layer0.prefill.state relL2=2.15464e-07 ndiff=438500/524288 band=ACCEPTED \
+        verdict=RECONSTITUTED
+
+18 banded rows (the five stages `downstream_closure(scan_out,state)` reaches × 2 blocks × 2 chunks,
+minus the two interior `state` boundaries that have no pinned reference — printed as `SPLITSKIP
+verdict=NO_PINNED_REFERENCE`, not skipped silently), all ACCEPTED; plus 8 zero-tolerance rows showing
+`q_hat`/`k_hat` are bit-identical to the single-chunk arm's own rows, which is also what certifies
+the slicing (the token axis is derived per stage from `gdn_ref.HEAD_AXIS` and the pass T, because
+`q_hat` is `[1,32,32,128]` with `h_v == T == 32` and a guessed axis silently compares heads against
+tokens — an early version of this slice got exactly that wrong and the bit-check is what caught it).
+These 18 rows are `LICENSED_FORM_UNPROBED`: the pair IS licensed at a prefill pass, but chunk width
+16 is not a width any probe arm ran (`probed_chunk_widths=32,64`, read out of `gdn_ref.Form`), so
+they are measured, printed, banded, and **not credited**.
+
+**Checks added, and how each was seen failing.** The committed slice-2 run printed 0 `CHECK` lines
+and 9 `CONTROL` lines that no counter watched; this run prints 11 `CHECK` lines and 13 `CONTROL`
+lines, of which 4 are named sabotage witnesses, all 15 named in `COUNTS named_checks=15
+named_checks_red=0`. Every one of them goes RED in a mutated world and green in this one:
+
+| check | what it asserts (data, never a constant) | witness that it fires |
+|---|---|---|
+| `licence_cited_band_single_chunk` | 14 cites == blocks×stages | the same counter over a carry scope where nothing is licensed goes RED (`--only carry` before the per-plan tally was fixed printed `rows=84 derived=42 verdict=FAIL`) |
+| `licence_cited_carry_pinned_state` / `_arm_carried` | 42 == blocks×passes×stages per plan | same as above |
+| `carry_rows_unlicensed_eq_dispatch` | unlicensed count == a SECOND derivation from `probe_arms_for`, not from the band file | `CONTROL check=licence_census_fires_on_a_poisoned_table fired=RED` — an in-memory band copy granted `layer0/pinned/decode0\|chunked\|pinned`; 41 vs 42 derived |
+| `licence_census_fires_on_a_dropped_row` | the honest predicate re-evaluated over a row set with one row dropped is False | fires (83 vs 84) |
+| `chunk_census_covers_pinned_passes` | 8 == blocks × `counts.passes_per_block` | short by construction if a pass lacks `q_pre` |
+| `chunk_no_pinned_multichunk_pass` | no pinned pass has chunks>1 | `fired=RED` at shape[1]=128 |
+| `chunk_case_refused_by_arm` | T=65 and T=128 refused AND T=32 accepted | the accept leg is the second direction |
+| `split_carry_premise` | each carried chunk's `state_nonzero` == the non-zero count of the state its predecessor emitted, read back out of `out.bin` | — (premise of the section) |
+| `split_banded_rows_eq_derived`, `split_row_local_stages_bit_identical` | 18 and 8 rows, derived from the closure and the stage list | a wrong slice axis moves the 8 to tens of thousands of ndiff (measured in the scratch run) |
+| `split_carry_is_load_bearing` (witness) | — | `fired=RED`: replacing the carry with a zero state makes the final `state` row REJECT at relL2 0.566 (against 2.15e-07 carried) |
+| `chunk_census_fires_on_a_multichunk_pass` (witness) | — | `fired=RED` at shape[1]=128, see above |
+
+The pad census is **printed as a fact and not counted as a check**, on purpose: chunk-pad rows are
+synthesised inside the arm (`gdn_item_enter` writes 0 for `i >= t`) and are not bytes the driver can
+reach, so no driver-side mutation can move it and a check on it would be a check that cannot fail.
+The `q_hat` band is untouched and still red.
+
+**What got bigger, in numbers.** Committed slice-2 run (`evidence/gdn-slice2-gate-2026-10-26.log`)
+→ this slice's run (`evidence/gdn-slice3-gate-2026-10-26.log`): `STAGE` rows 158 → 178 (the 158 are
+byte-identical; `evidence/gdn-slice3-stage-line.diff`: 20 lines added, 0 removed, one insertion
+hunk), named checks (`CHECK` + `CONTROL check=` lines, counted in `COUNTS named_checks`) 0 → 15,
+with 0 of them red, `COUNTS` keys 14 → 22, banded rows carrying a licence citation 0 → 116 (14
+LICENSED, 84 UNLICENSED, 18 LICENSED_FORM_UNPROBED), and the determinism section's reach 158 → 178
+lines (`DETERMINISM here=178 run1=178 run2=178 run1_eq_run2=1 both_eq_this_run=1
+verdict=IDENTICAL`) — the new rows are inside the lane's reproducibility claim, not beside it. The
+only thing that did NOT go up is the finding count: still exactly 2, still both `q_hat`.
+
+The determinism section's child command used to be a typed `--only band,carry`; it is now DERIVED
+from the sections this run actually ran (`[s for s in (band, chunkcarry, carry) if s in ran]`), for
+the reason in `pitfalls/40`: a typed list compares whatever it names, which silently becomes the
+wrong population the moment a section is added or `--only` is narrowed.
+
+**Files changed by slice 3:** `prototype/gdn/gate.py` (the `Licence`/`Checks` objects, the LICENCE
+citation in `band`/`carry`, the new `chunkcarry` section, the `GATE QUALIFIED` verdict path) and this
+file. No C source, no header, no build change, nothing under `speccheck/`, `checkpoints/` or
+`data/`. `grep -c gpu_lock prototype/gdn/gate.py` = 0; no device run, no timer read.
+
+**Remaining after slice 3:** unchanged from slice 2 except that the licence state is now named
+instead of assumed — the decode rows stay uncredited until the oracle licenses them (a user call),
+the engine-shape multi-chunk prefill (T>64, C=64 chunks) still needs pinned material **and** a chunk
+loop in the arm, batching/MTP/§04.2/§04.3/device codegen are still out, and `q_hat` is still the
+user's call.
 
 ## SLICE 2 — the state is live, and the state read is now a witnessed check
 
@@ -261,3 +385,40 @@ widening a band from here:
     the self-test, because a rename there silently detaches every band verdict from its stage.
 - min 68 — `gate.py` (the driver) in progress. Nothing has produced a numerics verdict yet; that is
   the next thing.
+
+## Checkpoint log (slice 3)
+
+- min 8-20 — read the four pitfall files, this file, `gate.py`, `gdn_arm.h`, `gdn_case.h`,
+  `gdn_kernels.h`, `speccheck/gdn_ref.py`. Established the two facts the whole slice turns on, both
+  by reading `gdn_ref.py` rather than by guessing: `probe_arms_for("decode","pinned")` returns
+  `recurrent,reassoc,pinned` (so `chunked|pinned` has no probe record at a decode pass), and
+  `dumps[].shape[1]` is 32/1 against `geometry.chunk_width=64` (so no pinned pass is multi-chunk).
+  Scratch probes for both live in `work/` during the lane and are deleted at the end; the numbers are
+  here instead, per `pitfalls/60-docs-and-citations.md`.
+- min 20-24 — first re-chunking attempt measured in a scratch driver and it was WRONG in a way worth
+  recording: the token axis was sliced on axis 1 because that is where a token axis usually is, but
+  `q_hat`/`k_hat` are `[1,32,32,128]` with `h_v == T == 32`, so axis 1 is heads there. The symptom
+  was a `scan_out` row that agreed with the pinned bytes and a `q_hat` row that differed from the
+  honest arm by 65,532 of 65,536 words. The fix derives the axis per stage from
+  `gdn_ref.HEAD_AXIS` plus the pass T, refuses on an ambiguous axis, and adds a zero-tolerance
+  arm-vs-arm row that is now the thing that would catch a recurrence (`split_row_local_stages_
+  bit_identical`, measured at ndiff=0 on all 8 rows).
+- min 24-38 — `Licence`/`Checks` objects, LICENCE citation on all 14 band rows + all 84 carry rows +
+  the split rows, `GATE PASS` made unreachable while any banded row is uncredited.
+- min 38-46 — `chunkcarry` section: census, refusal, witness, split carry, zero-state sabotage.
+  The first three runs died on real defects (a 2-tuple unpack over `recs`, a `fails` name out of
+  scope, a tally whose mark advanced late enough to double-count 84 rows as 42) — the third was
+  caught because the check comparing cites to its derived denominator went RED, which is the reason
+  it exists.
+- min 46-52 — witnesses for the licence census (poisoned in-memory band table, dropped row). Full
+  gate green except the two known `q_hat` findings; `findings=2`, same two rows as slice 2, `q_hat`
+  still RED on purpose and the band file untouched.
+- min 52 — this file updated, before the final full-gate run finished.
+- min 60 — final full gate: `GATE FAIL findings=2 uncredited_banded_rows=102`, `DETERMINISM
+  here=178 run1=178 run2=178 run1_eq_run2=1 both_eq_this_run=1 verdict=IDENTICAL` (the determinism
+  children now re-run `chunkcarry` too, so the 20 new rows are covered), `ORACLE rc=0 lines=2696`, `named_checks=15 named_checks_red=0`, `stage_rows=14 split_rows=18 split_bit_rows=8
+  chunk_census_passes=8`. Evidence: `evidence/gdn-slice3-gate-2026-10-26.log`,
+  `evidence/gdn-slice3-chunkcarry-only-2026-10-26.log`, and `evidence/gdn-slice3-stage-line.diff`
+  (which proves the 158 pre-existing STAGE rows are byte-identical and only the 20 new rows were
+  added). Scratch cleaned from `work/`; nothing staged; nothing outside `prototype/gdn/` written;
+  no device run and no timer read, so no timing appears anywhere in this file or in the logs.
