@@ -452,3 +452,23 @@ read 2.3 GB/s there) and no first-run figure from this window is quotable.
 - **Broken counter, recorded not skipped**: `tools/device_window_probe.py`'s `KFD per-process vram=UNAVAILABLE (no kfd
   proc files)` while `/sys/class/kfd/kfd/proc/` had entries during the same window — a check that prints nothing
   cannot fail, so AMDGPU sysfs is the load-bearing instrument until that reader is repaired.
+
+## Co-resident residency and M1's device half — window `2026-10-26c` (main agent, engine down for the clean half)
+
+- **D-11 deployment bound is now measured, not adjudicable-by-assertion**: one process took **32.00 GiB of
+  GTT-backed staging to completion with the local engine resident and idle** (`mem_info_gtt_used` accounting
+  exactly the request at 8/16/24/32 GiB, `rc=0` throughout). Policy A needs 19.7848 GiB resident, so the
+  deployment budget is **FITS with margin**. Allocation fact only — the BW columns from that half are not quoted
+  anywhere (engine resident; the first-run column spans 8.1 to 231.0 GB/s at one size, which is first-touch noise).
+  Engine-**serving** co-residency is still unmeasured.
+- **The card is card1 on this box; card0 does not exist.** A `cat` of a nonexistent sysfs file makes an awk delta
+  print `0,00`, which is indistinguishable from a true zero unless you check the read. Always prefer the probe's
+  own columns (it globs `card<i>`) over parallel reads written in a shell.
+- **M1's device half ran and is still NOT established**: `RESULT PASS mode=device checks=31 findings=0
+  verified=464 residue=0 uncovered=0 device=on`, yet zero device-side digest fields exist in the 464 records,
+  `controls=0 fired=0`, and its only device check (`device-path-was-exercised`, `n=1 ... 1 device construction(s)
+  happened`) is answered by construction. M1's exit gate — per-run D2H read-back sha256 vs the file digest,
+  count enforced at 464, plus a control that corrupts the device buffer — has never been executed.
+- Restart cost: `down: stopped in 3s`, `up: ready in 70s` (entries 3-4 of `evidence/halogen-restart.log`).
+Provenance: main agent, third device window of 2026-10-26; full detail and the verbatim lines in
+`evidence/device-window-2026-10-26c.md`.
