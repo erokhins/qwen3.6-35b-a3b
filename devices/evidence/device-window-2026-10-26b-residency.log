@@ -1,0 +1,8 @@
+PROBE n_tok=128 rc=0 samples=30
+PEAK  VmPeak=33.79 GiB  VmHWM=1.47 GiB  last_VmRSS=1.47 GiB
+KFD   per-process vram=UNAVAILABLE (no kfd proc files)
+AMDGPU gtt_used_peak=25.89 GiB  vram_used_peak=0.88 GiB  vis_vram_used_peak=0.88 GiB
+      host MemAvailable before=119.89 GiB  min during=92.82 GiB  samples_with_value=30 (the mmap'd weights are host pages read over GTT)
+OFFLOAD  41/41 layers  41/41 layers
+RULER   pp_t_s=368.9  tg_t_s=53.9  model_load_s=None
+      (llama.cpp prints its own timings too; the lines above are the ones this window is for)

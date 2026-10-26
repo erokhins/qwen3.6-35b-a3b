@@ -396,3 +396,59 @@ engine piece each row feeds is `planning/port-inventory-2026-10-26.md` (row ids 
 | draft block by depth | k1 **0.4371 ms**, k2 **0.7666** (ratio **1.754**), k4 **1.5039** (**3.441**); the block ran **1.83× its byte floor**; `empty` arm **1.82 µs/launch** ⇒ 14 launches ≈ 0.026 ms, so the launch floor is **overlapped, not exposed** | `../qwen3.5-0.8b/prototype/mtp_draft/DRAFT-RESULT.md` |
 | `delta`, the verify-body cost | plan A **1.6454 ms = 0.1505 of a step → 1.231×**; pessimistic **5.1712 ms = 0.4729** (KILLED); two sequential 1-row bodies KILLED **structurally**; state rollback excluded deliberately at ~0.12 ms/round | `../qwen3.5-0.8b/prototype/mtp_delta/D3-RESULT.md` |
 
+
+### An allocation is not a grant — the pool bound governs KFD grants, not `hipMalloc` (measured 2026-10-26, window `2026-10-26b`)
+
+The bracket above (≈55.5–57.5 GiB) is **grant arithmetic**: 23.5 + 32 granted, 23.5 + 34 refused, 23.5 + 20 + 12
+granted, 23.5 + 20 + 24 refused. It bounds what the KFD will *account* as device-visible memory. It is not a cap on
+`hipMalloc`, and the distinction was measured rather than reasoned:
+
+| quantity | value | instrument |
+|---|---|---|
+| largest `hipMalloc` that succeeded | **66.1337 GiB** — the whole bf16 model, draft block included | `tools/mem_mode_probe_hip.cpp`, 2 reps |
+| where those pages came from | `gtt+` moved **66.13 GiB**, `vram+` moved ≤0.08 GiB | sysfs, sampled around the allocation |
+| KFD grant ceiling | unchanged at **≈55.5–57.5 GiB** (not retested here — this probe never requested a 66 GiB grant) | grant/refusal arithmetic above |
+| steady read of that 66 GiB buffer | **190.4 and 219.2 GB/s** — a spread across two runs, **not** quotable as one number | same probe |
+| steady read, `pin` at same size | **237.1 GB/s** both runs | same probe |
+| box identity | `visible device memory 110.0 GiB`, `carve-out total 2.00 GiB`, `GTT total 112.00 GiB` | probe's own print |
+
+So `hipMalloc` does not get **refused** past the pool, it gets **slow**: it over-commits the 2.00 GiB carve-out into
+GTT pages and pays in bandwidth (~190–219 against pinned 237) instead of in an error. Consequence for the project's
+founding arithmetic: **bf16 was never blocked by capacity in this sense** — it can be allocated, and at 66.1337
+GiB/token it runs at **~2.8–3.4 t/s**, roughly 28× too slow. D-01 (4-bit routed experts) therefore rests on
+**bandwidth**, which is where it should have been stated all along; the decision is unaffected, the justification is
+corrected. Full log: `devices/evidence/device-window-2026-10-26b.md`.
+
+### The 60 MiB tier — placement, not kernel shape, decides the GDN state read (measured 2026-10-26, window `2026-10-26b`)
+
+Device reads through HIP, five reps, steady-state GB/s. One layer's GDN state is **60.0 MiB**, which is where the
+modes diverge most:
+
+| buffer | `carve` (inside the reservation) | `gtt` (plain `hipMalloc`) | `man` | `pin` |
+|---|---|---|---|---|
+| **0.0586 GiB = 60.0 MiB** | **239.9** | 185.5 | 105.9 | 112.0 |
+| 0.25 GiB | 242.0 | 228.1 | 219.8 | 203.9 |
+| 1.00 GiB | 240.3 | 239.4 | 238.5 | 231.6 |
+| 48.00 GiB | 240.2 | 236.3 | 237.7 | 237.0 |
+
+`carve` never dips — 237.8 to 242.0 across four orders of magnitude of buffer size — which is why ~240 GB/s is the
+denominator everywhere in this repo rather than a single sample. At 60.0 MiB specifically there is a real **~2.1×
+tier**: reservation-resident 239.9 against host-backed 105.9–185.5. The 60 MiB `first-run` column is unusable (carve
+read 2.3 GB/s there) and no first-run figure from this window is quotable.
+
+### Roofline and restart cost, measured (2026-10-26, window `2026-10-26b`)
+
+- **Policy-A decode cap ≈ 95 t/s** — 240 GB/s ÷ 2.5252 GiB/token, consistent with the probe's own `tok/s cap` column.
+- **llama.cpp measured 53.4 / 53.4 / 54.1 t/s** (warm 53.5), `offloaded 41/41 layers` every run, prompt 330.8–360.3
+  t/s → effective read ≈ **135 GB/s = 56 % of ceiling**, so **~1.8× headroom** exists in principle. Not a strict A/B
+  against the morning's 44.9/49.1/51.4: that prompt was never recorded, this one is
+  (`tools/device_window_ab_llama.sh`, 43 words, verbatim in `devices/evidence/device-window-2026-10-26b-llama-ab.log`).
+  Best-case conditions: warm page cache, idle box, halogen down.
+- **Full-offload residency**: `gtt_used_peak 25.89 GiB`, host `MemAvailable` 119.89 → **92.82 GiB** (the weights are
+  host pages read over GTT), `VmPeak 33.79 GiB` (address space, not residency), `VmHWM 1.47 GiB`.
+- **Halogen round trip ≈ 83 s** — `down: stopped in 4s` + `up: ready ... after 79s`, the second entry in
+  `devices/evidence/halogen-restart.log`. "Batch, do not oscillate" still holds, but it is no longer standing on an
+  assumption about reload cost.
+- **Broken counter, recorded not skipped**: `tools/device_window_probe.py`'s `KFD per-process vram=UNAVAILABLE (no kfd
+  proc files)` while `/sys/class/kfd/kfd/proc/` had entries during the same window — a check that prints nothing
+  cannot fail, so AMDGPU sysfs is the load-bearing instrument until that reader is repaired.

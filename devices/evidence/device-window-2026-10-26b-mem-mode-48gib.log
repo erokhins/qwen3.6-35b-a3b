@@ -1,0 +1,13 @@
+device AMD Radeon 8060S Graphics | 20 CUs | visible device memory 110.0 GiB
+carve-out total 2.00 GiB | GTT total 112.00 GiB
+
+mode     vram+GiB    gtt+GiB    read GB/s 1st-run GB/s  tok/s cap
+carve        0.00       1.00        240.2         25.3         95   (1.00 GiB buf, cpu fill 0.0 GB/s)
+gtt          0.05      48.00        236.3         78.3         94   (48.00 GiB buf, cpu fill 0.0 GB/s)
+man          0.02       0.00        237.7         52.1         94   (48.00 GiB buf, cpu fill 31.5 GB/s)
+pin          0.06       0.00        237.0        235.1         94   (48.00 GiB buf, cpu fill 32.2 GB/s)
+
+`carve` deliberately allocates <= 1 GiB to try to stay inside the reservation;
+`gtt`/`man`/`pin` use the requested 48.0 GiB. The vram+/gtt+ columns are sysfs
+counters sampled around the allocation, so placement is measured, not assumed.
+tok/s cap = read BW / 2.525 GB per decode token (spec 01.7).

@@ -1,0 +1,6 @@
+PROMPT_WORDS=43
+PROMPT=The capital of France is Paris, and the capital of Germany is Berlin. Write a short paragraph describing why river valleys were fertile ground for early agriculture, mentioning irrigation, silt, and seasonal flooding in the Nile and Tigris regions, and note two crops.
+RUN warm  rc=0 wall=6s | Prompt: 330,8 t/s | Generation: 53,5 t/s | offloaded 41/41 layers
+RUN 1     rc=0 wall=6s | Prompt: 332,3 t/s | Generation: 54,1 t/s | offloaded 41/41 layers
+RUN 2     rc=0 wall=6s | Prompt: 360,3 t/s | Generation: 53,4 t/s | offloaded 41/41 layers
+RUN 3     rc=0 wall=6s | Prompt: 335,1 t/s | Generation: 53,4 t/s | offloaded 41/41 layers
