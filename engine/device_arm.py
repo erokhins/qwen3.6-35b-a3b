@@ -34,6 +34,7 @@ import subprocess
 from pathlib import Path
 
 import numpy as np
+import torch
 
 import stage_run as SR
 
@@ -932,3 +933,409 @@ def g_census(g, units, ids, arm=None):
                 arm_spans=(arm["spans"] if arm else None),
                 arm_whole_reads=(arm["whole_reads"] if arm else None),
                 note_conflict=(arm["note_conflict"] if arm else None))
+
+
+# ----------------------------------------------------------------------------------------------
+# The GDN recurrent slice: one compiled pair implementing ONE form of ONE stage family.
+#
+# WHY THIS ONE GETS A FORM WORD AND THE OTHERS DO NOT. `speccheck/gdn_ref.band_licenses` keys GDN
+# licences on `pass|width|form`, and at the pinned decode pass the only pair that grants anything is
+# `pinned|recurrent` — `chunked|pinned` grants nothing there, because the dispatch table gives a
+# cached single-token step the recurrent program and the band's floor probe never measured a chunked
+# arm at that pass (`prototype/gdn/HANDOFF.md` §SLICE 3 JOB 2 left it UNLICENSED on purpose). So a
+# GDN row means something only together with the form that produced it, and the driver has to be able
+# to tell the two programs apart from the outside: `parse_d_layout` reads the arm's declared form out
+# of the header, `write_d_plan` puts it in the plan, `m2_d_io.h` refuses any plan that names a form it
+# does not implement, and `engine/block_device.py` refuses a row whose licence pair names a form
+# other than the one the arm printed. An arm compared against itself under a borrowed label is the
+# failure mode this section exists to prevent.
+# ----------------------------------------------------------------------------------------------
+
+D_ARM_BIN = BUILD / "m2_d_arm"
+D_HOST_BIN = BUILD / "m2_d_host"
+D_HEADER = HERE / "device" / "m2_d_kernels.h"
+GDN_HEADER = ROOT / "prototype" / "gdn" / "gdn_kernels.h"
+
+# The nine input spans, in the order the header numbers them, with the dump record each one comes from
+# and the dtype that record has to carry. This is an ADDRESSING table, not a width claim: the widths the
+# arm will assert (`M2D_FIELD_IN_ELT`) are read out of the header by `parse_d_layout`, and every dtype
+# here is checked against the manifest's own `dtype` string, so a requantized or reshaped input is a
+# named refusal in `d_spans` rather than a plausible row (`pitfalls/30` §dtype-by-filesize).
+D_INPUTS = (
+    dict(name="q_pre", rec="layer0.decode0.q_pre", dtype="torch.bfloat16"),
+    dict(name="k_pre", rec="layer0.decode0.k_pre", dtype="torch.bfloat16"),
+    dict(name="v_pre", rec="layer0.decode0.v_pre", dtype="torch.bfloat16"),
+    dict(name="beta", rec="layer0.decode0.beta", dtype="torch.bfloat16"),
+    dict(name="g_decay", rec="layer0.decode0.g_decay", dtype="torch.float32"),
+    dict(name="z", rec="layer0.decode0.z", dtype="torch.bfloat16"),
+    dict(name="norm_w", rec="layer0.weights.norm", dtype="torch.bfloat16"),
+    dict(name="out_w", rec="layer0.weights.out", dtype="torch.bfloat16"),
+    dict(name="state_in", rec="layer0.prefill.state", dtype="torch.float32"),
+)
+
+
+def _c_array(text, decl, where, tag="d-layout-unparsed"):
+    """The comma list inside one `static const T NAME[] = { ... };` initializer, as raw item strings.
+
+    The record layout is written in C as three parallel arrays, so that is how it is read. An
+    initializer this file cannot find is refused rather than replaced by a typed guess: a typed layout
+    would keep passing after the header moved the fields, which is the failure the whole parse exists
+    to catch (`pitfalls/40` §a-check-whose-reference-side-is-derived-from-the-thing-under-test).
+    """
+    m = re.search(decl + r"\s*\[[^\]]*\]\s*=\s*\{(.*?)\}\s*;", text, re.S)
+    if not m:
+        raise Refused(tag, "%s has no `%s = { ... };` initializer; this file reads the layout out of "
+                           "that header and cannot judge a layout it cannot find"
+                      % (where.name if hasattr(where, "name") else where, decl))
+    return [item.strip() for item in m.group(1).split(",") if item.strip()]
+
+
+def _c_strip_cast(expr):
+    """Drop a C integer/float cast, which is a width statement about an operand, not new arithmetic.
+
+    `M2D_FIELD_IN_WORDS` spells its entries `(long)GDN_H_K * GDN_D_K`; `_c_eval`'s grammar refuses
+    calls, and it should. Stripping the cast here is safe for the same reason the evaluator's grammar is
+    narrow: the casts in that table are over already-integer expressions and change no value.
+    """
+    return re.sub(r"\(\s*(?:unsigned\s+|signed\s+)?(?:long\s+long|long|int|short|char|u?int\d+_t)\s*\)",
+                  "", expr)
+
+
+def parse_d_layout():
+    """The GDN arm's geometry, record layout and input table, read out of the two headers that define
+    them, and cross-checked against the geometry the same headers state.
+
+    Three independent readings, all required to agree: the field OFFSETS, the field LENGTHS (both
+    written in `engine/device/m2_d_kernels.h` as expressions over `GDN_*`), and the lengths implied by
+    the geometry in `prototype/gdn/gdn_kernels.h` (h_v·d_k for q_hat, h_v·d_k·d_v for the state, and so
+    on). Offsets must tile the record with no hole and no overlap and the last field must end exactly at
+    `M2D_FLOATS`. That is the check that makes a header edit which lets the record lie about itself go
+    red here instead of producing a plausible-looking stage row out of a shifted field — and with
+    `d_k == d_v` the record's word count cannot tell [d_k,d_v] from [d_v,d_k], which is precisely why
+    the transposition is a control and not a shape check.
+    """
+    eng_text, proto_text = D_HEADER.read_text(), GDN_HEADER.read_text()
+    env = _c_resolve(_c_defines(proto_text, "GDN_"), {}, GDN_HEADER)
+    for name in ("GDN_H", "GDN_H_K", "GDN_H_V", "GDN_D_K", "GDN_D_V"):
+        if name not in env:
+            raise Refused("d-layout-unparsed",
+                          "%s does not define %s as an integer constant this file can read; the record "
+                          "layout is expressions over it, so a geometry it cannot read is one it cannot "
+                          "judge" % (GDN_HEADER.name, name))
+    # The engine header's own constants, resolved over the prototype's geometry in dependency order.
+    # `M2D_OFF_STATE` is spelled `(M2D_OFF_CORE + GDN_H_V * GDN_D_V)`, so the offsets are only readable
+    # as a chain; a link that is not an integer expression (the NaN bit pattern, the form-name macro) is
+    # skipped by `_c_resolve`, and the per-name checks below refuse if a link a LAYOUT depends on is
+    # missing -- so a header edit that makes an offset unreadable is a named refusal, not a guess.
+    eng_defs = _c_defines(eng_text, "M2D_")
+    _c_resolve(dict((k, _c_strip_cast(v)) for k, v in eng_defs.items()), env, D_HEADER.name)
+    hv, hk, dk, dv, h = (env["GDN_H_V"], env["GDN_H_K"], env["GDN_D_K"], env["GDN_D_V"], env["GDN_H"])
+    want_len = dict(q_hat=hv * dk, k_hat=hv * dk, scan_out=hv * dv, core_attn=hv * dv,
+                    state=hv * dk * dv, normed=hv * dv, y=h)
+    names = [n.strip('"') for n in _c_array(eng_text, r"static const char \*const M2D_FIELD_NAME",
+                                            D_HEADER)]
+    offs = [_c_eval(_c_strip_cast(x), env, D_HEADER.name)
+            for x in _c_array(eng_text, r"static const int M2D_FIELD_OFF", D_HEADER)]
+    lens = [_c_eval(_c_strip_cast(x), env, D_HEADER.name)
+            for x in _c_array(eng_text, r"static const int M2D_FIELD_LEN", D_HEADER)]
+    is_bf16 = [int(x) for x in _c_array(eng_text, r"static const int M2D_FIELD_IS_BF16", D_HEADER)]
+    floats = _c_eval(_c_strip_cast(eng_defs["M2D_FLOATS"]), env, D_HEADER.name)
+    in_names = [n.strip('"') for n in _c_array(eng_text, r"static const char \*const M2D_FIELD_IN_NAME",
+                                              D_HEADER)]
+    in_words = [_c_eval(_c_strip_cast(x), env, D_HEADER.name)
+                for x in _c_array(eng_text, r"static const long M2D_FIELD_IN_WORDS", D_HEADER)]
+    in_elt = [int(x) for x in _c_array(eng_text, r"static const int M2D_FIELD_IN_ELT", D_HEADER)]
+    if not (len(names) == len(offs) == len(lens) == len(is_bf16) == len(want_len)):
+        raise Refused("d-layout-inconsistent",
+                      "the record's three parallel arrays disagree on how many fields there are: "
+                      "names=%d offs=%d lens=%d bf16=%d geometry=%d"
+                      % (len(names), len(offs), len(lens), len(is_bf16), len(want_len)))
+    if len(in_names) != len(in_words) != len(in_elt):
+        raise Refused("d-layout-unparsed", "the input-field arrays disagree on the field count")
+    order = sorted(range(len(names)), key=lambda i: offs[i])
+    bad, cursor = [], 0
+    for i in order:
+        if offs[i] != cursor:
+            bad.append("%s@%d(expected %d)" % (names[i], offs[i], cursor))
+        if lens[i] != want_len.get(names[i]):
+            bad.append("%s len=%d, geometry says %s" % (names[i], lens[i], want_len.get(names[i])))
+        cursor = offs[i] + lens[i]
+    if bad or cursor != floats:
+        raise Refused("d-layout-inconsistent",
+                      "the GDN record's fields do not tile it: bad=%s; fields end at %d but "
+                      "M2D_FLOATS=%d" % (bad or "none", cursor, floats))
+    return dict(GDN_H=h, GDN_H_K=hk, GDN_H_V=hv, GDN_D_K=dk, GDN_D_V=dv, GDN_EXP=hv // hk,
+                D_FLOATS=floats, order=[names[i] for i in order],
+                fields=dict((names[i], (offs[i], lens[i], is_bf16[i])) for i in order),
+                is_bf16=dict((names[i], bool(is_bf16[i])) for i in order),
+                inputs=[dict(name=in_names[i], words=in_words[i], elt=in_elt[i])
+                        for i in range(len(in_names))])
+
+
+def d_record(path, d):
+    """The arm's GDN record: per-stage float lists and the unwritten-slot census, size-checked first.
+
+    The size check is the first half of `pitfalls/40` §a-check-that-can-print-nothing-cannot-fail: a
+    short record read field-by-field would hand the comparator a truncated `y` and a stage row with
+    fewer elements, and every band check on it would be over a population that is smaller than the one
+    the band was sized on.
+    """
+    words = np.fromfile(str(path), dtype="<f4")
+    if words.size != d["D_FLOATS"]:
+        raise Refused("d-record-size", "%s holds %d floats; the layout read from %s says %d"
+                      % (Path(path).name, words.size, D_HEADER.name, d["D_FLOATS"]))
+    out, nan = {}, {}
+    for name, (off, ln, _is_bf16) in d["fields"].items():
+        field = words[off:off + ln]
+        out[name] = field.copy()
+        bits = field.view(np.uint32)
+        nan[name] = int(np.count_nonzero((bits & np.uint32(0x7FFFFFFF)) == np.uint32(0x7FC00000)))
+    return out, nan
+
+
+def d_stage_tensors(rec, d):
+    """The record's fields as stage tensors, in the axis order the dumps store each stage in.
+
+    One table, derived from the geometry: q_hat and k_hat are [h_v,1,d_k], scan_out [h_v,1,d_v],
+    core_attn and normed [1,1,h_v,d_v], state [1,h_v,d_k,d_v], y [1,H]. `block_gate.stage_row` reshapes
+    to the referent anyway, so a wrong entry here would show as an enormous `ndiff` rather than silently
+    comparing a transposed view — and `d_k == d_v` is exactly why that sentence needs to be written: the
+    one transposition this record cannot be checked for by shape is the state's, and it is a control
+    (`control_d_state_read`), not a reshape.
+    """
+    hv, dk, dv, h = d["GDN_H_V"], d["GDN_D_K"], d["GDN_D_V"], d["GDN_H"]
+    shapes = dict(q_hat=(hv, 1, dk), k_hat=(hv, 1, dk), scan_out=(hv, 1, dv),
+                  core_attn=(1, 1, hv, dv), state=(1, hv, dk, dv), normed=(1, 1, hv, dv), y=(1, 1, h))
+    missing = [s for s in shapes if s not in rec]
+    if missing:
+        raise Refused("d-record-missing-stage", "the record carries no field for %s; the derived "
+                                                "population requires a row for each" % ",".join(missing))
+    return dict((stage, torch.from_numpy(np.ascontiguousarray(rec[stage])).reshape(shape))
+                for stage, shape in shapes.items())
+
+
+def d_field_bytes(tensor, dtype_str, why):
+    """A dump tensor's stored byte image, with its dtype checked instead of inferred.
+
+    `torch.Tensor.view(torch.uint8)` is a bitcast and requires contiguity; a bf16 tensor's `.numpy()`
+    would raise and a f32 one's would silently copy, so the width is asserted from the manifest's own
+    `dtype` string first and the byte count is required to be n_elts × that width. This is the same
+    argument `residency_router` makes for the router matrix, applied to the activation records.
+    """
+    width = {"torch.bfloat16": 2, "torch.float32": 4}.get(dtype_str)
+    if width is None:
+        raise Refused("d-width-unknown", "%s declares dtype %s, which this lane has no byte width for; "
+                                         "guessing a width from a file size is the trap "
+                                         "`pitfalls/30` §dtype-by-filesize records" % (why, dtype_str))
+    t = tensor.contiguous()
+    data = t.view(torch.uint8).numpy().tobytes() if width == 2 else t.numpy().tobytes()
+    if len(data) != t.numel() * width:
+        raise Refused("d-span-width", "%s: %s elements at declared width %d is %d B, the byte image is "
+                                      "%d B" % (why, t.numel(), width, t.numel() * width, len(data)))
+    return data, width
+
+
+def d_spans(dumps, d):
+    """The nine input spans, read through the sha256-verifying dump reader, with their digests.
+
+    Every span's element count is required to equal what the header's geometry says before a slab is
+    laid, so an input that moved shape is refused here and not turned into a stage row computed over
+    the wrong extent.
+    """
+    spans = []
+    for want, spec in zip(d["inputs"], D_INPUTS):
+        if want["name"] != spec["name"]:
+            raise Refused("d-input-order", "the header's input %d is `%s` and this driver expected "
+                                           "`%s`; the two tables are positional and a mismatch would "
+                                           "hand every stage the wrong span"
+                          % (len(spans), want["name"], spec["name"]))
+        rec = dumps.rec(spec["rec"])
+        if rec["dtype"] != spec["dtype"]:
+            raise Refused("d-input-width", "%s is stored %s, the arm reads `%s` as %s: the scan dtype "
+                                           "and the bf16 images are not interchangeable and this lane "
+                                           "does not requantize an input to make them so"
+                          % (spec["rec"], rec["dtype"], spec["name"], spec["dtype"]))
+        t = dumps.tensor(spec["rec"])
+        data, width = d_field_bytes(t, rec["dtype"], spec["rec"])
+        if width != want["elt"]:
+            raise Refused("d-input-width", "%s: its dtype gives %d-byte elements, but the arm reads "
+                                          "`%s` as %d-byte elements; the two tables have to name the "
+                                          "same tensor"
+                          % (spec["rec"], width, spec["name"], want["elt"]))
+        if t.numel() != want["words"]:
+            raise Refused("d-input-geometry", "%s holds %d elements; the geometry read from %s says "
+                                              "`%s` needs %d, so the arm would read the wrong extent"
+                          % (spec["rec"], t.numel(), GDN_HEADER.name, spec["name"], want["words"]))
+        spans.append(dict(name=spec["name"], rec=spec["rec"], dtype=rec["dtype"], elt=want["elt"],
+                          words=int(t.numel()), data=data, n_bytes=len(data),
+                          shape=list(rec["shape"]), sha=hashlib.sha256(data).hexdigest(),
+                          # Only the f32 spans are fingerprinted: the state is the span whose read the
+                          # controls have to witness, and a bf16 field's bytes are not words the arm
+                          # accumulates a fingerprint over.
+                          fingerprint=(d_fingerprint(data, 4) if want["elt"] == 4 else None)))
+    return spans
+
+
+def d_fingerprint(data, elt=4):
+    """The modular fingerprint of an f32 span: word count, live-word count, sum and weighted sum.
+
+    Modular 2**32 arithmetic, because modular addition is associative and commutative: the device folds
+    these with `atomicAdd` in an order nobody controls and still agrees bit for bit with the host's
+    serial `+=` and with this numpy fold, which is what lets three implementations print the same number
+    and compare it at zero tolerance. The live count is a FLOAT comparison (-0.0 is not live, NaN is),
+    matching `m2d_item_carry`'s `f != 0.0f`, so the driver and the arm count the same words. Overflow in
+    the u32 fold is the arithmetic, not an error, so it is silenced rather than avoided by widening.
+    """
+    if elt != 4:
+        raise Refused("d-fingerprint-width", "fingerprints are over f32 words; asked for elt=%d" % elt)
+    words = np.frombuffer(data, dtype="<u4")
+    live = int(np.count_nonzero(np.frombuffer(data, dtype="<f4") != np.float32(0.0)))
+    with np.errstate(over="ignore"):
+        total = int(np.uint32(words.sum(dtype=np.uint32)))
+        idx = np.arange(1, words.size + 1, dtype=np.uint32)
+        weighted = int(np.uint32((words * idx).sum(dtype=np.uint32)))
+    return dict(words=int(words.size), live=live, sum=total, sumidx=weighted)
+
+
+def write_d_plan(path, spans, slab_bytes, d, mode="correct", fault="none", form=None,
+                 read_off=-1, read_len=0, elt_override=None, words_override=None,
+                 drop_field=None):
+    """The GDN arm's plan: `M2DPLAN` + nine `FIELD` lines + `FORM`.
+
+    `elt_override`, `words_override` and `drop_field` exist for the controls that have to show a refusal
+    is load-bearing: a plan naming the state as 2-byte elements, a `v_pre` of the wrong extent, a plan
+    missing `g_decay`, and a plan claiming `form=chunked`. Writing them from the honest table (rather
+    than hand-typing a bad plan) keeps the byte arithmetic honest, so the only thing wrong with the file
+    is the one thing the control is testing.
+    """
+    form = form or "recurrent"
+    by_name = dict((s["name"], s) for s in spans)
+    lines = ["M2DPLAN version=1 slab_bytes=%d form=%s" % (slab_bytes, form)]
+    for spec in d["inputs"]:
+        name = spec["name"]
+        if drop_field == name:
+            continue
+        s = by_name[name]
+        elt = elt_override.get(name, s["elt"]) if elt_override else s["elt"]
+        words = words_override.get(name, s["words"]) if words_override else s["words"]
+        lines.append("FIELD name=%s span_off=%d bytes=%d elt=%d words=%d"
+                     % (name, s["off"], words * elt, elt, words))
+    lines.append("FORM form=%s mode=%s fault=%s read_off=%d read_len=%d"
+                 % (form, mode, fault, read_off, read_len))
+    Path(path).write_text("\n".join(lines) + "\n")
+    return len(lines)
+
+
+def d_slab(spans, work, name="d_slab.bin", zero_state=False, flip_state_word=None):
+    """Lay the slab from the bytes the dump reader certified, then write it.
+
+    `zero_state` and `flip_state_word` are the two byte-level perturbations the state controls need, and
+    they are built here rather than by mutating the honest file so the honest slab's bytes stay addressable
+    by digest: the bind line printed for the perturbed slab has to disagree with the honest digest, which
+    is the half of the witness that says the arm is reading these bytes and not some others.
+    """
+    buf = bytearray()
+    for s in spans:
+        while len(buf) % 4:
+            buf += b"\0"
+        s["off"] = len(buf)
+        buf += s["data"]
+    data = bytearray(buf)
+    state = [s for s in spans if s["name"] == "state_in"][0]
+    if zero_state:
+        data[state["off"]:state["off"] + state["n_bytes"]] = b"\0" * state["n_bytes"]
+    if flip_state_word is not None:
+        at = state["off"] + 4 * int(flip_state_word)
+        data[at] = (data[at] ^ 0xFF) & 0xFF
+    path = Path(work) / name
+    path.write_bytes(bytes(data))
+    span = bytes(data[state["off"]:state["off"] + state["n_bytes"]])
+    return dict(slab=path, slab_bytes=len(data), state_off=state["off"],
+                state_bytes=state["n_bytes"], sha=hashlib.sha256(bytes(data)).hexdigest(),
+                state_sha=hashlib.sha256(span).hexdigest(),
+                state_fingerprint=d_fingerprint(span, 4))
+
+
+def parse_d_census(text):
+    """The arm's GDN census back into a dict, refusing to read a missing field as a zero.
+
+    Same rule `parse_census` states for the gather: a census parsed with `.get(k, 0)` cannot refuse
+    anything, so every key the arm prints is required by name and the `n/want` pairs are split into
+    (measured, declared) rather than flattened.
+    """
+    pair_keys = ("enter", "carry", "kvmem", "write", "out", "norm", "outproj", "items_total",
+                 "reads_q", "reads_k", "reads_v", "reads_state", "writes_state", "out_elems",
+                 "outproj_reads")
+    scalar_keys = ("state_nonzero", "state_sum", "state_sumidx")
+    got, missing = {}, []
+    for chunk in (text or "").strip().strip('"').split(";"):
+        if "=" not in chunk:
+            continue
+        k, v = chunk.split("=", 1)
+        if "/" in v:
+            a, b = v.split("/", 1)
+            got[k] = (int(a), int(b))
+        else:
+            got[k] = int(v)
+    for k in pair_keys + scalar_keys:
+        if k not in got:
+            missing.append(k)
+    if missing:
+        raise Refused("d-census-unparsed",
+                      "the arm's census carried none of %s; a census this file cannot parse cannot "
+                      "refuse anything either (census=%r)" % (",".join(missing), text))
+    return got
+
+
+def d_census_agreement(census, d, fp, zero_in=False):
+    """Driver-vs-arm agreement on the census, with a non-zero denominator on both sides.
+
+    Four claims, each of which a plausible-but-wrong kernel would break and none of which a summary count
+    would show: the arm executed the item count the geometry implies per stage; it read every word of the
+    incoming state exactly once and wrote exactly as many; it produced one output element per
+    (head, value-column); and its fingerprint of the state's bytes equals the driver's fingerprint of
+    the bytes it put in the slab. The last one is the one that makes "the arm read the state it claims to
+    read" a measured fact: an arm that ignored the state, read it transposed in a way that skipped words,
+    or read a stale slab prints a different `state_sum`/`state_sumidx`, and the driver reconciles rather
+    than admires the number. `zero_in=True` is the non-carried leg, where `reads_state` is REQUIRED to
+    be 0 and the fingerprint required to be the fingerprint of nothing — a leg that must be able to say
+    the arm read nothing at all.
+    """
+    want_items = dict(enter=d["GDN_H_V"], carry=d["GDN_H_V"] * d["GDN_D_K"],
+                      kvmem=d["GDN_H_V"] * d["GDN_D_V"], write=d["GDN_H_V"] * d["GDN_D_K"],
+                      out=d["GDN_H_V"] * d["GDN_D_V"], norm=d["GDN_H_V"], outproj=d["GDN_H"])
+    state_words = d["GDN_H_V"] * d["GDN_D_K"] * d["GDN_D_V"]
+    disagree = []
+    for stage, want in sorted(want_items.items()):
+        got, declared = census[stage]
+        if got != want or declared != want:
+            disagree.append("%s=%d/%d(want %d)" % (stage, got, declared, want))
+    for key, want in (("reads_q", d["GDN_H_V"] * d["GDN_D_K"]),
+                      ("reads_k", d["GDN_H_V"] * d["GDN_D_K"]),
+                      ("reads_v", d["GDN_H_V"] * d["GDN_D_V"]),
+                      ("out_elems", d["GDN_H_V"] * d["GDN_D_V"]),
+                      ("outproj_reads", d["GDN_H"] * d["GDN_H_V"] * d["GDN_D_V"])):
+        got, declared = census[key]
+        if got != want or declared != want:
+            disagree.append("%s=%d/%d(want %d)" % (key, got, declared, want))
+    for key in ("reads_state", "writes_state"):
+        got, declared = census[key]
+        want = 0 if (zero_in and key == "reads_state") else state_words
+        if got != want or declared != state_words:
+            disagree.append("%s=%d/%d(want %d)" % (key, got, declared, want))
+    if zero_in:
+        for key in ("state_sum", "state_sumidx", "state_nonzero"):
+            if census[key] != 0:
+                disagree.append("%s=%d(non-carried leg must read nothing)" % (key, census[key]))
+    else:
+        for key, want in (("state_sum", fp["sum"]), ("state_sumidx", fp["sumidx"]),
+                          ("state_nonzero", fp["live"])):
+            if census[key] != want:
+                disagree.append("%s=arm %d, driver's own fold of the slab bytes says %d"
+                                % (key, census[key], want))
+        if fp["words"] != state_words:
+            disagree.append("state words=%d, geometry says %d" % (fp["words"], state_words))
+    return dict(disagree=disagree, state_words=state_words,
+                arm_state_sum=census["state_sum"], driver_state_sum=fp["sum"],
+                arm_state_live=census["state_nonzero"], driver_state_live=fp["live"],
+                items={k: census[k][0] for k in want_items})

@@ -1334,11 +1334,13 @@ def checks(v, ctx, rows, tally, text, parsed, arm_runs):
             "rows=%d derived=%d (the shared-expert stages the layer-0 manifest names)"
             % (len(rows), per_arm))
     v.check("parsed-record-count-equals-printed",
-            len(parsed) == len(rows) + len(ctx.get("g_rows", [])) and len(parsed) > 0,
-            "parsed=%d printed=%d (shared-expert and router rows=%d, gather rows on two width paths=%d); "
-            "a parser matching nothing would print 0 and pass"
-            % (len(parsed), len(rows) + len(ctx.get("g_rows", [])), len(rows),
-               len(ctx.get("g_rows", []))))
+            len(parsed) == len(rows) + len(ctx.get("g_rows", [])) + len(ctx.get("d_rows", []))
+            and len(parsed) > 0,
+            "parsed=%d printed=%d (shared-expert and router rows=%d, gather rows on two width "
+            "paths=%d, GDN recurrent rows=%d); a parser matching nothing would print 0 and pass"
+            % (len(parsed),
+               len(rows) + len(ctx.get("g_rows", [])) + len(ctx.get("d_rows", [])),
+               len(rows), len(ctx.get("g_rows", [])), len(ctx.get("d_rows", []))))
     v.check("arm-stages-equal-manifest-population",
             sorted(population["arm_declared"]) == sorted(population["all"]),
             "this path declares %s; the manifest's shared-expert stages are %s — a rename on either "
@@ -2239,6 +2241,899 @@ def no_device_act_offences(runs):
     return bad
 
 
+# ----------------------------------------------------------------------------------------------
+# The GDN recurrent vertical: ONE form, two compiled arms, one carried state, seven stage rows.
+#
+# WHY THIS VERTICAL LOOKS LIKE THE OTHERS AND IS NOT THE SAME THING. The shared-expert, router and
+# gather rows are all one-form problems: a matrix multiply is a matrix multiply whichever arm runs it.
+# A GDN row is not. `speccheck/gdn_ref.band_licenses` keys the licence on `width|form`, and at the
+# pinned decode pass (`layer0/pinned/decode0`) the ONLY pair that grants anything is `pinned|recurrent`;
+# `chunked|pinned` grants nothing at any decode pass, because the dispatch table gives a cached
+# single-token step the recurrent program and the floor probe never measured a chunked arm there
+# (`prototype/gdn/HANDOFF.md` §SLICE 3 JOB 2, adjudicated UNLICENSED and left that way). So every row
+# below is meaningless without the form that produced it, and "did the arm implement the form it is
+# being credited for?" becomes a question with a printable answer: `parse_d_layout` reads the form out
+# of `engine/device/m2_d_kernels.h`, `m2_d_io.h` refuses a plan naming any other, every arm run prints
+# `RUN arm=d_* form=recurrent`, and `control_d_form_not_merged` reddens a row whose licence pair names a
+# form this arm does not implement.
+#
+# THE STATE IS THE SUBJECT, NOT AN INPUT. `d_k == d_v == 128`, so a transposed state is the same
+# 16,384 words per head in a different order: no shape check, no bounds fault, no NaN — the oracle's own
+# injection name for it is `state_stored_transposed` and the prototype lane documents why a zero state
+# made it invisible to its first gate (`prototype/gdn/gdn_kernels.h` §WHY THE STATE READ IS A NAMED
+# CHECK). The pinned decode step's incoming state is NOT zero (509,952 of 524,288 words are live,
+# printed as `DSTATE` every run), so this vertical can see what that lane could not, and it does so with
+# three separate witnesses: the modular state fingerprint the arm computes as it reads
+# (`control_d_state_read_witness`), a transposition mode bent inside the one function that contracts
+# the state (`control_d_state_transposition`), and a non-carried leg executed twice — once by the driver
+# zeroing the slab's bytes, once by the arm's own `zero-state` fault (`control_d_non_carried_state`).
+#
+# NO BAND IS AUTHORED HERE. The seven rows go through `block_gate.stage_row` and `::adjudicate`, which
+# consult the same pinned band file as every other row in this driver; three of the seven have no
+# licensor at this pass for EITHER form and print the reason the licensor itself gives.
+# ----------------------------------------------------------------------------------------------
+
+D_FORM = "recurrent"          # the only form m2_d_arm.hip / m2_d_host.cpp implement
+D_STATE_READBACK = 32         # bytes of the state's own span a device run copies back
+D_BF16_STAGES = ("core_attn", "normed", "y")
+D_STATE_STAGES = ("scan_out", "core_attn", "state", "normed", "y")
+D_INPUT_ONLY_STAGES = ("q_hat", "k_hat")
+
+
+def derived_d_population(population, d):
+    """The GDN rows this arm must produce, derived twice and required to be the same seven.
+
+    The licensor's list is `speccheck/gdn_ref.SCAN_WIDTH_STAGES` — the stages the band file has an entry
+    for at this record width — narrowed to what the layer-0 GDN manifest actually pins. The arm's list is
+    the record field names read out of `engine/device/m2_d_kernels.h` by `device_arm.parse_d_layout`.
+    Requiring the two to be equal is the naming rule that makes a rename on either side a red run instead
+    of a missing row, which is the same discipline `derived_arm_population` applies to the shared-expert
+    and router stages, applied to a list the licensor owns.
+    """
+    licensor = [s for s in G.SCAN_WIDTH_STAGES if s in population["from_manifest"]["gdn"]]
+    arm = list(d["order"])
+    return dict(scan=licensor, arm_declared=arm, from_manifest=population["from_manifest"],
+                missing=[s for s in licensor if s not in arm],
+                extra=[s for s in arm if s not in licensor])
+
+
+def d_prepare(args, ctx):
+    """Lay the GDN arm's slab from the pinned decode-step records, and bind every span to them.
+
+    Nine spans: six decode-step activations, two weights and the carried state. The widths are not
+    taken on faith anywhere — `device_arm.d_spans` checks each record's manifest `dtype` against the
+    element width the header says the arm reads, and the arm re-checks the same facts out of its own plan
+    before it reads a byte, so a requantized input or a reshaped state is a named refusal twice over
+    rather than a plausible row (`pitfalls/30` §dtype-by-filesize).
+    """
+    work, dumps = ctx["work"], ctx["dumps"]
+    d = DA.parse_d_layout()
+    spans = DA.d_spans(dumps, d)
+    slab = DA.d_slab(spans, work)
+    state = [s for s in spans if s["name"] == "state_in"][0]
+    slab_bytes = slab["slab"].read_bytes()
+    binds = []
+    for s in spans:
+        span = slab_bytes[s["off"]:s["off"] + s["n_bytes"]]
+        sha = hashlib.sha256(span).hexdigest()
+        binds.append(dict(name=s["name"], rec=s["rec"], span_off=s["off"], bytes=s["n_bytes"],
+                          file_sha=s["sha"], slab_sha=sha))
+        print("DFIELD field=%s record=%s dtype=%s shape=%s words=%d elt=%d bytes=%d span_off=%d "
+              "file_sha256=%s slab_sha256=%s bind=%s"
+              % (s["name"], s["rec"], s["dtype"], ",".join(str(x) for x in s["shape"]), s["words"],
+                 s["elt"], s["n_bytes"], s["off"], s["sha"][:16], sha[:16],
+                 "ok" if sha == s["sha"] else "BROKEN"))
+    print("DWIDTH form=%s fields=%s f32=%s bf16=%s state_words=%d state_bytes=%d slab_bytes=%d "
+          "note=the scan dtype and the recurrent state are f32, every activation and weight image is "
+          "bf16, and engine/device/m2_d_io.h refuses a plan whose elt= disagrees with either"
+          % (D_FORM, ",".join(d["order"]),
+             ",".join(s for s in d["order"] if not d["is_bf16"][s]),
+             ",".join(s for s in d["order"] if d["is_bf16"][s]),
+             d["GDN_H_V"] * d["GDN_D_K"] * d["GDN_D_V"], state["n_bytes"], slab["slab_bytes"]))
+    print("DSTATE role=carried record=%s words=%d live=%d sum=%d sumidx=%d nonzero_fraction=%.6f "
+          "note=a zero state would make every state-reading control below vacuous, so the count is "
+          "printed before any row is emitted"
+          % (state["rec"], state["fingerprint"]["words"], state["fingerprint"]["live"],
+             state["fingerprint"]["sum"], state["fingerprint"]["sumidx"],
+             state["fingerprint"]["live"] / float(max(state["fingerprint"]["words"], 1))))
+    plan = work / "d_plan.txt"
+    DA.write_d_plan(plan, spans, slab["slab_bytes"], d, read_off=slab["state_off"],
+                    read_len=D_STATE_READBACK)
+    return dict(d=d, spans=spans, slab=slab, plan=plan, binds=binds,
+                fingerprint=slab["state_fingerprint"], state=state,
+                readback_hex=None)
+
+
+def d_claims(ctx):
+    """Which execution path a GDN control may name: the host body always, the device only in a window.
+
+    Same rule as `g_claims`: every name has to be backed by a counted arm act on that path
+    (`control-legs-cover-the-path-under-claim`), so a CPU witness never claims `device`, and the two
+    controls that do claim it run their leg through the hipcc binary's launched kernels rather than
+    borrowing the serial host body's.
+    """
+    return ("host_cpubody",) + (("device",) if ctx["device"] else ())
+
+
+def d_arm(binary, plan, slab, out, device=False, fault=None, label=None):
+    """`arm_leg` with the run's device bill folded in, so a control's variant cannot go unbilled."""
+    rec = arm_leg(binary, plan, slab, out, device=device, fault=fault, label=label)
+    run = rec["run"]
+    WITNESS["hip_calls_arm"] += int(run["hip_calls"])
+    WITNESS["launches"] += int(run["launches"])
+    WITNESS["allocs"] += int(run["allocs"])
+    WITNESS["bytes_to_device"] += int(run["bytes_to_device"])
+    WITNESS["bytes_from_device"] += int(run["bytes_from_device"])
+    return rec
+
+
+def d_variant(ctx, out_name, label, mode="correct", fault="none", binary=None,
+              zero_state=False, flip_state_word=None, device=False, form=None, elt_override=None,
+              words_override=None, drop_field=None, subdir="dvariant", metrics_ok=True):
+    """Run the arm on a variant of the honest plan/slab, and return everything measured about it.
+
+    One door for every control leg so no control can quietly run a different thing than it claims: the
+    variant plan is written from the same span table, the perturbed slabs are laid from the same
+    certified bytes, and the returned dict carries the record fields, the unwritten-slot census, the
+    arm's own census, the fingerprint the driver folds over the bytes it supplied, and the per-stage
+    distance to the pinned records.
+    """
+    work = ctx["work"] / subdir
+    work.mkdir(parents=True, exist_ok=True)
+    d, spans = ctx["d"]["d"], ctx["d"]["spans"]
+    slab = DA.d_slab(spans, work, name=out_name.replace(".bin", "_slab.bin"),
+                     zero_state=zero_state, flip_state_word=flip_state_word)
+    plan = work / (out_name.replace(".bin", "_plan.txt"))
+    DA.write_d_plan(plan, spans, slab["slab_bytes"], d, mode=mode, fault=fault, form=form,
+                    read_off=slab["state_off"], read_len=D_STATE_READBACK,
+                    elt_override=elt_override, words_override=words_override, drop_field=drop_field)
+    out = work / out_name
+    rec = d_arm(binary or ctx["args"].d_host_binary, plan, slab["slab"], out, device=device,
+                label=label)
+    fields, nan = DA.d_record(out, d)
+    stages = DA.d_stage_tensors(fields, d)
+    census = DA.parse_d_census(rec["run"].get("census"))
+    agree = DA.d_census_agreement(census, d, slab["state_fingerprint"],
+                                 zero_in=(fault == "zero-state"))
+    return dict(rec=rec, fields=fields, stages=stages, nan=nan, census=census, agree=agree,
+                # The licensor's aggregates() refuses a non-finite input by design, so a record known to
+                # carry poison cannot be run through the row comparator at all — the poison control
+                # compares census counts, not band-shaped aggregates.
+                metrics=(d_metrics(ctx["dumps"], stages) if metrics_ok else None),
+                fingerprint=slab["state_fingerprint"],
+                mode_fields=rec["hdr"].get("mode_fields"))
+
+
+def d_metrics(dumps, stages):
+    """Per-stage distance to the pinned record, computed by the licensor's own comparator.
+
+    `block_gate.stage_row` does the cast to the referent dtype and the `ulp_diff` count, so the numbers a
+    control compares are the same numbers the band row prints — not a second differ with its own idea of
+    what "differs" means (`pitfalls/30` §the-ULP-comparator-dead-branch is what a private differ bought
+    once already).
+    """
+    out = {}
+    for stage in stages:
+        row = BG.stage_row(dumps, "ref_bf16", stage, stages)
+        out[stage] = dict(ndiff=int(row["ndiff"]), n=int(row["n"]), maxabs=row["maxabs"],
+                          max_ulp=row["max_ulp"], one_minus_cos=row["one_minus_cos"])
+    return out
+
+
+def d_row_verdicts(ctx, stages):
+    """The seven GDN rows for one set of stage values, adjudicated by the existing licensors.
+
+    For the controls that need the LICENCE to move and not merely a distance: `block_gate.adjudicate`
+    consults the same pinned band file the emitted rows were judged with, so a control that turns a row
+    REJECTED here is reddening the licensor's verdict rather than a threshold this file invented.
+    """
+    rows = [BG.stage_row(ctx["dumps"], "ref_bf16", s, stages) for s in ctx["d_pop"]["scan"]]
+    tally = BG.adjudicate(rows, ctx["band"], ctx["limits"], ctx["d_pop"]["from_manifest"])
+    return dict((r["stage"], r["band"].split(" ")[0]) for r in rows), tally
+
+
+def d_fields_moved(a, b, d):
+    """Which record fields two runs of the arm differ in, at zero tolerance on the stored words."""
+    return dict((name, int(np.count_nonzero(np.ascontiguousarray(a[name]).view(np.uint32)
+                                            != np.ascontiguousarray(b[name]).view(np.uint32))))
+                for name in d["order"])
+
+
+def d_bits(t):
+    """One tensor's stored bit image, for a zero-tolerance comparison between implementations.
+
+    bf16 has no numpy dtype, so the view is a torch view; comparing the bit images is what keeps "the two
+    implementations agree" a statement about stored values rather than about float printing.
+    """
+    t = t.contiguous()
+    return t.view(torch.uint16) if t.dtype is torch.bfloat16 else t.view(torch.int32)
+
+
+def d_torch_body(ctx):
+    """The engine's own torch GDN decode step, as a third implementation to compare against.
+
+    `engine/block_forward.py::gdn_recurrent_step` is the body the CPU gate judges the pins with; the two
+    compiled arms are two C spellings of the same §04b.1 program. Three spellings, two languages, one
+    expected answer — so no row in this vertical rests on one arm being compared to itself. The call
+    mirrors `forward_block` exactly: the same pinned decode-step input, the same cached conv window and
+    state, the same bf16 weight arm.
+    """
+    dumps, cfg = ctx["dumps"], ctx["cfg"]
+    W = BF.Weights("ref_bf16", cfg)
+    try:
+        x = dumps.tensor("%s.%s.input" % (BF.GDN_PASS, BF.GDN_MODE)).reshape(1, 1, cfg["d"])
+        state = dumps.tensor("%s.prefill.state" % BF.GDN_PASS)
+        conv = dumps.tensor("%s.prefill.conv_window" % BF.GDN_PASS)
+        return BF.gdn_recurrent_step(x, W, cfg, conv, state)
+    finally:
+        W.close()
+
+
+def run_d_arms(v, ctx):
+    """Run the compiled pair on the pinned decode step, reconcile its census, and hand back the stages.
+
+    Two runs in a CPU witness (g++ twin and hipcc host path), three in a device window. The PAIR line is
+    zero-tolerance for the reason the other lanes print it: one arithmetic, two compilers. The census
+    reconciliation is the GDN-specific half — the driver folds the state fingerprint over the bytes it
+    put in the slab and requires the arm's own fold to match, on both compilers, before any row is
+    emitted.
+    """
+    args, work = ctx["args"], ctx["work"]
+    d = ctx["d"]["d"]
+    runs = {}
+    twin = d_arm(args.d_host_binary, ctx["d"]["plan"], ctx["d"]["slab"]["slab"],
+                 work / "d_out_host.bin", label="d_host_twin")
+    hip = d_arm(args.d_arm_binary, ctx["d"]["plan"], ctx["d"]["slab"]["slab"],
+                work / "d_out_hip.bin", label="d_hip_hostpath")
+    runs["d_host_twin"], runs["d_hip_hostpath"] = twin, hip
+    nbytes, ndiff = DA.pair_bytes(work / "d_out_host.bin", work / "d_out_hip.bin")
+    print("PAIR pair=d_host_twin_vs_d_hip_hostpath file=gdn_record.f32 bytes=%d ndiff_bytes=%d "
+          "cases=1 zero_tolerance=1 verdict=%s"
+          % (nbytes, ndiff, "IDENTICAL" if ndiff == 0 else "DIFFERS"))
+    record, device_pair = work / "d_out_hip.bin", None
+    if ctx["device"]:
+        dev = d_arm(args.d_arm_binary, ctx["d"]["plan"], ctx["d"]["slab"]["slab"],
+                    work / "d_out_device.bin", device=True, label="d_hip_device")
+        runs["d_hip_device"] = dev
+        device_pair = DA.pair_bytes(work / "d_out_device.bin", work / "d_out_hip.bin")
+        print("PAIR pair=d_hip_device_vs_d_hip_hostpath file=gdn_record.f32 bytes=%d ndiff_bytes=%d "
+              "cases=1 zero_tolerance=1 verdict=%s"
+              % (device_pair[0], device_pair[1],
+                 "IDENTICAL" if device_pair[1] == 0 else "DIFFERS"))
+        record = work / "d_out_device.bin"
+    fields, nan = DA.d_record(record, d)
+    stages = DA.d_stage_tensors(fields, d)
+    censuses = {}
+    for label, rec in sorted(runs.items()):
+        cen = DA.parse_d_census(rec["run"].get("census"))
+        censuses[label] = DA.d_census_agreement(cen, d, ctx["d"]["fingerprint"])
+        print("DCENSUS arm=%s path=%s form=%s items_total=%d/%d reads_state=%d/%d writes_state=%d/%d "
+              "state_nonzero=%d state_sum=%d state_sumidx=%d out_elems=%d/%d outproj_reads=%d/%d "
+              "disagree=%s"
+              % (label, rec["run"]["path"], rec["run"].get("form"),
+                 cen["items_total"][0], cen["items_total"][1],
+                 cen["reads_state"][0], cen["reads_state"][1],
+                 cen["writes_state"][0], cen["writes_state"][1],
+                 cen["state_nonzero"], cen["state_sum"], cen["state_sumidx"],
+                 cen["out_elems"][0], cen["out_elems"][1],
+                 cen["outproj_reads"][0], cen["outproj_reads"][1],
+                 ",".join(censuses[label]["disagree"]) or "none"))
+    torch_stages = d_torch_body(ctx)
+    torch_metrics = d_metrics(ctx["dumps"], torch_stages)
+    ximpl = []
+    for stage in d["order"]:
+        ref = torch_stages[stage]
+        mine = stages[stage].reshape(ref.shape)
+        if mine.dtype is not ref.dtype:
+            mine = mine.to(ref.dtype)
+        nd = int((d_bits(mine) != d_bits(ref)).sum().item())
+        ximpl.append(dict(stage=stage, n=int(ref.numel()), ndiff=nd))
+    print("XIMPL pair=d_arm_vs_engine_torch_body body=block_forward.gdn_recurrent_step stages=%d "
+          "ndiff_elements=%s verdict=MEASURED note=this comparison is a THIRD opinion, not a licensor: "
+          "the rows below are judged against the pinned records by block_gate.adjudicate, and a "
+          "torch-vs-C difference here is reported and investigated, never absorbed into a band"
+          % (len(ximpl), ",".join("%s=%d/%d" % (r["stage"], r["ndiff"], r["n"]) for r in ximpl)))
+    # Printed beside it because the two lines only mean something together: if the third implementation
+    # were itself off the pins, "the arm differs from the torch body by N" would be a statement about two
+    # wrong programs agreeing, and nothing here may read that as a licence.
+    print("XIMPL pair=engine_torch_body_vs_pinned body=block_forward.gdn_recurrent_step stages=%d "
+          "ndiff_vs_pin=%s verdict=%s note=the torch body's own distance to the pins, so the line above "
+          "cannot be read as two wrong programs agreeing with each other"
+          % (len(torch_metrics),
+             ",".join("%s=%d/%d" % (s, torch_metrics[s]["ndiff"], torch_metrics[s]["n"])
+                      for s in sorted(torch_metrics)),
+             "EXACT" if all(m["ndiff"] == 0 for m in torch_metrics.values()) else "OFF-PIN"))
+    ctx["d_torch_metrics"] = torch_metrics
+    ctx["d_pair"] = (nbytes, ndiff)
+    ctx["d_device_pair"] = device_pair
+    ctx["d_ximpl"] = ximpl
+    ctx["d_honest_metrics"] = d_metrics(ctx["dumps"], stages)
+    ctx["d_honest_fields"] = fields
+    ctx["d_honest_nan"] = nan
+    return runs, stages, censuses
+
+
+def emit_d_rows(dumps, band, limits, population, stages, provenance):
+    """Seven GDN rows, judged by the existing licensors, on the form the arm declared.
+
+    `block_gate.adjudicate` asks `band_licenses` for the pair `pinned|recurrent` at the pinned decode
+    pass — the pair this arm implements, which is why the rows can be credited at all — and every grant it
+    withholds is counted as UNLICENSED with the licensor's own reason string attached. Nothing here
+    supplies a limit the band file does not already contain.
+    """
+    print("PROVENANCE stages=%s source=%s device=%s"
+          % (",".join(population["scan"]), provenance,
+             "on" if provenance.startswith("device:") else "off"))
+    rows = []
+    for stage in population["scan"]:
+        if stage not in stages:
+            raise Refused("d-arm-missing-stage",
+                          "no value for %s, which the licensor's stage list requires: a missing row is "
+                          "not a row that can be skipped" % stage)
+        rows.append(BG.stage_row(dumps, "ref_bf16", stage, stages))
+    tally = BG.adjudicate(rows, band, limits, population["from_manifest"])
+    for row in rows:
+        BG.print_row(row)
+    WITNESS["rows_emitted"] += len(rows)
+    granted = []
+    for row in rows:
+        ok, why = G.band_licenses(band, BF.GDN_PASS_KEY, row["stage"], D_FORM, "pinned")
+        chunked, chunked_why = G.band_licenses(band, BF.GDN_PASS_KEY, row["stage"], "chunked", "pinned")
+        granted.append(dict(stage=row["stage"], granted=ok, why=why, chunked=chunked,
+                            chunked_why=chunked_why))
+        print("DLICENCE stage=%s arm_form=%s %s|pinned=%s chunked|pinned=%s chunked_reason=%s"
+              % (row["stage"], D_FORM, D_FORM, "granted" if ok else "refused",
+                 "granted" if chunked else "refused", "" if chunked else chunked_why))
+    print("DROWS form=%s rows=%d licensed=%d accepted=%d rejected=%d unlicensed=%d "
+          "licensed_stages=%s unlicensed_stages=%s"
+          % (D_FORM, len(rows), tally["licensed"], tally["accepted"], tally["rejected"],
+             tally["unlicensed"],
+             ",".join(g["stage"] for g in granted if g["granted"]) or "none",
+             ",".join(g["stage"] for g in granted if not g["granted"]) or "none"))
+    return rows, tally, granted
+
+
+def control_d_state_transposition(v, ctx):
+    """The oracle's own injection, run through the one function that contracts the state.
+
+    `state_stored_transposed` is invisible to every structural check this repo has: `d_k == d_v`, so
+    reading the carried state as [d_v,d_k] is in-bounds, shape-legal, and a different number at every
+    live word. The mode lives inside `m2d_state_dot` — the only contraction of the state in the arm — so
+    the control bends the shipped arithmetic and not a copy of it. Two legs, both executed, on both
+    compilers:
+
+      * `q_hat`/`k_hat` stay BIT-IDENTICAL. They are computed before the state is touched, so a control
+        that moved them would be moving something else and reporting it as this one.
+      * each of the five state-reading stages moves in value, and each ends at least as far from the pin
+        as the honest record, with at least one strictly further. That is the derived claim; the
+        honest→dirty pair of counts is printed per stage, and the arm's own reach table
+        (`HDR mode_fields=`) is required to name exactly the five, because a mode that reaches fields the
+        driver did not expect is a mode the driver is not entitled to interpret.
+    """
+    honest, d = ctx["d_honest_fields"], ctx["d"]["d"]
+    hm = ctx["d_honest_metrics"]
+    snap = dict(PATH_LEGS)
+    out = {}
+    arms = [("host_twin", ctx["args"].d_host_binary, False),
+            ("hip_hostpath", ctx["args"].d_arm_binary, False)]
+    if ctx["device"]:
+        # The contraction lives in one function that BOTH the host body and the device kernels call, so
+        # the device kernels get their own leg here rather than inheriting the host body's.
+        arms.append(("hip_device", ctx["args"].d_arm_binary, True))
+    for name, binary, dev in arms:
+        r = d_variant(ctx, "d_out_xpose_%s.bin" % name, "d_%s-state_xpose" % name,
+                      mode="state_xpose", binary=binary, device=dev, subdir="dtransposed")
+        moved = d_fields_moved(honest, r["fields"], d)
+        out[name] = dict(moved=moved, metrics=r["metrics"], reach=r["mode_fields"],
+                         verdicts=d_row_verdicts(ctx, r["stages"])[0])
+    claims_ok = []
+    for name, r in sorted(out.items()):
+        input_only_identical = all(r["moved"][s] == 0 for s in D_INPUT_ONLY_STAGES)
+        state_moved = all(r["moved"][s] > 0 for s in D_STATE_STAGES)
+        not_closer = all(r["metrics"][s]["ndiff"] >= hm[s]["ndiff"] for s in D_STATE_STAGES)
+        further = [s for s in D_STATE_STAGES if r["metrics"][s]["ndiff"] > hm[s]["ndiff"]]
+        reach_ok = set(r["reach"].split(",")) == set(D_STATE_STAGES)
+        licensed = [g["stage"] for g in ctx["d_granted"] if g["granted"]]
+        rejected = [s for s in licensed if r["verdicts"][s] == "REJECTED"]
+        licence_leg = bool(rejected)
+        claims_ok.append(input_only_identical and state_moved and not_closer and bool(further)
+                         and reach_ok and licence_leg)
+        print("DCONTROL control=transposition arm=%s reach=%s input_only_identical=%s "
+              "state_stages_moved=%s every_stage_at_least_as_far=%s strictly_further=%s "
+              "band_reddened_on=%s honest_ndiff=%s dirty_ndiff=%s"
+              % (name, r["reach"], "yes" if input_only_identical else "no",
+                 "yes" if state_moved else "no", "yes" if not_closer else "no",
+                 ",".join(further) or "none", ",".join(rejected) or "none",
+                 ",".join("%s=%d/%d" % (s, hm[s]["ndiff"], hm[s]["n"]) for s in D_STATE_STAGES),
+                 ",".join("%s=%d/%d" % (s, r["metrics"][s]["ndiff"], r["metrics"][s]["n"])
+                          for s in D_STATE_STAGES)))
+    if ctx["device"]:
+        print("DCONTROL control=transposition leg=gdn-device ran=yes note=the mode was bent inside "
+              "`m2d_state_dot`, which the seven device kernels call, so this leg is about the launched "
+              "arithmetic and not only the serial host body")
+    else:
+        print("DVOID control-leg=gdn-state-transposition-on-device status=not-exercised "
+              "reason=needs-a-device-window note=the same mode is compiled into the hipcc binary's "
+              "device kernels but no leg executed it in this window; it is reported as unexercised "
+              "rather than assumed from the host body")
+    v.control("gdn-state-transposition-reddens",
+              bool(claims_ok) and all(claims_ok) and len(claims_ok) == len(out) and len(out) >= 2,
+              "%d compiled legs (g++ twin, hipcc host path%s) ran `state_xpose` through "
+              "`m2d_state_dot`: q_hat and k_hat bit-identical "
+              "to each arm's honest record, all five state-reading stages moved, none of them closer to "
+              "the pin than honest, and at least one strictly further on each arm; the arm's own reach "
+              "table named exactly those five, and the transposed record comes back REJECTED on at least "
+              "one of the four licensed stages (`band_reddened_on` per leg), so what reddens is the "
+              "licence and not a distance this file chose. The transposition is invisible to shape checks "
+              "(d_k == d_v == 128) and visible here because the pinned incoming state has %d live words"
+              % (len(claims_ok), ", and hipcc device kernels" if ctx["device"] else "",
+                 ctx["d"]["fingerprint"]["live"]),
+              legs=legs_since(snap), claims=d_claims(ctx))
+
+
+def control_d_carry_index(v, ctx):
+    """The carry-index mistake: decay taken from the neighbouring head, with the READ left alone.
+
+    A decode step's decay multiplier is one f32 per value head, and taking it from head (h+1) % h_v is
+    the one-step version of reading the wrong head's history. It is a different defect from the
+    transposition and gets a different witness: the fingerprint of the state bytes must be UNCHANGED from
+    the honest run (the same words were read, in the same order), while every state-derived field moves.
+    That is the clause that makes this control about the carry and not about the read: had the mode also
+    changed which words it touched, `state_sum` would move and the control would refuse.
+    """
+    honest, d = ctx["d_honest_fields"], ctx["d"]["d"]
+    hm = ctx["d_honest_metrics"]
+    snap = dict(PATH_LEGS)
+    ok, rows = True, []
+    for name, binary in (("host_twin", ctx["args"].d_host_binary),
+                         ("hip_hostpath", ctx["args"].d_arm_binary)):
+        r = d_variant(ctx, "d_out_decay_%s.bin" % name, "d_%s-decay_head_off1" % name,
+                      mode="decay_head_off1", binary=binary, subdir="dcarry")
+        moved = d_fields_moved(honest, r["fields"], d)
+        same_read = (r["census"]["state_sum"] == ctx["d"]["fingerprint"]["sum"]
+                     and r["census"]["state_sumidx"] == ctx["d"]["fingerprint"]["sumidx"]
+                     and r["agree"]["disagree"] == [])
+        claims_ok = (same_read and all(moved[s] == 0 for s in D_INPUT_ONLY_STAGES)
+                     and all(moved[s] > 0 for s in D_STATE_STAGES)
+                     and all(r["metrics"][s]["ndiff"] >= hm[s]["ndiff"] for s in D_STATE_STAGES)
+                     and any(r["metrics"][s]["ndiff"] > hm[s]["ndiff"] for s in D_STATE_STAGES))
+        ok = ok and claims_ok
+        rows.append("%s[same_state_read=%s input_only_identical=%s state_stages_moved=%s "
+                    "strictly_further=%s]"
+                    % (name, "yes" if same_read else "no",
+                       all(moved[s] == 0 for s in D_INPUT_ONLY_STAGES),
+                       all(moved[s] > 0 for s in D_STATE_STAGES),
+                       ",".join(s for s in D_STATE_STAGES
+                                if r["metrics"][s]["ndiff"] > hm[s]["ndiff"]) or "none"))
+    v.control("gdn-carry-index-reddens", ok,
+              "both compiled arms took the decay multiplier from head (h+1) %% %d: the fingerprint of the "
+              "state bytes they read is UNCHANGED from the honest run (%s and %s both equal the driver's "
+              "own fold) while all five state-derived fields move and none gets closer to the pin, so the "
+              "difference is in what the step carried and not in what it read. %s"
+              % (ctx["d"]["d"]["GDN_H_V"], ctx["d"]["fingerprint"]["sum"],
+                 ctx["d"]["fingerprint"]["sumidx"], "; ".join(rows)),
+              legs=legs_since(snap), claims=("host_cpubody",))
+
+
+def control_d_non_carried_state(v, ctx):
+    """A state that is not carried, executed twice: zeroed bytes, and the arm refusing to read them.
+
+    This is the pad/non-carried control of D-21's shape moved to the decode step. Two independent legs,
+    on both compilers:
+
+      * `bytes-zeroed` — the driver lays a second slab whose state span is zero, so the arm reads the
+        same number of words and every one of them is 0. The fingerprint the arm prints must then agree
+        with the driver's fold of THAT slab (all zeros), `q_hat`/`k_hat` must be untouched, and the state
+        row must be much further from the pin.
+      * `arm-fault-zero-state` — the arm's own `zero-state` fault runs the carry stage over a state it
+        does not read at all. The census then has to report `reads_state=0` and a zero fingerprint, and
+        the driver's reconciliation is written to REQUIRE that zero, so a fault that read anyway would be
+        a red control rather than an invisible one.
+
+    Both legs matter because they catch opposite defects: the first catches a kernel that tolerates a
+    non-carried state while claiming to carry it, the second catches a census that cannot see the state
+    being skipped.
+    """
+    honest, d = ctx["d_honest_fields"], ctx["d"]["d"]
+    hm = ctx["d_honest_metrics"]
+    snap = dict(PATH_LEGS)
+    ok, rows = True, []
+    for name, binary in (("host_twin", ctx["args"].d_host_binary),
+                         ("hip_hostpath", ctx["args"].d_arm_binary)):
+        z = d_variant(ctx, "d_out_zerobin_%s.bin" % name, "d_%s-slab-zeroed" % name, binary=binary,
+                      zero_state=True, subdir="dnoncarried")
+        zero_fp_ok = (z["census"]["state_sum"] == z["fingerprint"]["sum"] == 0
+                      and z["census"]["state_sumidx"] == z["fingerprint"]["sumidx"] == 0
+                      and z["census"]["state_nonzero"] == 0
+                      and z["census"]["reads_state"][0] == z["agree"]["state_words"])
+        zm = d_fields_moved(honest, z["fields"], d)
+        bytes_leg = (zero_fp_ok and all(zm[s] == 0 for s in D_INPUT_ONLY_STAGES)
+                     and all(z["metrics"][s]["ndiff"] > hm[s]["ndiff"] for s in D_STATE_STAGES))
+        f = d_variant(ctx, "d_out_zerofault_%s.bin" % name, "d_%s-zero-state" % name,
+                      fault="zero-state", binary=binary, subdir="dnoncarried")
+        fault_fp_ok = (f["census"]["reads_state"][0] == 0
+                       and f["census"]["state_sum"] == 0
+                       and f["agree"]["disagree"] == [])
+        fm = d_fields_moved(honest, f["fields"], d)
+        fault_leg = (fault_fp_ok and all(fm[s] == 0 for s in D_INPUT_ONLY_STAGES)
+                     and all(f["metrics"][s]["ndiff"] >= hm[s]["ndiff"] for s in D_STATE_STAGES)
+                     and any(f["metrics"][s]["ndiff"] > hm[s]["ndiff"] for s in D_STATE_STAGES))
+        ok = ok and bytes_leg and fault_leg
+        rows.append("%s[bytes-zeroed=%s(arm_sum=%d driver_sum=%d state_ndiff %d->%d) "
+                    "arm-fault=%s(reads_state=%d state_ndiff %d->%d)]"
+                    % (name, "RED" if bytes_leg else "SILENT", z["census"]["state_sum"],
+                       z["fingerprint"]["sum"], hm["state"]["ndiff"], z["metrics"]["state"]["ndiff"],
+                       "RED" if fault_leg else "SILENT", f["census"]["reads_state"][0],
+                       hm["state"]["ndiff"], f["metrics"]["state"]["ndiff"]))
+    v.control("gdn-non-carried-state-reddens", ok,
+              "two legs, both compilers, executed: zeroing the state span in the slab leaves q_hat and "
+              "k_hat bit-identical, leaves the state row very far from the pin, and moves the arm's "
+              "fingerprint to exactly the all-zero fold the driver computes over those bytes; the arm's "
+              "own zero-state fault reports reads_state=0 and a zero fingerprint, which the driver's "
+              "reconciliation requires rather than permits. %s" % "; ".join(rows),
+              legs=legs_since(snap), claims=("host_cpubody",))
+
+
+def control_d_state_read_witness(v, ctx):
+    """Does the arm read the state it claims to read? Answered by three independent facts, not by trust.
+
+      * The arm's fingerprint of the state bytes equals the driver's fold over the bytes it supplied, on
+        BOTH compilers, with a non-zero denominator on both sides (509,952 live words of 524,288, so the
+        equality cannot be the trivial one over zeros).
+      * Flipping ONE BYTE of the state span in a copy of the slab moves the arm's fingerprint, moves the
+        driver's fold by the same arithmetic, keeps the two in agreement, and moves the rows that read
+        the state. This is the leg that shows the fingerprint is a fingerprint of the slab and not a
+        constant: had the arm read some other bytes, the flip would leave its number alone and the leg
+        would refuse.
+      * In a device window, `DREADBACK` prints the first %d bytes of the state span as the DEVICE holds
+        them after the H2D, bound to the file digest. In a CPU witness that leg cannot run and is
+        printed as `not exercised` — `m2_g_main.inc`'s rule that a host body must not print a host read
+        as if it were a device read-back.
+    """
+    fp = ctx["d"]["fingerprint"]
+    honest_ok, rows = True, []
+    snap = dict(PATH_LEGS)
+    for label in sorted(ctx["d_runs"]):
+        ag = ctx["d_censuses"][label]
+        leg = (not ag["disagree"] and ag["arm_state_sum"] == ag["driver_state_sum"]
+               and ag["driver_state_live"] > 0 and ag["state_words"] > 0)
+        honest_ok = honest_ok and leg
+        rows.append("%s=%s(sum arm=%d driver=%d live=%d/%d)"
+                    % (label, "agree" if leg else "DISAGREE", ag["arm_state_sum"],
+                       ag["driver_state_sum"], ag["arm_state_live"], ag["driver_state_live"]))
+    flip_ok, flip_rows = True, []
+    hm = ctx["d_honest_metrics"]
+    flip_arms = [("host_twin", ctx["args"].d_host_binary, False),
+                 ("hip_hostpath", ctx["args"].d_arm_binary, False)]
+    if ctx["device"]:
+        # In a window the flip has to bite the launched arithmetic too: the device reads the same slab
+        # bytes, so a fingerprint that only witnesses the host body would be witnessing the wrong program.
+        flip_arms.append(("hip_device", ctx["args"].d_arm_binary, True))
+    for name, binary, dev in flip_arms:
+        r = d_variant(ctx, "d_out_flip_%s.bin" % name, "d_%s-state-flip" % name,
+                      flip_state_word=77777, binary=binary, device=dev, subdir="dreadwitness")
+        moved_fp = r["census"]["state_sum"] != fp["sum"]
+        still_agree = not r["agree"]["disagree"]
+        # One flipped word is one element of the carried state, so the derived claim is that the row the
+        # state IS moves and nothing gets closer — not that every derived row moves after bf16 rounding.
+        rows_moved = (r["metrics"]["state"]["ndiff"] > hm["state"]["ndiff"]
+                      and all(r["metrics"][s]["ndiff"] >= hm[s]["ndiff"] for s in D_STATE_STAGES))
+        flip_ok = flip_ok and moved_fp and still_agree and rows_moved
+        flip_rows.append("%s[fingerprint %d->%d agrees=%s state_ndiff %d->%d scan_out_ndiff %d->%d]"
+                         % (name, fp["sum"], r["census"]["state_sum"], still_agree,
+                            hm["state"]["ndiff"], r["metrics"]["state"]["ndiff"],
+                            hm["scan_out"]["ndiff"], r["metrics"]["scan_out"]["ndiff"]))
+    if ctx["device"]:
+        # In a window this is not a presence check, it is a comparison: the first bytes of the state span
+        # as the DEVICE holds them after the H2D have to be the bytes the dump reader certified, or the
+        # kernels are being handed something else and every state row below is about that something else.
+        slab_bytes_all = ctx["d"]["slab"]["slab"].read_bytes()
+        state_off = ctx["d"]["slab"]["state_off"]
+        want_hex = slab_bytes_all[state_off:state_off + D_STATE_READBACK].hex()
+        back_ok, back_rows = True, []
+        for key in sorted(k for k in ctx["d_runs"] if "device" in k):
+            m = re.search(r"DREADBACK path=device off=(\d+) bytes=(\d+) hex=([0-9a-f]+|ABSENT)",
+                          ctx["d_runs"][key]["stdout"])
+            if not m:
+                back_ok, back_rows = False, back_rows + ["%s=line-absent" % key]
+                continue
+            off, nbytes, got = int(m.group(1)), int(m.group(2)), m.group(3)
+            same = (got == want_hex and nbytes == D_STATE_READBACK and off == state_off)
+            back_ok = back_ok and same
+            back_rows.append("%s[off=%d bytes=%d match=%s%s]"
+                             % (key, off, nbytes, "yes" if same else "no",
+                                "" if same else " got=%s" % got[:24]))
+        print("DREADBACK control-leg=gdn-device-readback ran=%s state_off=%d bytes=%d "
+              "file_sha256=%s per_run=%s note=first %d bytes of the carried state span, read back off "
+              "the device and compared to the bytes the dump reader certified"
+              % ("yes" if back_ok else "no", state_off, D_STATE_READBACK,
+                 ctx["d"]["state"]["sha"][:16], "; ".join(back_rows), D_STATE_READBACK))
+    else:
+        print("DVOID control-leg=gdn-device-readback status=not-exercised reason=needs-a-device-window "
+              "note=no host body printed a read-back line, and none was allowed to: the host path binds "
+              "file bytes to slab bytes by digest instead")
+    v.control("gdn-state-read-is-the-arm-s-own-fingerprint",
+              honest_ok and flip_ok and (not ctx["device"] or back_ok),
+              "honest legs: %s — the arm's modular fold of the state's 524288 words equals the driver's "
+              "fold of the bytes it wrote, on every arm that ran, with %d live words as a non-zero "
+              "denominator. Flip legs: %s — flipping one byte of the state's 77,777th word moves the "
+              "fingerprint on both sides, keeps them equal, and pushes the state row further from the pin "
+              "while no derived row gets closer, so the number is a witness of the read and not a constant "
+              "the arm prints."
+              % ("; ".join(rows), fp["live"], "; ".join(flip_rows)),
+              legs=legs_since(snap), claims=d_claims(ctx))
+
+
+def control_d_form_not_merged(v, ctx):
+    """The two GDN forms are not one program and never credited as one, shown four ways.
+
+      * `band-refuses-chunked` — `band_licenses` is asked for BOTH pairs at this pass, per stage, and the
+        answer is printed as `DLICENCE` for all seven rows: `recurrent|pinned` grants the four the band
+        measures at this pass and `chunked|pinned` grants nothing at any decode pass. If that stops being
+        true — if a future band file ever grants chunked at this pass — the driver says so out loud
+        instead of continuing to treat its own form claim as interesting.
+      * `arm-refuses-chunked` — a plan declaring `form=chunked` is refused by both binaries with
+        `form-not-implemented`, so the arm cannot be labelled into a licence it did not earn.
+      * `credits-name-the-form` — every arm run in this log printed `RUN arm=d_* form=recurrent`, and
+        every ACCEPTED GDN row's licence string names `recurrent|pinned`. A row credited under any other
+        pair reddens this control, which is the clause that makes "we implemented the licensed form"
+        checkable rather than asserted.
+      * one honest run under each compiler, so the control has counted legs on the path whose reports it
+        is reading.
+    """
+    recorded = sorted(set(r["run"].get("form", "?") for r in ctx["d_runs"].values()))
+    forms = recorded
+    refused = []
+    for name, binary in (("host_twin", ctx["args"].d_host_binary),
+                         ("hip_hostpath", ctx["args"].d_arm_binary)):
+        work = ctx["work"] / "dform"
+        work.mkdir(parents=True, exist_ok=True)
+        spans = ctx["d"]["spans"]
+        plan = work / ("plan_chunked_%s.txt" % name)
+        DA.write_d_plan(plan, spans, ctx["d"]["slab"]["slab_bytes"], ctx["d"]["d"], form="chunked")
+        try:
+            d_arm(binary, plan, ctx["d"]["slab"]["slab"], work / ("out_chunked_%s.bin" % name),
+                  label="d_%s-form-chunked" % name)
+            refused.append("%s:NOT-REFUSED" % name)
+        except DA.Refused as exc:
+            refused.append("%s:%s" % (name, "form-not-implemented" if "form-not-implemented" in str(exc)
+                                      else exc.tag))
+    honest_legs = []
+    snap = dict(PATH_LEGS)
+    for name, binary in (("host_twin", ctx["args"].d_host_binary),
+                         ("hip_hostpath", ctx["args"].d_arm_binary)):
+        honest_legs.append(d_variant(ctx, "d_out_form_%s.bin" % name, "d_%s-form-honest" % name,
+                                     binary=binary, subdir="dform"))
+    chunked_grants = [g for g in ctx["d_granted"] if g["chunked"]]
+    credited = [r for r in ctx["d_rows"] if r["band"] == "ACCEPTED"
+                and "%s|pinned" % D_FORM not in (r["licence"] or "")]
+    unearned = [g["stage"] for g in ctx["d_granted"]
+                if g["granted"] and not any(r["stage"] == g["stage"] and r["band"] == "ACCEPTED"
+                                            for r in ctx["d_rows"])]
+    v.control("gdn-form-not-merged",
+              forms == [D_FORM] and len(ctx["d_runs"]) >= 2 and not chunked_grants
+              and all(s.endswith("form-not-implemented") for s in refused) and not credited
+              and not unearned and len(honest_legs) == 2,
+              "the arm reported form=%s on every one of its %d parsed run records (%s); `chunked|pinned` "
+              "grants %d of the "
+              "seven rows at this pass (so the two forms are not interchangeable here, which is the "
+              "premise of this whole vertical); both binaries refused a plan declaring form=chunked (%s); "
+              "%d ACCEPTED rows all name `%s|pinned` in their licence and every granted stage is among "
+              "them (%s). Honest legs ran under both compilers so the claim is about executed reports."
+              % (",".join(forms), len(ctx["d_runs"]), ",".join(forms), len(chunked_grants),
+                 ",".join(refused),
+                 len([r for r in ctx["d_rows"] if r["band"] == "ACCEPTED"]), D_FORM,
+                 ",".join(unearned) or "none"),
+              legs=legs_since(snap), claims=("host_cpubody",))
+
+
+def control_d_poison(v, ctx):
+    """The unwritten-slot census has to be able to be non-zero, on both paths and on both compilers.
+
+    `skip-carry` forbids the stage that writes the state field, and `skip-out` forbids the one that writes
+    `scan_out`/`core_attn`. The census then prints the field's whole length as poison — 524,288 of 524,288
+    and 4,096 of 4,096 — while the honest record prints 0 everywhere. That asymmetry is the point: the
+    poison is the quiet NaN pattern, a `hipMemset` to zero would have hidden the same bug as a field full
+    of exact zeros, and a census that can only ever read 0 is not a guard (`pitfalls/40`).
+    """
+    d = ctx["d"]["d"]
+    ok, rows = True, []
+    for name, binary, fault, want in (
+            ("host_twin", ctx["args"].d_host_binary, "skip-carry", "state"),
+            ("hip_hostpath", ctx["args"].d_arm_binary, "skip-out", "scan_out")):
+        r = d_variant(ctx, "d_out_%s_%s.bin" % (fault, name), "d_%s-%s" % (name, fault),
+                      fault=fault, binary=binary, subdir="dpoison", metrics_ok=False)
+        n = r["nan"][want]
+        total = d["fields"][want][1]
+        leg = n == total and all(r["nan"][s] == 0 for s in D_INPUT_ONLY_STAGES)
+        ok = ok and leg
+        rows.append("%s[%s field=%s poison=%d/%d q_hat=%d k_hat=%d]"
+                    % (name, fault, want, n, total, r["nan"]["q_hat"], r["nan"]["k_hat"]))
+    v.control("gdn-poison-census-can-be-nonzero", ok and len(rows) == 2,
+              "the honest record carries no poison in any of the seven fields on either compiler; "
+              "forbidding one stage each makes its own field read entirely poison (%s), which is the "
+              "leg that shows the census can be non-zero instead of merely printing zero"
+              % "; ".join(rows))
+
+
+def control_d_plan_refusals(v, ctx):
+    """Every refusal this arm claims must be shown refusing, on both binaries, by its own name.
+
+    Six refusals, each built from the honest table with exactly one thing wrong, so the byte arithmetic of
+    the plan stays honest and the only defect is the one under test: the state declared as 2-byte
+    elements, `v_pre` at the wrong extent, a plan missing `g_decay`, a mode word the chunked lane has and
+    this one does not, a fault word from the gather lane, and a plan whose state span overlaps `z`."""
+    work = ctx["work"] / "drefuse"
+    work.mkdir(parents=True, exist_ok=True)
+    d, spans, slab = ctx["d"]["d"], ctx["d"]["spans"], ctx["d"]["slab"]
+    wants = [("state-is-bf16", dict(elt_override={"state_in": 2}), "field-elt"),
+             ("v_pre-wrong-words", dict(words_override={"v_pre": 2048}), "field-words"),
+             ("missing-g_decay", dict(drop_field="g_decay"), "field-missing"),
+             ("chunked-lane-mode", dict(mode="stub"), "mode-unknown"),
+             ("gather-lane-fault", dict(fault="whole-note"), "fault-unknown")]
+    seen, ok = [], True
+    for name, binary in (("host_twin", ctx["args"].d_host_binary),
+                         ("hip_hostpath", ctx["args"].d_arm_binary)):
+        for tag, kw, expect in wants:
+            plan = work / ("plan_%s_%s.txt" % (tag, name))
+            DA.write_d_plan(plan, spans, slab["slab_bytes"], d, **kw)
+            try:
+                d_arm(binary, plan, slab["slab"], work / ("out_%s_%s.bin" % (tag, name)),
+                      label="d_%s-%s" % (name, tag))
+                seen.append("%s/%s:NOT-REFUSED" % (name, tag))
+                ok = False
+            except DA.Refused as exc:
+                hit = expect in str(exc)
+                ok = ok and hit
+                seen.append("%s/%s:%s" % (name, tag, expect if hit else "tag:%s" % exc.tag))
+    v.control("gdn-plan-refusals-fire", ok and len(seen) == 2 * len(wants),
+              "%d refusals across two binaries, each named: %s. A plan this arm should not be able to run "
+              "is refused before a byte is read, which is what makes the honest run's spans worth "
+              "something" % (len(seen), "; ".join(seen)))
+
+
+def control_d_device_ask_refuses(v, ctx):
+    """`--device` and the device-only fault are acts or named refusals, never a host run in disguise."""
+    work = ctx["work"] / "drefusal"
+    work.mkdir(parents=True, exist_ok=True)
+    out = work / "d_refuse.bin"
+    seen = []
+    try:
+        d_arm(ctx["args"].d_host_binary, ctx["d"]["plan"], ctx["d"]["slab"]["slab"], out,
+              device=True, label="d_refuse_device")
+        seen.append("device-ask:NOT-REFUSED")
+    except DA.Refused as exc:
+        seen.append("device-ask:%s" % ("device-path-absent-in-this-binary"
+                                       if "device-path-absent-in-this-binary" in str(exc) else exc.tag))
+    try:
+        d_arm(ctx["args"].d_host_binary, ctx["d"]["plan"], ctx["d"]["slab"]["slab"], out,
+              fault="alloc-oversize", label="d_refuse_oversize")
+        seen.append("alloc-oversize:NOT-REFUSED")
+    except DA.Refused as exc:
+        seen.append("alloc-oversize:%s" % ("fault-device-only" if "fault-device-only" in str(exc)
+                                           else exc.tag))
+    if not ctx["device"]:
+        print("DVOID control-leg=gdn-alloc-oversize-actually-fails reason=needs-a-device-window "
+              "note=the host twin refuses to run this leg at all, which is the leg above; the hipcc "
+              "arm's 1 TiB hipMalloc refusing is witnessed only in a window")
+    v.control("gdn-device-ask-refuses-instead-of-substituting",
+              all("NOT-REFUSED" not in s and s.split(":")[1] in
+                  ("device-path-absent-in-this-binary", "fault-device-only") for s in seen),
+              "the g++ twin answered %s. No host body is offered for a device claim, so a "
+              "`--device` report from this arm can only come from the binary that launches"
+              % ", ".join(seen))
+
+
+def checks_d(v, ctx, d_runs, d_rows, d_tally, d_censuses, d_pop):
+    """Everything the GDN vertical may claim, expressed over parsed records and derived populations."""
+    d = ctx["d"]["d"]
+    cfg = ctx["cfg"]
+    v.check("gdn-rows-equal-licensor-stage-list",
+            len(d_rows) == len(d_pop["scan"]) and not d_pop["missing"] and not d_pop["extra"],
+            "%d rows, one per stage the licensor's `SCAN_WIDTH_STAGES` and the layer-0 GDN manifest "
+            "agree on; the arm's record field names are the same set (%s missing=%s extra=%s), so a "
+            "rename on either side reddens instead of dropping a row"
+            % (len(d_rows), ",".join(d_pop["arm_declared"]), d_pop["missing"] or "none",
+               d_pop["extra"] or "none"))
+    v.check("gdn-kernel-geometry-matches-the-config",
+            (d["GDN_H"] == cfg["d"] and d["GDN_H_K"] == cfg["h_k"] and d["GDN_H_V"] == cfg["h_v"]
+             and d["GDN_D_K"] == cfg["d_k"] and d["GDN_D_V"] == cfg["d_v"]
+             and d["GDN_EXP"] == cfg["expansion"]),
+            "the prototype header's GDN_H=%d GDN_H_K=%d GDN_H_V=%d GDN_D_K=%d GDN_D_V=%d GDN_EXP=%d "
+            "against the checkpoint config's d=%d h_k=%d h_v=%d d_k=%d d_v=%d expansion=%d: every "
+            "record offset and every item count in the arm is an expression over the header's constants, "
+            "so the two rulers have to be shown to read the same model"
+            % (d["GDN_H"], d["GDN_H_K"], d["GDN_H_V"], d["GDN_D_K"], d["GDN_D_V"], d["GDN_EXP"],
+               cfg["d"], cfg["h_k"], cfg["h_v"], cfg["d_k"], cfg["d_v"], cfg["expansion"]))
+    v.check("gdn-arm-implements-only-the-form-it-claims",
+            d["order"] and d_pop["arm_declared"] == d_pop["scan"]
+            and all(r["run"].get("form") == D_FORM for r in d_runs.values()),
+            "the arm's declared form is `%s` on every run (%s), which is the pair "
+            "`block_gate.adjudicate` credits GDN rows under and the only value `engine/device/m2_d_io.h` "
+            "accepts in a plan; the row credit and the form claim are checked against each other in "
+            "CONTROL gdn-form-not-merged"
+            % (D_FORM, ",".join(sorted(set(r["run"].get("form", "?")
+                                            for r in d_runs.values())))))
+    v.check("gdn-census-equals-geometry-and-driver",
+            bool(d_censuses) and all(not c["disagree"] for c in d_censuses.values())
+            and all(c["driver_state_live"] > 0 and c["arm_state_live"] > 0 for c in d_censuses.values()),
+            "per arm, the arm's own item, read, write and output counts equal what the geometry implies "
+            "AND its fingerprint of the state equals the driver's fold of the bytes it supplied, with a "
+            "non-zero live-word denominator on both sides: %s. The reconciliation is what turns a census "
+            "from a decoration into a claim — an arm that skipped the carry, read the state transposed in "
+            "a way that missed words, or read a stale slab disagrees here rather than printing a tidy 0"
+            % "; ".join("%s[state=%d/%d disagree=%s]" % (k, c["arm_state_sum"], c["driver_state_sum"],
+                                                        ",".join(c["disagree"]) or "none")
+                        for k, c in sorted(d_censuses.items())))
+    honest_nan = ctx["d_honest_nan"]
+    v.check("gdn-honest-record-has-no-unwritten-slot", not any(honest_nan.values()),
+            "the honest record carries no poison in any of its seven fields (offending fields: %s); the "
+            "poison control is the leg that shows that count can be non-zero"
+            % (",".join(k for k, n in sorted(honest_nan.items()) if n) or "none"))
+    v.check("gdn-compiled-pair-byte-identical",
+            ctx["d_pair"][1] == 0 and ctx["d_pair"][0] > 0
+            and (ctx["d_device_pair"] is None or ctx["d_device_pair"][1] == 0),
+            "g++ twin vs hipcc host path over %d B: ndiff_bytes=%d at zero tolerance%s. A non-zero here "
+            "is a codegen finding, never a band to absorb: the two compilers are handed one arithmetic "
+            "(`engine/device/m2_d_kernels.h` is the only place it is written), so agreement is what the "
+            "shared body promises and disagreement is a compiler question, not a licence question"
+            % (ctx["d_pair"][0], ctx["d_pair"][1],
+               "" if ctx["d_device_pair"] is None
+               else ", and device vs host path ndiff_bytes=%d" % ctx["d_device_pair"][1]))
+    v.check("gdn-state-span-binds-the-arm-slab",
+            all(b["slab_sha"] == b["file_sha"] for b in ctx["d"]["binds"])
+            and len(ctx["d"]["binds"]) == len(ctx["d"]["spans"]),
+            "%d spans, each the same sha256 in the dump file and in the arm's slab, so the kernel reads "
+            "bytes the dump reader certified (%s)"
+            % (len(ctx["d"]["binds"]),
+               ",".join("%s=%s" % (b["name"], b["slab_sha"][:8]) for b in ctx["d"]["binds"])))
+    v.check("gdn-cross-implementation-comparison-was-made",
+            len(ctx["d_ximpl"]) == len(d_pop["scan"])
+            and all(r["n"] > 0 for r in ctx["d_ximpl"])
+            and all(s in ctx["d_torch_metrics"] and ctx["d_torch_metrics"][s]["n"] > 0
+                    for s in d_pop["scan"]),
+            "the arm was compared to the engine's own torch GDN body over all %d stages (%s), and that "
+            "body's own distance to the pins was measured over the same comparator (%s) so the two numbers "
+            "cannot be read as two wrong programs agreeing. Neither line is a licensor — the rows are "
+            "judged against the pinned records by `block_gate.adjudicate`, and a difference from the torch "
+            "body is reported and investigated, never absorbed. Three spellings of §04b.1 (g++, hipcc, "
+            "torch) is the answer to 'is this just one arm compared to itself'"
+            % (len(ctx["d_ximpl"]),
+               ",".join("%s=%d/%d" % (r["stage"], r["ndiff"], r["n"]) for r in ctx["d_ximpl"]),
+               ",".join("%s=%d/%d" % (s, ctx["d_torch_metrics"][s]["ndiff"],
+                                      ctx["d_torch_metrics"][s]["n"]) for s in d_pop["scan"])))
+    lic = [r for r in d_rows if r["band"] == "ACCEPTED"]
+    unl = [r for r in d_rows if r["band"].startswith("UNLICENSED")]
+    granted = [g for g in ctx["d_granted"] if g["granted"]]
+    v.check("gdn-licensed-rows-name-the-arm-form-and-no-others",
+            len(lic) == len(granted) and len(unl) == len(d_rows) - len(granted)
+            and all("%s|pinned" % D_FORM in (r["licence"] or "") for r in lic)
+            and all(re.match(r"^UNLICENSED stage=\S+ reason=\S+", r["band"]) for r in unl),
+            "%d of %d GDN rows are ACCEPTED and each names `%s|pinned` in its licence, which is the pair "
+            "the arm's own form word claims; the remaining %d print the licensor's own reason, counted "
+            "not dissolved (%s). The grant set was re-derived by asking band_licenses per stage, so this "
+            "check does not take the row list's word for what it licensed"
+            % (len(lic), len(d_rows), D_FORM, len(unl),
+               ",".join("%s:%s" % (r["stage"], r["band"].split("reason=", 1)[-1]) for r in unl) or "none"))
+    v.check("gdn-unlicensed-counted-not-absorbed",
+            d_tally["unlicensed"] == len(unl) and d_tally["licensed"] == len(lic),
+            "the GDN tally carries licensed=%d accepted=%d rejected=%d unlicensed=%d; PASS stays "
+            "unreachable while a GDN row is unlicensed, which includes the %d rows no form's band covers "
+            "at this pass"
+            % (d_tally["licensed"], d_tally["accepted"], d_tally["rejected"], d_tally["unlicensed"],
+               len(unl)))
+    v.check("gdn-device-path-claims-executed-on-device",
+            (not ctx["device"]) or all(r["run"]["launches"] > 0 for k, r in d_runs.items()
+                                       if "device" in k),
+            "in a device run the GDN device arm reported launches>0 (%d device arms, 8 launches each: "
+            "poison plus one per stage); in a CPU window the same --device ask on the g++ twin is refused "
+            "with a named tag instead of a host run, and this check is vacuous here and says so"
+            % len([k for k in d_runs if "device" in k]))
+
+
+# ----------------------------------------------------------------------------------------------
+
+
 def gpu_context_witness(when):
     """An independent statement that this process has no GPU context, read off the kernel, not off us.
 
@@ -2282,10 +3177,11 @@ def run(out, args):
     population = derived_arm_population(dumps)
     BG.REFERENT_GDN = set(population["from_manifest"]["gdn"])
     BG.REFERENT_MOE = set(population["from_manifest"]["moe"])
-    print("BLOCKDEVICE block=layer0 subsystem=shared_expert+router token=%d device=%s work=%s "
-          "se_arm=%s se_host=%s rt_arm=%s rt_host=%s"
+    print("BLOCKDEVICE block=layer0 subsystem=shared_expert+router+gdn_recurrent token=%d device=%s "
+          "work=%s se_arm=%s se_host=%s rt_arm=%s rt_host=%s gdn_arm=%s gdn_host=%s gdn_form=%s"
           % (BF.TOKEN_ROW, "on" if device else "off", work, args.arm_binary, args.host_binary,
-             args.rt_arm_binary, args.rt_host_binary))
+             args.rt_arm_binary, args.rt_host_binary, args.d_arm_binary, args.d_host_binary,
+             D_FORM))
     print("BAND file=%s band_digest=%s limits=%s missing=%s"
           % (BF.BAND_PATH.name, digest,
              ",".join("%s=%s" % (k, limits[k]) for k in sorted(limits)), missing or "none"))
@@ -2441,11 +3337,31 @@ def run(out, args):
     g_runs, g_stages, g_censuses = run_gather_arms(v, ctx)
     g_rows, g_tally = emit_gather_rows(dumps, band, limits, g_stages, provenance)
     ctx["g_runs"], ctx["g_rows"], ctx["g_censuses"] = g_runs, g_rows, g_censuses
+    # The GDN recurrent decode step: ONE form (the cached single-token step, §04b.1), two compiled
+    # arms, one carried state with live words in it, and the seven rows the band has entries for. The
+    # rows are the arm against the pinned decode records, judged by the same licensors as every other
+    # row here; three of the seven have no licensor at this pass for either form and say so.
+    ctx["d"] = d_prepare(args, ctx)
+    ctx["d_pop"] = derived_d_population(population, ctx["d"]["d"])
+    print("DPOPULATION licensor=%s arm_record=%s missing=%s extra=%d note=the licensor's list is "
+          "speccheck/gdn_ref.SCAN_WIDTH_STAGES narrowed by the layer0 GDN manifest; the arm's list is "
+          "the record field names read out of engine/device/m2_d_kernels.h"
+          % (",".join(ctx["d_pop"]["scan"]), ",".join(ctx["d_pop"]["arm_declared"]),
+             ",".join(ctx["d_pop"]["missing"]) or "none", len(ctx["d_pop"]["extra"])))
+    d_runs, d_stages, d_censuses = run_d_arms(v, ctx)
+    provenance_d = ("device:engine/device/build/m2_d_arm --device" if device else
+                    "host_cpubody:engine/device/build/m2_d_host (no device act in this run)")
+    d_rows, d_tally, d_granted = emit_d_rows(dumps, band, limits, ctx["d_pop"], d_stages,
+                                             provenance_d)
+    ctx["d_runs"], ctx["d_rows"], ctx["d_censuses"] = d_runs, d_rows, d_censuses
+    ctx["d_granted"] = d_granted
+    ctx["d_tally"] = d_tally
     ctx["all_runs"] = dict([("se/" + k, v) for k, v in arm_runs.items()]
                            + [("rt/" + k, v) for k, v in rt_runs.items()]
-                           + [("g/" + k, v) for k, v in g_runs.items()])
+                           + [("g/" + k, v) for k, v in g_runs.items()]
+                           + [("d/" + k, v) for k, v in d_runs.items()])
     for key in ("licensed", "accepted", "rejected", "unlicensed"):
-        tally[key] += g_tally[key]
+        tally[key] += g_tally[key] + d_tally[key]
     print("RTRECORD file=%s floats=%d fields=%s ids=%s wcast=%s read_by=%s"
           % (rt_record_path.name, rt["RT_FLOATS"], ",".join(rt["order"]),
              ",".join(str(int(x)) for x in rt_fields["ids"]),
@@ -2474,6 +3390,14 @@ def run(out, args):
     control_gather_width_substitution(v, ctx)
     control_gather_device_refusal(v, ctx)
     control_gather_read_back(v, ctx)
+    control_d_state_transposition(v, ctx)
+    control_d_carry_index(v, ctx)
+    control_d_non_carried_state(v, ctx)
+    control_d_state_read_witness(v, ctx)
+    control_d_form_not_merged(v, ctx)
+    control_d_poison(v, ctx)
+    control_d_plan_refusals(v, ctx)
+    control_d_device_ask_refuses(v, ctx)
     control_claim_scan(v, ctx)
     gpu_after = gpu_context_witness("after")
     v.check("cpu-witness-had-no-gpu-context",
@@ -2497,6 +3421,7 @@ def run(out, args):
     checks(v, ctx, rows, tally, out.text(), parsed, arm_runs)
     checks_rt(v, ctx, rt_runs)
     checks_g(v, ctx, g_runs, g_rows, g_tally, g_censuses)
+    checks_d(v, ctx, d_runs, d_rows, d_tally, d_censuses, ctx["d_pop"])
 
     if st["hip"] is not None:
         st["hip"].free_all()
@@ -2505,17 +3430,18 @@ def run(out, args):
     verdict = "FAIL" if red else ("QUALIFIED" if tally["unlicensed"] else "PASS")
     print("STAGETALLY arms=1 licensed=%d accepted=%d rejected=%d unlicensed=%d"
           % (tally["licensed"], tally["accepted"], tally["rejected"], tally["unlicensed"]))
-    print("BLOCKDEVICE verdict=%s block=layer0 subsystem=shared_expert+router rows=%d parsed=%d "
-          "licensed=%d accepted=%d rejected=%d unlicensed=%d checks=%d red=%d controls=%d fired=%d "
-          "band_digest=%s note=a row with no licence is never counted as accepted, and PASS is "
-          "unreachable while any row is unlicensed"
-          % (verdict, len(rows), len(parsed), tally["licensed"], tally["accepted"],
-             tally["rejected"], tally["unlicensed"], len(v.names), red, len(v.controls), v.fired,
-             digest[:16]))
-    print("RESULT mode=%s checks=%d findings=%d controls=%d fired=%d rows=%d arms=policy_a "
+    print("BLOCKDEVICE verdict=%s block=layer0 subsystem=shared_expert+router+gdn_recurrent rows=%d "
+          "gdn_rows=%d parsed=%d licensed=%d accepted=%d rejected=%d unlicensed=%d checks=%d red=%d "
+          "controls=%d fired=%d band_digest=%s note=a row with no licence is never counted as accepted, "
+          "and PASS is unreachable while any row is unlicensed"
+          % (verdict, len(rows), len(ctx.get("d_rows", [])), len(parsed), tally["licensed"],
+             tally["accepted"], tally["rejected"], tally["unlicensed"], len(v.names), red,
+             len(v.controls), v.fired, digest[:16]))
+    print("RESULT mode=%s checks=%d findings=%d controls=%d fired=%d rows=%d gdn_rows=%d arms=policy_a "
           "device=%s staged=%s hip_calls=%d+%d launches=%d bytes_to_device=%d bytes_from_device=%d "
           "band_digest=%s no timing taken"
           % ("device" if device else "cpu", len(v.names), red, len(v.controls), v.fired, len(rows),
+             len(ctx.get("d_rows", [])),
              "on" if device else "off",
              "admitted" if WITNESS["staged_runs"] else "not-attempted",
              WITNESS["hip_calls_python"], WITNESS["hip_calls_arm"], WITNESS["launches"],
@@ -2538,6 +3464,13 @@ def main(argv=None):
     ap.add_argument("--rt-host-binary", default=str(DA.RT_HOST_BIN))
     ap.add_argument("--g-arm-binary", default=str(DA.G_ARM_BIN))
     ap.add_argument("--g-host-binary", default=str(DA.G_HOST_BIN))
+    ap.add_argument("--d-arm-binary", default=str(DA.D_ARM_BIN),
+                    help="hipcc GDN arm. Two compiled arms here rather than one because the GDN rows "
+                         "are the first ones this driver judges on a form claim: the arm is only "
+                         "entitled to a `recurrent|pinned` licence if the binary that printed the "
+                         "record implements the recurrent program, and the second compiler is how "
+                         "that arithmetic is shown not to be a host-only accident.")
+    ap.add_argument("--d-host-binary", default=str(DA.D_HOST_BIN))
     ap.add_argument("--work", default=str(WORK_DEFAULT))
     args = ap.parse_args(argv)
 
