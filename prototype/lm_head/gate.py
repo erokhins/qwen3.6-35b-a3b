@@ -14,7 +14,9 @@ holding the lock parks forever with no CPU, no GPU, no message and no exit
 
 WHAT IS JUDGED, AND BY WHOM
   * each arm's words against the oracle's words, inside the band the DATA derives
-    (gamma_K * sum_k |h_k||w_k|, K = terms summed, u = 2^-24) — `BAND`;
+    (gamma * sum_k |h_k||w_k|, K = terms summed, u = 2^-24, and the gamma INDEX selected per family
+    from the measured inexactness of its dot products: gamma_{K-1} when every product is exact in
+    binary32, gamma_{2K-1} when any of them is not — see band_measure() and gamma_index()) — `BAND`;
   * bit identity, zero tolerance, between cases that share an association — `EXACT`:
     batched vs per-row, gather vs dense, tied role A vs tied role B;
   * injections: `FIRES` must move at least one word FURTHER than that band from its honest twin, and
@@ -47,6 +49,8 @@ import re
 import struct
 import subprocess
 import sys
+
+import numpy as np            # the band-form measurement; floor_probe.py and three_arm.py already do
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
@@ -195,6 +199,53 @@ def read_config():
                    "(README.md prediction 5) and refuses to gate a tied model by accident")
     return dict(h=tc["hidden_size"], head_dim=tc["head_dim"], vocab=tc["vocab_size"],
                 n_layers=tc["num_hidden_layers"])
+
+
+# ---------------------------------------------------------------------------------------------
+# THE BAND FORM. One rule, spelled once in this file, and selected by measurement — never by a typed
+# tolerance and never by a literal gamma index. `floor_probe.py` imports these two functions rather
+# than mirroring them, so the instrument that earns the band and the judge that enforces it cannot
+# drift apart in the RULE; what they can still disagree about is the DATA, and `band_families` below
+# is what refuses that disagreement.
+# ---------------------------------------------------------------------------------------------
+U32 = 2.0 ** -24                       # binary32 unit roundoff
+
+
+def gamma_of_index(n):
+    """gamma_n = n*u / (1 - n*u): Higham's accumulated-rounding factor for n binary32 roundings."""
+    if n < 1:
+        raise Fail("gamma_%d is not a band factor: a sum of fewer than two roundings needs no bound"
+                   % n)
+    if n * U32 >= 1.0:
+        raise Fail("gamma_%d is undefined: n*u >= 1 says nothing about any dot" % n)
+    return n * U32 / (1.0 - n * U32)
+
+
+def gamma_index(K, products_inexact):
+    """The gamma index a K-term dot is entitled to, chosen by MEASUREMENT and by nothing else.
+
+    A recursive sum of K terms costs K-1 roundings when every product is exactly representable in
+    binary32. A product that is not exact carries a rounding of its own, so the same K-term dot
+    costs 2K-1. `products_inexact` is the MEASURED count of dot terms h_k*w_k in this family that do
+    not survive a round trip through the binary32 grid (`band_families` measures it from the slab
+    bytes through the audited decoder; `floor_probe.py` measures the same thing over the pinned rows
+    and refuses a band that disagrees).
+
+    There is no literal gamma index here and no per-case exemption: a family gets the wider index
+    exactly when its products are measurably inexact, and gets the narrower one back the moment they
+    are not — which is what keeps the widening un-fittable. bf16 x bf16 is 8+8 = 16 bits and exact;
+    a Q8_0 dot term is h_k*(d_k*q_k) = 8 + 19 = 26/27 bits and is not. User ratification 2026-10-26
+    ("let's do A"), recorded with the measurements in
+    `prototype/lm_head/evidence/band-form-gamma-index-2026-10-26.md`.
+    """
+    if products_inexact is None:
+        raise Fail("gamma_index(%d, None): the band index must come from a measurement of "
+                   "products_inexact, never from a default" % K)
+    n = int(products_inexact)
+    if n < 0:
+        raise Fail("products_inexact=%d is negative: the count is broken, so the index is meaningless"
+                   % n)
+    return (K - 1) if n == 0 else (2 * K - 1)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -526,7 +577,9 @@ def build(cfg, fc, en, max_rows, deep_rows):
         inj(nm, t, "LMH_MODE_HALF_ACCUM", b0=real0, bcount=B)
         # The firing arm needs a product that is NOT already a bf16 value by a margin the band cannot
         # swallow: one hidden entry of 1.001953125 makes that single product's bf16 rounding about
-        # 2^-9 of itself, against a band of gamma_2048 = 1.2e-4 of the absolute sum.
+        # 2^-9 of itself, against a band of gamma at the family's licensed index — gamma_{K-1} =
+        # 1.22025624e-04 of the absolute sum where the dot products are exact, gamma_{2K-1} =
+        # 2.4414061e-04 where the probe measures them inexact (band_families prints which).
         inj(nm, t, "LMH_MODE_HALF_ACCUM", b0=h_index["onehot_inexact"], bcount=B)
         inj(nm, t, "LMH_MODE_DROP_LAST_K", b0=h_index["tail_zero"], bcount=B)
         inj(nm, t, "LMH_MODE_DROP_LAST_K", b0=real0, bcount=B)
@@ -643,6 +696,244 @@ class Data(object):
         return self.fc["LMH_SPLIT"] if c["assoc"] == self.en["LMH_ASSOC_SPLIT8"] else 1
 
 
+# ---------------------------------------------------------------------------------------------
+# MEASURING THE BAND FORM, AND ENFORCING IT
+# ---------------------------------------------------------------------------------------------
+def honest_band_words(p, en):
+    """(case, word_index) pairs for every word the oracle is entitled to a band for: the mode==CORRECT
+    cases, read where a consumer reads them. This is the population the band form is selected over and
+    the population the band file is verified against, so both sides get it from ONE spelling."""
+    out = []
+    for c in p.cases:
+        if c["mode"] != en["LMH_MODE_CORRECT"]:
+            continue
+        slot = p.slot(c)
+        rows = d_rows(p, c)
+        for b in range(c["bcount"]):
+            for jj in range(len(rows)):
+                out.append((c, c["out_off"] + b * slot + jj))
+    return out
+
+
+def d_rows(p, c):
+    """The row list one case addresses: dense rows in order, or the gathered ids. Spelled once so the
+    band census, the band verification and the drivers cannot each derive a different row set."""
+    if c["path"] == p.en["LMH_PATH_GATHER"]:
+        return [p.ids[c["ids_off"] + j] for j in range(c["n_ids"])]
+    return [c["row_lo"] + j for j in range(c["nrows"])]
+
+
+def band_measure(d, tag="lane"):
+    """Measure the two things the band is made of, over EVERY word the oracle is entitled to a band for.
+
+    Returns `(families, sigma)`:
+      families[table] = dict(K, words, pairs, inexact, gidx, gamma, ...), where `inexact` is the count
+          of dot terms h_k*w_k in that family that do NOT survive a round trip through the binary32
+          grid, and gidx/gamma are `gamma_index(K, inexact)` and `gamma_of_index(gidx)`;
+      sigma[word]  = (table_idx, fsum_k |h_k w_k|) for every banded word, through the same exactly
+          rounded sum the oracle uses.
+
+    The products are formed in binary64 from the audited decode and the materialised hidden vectors,
+    so comparing a product against the f32 grid is a measurement and not a round trip through the
+    ruler being tested. The population is every banded word, not a sample: the index is a property of
+    the family, and a sample that missed the one inexact term would license a narrower band than the
+    family's own bytes refute.
+    """
+    p, en = d.p, d.en
+    fam, sig = {}, {}
+    n_words = 0
+    for c in p.cases:
+        if c["mode"] != en["LMH_MODE_CORRECT"]:
+            continue
+        t = p.tables[c["table"]]
+        h_used = d.h_used(c)
+        rows = d_rows(p, c)
+        W = np.array([d.row_values(t, r, h_used) for r in rows], dtype=np.float64)
+        X = np.array([d.hidden[c["b0"] + b] for b in range(c["bcount"])], dtype=np.float64)
+        P = W[:, None, :] * X[None, :, :]
+        inexact = int(np.count_nonzero(P.astype(np.float32).astype(np.float64) != P))
+        f = fam.setdefault(t["idx"], dict(table=t["idx"], enc=t["enc"], kind=t["kind"],
+                                          real=t["real"], K=h_used, words=0, pairs=0, inexact=0))
+        if f["K"] != h_used:
+            raise Fail("table %d is summed with %d terms in one honest case and %d in another: the "
+                       "gamma index would not be a property of the family" % (t["idx"], f["K"], h_used))
+        f["words"] += c["bcount"] * len(rows)
+        f["pairs"] += c["bcount"] * len(rows) * h_used
+        f["inexact"] += inexact
+        slot = p.slot(c)
+        absP = np.abs(P)
+        for b in range(c["bcount"]):
+            for jj in range(len(rows)):
+                at = c["out_off"] + b * slot + jj
+                if at in sig:
+                    raise Fail("word %d is banded by two cases: nothing downstream can say which "
+                                "term set its band belongs to" % at)
+                sig[at] = (t["idx"], math.fsum(float(x) for x in absP[jj, b]))
+                n_words += 1
+    if not fam:
+        raise Fail("band_measure: no honest case exists, so the band form would be selected by "
+                   "nobody over nothing")
+    for f in fam.values():
+        f["gidx"] = gamma_index(f["K"], f["inexact"])
+        f["gamma"] = gamma_of_index(f["gidx"])
+    print("BANDCENSUS tag=%s honest_cases=%d words_banded=%d term_pairs=%d products_inexact=%d "
+          "families=%d rule=gamma_index(K,products_inexact)=(K-1 if inexact==0 else 2K-1) u=2^-24"
+          % (tag, sum(1 for c in p.cases if c["mode"] == en["LMH_MODE_CORRECT"]), n_words,
+             sum(f["pairs"] for f in fam.values()),
+             sum(f["inexact"] for f in fam.values()), len(fam)))
+    lines = []
+    for ti in sorted(fam):
+        f = fam[ti]
+        lines.append("BANDFAMILY tag=%s table=%d enc=%d kind=%s real=%d K=%d words=%d term_pairs=%d "
+                     "products_inexact=%d gamma_index=%d gamma=%.9g"
+                     % (tag, f["table"], f["enc"], f["kind"], f["real"], f["K"], f["words"],
+                        f["pairs"], f["inexact"], f["gidx"], f["gamma"]))
+    for l in lines:
+        print(l)
+    if len(lines) != len(fam):
+        raise Fail("printed %d BANDFAMILY records for %d families: the record the verdict is read "
+                   "from is not the record that was printed" % (len(lines), len(fam)))
+    return fam, sig
+
+
+
+def verify_band_form(v, p, bandw, expw, want_words):
+    """THE GATE ENFORCES THE EQUALITY, IN BOTH DIRECTIONS.
+
+    Recomputes every band from the bytes — sigma = fsum_k |h_k w_k| per word, gamma at the index the
+    family's MEASURED products_inexact licenses — and requires bit equality with `work/band.f64`. A
+    hand-edit of that file is a finding whichever way it points: narrower and a legal re-association
+    could be scored as an error; wider and the band stops being a bound, which is the direction
+    `AGENTS.md` forbids precisely because nothing else in the lane would notice. `--control band-unpin`
+    is the witnessed proof that this check goes red on an unpin, and `band-word-narrow` /
+    `band-word-wide` prove it goes red on a one-word edit in either direction.
+
+    Four named checks come out of this loop and all four read the FILE rather than the intent that
+    wrote it: the equality itself, its coverage, the anti-drift direction (an exact family may not be
+    priced with gamma_{2K-1}), and the must-still-reject direction (an inexact family may not be
+    priced with the narrow index, and no band may sit below one ulp of its own answer).
+    """
+    forms = getattr(p, "band_form", None)
+    sig = getattr(p, "band_sigma", None)
+    if forms is None or sig is None:
+        raise Fail("verify_band_form: the plan carries no measured band form; band_measure() must run "
+                   "before any judgement that reads a band")
+    pairs = honest_band_words(p, en=p.en)
+    bad, other, wrong_on_exact, wrong_on_inexact = [], [], [], []
+    missing = []
+    n_ok = 0
+    per_fam = {}
+    ulp_below = []
+    for c, at in pairs:
+        ti = c["table"]
+        f = forms[ti]
+        if at not in sig:
+            # The census ran over the plan as it was built; a --control that turns an injection into an
+            # honest case afterwards adds words no producer ever banded. That is a finding naming the
+            # case, never a KeyError out of do_run.
+            missing.append((c["idx"], at))
+            continue
+        sig_ti, sigma = sig[at]
+        if sig_ti != ti:
+            raise Fail("word %d of case %d carries sigma measured for table %d: the band and the "
+                       "term set it bounds would be about different bytes" % (at, c["idx"], sig_ti))
+        want = f["gamma"] * sigma
+        got = bandw[at]
+        pf = per_fam.setdefault(ti, dict(licensed=0, narrow=0, wide=0, other=0))
+        if got == want:
+            n_ok += 1
+            pf["licensed"] += 1
+        elif got == gamma_of_index(f["K"] - 1) * sigma:
+            pf["narrow"] += 1
+        elif got == gamma_of_index(2 * f["K"] - 1) * sigma:
+            pf["wide"] += 1
+        else:
+            pf["other"] += 1
+            if len(other) < 4:
+                other.append((at, c["idx"], got, gamma_of_index(f["K"] - 1) * sigma, want,
+                              gamma_of_index(2 * f["K"] - 1) * sigma))
+        if len(bad) < 6 and got != want:
+            bad.append((at, c["idx"], got, want))
+        if f["inexact"] == 0 and got != want:
+            if len(wrong_on_exact) < 6:
+                wrong_on_exact.append((c["idx"], at, ti, got, want))
+        if f["inexact"] > 0 and got != want:
+            if len(wrong_on_inexact) < 6:
+                wrong_on_inexact.append((c["idx"], at, ti, got, want))
+        anchor = struct.unpack("<f", struct.pack("<I", expw[at]))[0]
+        ulp = float(np.spacing(np.float32(abs(anchor)) if anchor != 0.0 else np.float32(0.0)))
+        if not (got > 0.0 and got >= ulp):
+            ulp_below.append((at, c["idx"], got, ulp))
+    n_fam_printed = 0
+    for ti in sorted(per_fam):
+        pf = per_fam[ti]
+        f = forms[ti]
+        print("BANDPRICE table=%d licensed_gamma_index=%d licensed_gamma=%.9g products_inexact=%d "
+              "words=%d priced_licensed=%d priced_narrow(K-1)=%d priced_wide(2K-1)=%d priced_other=%d"
+              % (ti, f["gidx"], f["gamma"], f["inexact"], sum(pf.values()), pf["licensed"],
+                 pf["narrow"], pf["wide"], pf["other"]))
+        n_fam_printed += 1
+    if n_fam_printed != len(per_fam):
+        raise Fail("printed %d BANDPRICE records for %d priced families" % (n_fam_printed,
+                                                                           len(per_fam)))
+    v.check("the band file equals gamma_index(products_inexact) * fsum(|h_k w_k|) recomputed from "
+            "these bytes", not bad and n_ok == want_words == len(pairs), n_ok,
+            "verified=%d expected=%d words=%d mismatches=%d first=%s"
+            % (n_ok, want_words, len(pairs), len(bad), bad[:3]))
+    v.check("every banded word was priced, none is un-banded, and no band is below one ulp of its own "
+            "answer", len(sig) == len(pairs) and not missing and not ulp_below, len(pairs),
+            "sigmas=%d words=%d unbanded=%d below_ulp=%d first_unbanded=%s first_below_ulp=%s"
+            % (len(sig), len(pairs), len(missing), len(ulp_below), missing[:3], ulp_below[:2]))
+    v.check("no family whose dot products are all exact is priced with the gamma_{2K-1} index",
+            not wrong_on_exact and not other, len(wrong_on_exact) + len(other),
+            "exact_family_mispriced=%s foreign_form=%s" % (wrong_on_exact[:3], other[:2]))
+    v.check("no family with a measurably inexact dot product is priced with the narrow gamma index",
+            not wrong_on_inexact, len(wrong_on_inexact), "first=%s" % (wrong_on_inexact[:3],))
+    return per_fam
+
+
+def tamper_band_file(path, p, mode, out_floats):
+    """Rewrite work/band.f64 with EXACTLY one named defect, and say which words moved.
+
+    This is the witness that `verify_band_form` can go red, in both directions: `unpin-narrow` re-prices
+    every family at gamma_{K-1} (the un-adjudicated state this lane shipped with), `word-narrow` halves
+    ONE word's band and `word-wide` doubles ONE word's band. A hand-edit of the band file is supposed to
+    be a gate failure whichever way it points, and each of these is a hand-edit.
+    """
+    forms, sig = p.band_form, p.band_sigma
+    band = [float("nan")] * out_floats
+    for at, (ti, sigma) in sig.items():
+        band[at] = forms[ti]["gamma"] * sigma
+    changed = []
+    if mode == "unpin-narrow":
+        for at, (ti, sigma) in sorted(sig.items()):
+            new = gamma_of_index(forms[ti]["K"] - 1) * sigma
+            if new != band[at]:
+                band[at] = new
+                changed.append(at)
+    elif mode in ("word-narrow", "word-wide"):
+        at = min(sig)
+        ti, sigma = sig[at]
+        band[at] = band[at] * (0.5 if mode == "word-narrow" else 2.0)
+        changed.append(at)
+        if abs(band[at] - forms[ti]["gamma"] * sigma) < 1e-300:
+            raise Fail("tamper_band_file(%s) produced no change at word %d: a control that does "
+                       "nothing is a finding, not a pass" % (mode, at))
+    else:
+        raise Fail("--tamper-band wants unpin-narrow|word-narrow|word-wide, got %r" % (mode,))
+    if not changed:
+        raise Fail("tamper_band_file(%s) changed no word: an injection that cannot fire is a finding, "
+                   "not a pass" % mode)
+    with open(path, "wb") as fh:
+        fh.write(struct.pack("<%dd" % out_floats, *band))
+    first = changed[0]
+    print("BANDTAMPER mode=%s file=%s words_changed=%d of %d banded first_word=%d new_band=%.9g "
+          "licensed_band=%.9g"
+          % (mode, os.path.basename(path), len(changed), len(sig), first, band[first],
+             forms[sig[first][0]]["gamma"] * sig[first][1]))
+    return changed
+
+
 def _f32(x):
     """Round a Python float to the binary32 value it would become, exactly as the kernel's float does."""
     return struct.unpack("<f", struct.pack("<f", x))[0]
@@ -728,7 +1019,12 @@ def derive_class(c, d):
         # word would move FURTHER than that word's own band. "Some product is not a bf16 value" is not
         # the claim — an injection whose every effect sits inside the rounding budget is not observable
         # at this width, and calling it FIRES would certify a check that cannot go any colour but green.
-        u = 2.0 ** -24
+        forms = getattr(p, "band_form", None)
+        if forms is None:
+            raise Fail("derive_class(HALF_ACCUM): the plan carries no measured band form; "
+                       "band_families() must run before a class is derived. The band asked about here "
+                       "IS the lane's band, so reading a different gamma here than band.f64 carries "
+                       "would be two rulers over one quantity.")
         beyond_any = False
         moved_any = False
         worst = 0.0
@@ -744,7 +1040,7 @@ def derive_class(c, d):
                     rounded.append(_f32(_bf16_round(p)))
                     scale += abs(p)
                 K = h_used
-                band = (K * u / (1.0 - K * u)) * math.fsum(abs(x) for x in honest)
+                band = forms[t["idx"]]["gamma"] * math.fsum(abs(x) for x in honest)
                 dd = abs(math.fsum(honest) - math.fsum(rounded))
                 if band > 0.0 and dd > band:
                     beyond_any = True
@@ -757,8 +1053,10 @@ def derive_class(c, d):
             return "FIRES", "bf16-rounding every product moves a word beyond its own band (worst %.3g x)" % worst
         if moved_any:
             # The injection really happened (the words are not the twin's) and every word still sits
-            # inside the band. At h=2048 the fp32 summation band, gamma_2048 = 1.221e-4 of the absolute
-            # sum, is WIDER than the per-term error of rounding a product to bf16 after cancellation,
+            # inside the band. At h=2048 the fp32 summation band — gamma at the family's licensed
+            # index, which is gamma_{2K-1} = 2.4414061e-04 of the absolute sum for a family whose dot
+            # products are measurably inexact and gamma_{K-1} = 1.22025624e-04 where they are exact —
+            # is WIDER than the per-term error of rounding a product to bf16 after cancellation,
             # so a bf16-valued pair of operands is not observable through the band. Declaring this
             # FIRES would certify an arm that cannot be anything but red, and declaring it IMMUNE would
             # claim bit-identity that the bytes contradict; INSIDE is the class that says both facts.
@@ -1921,6 +2219,14 @@ def do_run(a, v, device, fc, en, fields, modes, fmts):
     cmd = [PY, ORACLE, "--work", work]
     if a.full_table:
         cmd.append("--full-table")
+    if a.gamma_form:
+        # WITNESS ONLY: force the PRODUCER's index, so the band file on disk is priced with a form the
+        # measurement does not license. This file's own licensed form stays measured — the judge never
+        # moves — which is what makes the resulting red a judgement and not a tautology.
+        print("FORCE_FORM form=%s forwarded=oracle_arm.py note=the judge keeps the measured index; "
+              "this state is unreachable by measurement and must go red"
+              % a.gamma_form)
+        cmd += ["--gamma-form", a.gamma_form]
     rc, out = run(cmd, os.path.join(work, "oracle.log"))
     for line in out.splitlines():
         print(line)
@@ -1944,6 +2250,13 @@ def do_run(a, v, device, fc, en, fields, modes, fmts):
                                    [widths.get(d["tensor"]) for d in slab_bands]))
 
     d = Data(work, p, fc, en)
+
+    # ---- THE BAND FORM, measured before any class is derived or any band is read ------------------
+    # The order is load-bearing: derive_class() asks "does this injection move a word beyond its own
+    # band?", and the only band worth asking about is the one band.f64 will carry, so both have to read
+    # the same measured gamma. Reading it after the classes were derived would let the class and the
+    # judgement disagree by one rounding per term.
+    p.band_form, p.band_sigma = band_measure(d, tag="lane")
 
     # A control may legitimately move a column outside the expect column. When it does, it declares
     # which case and which column here, and the witness below requires that tampering to be VISIBLE in
@@ -1987,7 +2300,10 @@ def do_run(a, v, device, fc, en, fields, modes, fmts):
 
     # ---- the host arm ---------------------------------------------------------------------------
     expw = words_of(os.path.join(work, "expect.f32"), p.out_floats)
+    if a.control == "band-unpin":
+        tamper_band_file(os.path.join(work, "band.f64"), p, a.tamper_band, p.out_floats)
     bandw = doubles_of(os.path.join(work, "band.f64"), p.out_floats)
+    verify_band_form(v, p, bandw, expw, want_words)
     if a.control == "q6k-geometry":
         return control_q6k_geometry(v, p, cfg, fc, en, work)
     rc, out = run_arm(PROBE, work, p, cfg, "host_out.f32", "host_report.tsv", "host-probe.log")
@@ -2027,6 +2343,40 @@ def do_run(a, v, device, fc, en, fields, modes, fmts):
         with open(rp, "w") as fh:
             fh.writelines(keep[:-1])
         print("CONTROL no-report dropped the last report row: parsed != printed MUST go red")
+    if a.control == "band-perturb":
+        # THE WIDENED BAND MUST STILL BE ABLE TO REJECT. One word of one BAND-classed case is moved by
+        # 4x its own derived band — a real perturbation, far below the value's magnitude — and the row
+        # MUST be refused. The word is taken from a family the measurement widened to gamma_{2K-1}, so
+        # what is witnessed is that the DOUBLING cost nothing that the narrow band could refuse. A band
+        # that cannot refuse a 4x-band error is not a band.
+        op = os.path.join(work, "host_out.f32")
+        words = words_of(op, p.out_floats)
+        band_cases = [c for c in p.cases if derive_class(c, d)[0] == "BAND"]
+        wide_cases = [c for c in band_cases
+                      if p.band_form[c["table"]]["gidx"] == 2 * p.band_form[c["table"]]["K"] - 1]
+        tgt, wat = None, None
+        for c in (wide_cases or band_cases):
+            slot = p.slot(c)
+            hit = [c["out_off"] + b * slot + j
+                   for b in range(c["bcount"]) for j in range(c["n_out"])
+                   if bandw[c["out_off"] + b * slot + j] > 0.0]
+            if hit:
+                tgt, wat = c, hit[0]
+                break
+        if tgt is None:
+            raise Fail("control band-perturb found no BAND-classed word with a positive band: the "
+                       "population cannot refuse anything and that is a finding, not a pass")
+        orig = f32(words[wat])
+        pert = 4.0 * bandw[wat]
+        words[wat] = struct.unpack("<I", struct.pack("<f", orig + pert))[0]
+        with open(op, "wb") as fh:
+            fh.write(struct.pack("<%dI" % p.out_floats, *words))
+        print("CONTROL band-perturb case=%d %s table=%d licensed_gamma_index=%d word=%d band=%.9g "
+              "perturbation=%.9g x_band=4.0 old=%.9g new=%.9g: this row MUST be rejected under the "
+              "derived band"
+              % (tgt["idx"], tgt["name"], tgt["table"],
+                 p.band_form[tgt["table"]]["gidx"], wat, bandw[wat], pert, orig,
+                 struct.unpack("<f", struct.pack("<I", words[wat]))[0]))
     if a.control in ("digest-radix", "count-radix"):
         # THE WRONG-RADIX CONTROL. One numeric token of one real R line is re-spelled in the OTHER
         # radix — same 32-bit value, different text — which is exactly the producer/consumer drift that
@@ -2322,19 +2672,50 @@ def selftest(v, a, fc, en, modes):
                     hits.append("%s:%d -> %r" % (f, nd.lineno, aa.value))
     v.check("no verdict-bearing check carries a constant predicate", not hits, 0,
             "offenders=%s" % (hits[:6],))
+    # The same scan pointed at the band rule: `gamma_index(K, products_inexact)` must be called with an
+    # EXPRESSION for the second argument, because a gamma index typed as a literal (2047, 4095, K) is a
+    # band chosen by hand wearing the clothes of a derived one. AST again, and it reads the call graph
+    # from the AST rather than trusting a grep that misses a wrapped line.
+    form_hits = []
+    for f in ("gate.py", "floor_probe.py"):
+        src = open(os.path.join(here, f)).read()
+        for nd in ast.walk(ast.parse(src)):
+            if isinstance(nd, ast.Call) and isinstance(nd.func, ast.Name) \
+                    and nd.func.id == "gamma_index" and len(nd.args) >= 2:
+                aa = nd.args[1]
+                if isinstance(aa, ast.Constant):
+                    form_hits.append("%s:%d literal products_inexact=%r" % (f, nd.lineno, aa.value))
+                if isinstance(aa, ast.Name) and aa.id == "K":
+                    form_hits.append("%s:%d gamma indexed by K itself, not by a measurement"
+                                     % (f, nd.lineno))
+    v.check("every gamma_index call selects its index from measured data, never a literal",
+            not form_hits, len(form_hits), "offenders=%s" % (form_hits[:6],))
     # the controls: each must make the gate red, and say why
-    for name, marker in (("no-fire", "CONTROL no-fire"),
-                         ("tampered-out", "CONTROL tampered-out"),
-                         ("no-report", "CONTROL no-report"),
-                         ("digest-radix", "CONTROL digest-radix"),
-                         ("count-radix", "CONTROL count-radix"),
-                         ("q6k-geometry", "CONTROLARM-REFUSED"),
-                         ("q6k-source", "REFUSE table"),
-                         ("scale-q8", "SCALEDIFF")):
-        rc, out = run([PY, os.path.join(here, "gate.py"), "--control", name,
-                       "--work", a.work, "--max-rows", str(a.max_rows),
-                       "--deep-rows", str(a.deep_rows)],
-                      os.path.join(a.work, "control-%s.log" % name))
+    for name, marker, ctrl, extra in (("no-fire", "CONTROL no-fire", "no-fire", []),
+                                      ("tampered-out", "CONTROL tampered-out", "tampered-out", []),
+                                      ("no-report", "CONTROL no-report", "no-report", []),
+                                      ("digest-radix", "CONTROL digest-radix", "digest-radix", []),
+                                      ("count-radix", "CONTROL count-radix", "count-radix", []),
+                                      ("q6k-geometry", "CONTROLARM-REFUSED", "q6k-geometry", []),
+                                      ("q6k-source", "REFUSE table", "q6k-source", []),
+                                      ("scale-q8", "SCALEDIFF", "scale-q8", []),
+                                      ("band-unpin", "BANDTAMPER", "band-unpin",
+                                       ["--tamper-band", "unpin-narrow"]),
+                                      ("band-word-narrow", "BANDTAMPER", "band-unpin",
+                                       ["--tamper-band", "word-narrow"]),
+                                      ("band-word-wide", "BANDTAMPER", "band-unpin",
+                                       ["--tamper-band", "word-wide"]),
+                                      ("band-perturb", "CONTROL band-perturb", "band-perturb", []),
+                                      ("form-wide-forced", "FORCEDFORM", None,
+                                       ["--gamma-form", "wide"]),
+                                      ("form-narrow-forced", "FORCEDFORM", None,
+                                       ["--gamma-form", "narrow"])):
+        args = [PY, os.path.join(here, "gate.py"), "--work", a.work,
+                "--max-rows", str(a.max_rows), "--deep-rows", str(a.deep_rows)]
+        if ctrl:
+            args += ["--control", ctrl]
+        args += extra
+        rc, out = run(args, os.path.join(a.work, "control-%s.log" % name))
         text = out
         saw = [l for l in text.splitlines() if l.startswith(marker)]
         print("CONTROL %s rc=%d marker=%r lines=%d first=%s" % (name, rc, marker, len(saw),
@@ -2342,7 +2723,8 @@ def selftest(v, a, fc, en, modes):
         v.check("control %s is refused or goes red" % name, rc != 0 and len(saw) >= 1, 1,
                 "rc=%d marker_lines=%d" % (rc, len(saw)))
     for name in ("no-fire", "tampered-out", "no-report", "digest-radix", "count-radix",
-                 "scale-q8", "q6k-geometry", "q6k-source"):
+                 "scale-q8", "q6k-geometry", "q6k-source", "band-unpin", "band-word-narrow",
+                 "band-word-wide", "band-perturb", "form-wide-forced", "form-narrow-forced"):
         log = os.path.join(a.work, "control-%s.log" % name)
         text = open(log).read() if os.path.exists(log) else ""
         bad = [l for l in text.splitlines() if l.startswith("CHECK ") and " ok=0 " in l]
@@ -2371,6 +2753,13 @@ def main():
                     help="oracle + host twin only; no iGPU (the CI mode)")
     ap.add_argument("--device", action="store_true", help="add the device arm (wrapper only)")
     ap.add_argument("--control", default="")
+    ap.add_argument("--gamma-form", default="", choices=("", "wide", "narrow"),
+                    help="WITNESS ONLY: forward a forced (unmeasured) gamma index to oracle_arm.py so "
+                         "the band FILE is priced with a form the measurement did not select, to show "
+                         "the named checks refuse it. Never set in a real run.")
+    ap.add_argument("--tamper-band", default="unpin-narrow",
+                    choices=("unpin-narrow", "word-narrow", "word-wide"),
+                    help="which defect --control band-unpin writes into work/band.f64")
     ap.add_argument("--max-rows", type=int, default=4,
                     help="rows per table that device-judged cases may touch")
     ap.add_argument("--deep-rows", type=int, default=32,

@@ -8,11 +8,11 @@ anywhere here, and nothing in this file is a bandwidth or latency claim.
 
 | claim | line | state |
 |---|---|---|
-| host + device gate | `RESULT PASS lm_head host+device checks=3012 findings=0` | green, `evidence/lm-head-device-clean-2026-10-26.log` (and `evidence/lm-head-device-2026-10-26.log`, the same verdict) |
-| host-only gate, re-run while writing this file (2026-10-26, this session) | `RESULT PASS lm_head host-only checks=1513 findings=0`, `CHECKS ran=1513 failed=0` | green, rc=0 |
-| judge self-controls, re-run | `RESULT PASS lm_head host selftest checks=31 findings=0` | green, rc=0 |
+| host + device gate | `RESULT PASS lm_head host+device checks=3012 findings=0` | green **but STALE for the band**: recorded under the superseded `gamma_K` band (§6). The device arm has not been re-run since the band index was adjudicated, so this lane currently carries no device verdict |
+| host-only gate, re-run 2026-10-26 after the γ-index adjudication | `RESULT PASS lm_head host-only checks=1517 findings=0`, `CHECKS ran=1517 failed=0` | green, rc=0 (was 1513 before the four band-form checks were added) |
+| judge self-controls, re-run 2026-10-26 | `RESULT PASS lm_head host selftest checks=44 findings=0` | green, rc=0 (was `checks=31`; the roster is now 14 controls, 6 of them about the band form) |
 | oracle arm | `RESULT PASS oracle arm filled=1884/27488 words slab=557568 B hidden=68` | green — and the **1884 of 27488** is the whole of §3's second cluster |
-| floor probe | `RESULT FAIL lm_head floor probe findings=2` | **RED ON PURPOSE**, re-run rc=1; see §6 — it is the open band question, and it is the user's to close |
+| floor probe | `RESULT PASS lm_head floor probe cases=66 words=1280 arms=5 worst_ratio=0.0009657 band_over_ulp_min=5687 band_index_per_table=0:2047,1:2047,2:4095,3:4095,4:2047 all_words_priced_licensed=1` | green, rc=0 — it was **RED ON PURPOSE** (`findings=2`) until the γ index was adjudicated; §6 says who closed it and on what measurement |
 | two controls | `RESULT FAIL lm_head (refused) checks=3010 findings=1` (`evidence/lm-head-control-band-unpin-red-2026-10-26.log`), `RESULT FAIL lm_head host+device checks=3012 findings=8` (`evidence/lm-head-control-seq-tamper-red-2026-10-26.log`) | **LEFT RED**: a control that walks past its own refusal is a control that judges nothing |
 
 `gate.py`'s own docstring points here (`gate.py §"WHAT EACH DIGEST PROVABLY SEES (results.md carries
@@ -26,8 +26,8 @@ class.
 |---|---|---|---|
 | `./gate` (wrapper; sole acquirer of the repo's stream lock) | 0 | full host + device gate → `checks=3012 findings=0` | yes, short correctness-only run |
 | `... .venv/bin/python gate.py --check-only` | 0 | oracle + host twin + every judgement, no device | no |
-| `... .venv/bin/python gate.py --selftest` | 0 | 31 controls: the instruments that must be able to fail | no |
-| `... .venv/bin/python floor_probe.py` | **1** | the band's floor probe; 2 findings, §6 | no |
+| `... .venv/bin/python gate.py --selftest` | 0 | 44 checks: the instruments that must be able to fail, plus 14 named controls, six of them band-form witnesses (§6) | no |
+| `... .venv/bin/python floor_probe.py` | 0 | the band's floor probe; green since the γ index was adjudicated, §6 | no |
 | `... .venv/bin/python three_arm.py` | 0 | host twin vs hipcc host path vs numpy oracle | no |
 | `./gate` with the lock already held | 1 | `RESULT FAIL not-run lock-held`, `work/w-stale-demo.log` | not started |
 | `./gate` with a dead holder's lockdir | 1 | `RESULT FAIL not-run lock-stale`, `evidence/lm-head-gate-stale-refused-2026-10-26.log` | not started |
@@ -208,28 +208,45 @@ contraction policies: `sha256(work/w-out-contract-on.f32) = sha256(work/w-out-co
 sha256(work/out.f32) = 8c8bb078fd17c67bd2a868c668e1ce9742d34cf86a0034965fcab861e5346429` (`8c8bb078…6429`).
 
 What the refutation is and is not: it is an empirical result over 872 Q8_0 SEQ words and one code object.
-It does **not** repair the proof hole underneath it — the γ index question in §6 is the same premise
-(`products are exact`) and it is still open. A prediction being false for this data is not the same as
-the argument for it being valid; the header's sentence should still be corrected, and that correction is
-now entangled with a band, which is the user's call.
+It never repaired the proof hole underneath it — and the hole has since been closed from the other side:
+the γ index in §6 rests on the same `products are exact` premise, the user adjudicated it on 2026-10-26,
+and the header sentence that made the argument is now corrected to separate the exact **dequant** product
+from the measured, sometimes-inexact **dot term** (`lm_head_kernels.h §"What is bit-exact here, and what is
+not"`). What remains, and remains only an observation, is that the compiler did not take the contraction on
+this code object. A prediction being false for this data is not the same as the argument for it being
+invalid; it is now stated as an observation with its evidence instead of as a proof.
 
 ## 6. The band, and the red things that stay red
 
-The band every `BAND` word is judged by is derived, never typed
-(`evidence/band-derivation-2026-10-26.md §"the band, stated"`):
+The band every `BAND` word is judged by is derived, never typed. Since 2026-10-26 the **index** of
+`gamma` is derived too, per family, from a measurement
+(`evidence/band-form-gamma-index-2026-10-26.md` has the ratification, the witnesses and the numbers):
 
 ```
-band(word) = gamma_K * fsum_k |h_k * w_k|,   gamma_K = K*u/(1-K*u),  u = 2**-24,  K = h_used = 2048
+band(word)  =  gamma_index * fsum_k |h_k * w_k|,      u = 2**-24,   K = h_used = 2048
+gamma_n     =  n*u / (1 - n*u)
+gamma_index =  K-1   if every dot product h_k*w_k of that family is exactly representable in binary32
+               2K-1  if the measurement finds any of them inexact   (7,727 of 409,600 terms in table 2,
+                                                                     3,474 of 368,640 in table 3)
 ```
 
-`floor_probe.py` earns it — re-run while writing this file, rc **1**, same two findings as the committed
-`work/floor-probe.log`: 66 cases, 1280 words, five legal re-associations, worst deviation `0.001646 ×
-band` (`case 16 word 162`, reverse order), **607× of headroom**, smallest band `1.73e-05` against a
-`1.86e-09` ULP (`band/ulp >= 5690`), `dev_nonzero=1154` of 1280 so the band bounds a real spread, and a
-drop-the-last-term direction refused on 653 of 1280 live words. Nothing was loosened to get any of that,
-and the probe refuses an all-zero arm population by name.
+A sum of K terms costs K-1 roundings when the products are exact and one more per term when they are not,
+which is the same arithmetic `lm_head_kernels.h` §"What is bit-exact here, and what is not" now states
+explicitly: the **dequant** product is exact (16 bits for bf16, 19 for a Q8_0 decode) and the **dot term**
+`h_k*(d_k*q_k)` is not (up to 27 bits) whenever the weights are Q8_0. That leaves the concrete numbers
+`gamma_2047 = 1.22025596e-04` for the six exact families and `gamma_4095 = 2.4414061e-04` for the two
+inexact ones; before the adjudication every family carried `gamma_2048 = 1.22085215e-04`.
 
-**The open question, kept open, and with the user.** Two findings, both Q8_0:
+`floor_probe.py` earns it — re-run 2026-10-26, rc **0**: 66 cases, 1280 words, five legal
+re-associations, worst deviation `0.0009657 × band` (`case 62 word 622`, ascending order), **1035× of
+headroom**, `band_over_ulp_min = 5687`, `dev_nonzero=1154` of 1280 so the band bounds a real spread, and a
+drop-the-last-term direction refused on 658 of 1280 live words (per family 515/896, 38/100, 42/120,
+26/100, 37/64 — the two families whose band doubled still refuse a term-sized error on every word where
+the term is live). Nothing was loosened to get any of that: the probe refuses a band priced with the
+wrong index **in either direction**, and refuses an all-zero arm population by name.
+
+**The γ-index question: CLOSED by the user on 2026-10-26.** It had been left open here with two findings,
+both Q8_0:
 
 ```
 FINDING table 2 (enc=1): 7715 of 245760 dot terms h_k*w_k are NOT exact in binary32 (weight 18 bits x
@@ -239,23 +256,35 @@ FINDING table 3 (enc=1): 3466 of 204800 dot terms … (same form, deviation 2.98
 RESULT FAIL lm_head floor probe findings=2
 ```
 
-So `gamma_K` is right for the bf16 families and **one rounding short for Q8_0**, where the form that
-covers both is `gamma_{2K-1} = 2.4414061e-04` against the `gamma_K = 1.22085215e-04` the oracle carries
-now. Measured deviations sit 443× below even the narrower band, so **no verdict in this lane is wrong
-because of it today** — but the proof is not complete, and closing it means widening Q8_0's γ, which is a
-band change. Bands are the user's decision in this repo (`DECISIONS.md` governs them; `AGENTS.md`: *never
-loosen a gate to make it pass*), so: **γ_K vs γ_{2K-1} for Q8_0 is UNRESOLVED and with the user.** This
-run touched no band, no factor, and nothing in `tools/ulp_policy.py`.
+The user was given both options with the measurements and chose **A** — `gamma_{2K-1}` for a family whose
+products are measurably inexact, `gamma_{K-1}` for one whose products are exact — and the rule is now
+`gate.py`'s `gamma_index(K, products_inexact)`, spelled independently by `oracle_arm.py` and enforced by
+`gate.py::verify_band_form` element-by-element against `work/band.f64`. Four named checks came out of it
+(`checks` 1513 → 1517) and six controls in the `--selftest` roster (31 → 44) exist to keep it from
+drifting; every one was witnessed firing — including a one-word hand-edit of `band.f64` in each direction
+and a 4×-band perturbation of an output word in a doubled family, which is still rejected
+(`BAND inside the derived band ok=0 … worst=4.000 x band outside=1`). The full witness table is
+§"The witnesses" of `evidence/band-form-gamma-index-2026-10-26.md`, and the red lines themselves are
+committed in `evidence/lm-head-band-form-witnesses-2026-10-26.log` (nine witnesses, each with its command
+line and its sabotage marker).
+
+What the widening cost, stated rather than buried: two `HALF_ACCUM` injection arms (`case=101`,
+`case=149`) reclassified `FIRES → INSIDE` (worst 1.03× → 0.514× and 1.25× → 0.625×) because their
+families' bands doubled; the other four arms of that mode still fire by 14.1×, 9.1×, 12.2× and 6.2×, so
+the mode keeps a firing witness and no verdict went red. **The device arm has not been re-run under the
+new band**, so this lane currently carries no device verdict; the re-run also has to confirm that the SEQ
+bit-exactness claim (§5) still holds, since its old justification (exact products) is gone.
 
 Still red on purpose, with their logs committed:
 
 * `evidence/lm-head-control-band-unpin-red-2026-10-26.log` — unpinning a band makes the gate refuse
-  (`RESULT FAIL lm_head (refused) checks=3010 findings=1`).
+  (`RESULT FAIL lm_head (refused) checks=3010 findings=1`). Under the adjudicated form the band can also
+  be caught mispriced in either direction, by hand, one word at a time: nine witnesses in
+  `evidence/lm-head-band-form-witnesses-2026-10-26.log`.
 * `evidence/lm-head-control-seq-tamper-red-2026-10-26.log` — tampering with a SEQ case, which is held to
   zero tolerance, produces 8 findings (`checks=3012 findings=8`).
 * `evidence/lm-head-gate-backoff-refused-2026-10-26.log` and `…-gate-stale-refused-…` — the wrapper
   refusing to queue onto a live holder, and refusing a stale lockdir, both `RESULT FAIL not-run`.
-* the floor probe itself, §6, until the γ index is adjudicated.
 
 ## 7. The two claims this lane exists for: disjointness and amortisation
 
@@ -292,11 +321,20 @@ CHECK name=device the cross-table-read witness moves `cross` on every untied arm
   `WALL`/`UTIL` lines are lock records. Rate claims belong to the main agent's exclusive window.
 * **The 14 host-only cases** (62–75, the `deep` batched/per-row families) have no device claim: the
   device arm ran 178 of 192 and says so per case.
-* **γ_K is not a proven bound for Q8_0** (§6, and `evidence/band-derivation-2026-10-26.md
-  §"NOT ESTABLISHED by this file"`). Established instead: `gamma_{2K-1}` bounds the same families by the
-  same argument, and the observed deviations are 443× below the narrower band.
+* **Nothing about the iGPU since the band index changed** (§6). The device arm was not re-run — §1 marks
+  the 3012-check log stale for that reason — and the SEQ bit-exactness claim on Q8_0 now rests on the
+  empirical no-contraction observation in §5 rather than on exact products, so a device re-run has to
+  re-confirm it. If it finds a host/device SEQ divergence the answer is a build-level contraction policy,
+  **not** a band: SEQ is zero-tolerance by contract and widening a `BAND` buys it nothing.
+* **The band is not tight, and `gamma_{2K-1}` is not claimed to be the sharpest true bound.** It is the
+  bound Higham's lemma gives for K terms each carrying one pre-rounding. The worst legal re-association
+  sits at 0.00097 of its band — ~1035× of headroom. Tightening either would need the observed spread as an
+  input, which is the "band from what the build produces" move `AGENTS.md` forbids. What was retired from
+  `evidence/band-derivation-2026-10-26.md §"NOT ESTABLISHED by this file"` is only the claim that `gamma_K`
+  bounds Q8_0; the 443× observation stands and is now 1035×.
 * **The FMA refutation is empirical over this population and this code object**, not a proof for other
-  data, other widths or a future LLVM. It also does not retire the header sentence that motivated it.
+  data, other widths or a future LLVM. The header sentence that motivated it has since been corrected — it
+  now separates the exact dequant product from the measured dot term instead of resting on exactness.
 * **The `-ffp-contract=off` build line is not in a committed log.** The A/B rests on the two output
   images in `work/` (identical sha256, §5) plus the ISA census; if someone wants that A/B re-runnable,
   the flag belongs in `build.sh` and its log, not in a worker's memory.
@@ -322,7 +360,10 @@ Not committed, and **do not `git add` this directory wholesale**:
   `shared_expert`): three control logs in it are deliberately tracked, and the rest is untracked
   regenerable output — `out.f32`, `host_out.f32`, `expect.f32`, `band.f64`, `hidden.f32` (~1 MB of float
   images), `report.tsv`, `plan.tsv`, my re-verification logs `w-*.log`, the contraction pair
-  `w-out-contract-{on,off}.f32`, and the build intermediates `lm_head-hip-amdgcn-amd-amdhsa-gfx1151.{o,hipi,out}`,`lm_head-host-x86_64-unknown-linux-gnu.hipi`, `lm_head.hip-hip-amdgcn-amd-amdhsa.hipfb`
+  `w-out-contract-{on,off}.f32`, the nine band-form witness logs in `work/bandfix/` with the distiller
+  `work/bandfix/mk_witness_log.py` that produced
+  `evidence/lm-head-band-form-witnesses-2026-10-26.log` from them, and the build intermediates
+  `lm_head-hip-amdgcn-amd-amdhsa-gfx1151.{o,hipi,out}`,`lm_head-host-x86_64-unknown-linux-gnu.hipi`, `lm_head.hip-hip-amdgcn-amd-amdhsa.hipfb`
   (the two 2.6 MB `.hipi` files and the `.out` are already ignored globally by `*.hipi` / `*.out`).
   If any of it is wanted as evidence, add it by exact path.
 * Older scratch for this lane is in `tmp/worker-lm-head/` (gitignored `tmp/`), including

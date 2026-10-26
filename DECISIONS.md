@@ -802,12 +802,17 @@ worth having if a cited coordinate is checked to resolve, including by the perso
 
 ### D-20 — which Higham form bands an `lm_head` dot? — **DECIDED (user, 2026-10-26), option A**
 
-K = 2048 terms, u = 2⁻²⁴. γ<sub>K−1</sub> (=γ<sub>2047</sub> = 1.22085215e-04) is valid only if every
+K = 2048 terms, u = 2⁻²⁴. γ<sub>K−1</sub> = γ<sub>2047</sub> = **1.22025596e-04** is valid only if every
 product is exactly representable; γ<sub>2K−1</sub> (=γ<sub>4095</sub> = 2.4414061e-04) is required when
 each product also rounds. `floor_probe` measured it rather than arguing: the two encoded tables carry
-`weight_max_bits=18 × hidden_max_bits=8` = up to **26 bits** — 7,715 of 245,760 terms inexact in table 2
-and 3,466 of 204,800 in table 3 — while the three non-encoded tables stay at 16 bits with
-`products_inexact=0`. The old claim ("Products are exact; sums are not", `lm_head_kernels.h`) proved
+`weight_max_bits=18 × hidden_max_bits=8` = up to **26 bits**. Over **every** banded word (not a sample):
+table 2 = real Q8_0 `lm_head`, **7,727 of 409,600** terms inexact; table 3 = real Q8_0 `embd`, **3,474 of
+368,640** inexact; both priced at γ<sub>4095</sub>. Every bf16 family measures `products_inexact=0` and
+stays narrow at γ<sub>2047</sub>. Two corrections to this entry as first written, both caught by the
+implementing lane rather than by me: 1.22085215e-04 was the value at index **K**, the superseded form, not
+at K−1; and the earlier denominators (245,760 / 204,800) were sample-sized. The strongest evidence that
+the rule is a measurement and not a label is **table 7 = synthetic Q8_0, which measures EXACT and is
+therefore priced narrow** — a "Q8_0 ⇒ wide" rule would have mispriced it and nothing would have noticed. The old claim ("Products are exact; sums are not", `lm_head_kernels.h`) proved
 **the wrong product**: the dequant `d·q` is exact at 19 bits, the dot term `h·(d·q)` is not. The user
 chose A — adopt γ<sub>2K−1</sub> for the inexact families, keep γ<sub>K−1</sub> for the exact ones —
 with four safeguards that make this a *re-derivation* and not the relaxation D-18 forbids: the index is
@@ -816,6 +821,19 @@ selected from measured `products_inexact` (no literal 2047/4095), `gate.py` re-d
 priced with γ<sub>2K−1</sub>, and the doubled band must still reject an injected perturbation. Headroom
 before the change: `worst_ratio=0.001646`, `headroom_x=607.6` — roughly 304× after doubling, so no
 verdict is expected to move; if any row lands under 5× the work stops and returns to the user.
+
+**As implemented and independently re-verified by the main agent** (`floor_probe.py` → `RESULT PASS lm_head
+floor probe cases=66 words=1280 arms=5 worst_ratio=0.0009657`, findings **0** where it was FAIL/2; `gate.py
+--check-only` → `RESULT PASS lm_head host-only checks=1517 findings=0`; `--selftest` → `checks=44
+findings=0`; `v.check` call sites 63 → 68). Every safeguard was seen firing in the main agent's own run,
+not taken from the report: tampering `band.f64` narrower gives `BANDTAMPER mode=unpin-narrow words_changed=380`
+and **5 named checks red**, including the element-wise `band == gamma_index(products_inexact) * fsum` check;
+one word widened is caught (`band-word-wide`); an injected output perturbation is **still rejected under the
+doubled band** (`band-perturb case=16` → 10 red checks), which is what makes this a re-derivation rather than a
+loosening; and forcing the wide index onto an exact family is refused (`FORCEDFORM table=0
+measured_products_inexact=0` → 8 marker lines). `gamma_index` is never called with a literal index (AST-checked),
+`floor_probe` imports the same `gamma_index` the judge uses so instrument and judge cannot drift, and
+gpu_lock references are 0 across all three drivers.
 
 ### D-21 — under what licence are GDN decode rows judged? — **DECIDED (agent, 2026-10-26)**
 

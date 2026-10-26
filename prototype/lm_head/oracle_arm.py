@@ -21,7 +21,9 @@ WHAT IT WRITES:
   work/hidden.f32    the hidden vectors, f32 (bf16 dumps widened by tools/gguf_reader.bf16_to_f32_bytes)
   work/expect.f32    one f32 per word of the drivers' `out`, filled ONLY under the regions of the
                      mode==CORRECT cases; every region must be filled exactly once or this exits non-zero
-  work/band.f64      the per-element derived band, gamma_K * sum_k |h_k||w_k|, K = terms actually summed
+  work/band.f64      the per-element derived band, gamma_index * sum_k |h_k||w_k|, where K = terms
+                     actually summed and gamma_index is (K-1) for a family whose dot products are all
+                     exactly representable in binary32 and (2K-1) for one the measurement finds inexact
 
 WIDTH POLICY, and the refusal that goes with it: policy A (`quantization/README.md`, DECISIONS.md D-01a)
 stores `lm_head` and the embeddings at Q8_0. The published GGUF stores `output.weight` as Q6_K — that
@@ -41,6 +43,8 @@ import re
 import struct
 import sys
 
+import numpy as np            # only for the band-form measurement below, never for the expectation
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(REPO, "tools"))
@@ -55,6 +59,37 @@ PY = "/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python"
 
 ENC_NAME = {0: "BF16", 1: "Q8_0"}
 Q8_BYTES, Q8_ELTS = 34, 32
+U32 = 2.0 ** -24                      # binary32 unit roundoff
+
+
+def gamma_of_index(n):
+    """gamma_n = n*u/(1 - n*u), u = 2^-24: Higham's bound on the accumulated rounding of n f32 adds.
+
+    This is deliberately the ORACLE'S OWN spelling of the rule. gate.py spells it too and
+    floor_probe.py imports gate's; this file shares no code with either (that is what makes a match
+    between the three an agreement rather than a tautology), so the rule is written down twice on
+    purpose and the equality is checked in work/band.f64 by gate.verify_band_form().
+    """
+    if n < 1 or n * U32 >= 1.0:
+        raise Refuse("gamma_%d is not a band factor (n >= 1 and n*u < 1 are both required)" % n)
+    return n * U32 / (1.0 - n * U32)
+
+
+def gamma_index(K, products_inexact):
+    """The band index this family's own products license: K-1 roundings when a K-term dot has exactly
+    representable products, 2K-1 when any product carries a rounding of its own.
+
+    `products_inexact` is measured, never typed: it counts the dot terms h_k*w_k that do not survive a
+    round trip through the binary32 grid, over every word this file bands for that family. A bf16 table
+    multiplies 8 significand bits by 8 and is exact; a Q8_0 table's term is h_k*(d_k*q_k), an 8-bit
+    hidden element times a 19-bit decoded value, and is not. User ratification 2026-10-26, recorded in
+    `prototype/lm_head/evidence/band-form-gamma-index-2026-10-26.md`.
+    """
+    if products_inexact is None or int(products_inexact) < 0:
+        raise Refuse("gamma_index(%d, %r): the index comes from a measurement, not a default"
+                     % (K, products_inexact))
+    return (K - 1) if int(products_inexact) == 0 else (2 * K - 1)
+
 # The widths this lane is allowed to see as a table source. Anything else — and Q6_K above all — is
 # refused by name below.
 ALLOWED_SOURCE_DTYPES = ("BF16",)
@@ -228,6 +263,9 @@ def main():
                     help="also run the real-size (full-vocab) amortisation witness on the CPU")
     ap.add_argument("--control", default=None,
                     help="negative-control mode for gate.py's selftest: q6k-source")
+    ap.add_argument("--gamma-form", default="", choices=("", "wide", "narrow"),
+                    help="WITNESS ONLY: price the band with a gamma index the measurement did not "
+                         "select, so the checks that refuse such a band can be shown refusing.")
     ap.add_argument("--config", default=CONFIG)
     ap.add_argument("--gguf", default=GGUF)
     a = ap.parse_args()
@@ -492,12 +530,15 @@ def main():
     expect = [0.0] * out_floats
     band = [float("nan")] * out_floats
     filled = [0] * out_floats
-    u = 2.0 ** -24
     n_fill = 0
     owner = [None] * out_floats
     band_seen = set()
     band_deriv = []
     BAND_PRINT = 16
+    # The band is NOT computed inside this loop. A family's gamma index is a property of the whole
+    # family — one inexact product anywhere in it licenses gamma_{2K-1} for all of it — so the index
+    # cannot be known until every word has been measured. This loop measures; the pass after it prices.
+    word_sig = []
     for c in cases:
         if c["mode"] != en["LMH_MODE_CORRECT"]:
             continue                                     # injections are judged against their honest twin
@@ -525,38 +566,105 @@ def main():
                                  % (at, c["idx"]))
                 expect[at] = exact
                 K = h_used
-                gamma = K * u / (1.0 - K * u)
                 sigma = math.fsum(abs(x) for x in terms)
-                band[at] = gamma * sigma
+                # Is each product exactly a binary32 number? The products are formed here in f64 from
+                # two values that are each exactly f32, so the comparison below is a measurement of the
+                # term, not a round trip through the ruler being tested.
+                t64 = np.asarray(terms, dtype=np.float64)
+                inexact_here = int(np.count_nonzero(
+                    t64.astype(np.float32).astype(np.float64) != t64))
+                word_sig.append(dict(table=c["table"], K=K, at=at, sigma=sigma, inexact=inexact_here))
                 filled[at] = 1
                 owner[at] = c["idx"]
                 if c["idx"] not in band_seen:
                     band_seen.add(c["idx"])
-                    band_deriv.append(dict(idx=c["idx"], K=K, gamma=gamma, sigma=sigma,
-                                           band=band[at], exact=exact, table=c["table"],
-                                           path=c["path"], assoc=c["assoc"], mode=c["mode"],
-                                           b0=c["b0"], bcount=c["bcount"], h_used=h_used,
-                                           word=at))
+                    band_deriv.append(dict(idx=c["idx"], K=K, sigma=sigma, band=None, exact=exact,
+                                           table=c["table"], path=c["path"], assoc=c["assoc"],
+                                           mode=c["mode"], b0=c["b0"], bcount=c["bcount"],
+                                           h_used=h_used, word=at))
                 n_fill += 1
     if n_fill == 0:
         raise Refuse("the oracle filled no expectation words: there is nothing to judge against")
+
+    # ---- THE BAND FORM: priced per family by what that family's products measurably did ------------
+    forms = {}
+    for w in word_sig:
+        f = forms.setdefault(w["table"], dict(K=w["K"], words=0, terms=0, inexact=0))
+        if f["K"] != w["K"]:
+            raise Refuse("table %d is summed with %d terms in one honest case and %d in another"
+                         % (w["table"], f["K"], w["K"]))
+        f["words"] += 1
+        f["terms"] += w["K"]
+        f["inexact"] += w["inexact"]
+    if len(word_sig) != n_fill:
+        raise Refuse("measured %d words but filled %d expectations: the band would be priced over a "
+                     "different population than the answer"
+                     % (len(word_sig), n_fill))
+    for ti in sorted(forms):
+        f = forms[ti]
+        f["gidx"] = gamma_index(f["K"], f["inexact"])
+        f["gamma"] = gamma_of_index(f["gidx"])
+    if a.gamma_form:
+        # WITNESS ONLY, reached by `--gamma-form` (gate.py forwards it under --selftest). Overwrite the
+        # licensed index with one the measurement did not select, so the checks that refuse a form nobody
+        # measured can be SHOWN refusing. Nothing else in the repo may set this; the band that comes out
+        # of a forced run is by construction not the band the bytes license.
+        for ti in sorted(forms):
+            f = forms[ti]
+            if a.gamma_form == "wide":
+                f["gidx"] = 2 * f["K"] - 1
+            elif a.gamma_form == "narrow":
+                f["gidx"] = f["K"] - 1
+            else:
+                raise Refuse("--gamma-form wants wide|narrow, got %r" % (a.gamma_form,))
+            f["gamma"] = gamma_of_index(f["gidx"])
+            print("FORCEDFORM table=%d measured_products_inexact=%d licensed_without_force=%d "
+                  "forced_gamma_index=%d forced_gamma=%.9g "
+                  "note=forced_by_--gamma-form_not_by_measurement"
+                  % (ti, f["inexact"], gamma_index(f["K"], f["inexact"]), f["gidx"], f["gamma"]))
+    print("BANDCENSUS tag=oracle families=%d words_banded=%d term_pairs=%d products_inexact=%d "
+          "u=2^-24 rule=gamma_index(K,products_inexact)=(K-1 if inexact==0 else 2K-1)"
+          % (len(forms), len(word_sig), sum(f["terms"] for f in forms.values()),
+             sum(f["inexact"] for f in forms.values())))
+    fam_lines = []
+    for ti in sorted(forms):
+        f = forms[ti]
+        fam_lines.append("BANDFAMILY tag=oracle table=%d enc=%d K=%d words=%d term_pairs=%d "
+                         "products_inexact=%d gamma_index=%d gamma=%.9g"
+                         % (ti, tables[ti]["enc"], f["K"], f["words"], f["terms"], f["inexact"],
+                            f["gidx"], f["gamma"]))
+    for l in fam_lines:
+        print(l)
+    if len(fam_lines) != len(forms):
+        raise Refuse("printed %d BANDFAMILY records for %d families: the print is the derivation, so "
+                     "a record that did not print is a band nobody can recompute" % (len(fam_lines),
+                                                                                    len(forms)))
+    for w in word_sig:
+        band[w["at"]] = forms[w["table"]]["gamma"] * w["sigma"]
+    for b in band_deriv:
+        b["gamma"] = forms[b["table"]]["gamma"]
+        b["gidx"] = forms[b["table"]]["gidx"]
+        b["band"] = band[b["word"]]
     with open(os.path.join(work, "expect.f32"), "wb") as fh:
         fh.write(struct.pack("<%df" % out_floats, *expect))
     with open(os.path.join(work, "band.f64"), "wb") as fh:
         fh.write(struct.pack("<%dd" % out_floats, *band))
     n_band = sum(1 for i in range(out_floats) if filled[i] and not (band[i] > 0.0))
     print("ORACLEFILL regions_filled=%d words=%d words_total=%d band_nonzero=%d band_nonpositive=%d "
-          "gamma_from_K=h_used"
-          % (n_fill, n_fill, out_floats, n_fill - n_band, n_band))
+          "gamma_index_by_table=%s"
+          % (n_fill, n_fill, out_floats, n_fill - n_band, n_band,
+             ",".join("%d:%d" % (ti, forms[ti]["gidx"]) for ti in sorted(forms))))
     # THE DERIVATION, printed. A band printed as a bare number is a number the reader has to trust;
-    # these lines carry K, gamma = K*u/(1-K*u) with u = 2^-24, the sum of |h_k||w_k|, the product, and
-    # the exact f32 expectation, so an independent reader can recompute the tolerance from the print.
-    print("BANDFORMULA u=2^-24 gamma_K=K*u/(1-K*u) band=gamma_K*fsum(|h_k||w_k|) K=h_used terms=h_used")
+    # these lines carry K, the licensed gamma index and its value n*u/(1-n*u) with u = 2^-24, the sum
+    # of |h_k||w_k|, the product, and the exact f32 expectation, so an independent reader can recompute
+    # the tolerance from the print alone.
+    print("BANDFORMULA u=2^-24 gamma_n=n*u/(1-n*u) band=gamma_index*fsum(|h_k||w_k|) "
+          "gamma_index=(K-1 if the family's products are all exact else 2K-1) K=h_used terms=h_used")
     for b in band_deriv[:BAND_PRINT]:
-        print("BAND idx=%d K=%d gamma=%.9g sigma=%.9g band=%.9g exact=%.9g table=%d path=%d assoc=%d "
-              "mode=%d b0=%d bcount=%d word=%d"
-              % (b["idx"], b["K"], b["gamma"], b["sigma"], b["band"], b["exact"], b["table"],
-                 b["path"], b["assoc"], b["mode"], b["b0"], b["bcount"], b["word"]))
+        print("BAND idx=%d K=%d gamma_index=%d gamma=%.9g sigma=%.9g band=%.9g exact=%.9g table=%d "
+              "path=%d assoc=%d mode=%d b0=%d bcount=%d word=%d"
+              % (b["idx"], b["K"], b["gidx"], b["gamma"], b["sigma"], b["band"], b["exact"],
+                 b["table"], b["path"], b["assoc"], b["mode"], b["b0"], b["bcount"], b["word"]))
     print("BANDSUMMARY cases_with_honest_words=%d printed=%d"
           % (len(band_seen), min(len(band_seen), BAND_PRINT)))
     for i in [w for w in range(out_floats) if filled[w] and not (band[w] > 0.0)][:20]:

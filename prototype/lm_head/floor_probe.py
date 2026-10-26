@@ -7,27 +7,33 @@ CPU only. No device, no lock, no timer: this file prints no ms / tok/s / GB/s fi
 loop (`AGENTS.md` §"GPU execution is serialized", `pitfalls/00-measurement.md`).
 
 THE CLAIM
-  Every BAND-classed word in this lane is judged against   band = gamma_K * fsum_k |h_k w_k|
-  with                                 gamma_K = K*u/(1 - K*u),  u = 2**-24,  K = h_used terms.
-  A band printed as a bare number is a number the reader has to trust, and a band taken from what the
-  current build happens to produce is not a band at all (`AGENTS.md`: "Bands, floors and must-catch
-  sets are derived from a floor probe and from geometry, never from what the current build happens to
-  produce"). So this file derives it from the PINNED rows and from the geometry, five ways:
+  Every BAND-classed word in this lane is judged against   band = gamma_index * fsum_k |h_k w_k|
+  with                                 gamma_n = n*u/(1 - n*u),  u = 2**-24,  and
+                                 gamma_index = (K-1) if every dot product of that family is exactly
+                                              representable in binary32, else (2K-1),
+  where K = h_used terms. A sum of K terms costs K-1 roundings when the products are exact and one
+  more per term when they are not (Higham); which of the two a family is, is MEASURED here from the
+  artifact's own bytes and by nothing else. A band printed as a bare number is a number the reader has
+  to trust, and a band taken from what the current build happens to produce is not a band at all
+  (`AGENTS.md`: "Bands, floors and must-catch sets are derived from a floor probe and from geometry,
+  never from what the current build happens to produce"). So this file derives it from the PINNED rows
+  and from the geometry, five ways:
 
   1. THE POPULATION. plan.tsv, slab.bin, hidden.f32 and ids.i32 are re-read from work/ and checked
      against a fresh build of the population (every column but the expect column must agree); the
      hidden vectors probed are the pinned layer39.combined_out rows — indices [0, real_hidden) of
      hidden.f32 — never the synthetic shapes.
-  2. THE GEOMETRY. gamma_K's K is h_used, read from the plan. The FORM of the bound needs the products
-     to be exact in binary32: bf16 x bf16 is <= 16 significant bits and a Q8_0 decode (f16 delta x
-     signed 8-bit quant) is <= 19. Otherwise a rounded product adds an error term that
-     gamma_K * sum|x| does not carry, and lm_head_kernels.h §the dots' "FMA contraction is neutral"
-     argument collapses with it. That is MEASURED here over the artifact's own bytes, per family; one
-     inexact product is a refusal.
+  2. THE GEOMETRY. gamma_n's n is the licensed index, read from the plan and from the measurement. The
+     FORM of the bound needs the products to be exact in binary32 for gamma_{K-1} to be the whole
+     story: bf16 x bf16 is <= 16 significant bits and exact; a Q8_0 DECODE (f16 delta x signed 8-bit
+     quant) is <= 19 and exact, but the DOT term h_k*(d_k*q_k) is 8 + 19 = 26/27 bits and is NOT. That
+     is MEASURED here over the artifact's own bytes, per family, and it decides the index — one inexact
+     product and the family is priced with gamma_{2K-1}; none, and pricing it wide is a finding.
   3. THE DATA. sigma = fsum |h_k w_k| and the correctly-rounded expectation are recomputed from the
      slab bytes through the audited decoder (tools/gguf_reader, reached via gate.Data.row_values) and
      required to be BIT-IDENTICAL to band.f64 and expect.f32. The band on disk is thereby SHOWN to be
-     gamma_K * sigma from these bytes rather than asserted.
+     gamma_(licensed index) * sigma from these bytes rather than asserted, and the index the file was
+     priced with is read back out of the file and named.
   4. THE FLOOR. Five associations of the SAME terms — ascending, descending, 8 lanes combined in index
      order, 32-block pairwise, 64-block pairwise — are executed in f32 over the pinned rows. Their
      deviation from the correctly-rounded sum must stay INSIDE the band (that is what earns it), must
@@ -62,10 +68,32 @@ class Refuse(Exception):
     pass
 
 
-def gamma(K):
-    if K * U32 >= 1.0:
-        raise Refuse("gamma is undefined at K=%d: K*u >= 1, the bound says nothing" % K)
-    return K * U32 / (1.0 - K * U32)
+def gamma_of_index(n):
+    """gamma_n = n*u/(1 - n*u). The INDEX is chosen by gate.gamma_index() from the measured
+    inexactness of the family's products; this file spells the VALUE again so that the instrument that
+    earns the band does not read its ruler out of the file that spends it."""
+    if n < 1 or n * U32 >= 1.0:
+        raise Refuse("gamma is undefined at index %d: n >= 1 and n*u < 1 are both required" % n)
+    return n * U32 / (1.0 - n * U32)
+
+
+def priced_index(band, sigma, gam_req, gidx_req, K):
+    """Which gamma index one word's band was priced with, read OUT OF THE FILE: the licensed index, the
+    narrow one (K-1), the wide one (2K-1), or -1 for a number this rule cannot produce at all. Derived
+    by comparison against the same products the producer forms, so a hand-edit of band.f64 in either
+    direction moves this and nothing else has to know that it happened."""
+    if band == gam_req * sigma:
+        return gidx_req
+    for cand in (K - 1, 2 * K - 1):
+        if band == gamma_of_index(cand) * sigma:
+            return cand
+    return -1
+
+
+def used_index(f):
+    """The single gamma index every word of a family was priced with, or -1 when they do not agree."""
+    s = f["used_idx_set"]
+    return next(iter(s)) if len(s) == 1 else -1
 
 
 def f32(x):
@@ -173,10 +201,15 @@ def main():
     n_anchor_bad = n_band_bad = n_dev_zero = 0
     worst_ratio, worst_where = 0.0, "none"
     fam, printed = {}, []
+    # THE LICENSE, measured over every word the oracle bands (not just the words this file
+    # re-associates). The gamma index is a property of the family, so it has to be selected over the
+    # family's whole population; the pinned subset below is what EARNS the band by re-associating it,
+    # which is a different question from which index it is entitled to.
+    lic, lic_sigma = G.band_measure(d, tag="probe")
     for c in cases:
         t = p.tables[c["table"]]
         h_used = d.h_used(c)
-        K, gam = h_used, gamma(h_used)
+        K = h_used
         rows = d.rows_of(c)
         slot = p.slot(c)
         vals = [d.row_values(t, r, h_used) for r in rows]
@@ -186,8 +219,8 @@ def main():
             raise Refuse("case %d: decoded width %d/%d != h_used %d"
                          % (c["idx"], W.shape[1], X.shape[1], h_used))
         # one product per (row, batch, k) triple: the same products the kernel forms. Exact in binary64
-        # (<= 19 significant bits), so comparing them against the binary32 grid below is a measurement
-        # and not a round-trip through the ruler being tested.
+        # (<= 27 significant bits against its 53), so comparing them against the binary32 grid below is
+        # a measurement and not a round-trip through the ruler being tested.
         P64 = W.astype(np.float64)[:, None, :] * X.astype(np.float64)[None, :, :]
         inexact = int(np.count_nonzero(P64.astype(np.float32).astype(np.float64) != P64))
         maxbits = max_significant_bits(P64[np.nonzero(P64)])
@@ -198,22 +231,32 @@ def main():
         wbits = max_significant_bits(W[np.nonzero(W)].astype(np.float64))
         hbits = max_significant_bits(X[np.nonzero(X)].astype(np.float64))
         # A recursive sum of K terms takes K-1 roundings when the products are exact and one more per
-        # term when they are not (Higham): gamma_{K-1} versus gamma_{2K-1}. The oracle carries gamma_K
-        # for every family, which is the right form for bf16 and one rounding short for Q8_0.
-        gidx_req = (K - 1) if inexact == 0 else (2 * K - 1)
+        # term when they are not (Higham): gamma_{K-1} versus gamma_{2K-1}. Which of the two this family
+        # is comes from the count above and from nowhere else — and it is the SAME rule gate.py and the
+        # oracle apply, so this file can refuse a band the producer had no licence to print.
+        gidx_req = G.gamma_index(K, lic[t["idx"]]["inexact"])
+        gam_req = gamma_of_index(gidx_req)
+        if gidx_req != lic[t["idx"]]["gidx"]:
+            raise Refuse("table %d: this probe licenses gamma_%d but the census licensed gamma_%d; the "
+                         "two measurements are not reading the same bytes"
+                         % (t["idx"], gidx_req, lic[t["idx"]]["gidx"]))
         f = fam.setdefault(t["idx"], dict(enc=t["enc"], K=h_used, words=0, pairs=0, inexact=0,
                                           maxbits=0, wbits=0, hbits=0, gidx=0, gamma_req=0.0,
                                           dev_max=0.0, dev_nonzero=0, rescale_blind=0, dropped=0,
                                           dropped_live=0, band_min=float("inf"),
-                                          ulp_min=float("inf"), ratio_band_ulp=float("inf")))
+                                          ulp_min=float("inf"), ratio_band_ulp=float("inf"),
+                                          priced_licensed=0, priced_narrow=0, priced_wide=0,
+                                          priced_other=0, used_idx_set=set(), census_inexact=0))
         f["pairs"] += int(P64.size)
         f["inexact"] += inexact
         f["maxbits"] = max(f["maxbits"], maxbits)
         f["wbits"] = max(f["wbits"], wbits)
         f["hbits"] = max(f["hbits"], hbits)
-        f["gidx"] = max(f["gidx"], gidx_req)
-        f["gamma_req"] = max(f["gamma_req"], gamma(gidx_req))
+        f["gidx"] = gidx_req
+        f["gamma_req"] = gam_req
+        f["census_inexact"] = lic[t["idx"]]["inexact"]
         arms = arms_for(W, X, h_used)
+        case_form_idx = set()
         worst_case, band_min, ulp_min, ratio_bu, sigma_max = {}, float("inf"), float("inf"), \
             float("inf"), 0.0
         for jj in range(len(rows)):
@@ -231,8 +274,23 @@ def main():
                     n_anchor_bad += 1
                 sigma = math.fsum(abs(x) for x in terms)
                 sigma_max = max(sigma_max, sigma)
-                if gam * sigma != band:
+                # The band on disk must be gamma_(licensed index) * sigma, bit for bit, where the index
+                # is the one the measurement above licenses. `n_band_bad` counts any word whose band is
+                # not that number, in either direction; the form counters below name WHICH number it
+                # is, so an unpin reads differently from a widening.
+                if gam_req * sigma != band:
                     n_band_bad += 1
+                widx = priced_index(band, sigma, gam_req, gidx_req, K)
+                if widx == gidx_req:
+                    f["priced_licensed"] += 1
+                elif widx == K - 1:
+                    f["priced_narrow"] += 1
+                elif widx == 2 * K - 1:
+                    f["priced_wide"] += 1
+                else:
+                    f["priced_other"] += 1
+                f["used_idx_set"].add(widx)
+                case_form_idx.add(widx)
                 ulp = float(np.spacing(np.float32(abs(anchor)) if anchor != 0.0 else np.float32(0.0)))
                 band_min = min(band_min, band)
                 ulp_min = min(ulp_min, ulp)
@@ -262,26 +320,57 @@ def main():
         f["ulp_min"] = min(f["ulp_min"], ulp_min)
         f["ratio_band_ulp"] = min(f["ratio_band_ulp"], ratio_bu)
         printed.append("BANDPROBE case=%d table=%d enc=%d rows=%d bcount=%d K=%d u=2^-24 gamma=%.9g "
-                       "gamma_required_index=%d sigma_max=%.9g band_min=%.9g words=%d ulp_min=%.9g "
-                       "band_over_ulp_min=%.4g products=%d products_inexact=%d product_max_bits=%d "
-                       "weight_max_bits=%d hidden_max_bits=%d %s"
-                       % (c["idx"], t["idx"], t["enc"], len(rows), c["bcount"], K, gam, gidx_req,
+                       "gamma_required_index=%d gamma_form_on_disk=%s sigma_max=%.9g band_min=%.9g "
+                       "words=%d ulp_min=%.9g band_over_ulp_min=%.4g products=%d products_inexact=%d "
+                       "product_max_bits=%d weight_max_bits=%d hidden_max_bits=%d %s"
+                       % (c["idx"], t["idx"], t["enc"], len(rows), c["bcount"], K, gam_req, gidx_req,
+                          "gamma_form_on_disk=%s" % ("gamma_%d" % next(iter(case_form_idx))
+                                                     if len(case_form_idx) == 1 else "mixed"),
                           sigma_max, band_min, len(rows) * c["bcount"], ulp_min, ratio_bu,
                           int(P64.size), inexact, maxbits, wbits, hbits,
                           " ".join("%s=%.4g" % (nm, worst_case.get(nm, 0.0)) for nm in ARMS)))
     for line in printed:
         print(line)
 
+    floorsum = []
     for ti, f in sorted(fam.items()):
-        print("FLOORSUM table=%d enc=%d words=%d term_pairs=%d products_inexact=%d "
-              "product_max_bits=%d weight_max_bits=%d hidden_max_bits=%d gamma_index_used=%d "
-              "gamma_index_required=%d gamma_required=%.9g max_arm_deviation=%.9g band_min=%.9g "
-              "assoc_arms=%d arms_dev_nonzero_words=%d drop_last_live=%d drop_last_rejected=%d "
-              "rescale_blind_words=%d ulp_min=%.9g band_over_ulp_min=%.4g"
-              % (ti, f["enc"], f["words"], f["pairs"], f["inexact"], f["maxbits"], f["wbits"],
-                 f["hbits"], f["K"], f["gidx"], f["gamma_req"], f["dev_max"], f["band_min"],
-                 len(ARMS), f["dev_nonzero"], f["dropped_live"], f["dropped"], f["rescale_blind"],
-                 f["ulp_min"], f["ratio_band_ulp"]))
+        floorsum.append("FLOORSUM table=%d enc=%d words=%d term_pairs=%d products_inexact=%d "
+                        "product_max_bits=%d weight_max_bits=%d hidden_max_bits=%d "
+                        "gamma_index_used=%d gamma_index_required=%d gamma_required=%.9g "
+                        "max_arm_deviation=%.9g band_min=%.9g "
+                        "assoc_arms=%d arms_dev_nonzero_words=%d drop_last_live=%d "
+                        "drop_last_rejected=%d rescale_blind_words=%d ulp_min=%.9g "
+                        "band_over_ulp_min=%.4g priced_licensed=%d priced_narrow(K-1)=%d "
+                        "priced_wide(2K-1)=%d priced_other=%d census_products_inexact=%d "
+                        "pinned_subset_agrees=%d"
+                        % (ti, f["enc"], f["words"], f["pairs"], f["inexact"], f["maxbits"],
+                           f["wbits"], f["hbits"], used_index(f), f["gidx"], f["gamma_req"],
+                           f["dev_max"], f["band_min"], len(ARMS), f["dev_nonzero"],
+                           f["dropped_live"], f["dropped"], f["rescale_blind"], f["ulp_min"],
+                           f["ratio_band_ulp"], f["priced_licensed"], f["priced_narrow"],
+                           f["priced_wide"], f["priced_other"], f["census_inexact"],
+                           1 if (f["inexact"] > 0) == (f["census_inexact"] > 0) else 0))
+    for line in floorsum:
+        print(line)
+    # The family records are what the verdict below is taken over, so they are parsed back out of the
+    # print: a FLOORSUM that printed nothing, or printed a number that is not the one measured, cannot
+    # fail (`pitfalls/40-gates-and-admissions.md` §"A driver whose parser matches nothing prints PASS").
+    if len(floorsum) != len(fam):
+        raise Refuse("printed %d FLOORSUM records for %d families in play" % (len(floorsum), len(fam)))
+    for line in floorsum:
+        keys = dict(tok.split("=", 1) for tok in line.split() if "=" in tok)
+        ti = int(keys["table"])
+        want = (("words", fam[ti]["words"]), ("products_inexact", fam[ti]["inexact"]),
+                ("gamma_index_required", fam[ti]["gidx"]),
+                ("priced_licensed", fam[ti]["priced_licensed"]),
+                ("census_products_inexact", fam[ti]["census_inexact"]))
+        if any(int(keys[k]) != v for k, v in want):
+            raise Refuse("FLOORSUM table %d does not parse back to the numbers the probe measured"
+                         % ti)
+        if int(keys["priced_licensed"]) + int(keys["priced_narrow(K-1)"]) \
+                + int(keys["priced_wide(2K-1)"]) + int(keys["priced_other"]) != fam[ti]["words"]:
+            raise Refuse("FLOORSUM table %d: the band-form counts do not add up to the words probed, "
+                         "so a word escaped being priced under any index" % ti)
     print("FLOORAGG probed_cases=%d printed_bandprobe=%d words=%d arms=%d dev_nonzero=%d dev_zero=%d "
           "worst_ratio=%.4g headroom_x=%.4g worst_at=%s band_over_ulp_min=%.4g "
           "anchor_recompute_bad=%d band_recompute_bad=%d"
@@ -298,34 +387,51 @@ def main():
                      % (len(printed), len(cases), len(reparsed)))
     for l in reparsed[:1]:
         keys = dict(tok.split("=", 1) for tok in l.split() if "=" in tok)
-        need = ("case", "K", "gamma", "gamma_required_index", "sigma_max", "band_min",
-                "products_inexact", "weight_max_bits", "hidden_max_bits", "seq", "rev", "split8",
-                "tree32", "tree64")
+        need = ("case", "K", "gamma", "gamma_required_index", "gamma_form_on_disk", "sigma_max",
+                "band_min", "products_inexact", "weight_max_bits", "hidden_max_bits", "seq", "rev",
+                "split8", "tree32", "tree64")
         if not all(k in keys for k in need):
             raise Refuse("BANDPROBE record is missing %s: the derivation is not readable off the print"
                          % [k for k in need if k not in keys])
 
+    bad = []
     if n_anchor_bad:
         raise Refuse("%d expectation words are not fsum(terms) rounded to f32: expect.f32 was not made "
                      "by the arithmetic this band bounds" % n_anchor_bad)
     if n_band_bad:
-        raise Refuse("%d bands are not gamma_K * fsum(|h_k w_k|) recomputed from these slab bytes"
-                     % n_band_bad)
+        bad.append("%d of the %d probed bands are NOT gamma_(the index their family's measured products "
+                   "license) * fsum(|h_k w_k|) recomputed from these slab bytes. The band on disk is "
+                   "the producer's claim; this is the measurement, and the two disagree — see the "
+                   "per-table priced_* counts below for which index it was priced with"
+                   % (n_band_bad, sum(f["words"] for f in fam.values())))
 
-    bad = []
     for ti, f in sorted(fam.items()):
-        if f["inexact"]:
+        mispriced = f["priced_narrow"] + f["priced_wide"] + f["priced_other"]
+        if f["inexact"] and mispriced:
             bad.append("table %d (enc=%d): %d of %d dot terms h_k*w_k are NOT exact in binary32 "
-                       "(weight %d bits x hidden %d bits = up to %d). The DECODE is exact, the term is "
-                       "not, so the bound needs gamma_{2K-1} (index %d, gamma=%.9g) where the oracle "
-                       "carries gamma_K (index %d); lm_head_kernels.h's 'Products are exact' block "
-                       "extends the exact-decode argument to the dot, which this measurement refutes. "
-                       "Observed deviation %.3g against a band of %.3g, so this is a gap in the proof "
-                       "and not a wrong number; closing it changes a band, which is not this file's "
-                       "call to make"
+                       "(weight %d bits x hidden %d bits = up to %d), which licenses gamma_%d "
+                       "(gamma=%.9g) for this family — yet %d of its %d probed words are priced with a "
+                       "different index (%d at gamma_{K-1} = one rounding per term short, %d wide, %d "
+                       "foreign). The DECODE is exact and the term is not: h_k*(d_k*q_k) reaches 26 "
+                       "bits, so the sum carries 2K-1 roundings, not K-1. Observed deviation %.3g "
+                       "against a band of %.3g, so this is a gap in the proof rather than a wrong "
+                       "number, but a band that is not the licensed one is a refusal either way"
                        % (ti, f["enc"], f["inexact"], f["pairs"], f["wbits"], f["hbits"], f["maxbits"],
-                          f["gidx"], f["gamma_req"], f["K"], f["dev_max"], f["band_min"]))
-        elif f["maxbits"] > 24:
+                          f["gidx"], f["gamma_req"], mispriced, f["words"], f["priced_narrow"],
+                          f["priced_wide"], f["priced_other"], f["dev_max"], f["band_min"]))
+        if f["inexact"] == 0 and mispriced:
+            bad.append("table %d (enc=%d): every one of %d dot terms IS exactly representable in "
+                       "binary32 (weight %d bits x hidden %d bits = %d, products_inexact=0), so the "
+                       "ONLY index this family is licensed to use is gamma_%d (K-1 = %d) — yet %d of "
+                       "its %d probed words are priced wider than that (%d at gamma_{2K-1}, %d "
+                       "foreign). The widening to gamma_{2K-1} is bought by a measured inexact product "
+                       "and by nothing else; pricing an exact family wide is a band chosen by hand, and "
+                       "a band wider than the proof is the forbidden direction (`AGENTS.md`: never "
+                       "loosen a gate to make it pass)"
+                       % (ti, f["enc"], f["pairs"], f["wbits"], f["hbits"], f["maxbits"],
+                          f["gidx"], f["K"] - 1, mispriced, f["words"], f["priced_wide"],
+                          f["priced_other"]))
+        if f["inexact"] == 0 and f["maxbits"] > 24:
             bad.append("table %d: every term compared exact yet one needs %d significant bits"
                        % (ti, f["maxbits"]))
         if f["words"] == 0:
@@ -356,9 +462,11 @@ def main():
         print("RESULT FAIL lm_head floor probe findings=%d" % len(bad))
         return 1
     print("RESULT PASS lm_head floor probe cases=%d words=%d arms=%d worst_ratio=%.4g "
-          "band_over_ulp_min=%.4g products_exact=1"
+          "band_over_ulp_min=%.4g band_index_per_table=%s all_words_priced_licensed=%d"
           % (len(cases), sum(f["words"] for f in fam.values()), len(ARMS), worst_ratio,
-             min(f["ratio_band_ulp"] for f in fam.values())))
+             min(f["ratio_band_ulp"] for f in fam.values()),
+             ",".join("%d:%d" % (ti, fam[ti]["gidx"]) for ti in sorted(fam)),
+             all(f["priced_licensed"] == f["words"] for f in fam.values())))
     return 0
 
 

@@ -19,29 +19,63 @@
  * ---------------------------------------------------------------------------------------------
  * What is bit-exact here, and what is not — said before the code, because it decides the judge
  * ---------------------------------------------------------------------------------------------
- * Products are exact; sums are not.
- *   bf16 x bf16 -> f32 : 8 + 8 = 16 significand bits, exact in f32's 24.
- *   Q8_0 d * q -> f32  : f16 d has 11, |q| <= 127 has 8, so 11 + 8 = 19 bits, exact.
- *   (The same argument `prototype/q4k_dequant/q4k_dequant_kernels.h` §"Why the arithmetic below is
- *    plain f32" makes for the dequant, and the same reason `tools/gguf_reader.py`'s Python-double
- *    route can be compared after ONE rounding to f32.)
- * FMA contraction is therefore neutral: `fma(x,y,acc)` and `RN(RN(x*y)+acc)` are the same value when
- * `x*y` is exact, so hipcc and g++ may contract or not without moving a bit.
+ * TWO PRODUCTS, and only one of them is exact. An earlier draft of this block said "products are
+ * exact", which conflated them and is corrected here because a band was built on it.
  *
- * What is NOT exact is the K=2048-long accumulation, and no amount of shared source makes two
- * association orders agree: `pitfalls/30-numerics.md` §"A max-ULP band cannot see a whole-tensor
- * 1-ULP error" states that "max 1 ULP against the dump" is not achievable for a long dot. So:
+ *   THE DEQUANT PRODUCT, `d * q`, is exact:
+ *     bf16 x bf16 -> f32 : 8 + 8 = 16 significand bits, exact in f32's 24.
+ *     Q8_0 d * q -> f32  : f16 d has 11, |q| <= 127 has 8, so 11 + 8 = 19 bits, exact.
+ *     (The same argument `prototype/q4k_dequant/q4k_dequant_kernels.h` §"Why the arithmetic below is
+ *      plain f32" makes for the dequant, and the same reason `tools/gguf_reader.py`'s Python-double
+ *      route can be compared after ONE rounding to f32.)
+ *   THE DOT TERM, `h_k * v_k`, is exact only when the table makes it so. For a bf16 table the term IS
+ *   the product above: 8 hidden bits x 8 weight bits = 16, exact. For a Q8_0 table the term is
+ *   `h_k * (d_k * q_k)` — that exact 19-bit decoded value times an 8-bit hidden element — so it needs
+ *   up to 27 bits and IS NOT exact in f32: it is rounded once per term. `floor_probe.py` measures this
+ *   per family from the artifact's own bytes and prints the count (`products_inexact`); the Q8_0
+ *   families of this artifact have 7,715 of 245,760 and 3,466 of 204,800 terms inexact, the bf16
+ *   families have zero. So the sentence to keep straight is: the decode is exact, the decode TIMES A
+ *   HIDDEN ELEMENT often is not.
+ *
+ * What is NOT exact, in every family, is the K=2048-long accumulation, and no amount of shared source
+ * makes two association orders agree: `pitfalls/30-numerics.md` §"A max-ULP band cannot see a
+ * whole-tensor 1-ULP error" states that "max 1 ULP against the dump" is not achievable for a long dot.
+ * So:
  *
  *   bit-exact, zero tolerance, because they are the SAME association (LMH_ASSOC_SEQ):
  *       device vs host twin;  batched vs per-row;  gather vs dense
  *   band-judged, because they are legal RE-ASSOCIATIONS of the same terms:
  *       LMH_ASSOC_REV, LMH_ASSOC_SPLIT8, and every arm against the torch oracle.
  *
- * The band is computed at run time from the data as gamma_K * sum_k |h_k|*|w_k| with K from the
- * config and gamma_K = K*u/(1-K*u), u = 2^-24; it is witnessed non-vacuous by a floor probe that IS
- * this file's own re-associations, and by requiring every must-fire injection's predicted delta to
- * exceed it. There is no typed tolerance anywhere in this lane (`AGENTS.md` §"Never loosen a gate to
- * make it pass"); see `results.md` §"Where every number comes from".
+ * The band is computed at run time from the data as gamma * sum_k |h_k|*|w_k| with K from the config,
+ * u = 2^-24, and the gamma INDEX selected per family from that measurement: a sum of K terms costs K-1
+ * roundings when its products are exact and one more per term when they are not, so gamma_{K-1} where
+ * `products_inexact == 0` and gamma_{2K-1} where it is not (Higham's gamma_n = n*u/(1-n*u); for this
+ * artifact that is 1.22025624e-04 for the bf16 families and 2.4414061e-04 for the Q8_0 ones). The
+ * selection is a function of the measured count and nothing else — no literal index is written down
+ * anywhere — so an 8-bit weight that makes a family's products exact moves its index back by itself.
+ * User ratification 2026-10-26, with the measurements: `prototype/lm_head/evidence/
+ * band-form-gamma-index-2026-10-26.md`. The rule lives in gate.py's `gamma_index()`; `oracle_arm.py`
+ * spells it independently and `floor_probe.py` refuses a band whose index disagrees with the
+ * measurement, so no file can quietly pick a friendlier number. It is witnessed non-vacuous by a floor
+ * probe that IS this file's own re-associations, and by requiring every must-fire injection's predicted
+ * delta to exceed it. There is no typed tolerance anywhere in this lane (`AGENTS.md` §"Never loosen a
+ * gate to make it pass"); see `results.md` §"The band, and the red things that stay red".
+ *
+ * FMA CONTRACTION IS NEUTRAL HERE — BUT THAT IS AN EMPIRICAL OBSERVATION, NOT A CONSEQUENCE. The old
+ * argument was "`fma(x,y,acc)` and `RN(RN(x*y)+acc)` agree because `x*y` is exact"; on a Q8_0 dot the
+ * premise is false (the term is rounded), so the host twin (g++ -O2, which does not contract) and the
+ * device binary (hipcc/clang, which contracts by default on AMD) could have differed by one rounding per
+ * term. They did not, and that is a measurement about this code object and this population, not a proof:
+ * the first device execution, 2026-10-26, gave Q8_0 SEQ 71 cases / 872 words / ZERO words differing
+ * across contraction policies, `llvm-objdump -d` finds exactly one `v_fma_f32` site in the device code
+ * object while both host binaries contain none, and
+ * sha256(work/w-out-contract-on.f32) == sha256(work/w-out-contract-off.f32) == sha256(work/out.f32) ==
+ * 8c8bb078fd17c67bd2a868c668e1ce9742d34cf86a0034965fcab861e5346429. Evidence: `results.md`
+ * §"The FMA-contraction prediction: REFUTED" and `evidence/lm-head-device-clean-2026-10-26.log`. A new
+ * compiler, a new width or a new data population does not inherit this; if a future SEQ disagreement
+ * appears, this paragraph is the first suspect and the answer is a build-level contraction policy,
+ * not a band.
  */
 #ifndef LM_HEAD_KERNELS_H
 #define LM_HEAD_KERNELS_H

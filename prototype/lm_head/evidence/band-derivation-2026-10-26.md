@@ -151,3 +151,23 @@ adds one rounding per term to the sum's error. Consequences, in order of importa
   move this repo forbids.
 * that the 126 words no association ever moved are correct — they are bit-identical to the oracle and
   belong to the EXACT/bit-identity classes, not to a band claim.
+
+## ADDED THE SAME DAY, AFTER THIS FILE WAS WRITTEN: the γ index was adjudicated
+
+This file is a dated record and its measurements stand, but its open question is closed and a reader who
+stops here would re-litigate it. The user was given both options with the numbers and chose **A**:
+`gamma_{K-1}` for a dot-product family whose products are measurably exactly representable in binary32,
+`gamma_{2K-1}` for one whose products are measurably not — the index derived per family from a measured
+count, never typed. So:
+
+* the first bullet of §"NOT ESTABLISHED by this file" is retired: the oracle no longer carries
+  `gamma_K` for anything, and the Q8_0 families are priced `gamma_4095 = 2.4414061e-04` while the six
+  exact families are priced `gamma_2047 = 1.22025596e-04`;
+* item 2 of the finding (the FMA-contraction hazard) is unchanged in kind: it is still an empirical
+  observation, now recorded as one in `lm_head_kernels.h` and in `results.md` §5;
+* item 3 happened the way it said it had to — the adjudication is the user's, and `floor_probe.py` stayed
+  red until it was made.
+
+The ratification, the measurement that selects the index, the witnesses, and the two injection arms the
+widening reclassified are in `band-form-gamma-index-2026-10-26.md`; the red lines are in
+`lm-head-band-form-witnesses-2026-10-26.log`. `results.md` §6 is the current summary.

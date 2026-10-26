@@ -1,0 +1,171 @@
+evidence/lm-head-band-form-witnesses-2026-10-26.log — every band-form witness, distilled from
+the full gate / floor-probe logs (each ~200 KB, regenerable under work/bandfix/, deliberately
+not committed). CPU only: no iGPU, no gpu_lock, no timing, no rate figure anywhere.
+Regenerate any block with its own command line; a plain `gate.py --check-only` run afterwards
+restores work/band.f64 to the licensed form. Compiled by the implementation worker 2026-10-26.
+
+====================================================================================================
+WITNESS W1a gate — the producer FORCED WIDE: every family priced gamma_{2K-1}, six of them with products_inexact == 0
+  command: gate.py --check-only --gamma-form wide
+  source log: work/bandfix/w-forcewide-gate.log
+  sabotage marker lines: 10
+  | FORCEDFORM table=0 measured_products_inexact=0 licensed_without_force=2047 forced_gamma_index=4095 forced_gamma=0.00024414061 note=forced_by_--gamma-form_not_by_measurement
+  | FORCEDFORM table=1 measured_products_inexact=0 licensed_without_force=2047 forced_gamma_index=4095 forced_gamma=0.00024414061 note=forced_by_--gamma-form_not_by_measurement
+  | FORCEDFORM table=2 measured_products_inexact=7727 licensed_without_force=4095 forced_gamma_index=4095 forced_gamma=0.00024414061 note=forced_by_--gamma-form_not_by_measurement
+  | FORCEDFORM table=3 measured_products_inexact=3474 licensed_without_force=4095 forced_gamma_index=4095 forced_gamma=0.00024414061 note=forced_by_--gamma-form_not_by_measurement
+  | FORCEDFORM table=4 measured_products_inexact=0 licensed_without_force=2047 forced_gamma_index=4095 forced_gamma=0.00024414061 note=forced_by_--gamma-form_not_by_measurement
+  | FORCEDFORM table=5 measured_products_inexact=0 licensed_without_force=2047 forced_gamma_index=4095 forced_gamma=0.00024414061 note=forced_by_--gamma-form_not_by_measurement
+  | FORCEDFORM table=6 measured_products_inexact=0 licensed_without_force=2047 forced_gamma_index=4095 forced_gamma=0.00024414061 note=forced_by_--gamma-form_not_by_measurement
+  | FORCEDFORM table=7 measured_products_inexact=0 licensed_without_force=2047 forced_gamma_index=4095 forced_gamma=0.00024414061 note=forced_by_--gamma-form_not_by_measurement
+  | BANDCENSUS tag=oracle families=8 words_banded=1884 term_pairs=3858432 products_inexact=11201 u=2^-24 rule=gamma_index(K,products_inexact)=(K-1 if inexact==0 else 2K-1)
+  | BANDCENSUS tag=lane honest_cases=115 words_banded=1884 term_pairs=3858432 products_inexact=11201 families=8 rule=gamma_index(K,products_inexact)=(K-1 if inexact==0 else 2K-1) u=2^-24
+  named checks that went RED: 4
+  CHECK name=the band file equals gamma_index(products_inexact) * fsum(|h_k w_k|) recomputed from these bytes ok=0 n=380 verified=380 expected=1884 words=1884 mismatches=6 first=[(0, 0, 0.00016268134789496495, 8.13108824669557e-05), (1, 0, 0.00016260035169094283, 8.127039919760288e-05), (2, 0, 0.00015388576618258578, 7.691470232646707e-05)]
+  CHECK name=no family whose dot products are all exact is priced with the gamma_{2K-1} index ok=0 n=6 exact_family_mispriced=[(0, 0, 0, 0.00016268134789496495, 8.13108824669557e-05), (0, 1, 0, 0.00016260035169094283, 8.127039919760288e-05), (0, 2, 0, 0.00015388576618258578, 7.691470232646707e-05)] foreign_form=[]
+  CHECK name=host case=125 inj-bf16-embd-half-accum FIRED beyond the band ok=0 n=16 differing=16 beyond-band=0 worst=0.61 x band | bf16-rounding every product moves a word beyond its own band (worst 1.22 x)
+  CHECK name=host every injection that must fire fired ok=0 n=49 did not fire: inj-bf16-embd-half-accum
+  verdict:
+    RESULT PASS oracle arm filled=1884/27488 words slab=557568 B hidden=68
+    RESULT PASS host arm cases=192 items=1186
+    CHECKS ran=1517 failed=4 the band file equals gamma_index(products_inexact) * fsum(|h_k w_k|) recomputed from these bytes,no family whose dot products are all exact is priced with the gamma_{2K-1} index,host case=125 inj-bf16-embd-half-accum FIRED beyond the band,host every injection that must fire fired
+    RESULT FAIL lm_head host-only checks=1517 findings=4
+
+====================================================================================================
+WITNESS W1b floor probe against that band.f64 — the anti-drift finding names the exact families it found priced wide
+  command: floor_probe.py (against the band.f64 left by W1a)
+  source log: work/bandfix/w-forcewide-probe.log
+  sabotage marker lines: 4
+  | FINDING 1060 of the 1280 probed bands are NOT gamma_(the index their family's measured products license) * fsum(|h_k w_k|) recomputed from these slab bytes. The band on disk is the producer's claim; this is the measurement, and the two disagree — see the per-table priced_* counts below for which index it was priced with
+  | FINDING table 0 (enc=0): every one of 1835008 dot terms IS exactly representable in binary32 (weight 8 bits x hidden 8 bits = 16, products_inexact=0), so the ONLY index this family is licensed to use is gamma_2047 (K-1 = 2047) — yet 896 of its 896 probed words are priced wider than that (896 at gamma_{2K-1}, 0 foreign). The widening to gamma_{2K-1} is bought by a measured inexact product and by nothing else; pricing an exact family wide is a band chosen by hand, and a band wider than the proof is the forbidden direction (`AGENTS.md`: never loosen a gate to make it pass)
+  | FINDING table 1 (enc=0): every one of 204800 dot terms IS exactly representable in binary32 (weight 8 bits x hidden 8 bits = 16, products_inexact=0), so the ONLY index this family is licensed to use is gamma_2047 (K-1 = 2047) — yet 100 of its 100 probed words are priced wider than that (100 at gamma_{2K-1}, 0 foreign). The widening to gamma_{2K-1} is bought by a measured inexact product and by nothing else; pricing an exact family wide is a band chosen by hand, and a band wider than the proof is the forbidden direction (`AGENTS.md`: never loosen a gate to make it pass)
+  | FINDING table 4 (enc=0): every one of 131072 dot terms IS exactly representable in binary32 (weight 8 bits x hidden 8 bits = 16, products_inexact=0), so the ONLY index this family is licensed to use is gamma_2047 (K-1 = 2047) — yet 64 of its 64 probed words are priced wider than that (64 at gamma_{2K-1}, 0 foreign). The widening to gamma_{2K-1} is bought by a measured inexact product and by nothing else; pricing an exact family wide is a band chosen by hand, and a band wider than the proof is the forbidden direction (`AGENTS.md`: never loosen a gate to make it pass)
+  named checks that went RED: 0
+  verdict:
+    RESULT FAIL lm_head floor probe findings=4
+
+====================================================================================================
+WITNESS W2a gate — the producer FORCED NARROW: every family priced gamma_{K-1}, i.e. the pre-adjudication state for the inexact families
+  command: gate.py --check-only --gamma-form narrow
+  source log: work/bandfix/w-forcenarrow-gate.log
+  sabotage marker lines: 10
+  | FORCEDFORM table=0 measured_products_inexact=0 licensed_without_force=2047 forced_gamma_index=2047 forced_gamma=0.000122025596 note=forced_by_--gamma-form_not_by_measurement
+  | FORCEDFORM table=1 measured_products_inexact=0 licensed_without_force=2047 forced_gamma_index=2047 forced_gamma=0.000122025596 note=forced_by_--gamma-form_not_by_measurement
+  | FORCEDFORM table=2 measured_products_inexact=7727 licensed_without_force=4095 forced_gamma_index=2047 forced_gamma=0.000122025596 note=forced_by_--gamma-form_not_by_measurement
+  | FORCEDFORM table=3 measured_products_inexact=3474 licensed_without_force=4095 forced_gamma_index=2047 forced_gamma=0.000122025596 note=forced_by_--gamma-form_not_by_measurement
+  | FORCEDFORM table=4 measured_products_inexact=0 licensed_without_force=2047 forced_gamma_index=2047 forced_gamma=0.000122025596 note=forced_by_--gamma-form_not_by_measurement
+  | FORCEDFORM table=5 measured_products_inexact=0 licensed_without_force=2047 forced_gamma_index=2047 forced_gamma=0.000122025596 note=forced_by_--gamma-form_not_by_measurement
+  | FORCEDFORM table=6 measured_products_inexact=0 licensed_without_force=2047 forced_gamma_index=2047 forced_gamma=0.000122025596 note=forced_by_--gamma-form_not_by_measurement
+  | FORCEDFORM table=7 measured_products_inexact=0 licensed_without_force=2047 forced_gamma_index=2047 forced_gamma=0.000122025596 note=forced_by_--gamma-form_not_by_measurement
+  | BANDCENSUS tag=oracle families=8 words_banded=1884 term_pairs=3858432 products_inexact=11201 u=2^-24 rule=gamma_index(K,products_inexact)=(K-1 if inexact==0 else 2K-1)
+  | BANDCENSUS tag=lane honest_cases=115 words_banded=1884 term_pairs=3858432 products_inexact=11201 families=8 rule=gamma_index(K,products_inexact)=(K-1 if inexact==0 else 2K-1) u=2^-24
+  named checks that went RED: 5
+  CHECK name=the band file equals gamma_index(products_inexact) * fsum(|h_k w_k|) recomputed from these bytes ok=0 n=1504 verified=1504 expected=1884 words=1884 mismatches=6 first=[(160, 16, 8.132621385555214e-05, 0.00016271202190668756), (161, 16, 8.127158472333101e-05, 0.0001626027236111282), (162, 16, 7.692240098996811e-05, 0.00015390116915101193)]
+  CHECK name=no family with a measurably inexact dot product is priced with the narrow gamma index ok=0 n=6 first=[(16, 160, 2, 8.132621385555214e-05, 0.00016271202190668756), (16, 161, 2, 8.127158472333101e-05, 0.0001626027236111282), (16, 162, 2, 7.692240098996811e-05, 0.00015390116915101193)]
+  CHECK name=host case=101 inj-q8-lmhead-half-accum INSIDE: moved but never beyond the band ok=0 n=16 differing=16 beyond-band=2 worst=1.03 x band | bf16-rounding every product moves every word but never past its own band (worst 0.514 x)
+  CHECK name=host case=149 inj-q8-embd-half-accum INSIDE: moved but never beyond the band ok=0 n=16 differing=16 beyond-band=3 worst=1.25 x band | bf16-rounding every product moves every word but never past its own band (worst 0.627 x)
+  CHECK name=host every arm judged INSIDE the band really moved and really stayed inside ok=0 n=3 wrong: inj-q8-lmhead-half-accum,inj-q8-embd-half-accum
+  verdict:
+    RESULT PASS oracle arm filled=1884/27488 words slab=557568 B hidden=68
+    RESULT PASS host arm cases=192 items=1186
+    CHECKS ran=1517 failed=5 the band file equals gamma_index(products_inexact) * fsum(|h_k w_k|) recomputed from these bytes,no family with a measurably inexact dot product is priced with the narrow gamma index,host case=101 inj-q8-lmhead-half-accum INSIDE: moved but never beyond the band,host case=149 inj-q8-embd-half-accum INSIDE: moved but never beyond the band,host every arm judged INSIDE the band really moved and really stayed inside
+    RESULT FAIL lm_head host-only checks=1517 findings=5
+
+====================================================================================================
+WITNESS W2b floor probe against that band.f64 — the two original FINDING lines reappear verbatim
+  command: floor_probe.py (against the band.f64 left by W2a)
+  source log: work/bandfix/w-forcenarrow-probe.log
+  sabotage marker lines: 3
+  | FINDING 220 of the 1280 probed bands are NOT gamma_(the index their family's measured products license) * fsum(|h_k w_k|) recomputed from these slab bytes. The band on disk is the producer's claim; this is the measurement, and the two disagree — see the per-table priced_* counts below for which index it was priced with
+  | FINDING table 2 (enc=1): 7715 of 245760 dot terms h_k*w_k are NOT exact in binary32 (weight 18 bits x hidden 8 bits = up to 26), which licenses gamma_4095 (gamma=0.00024414061) for this family — yet 120 of its 120 probed words are priced with a different index (120 at gamma_{K-1} = one rounding per term short, 0 wide, 0 foreign). The DECODE is exact and the term is not: h_k*(d_k*q_k) reaches 26 bits, so the sum carries 2K-1 roundings, not K-1. Observed deviation 1.27e-07 against a band of 5.61e-05, so this is a gap in the proof rather than a wrong number, but a band that is not the licensed one is a refusal either way
+  | FINDING table 3 (enc=1): 3466 of 204800 dot terms h_k*w_k are NOT exact in binary32 (weight 18 bits x hidden 8 bits = up to 26), which licenses gamma_4095 (gamma=0.00024414061) for this family — yet 100 of its 100 probed words are priced with a different index (100 at gamma_{K-1} = one rounding per term short, 0 wide, 0 foreign). The DECODE is exact and the term is not: h_k*(d_k*q_k) reaches 26 bits, so the sum carries 2K-1 roundings, not K-1. Observed deviation 2.98e-08 against a band of 1.73e-05, so this is a gap in the proof rather than a wrong number, but a band that is not the licensed one is a refusal either way
+  named checks that went RED: 0
+  verdict:
+    RESULT FAIL lm_head floor probe findings=3
+
+====================================================================================================
+WITNESS W3 band-unpin — every banded word on disk rewritten to gamma_{K-1} * sigma
+  command: gate.py --check-only --control band-unpin --tamper-band unpin-narrow
+  source log: work/bandfix/w-tamper-unpin-narrow.log
+  sabotage marker lines: 1
+  | BANDTAMPER mode=unpin-narrow file=band.f64 words_changed=380 of 1884 banded first_word=160 new_band=8.13262139e-05 licensed_band=0.000162712022
+  named checks that went RED: 5
+  CHECK name=the band file equals gamma_index(products_inexact) * fsum(|h_k w_k|) recomputed from these bytes ok=0 n=1504 verified=1504 expected=1884 words=1884 mismatches=6 first=[(160, 16, 8.132621385555214e-05, 0.00016271202190668756), (161, 16, 8.127158472333101e-05, 0.0001626027236111282), (162, 16, 7.692240098996811e-05, 0.00015390116915101193)]
+  CHECK name=no family with a measurably inexact dot product is priced with the narrow gamma index ok=0 n=6 first=[(16, 160, 2, 8.132621385555214e-05, 0.00016271202190668756), (16, 161, 2, 8.127158472333101e-05, 0.0001626027236111282), (16, 162, 2, 7.692240098996811e-05, 0.00015390116915101193)]
+  CHECK name=host case=101 inj-q8-lmhead-half-accum INSIDE: moved but never beyond the band ok=0 n=16 differing=16 beyond-band=2 worst=1.03 x band | bf16-rounding every product moves every word but never past its own band (worst 0.514 x)
+  CHECK name=host case=149 inj-q8-embd-half-accum INSIDE: moved but never beyond the band ok=0 n=16 differing=16 beyond-band=3 worst=1.25 x band | bf16-rounding every product moves every word but never past its own band (worst 0.627 x)
+  CHECK name=host every arm judged INSIDE the band really moved and really stayed inside ok=0 n=3 wrong: inj-q8-lmhead-half-accum,inj-q8-embd-half-accum
+  verdict:
+    RESULT PASS oracle arm filled=1884/27488 words slab=557568 B hidden=68
+    RESULT PASS host arm cases=192 items=1186
+    CHECKS ran=1517 failed=5 the band file equals gamma_index(products_inexact) * fsum(|h_k w_k|) recomputed from these bytes,no family with a measurably inexact dot product is priced with the narrow gamma index,host case=101 inj-q8-lmhead-half-accum INSIDE: moved but never beyond the band,host case=149 inj-q8-embd-half-accum INSIDE: moved but never beyond the band,host every arm judged INSIDE the band really moved and really stayed inside
+    RESULT FAIL lm_head host-only checks=1517 findings=5
+
+====================================================================================================
+WITNESS W4 word-narrow — ONE word's band halved, by hand, on disk
+  command: gate.py --check-only --control band-unpin --tamper-band word-narrow
+  source log: work/bandfix/w-tamper-word-narrow.log
+  sabotage marker lines: 1
+  | BANDTAMPER mode=word-narrow file=band.f64 words_changed=1 of 1884 banded first_word=0 new_band=4.06554412e-05 licensed_band=8.13108825e-05
+  named checks that went RED: 2
+  CHECK name=the band file equals gamma_index(products_inexact) * fsum(|h_k w_k|) recomputed from these bytes ok=0 n=1883 verified=1883 expected=1884 words=1884 mismatches=1 first=[(0, 0, 4.065544123347785e-05, 8.13108824669557e-05)]
+  CHECK name=no family whose dot products are all exact is priced with the gamma_{2K-1} index ok=0 n=2 exact_family_mispriced=[(0, 0, 0, 4.065544123347785e-05, 8.13108824669557e-05)] foreign_form=[(0, 0, 4.065544123347785e-05, 8.13108824669557e-05, 8.13108824669557e-05, 0.00016268134789496495)]
+  verdict:
+    RESULT PASS oracle arm filled=1884/27488 words slab=557568 B hidden=68
+    RESULT PASS host arm cases=192 items=1186
+    CHECKS ran=1517 failed=2 the band file equals gamma_index(products_inexact) * fsum(|h_k w_k|) recomputed from these bytes,no family whose dot products are all exact is priced with the gamma_{2K-1} index
+    RESULT FAIL lm_head host-only checks=1517 findings=2
+
+====================================================================================================
+WITNESS W5 word-wide — ONE word's band doubled, by hand, on disk (the widening direction, the one AGENTS.md forbids taking by hand)
+  command: gate.py --check-only --control band-unpin --tamper-band word-wide
+  source log: work/bandfix/w-tamper-word-wide.log
+  sabotage marker lines: 1
+  | BANDTAMPER mode=word-wide file=band.f64 words_changed=1 of 1884 banded first_word=0 new_band=0.000162621765 licensed_band=8.13108825e-05
+  named checks that went RED: 2
+  CHECK name=the band file equals gamma_index(products_inexact) * fsum(|h_k w_k|) recomputed from these bytes ok=0 n=1883 verified=1883 expected=1884 words=1884 mismatches=1 first=[(0, 0, 0.0001626217649339114, 8.13108824669557e-05)]
+  CHECK name=no family whose dot products are all exact is priced with the gamma_{2K-1} index ok=0 n=2 exact_family_mispriced=[(0, 0, 0, 0.0001626217649339114, 8.13108824669557e-05)] foreign_form=[(0, 0, 0.0001626217649339114, 8.13108824669557e-05, 8.13108824669557e-05, 0.00016268134789496495)]
+  verdict:
+    RESULT PASS oracle arm filled=1884/27488 words slab=557568 B hidden=68
+    RESULT PASS host arm cases=192 items=1186
+    CHECKS ran=1517 failed=2 the band file equals gamma_index(products_inexact) * fsum(|h_k w_k|) recomputed from these bytes,no family whose dot products are all exact is priced with the gamma_{2K-1} index
+    RESULT FAIL lm_head host-only checks=1517 findings=2
+
+====================================================================================================
+WITNESS W6 band-perturb — one output word of the family whose band doubled moved by 4x its own band: the widened band must still refuse it
+  command: gate.py --check-only --control band-perturb
+  source log: work/bandfix/w-band-perturb.log
+  sabotage marker lines: 1
+  | CONTROL band-perturb case=16 honest-q8-lmhead-dense-batched table=2 licensed_gamma_index=4095 word=160 band=0.000162712022 perturbation=0.000650848088 x_band=4.0 old=-0.0532329381 new=-0.0525820889: this row MUST be rejected under the derived band
+  named checks that went RED: 10
+  CHECK name=host case=16 honest-q8-lmhead-dense-batched oxor==recount ok=0 n=16 driver=0x82E708F1 recount=0x82EA6268
+  CHECK name=host case=16 honest-q8-lmhead-dense-batched osum==recount ok=0 n=16 driver=0.109462817 recount=0.110113666
+  CHECK name=host case=16 honest-q8-lmhead-dense-batched BAND inside the derived band ok=0 n=16 worst=4.000 x band outside=1 first=(160, -0.052582088857889175, -0.05323289334774017, 0.00016271202190668756)
+  CHECK name=host case=17 honest-q8-lmhead-perrow0 EXACT vs cmp_off=160 batch=0 ok=0 n=4 differing=1
+  CHECK name=host case=21 honest-q8-lmhead-gather EXACT vs cmp_off=160 batch=0 ok=0 n=16 differing=1
+  CHECK name=host case=101 inj-q8-lmhead-half-accum INSIDE: moved but never beyond the band ok=0 n=16 differing=16 beyond-band=1 worst=4 x band | bf16-rounding every product moves every word but never past its own band (worst 0.514 x)
+  CHECK name=host case=118 inj-q8-lmhead-batch-reloops BYTES: output still equals its twin ok=0 n=16 differing=1 | batched with bcount=4: the row set is walked 4 time(s)
+  CHECK name=host case=120 inj-q8-lmhead-cross-table-read BYTES: output still equals its twin ok=0 n=16 differing=1 | peer is a disjoint range: cross and peer_hits must move
+  CHECK name=host every arm judged INSIDE the band really moved and really stayed inside ok=0 n=3 wrong: inj-q8-lmhead-half-accum
+  CHECK name=host the re-looping batched kernel is caught on bytes alone (words bit-identical) ok=0 n=4 witnessed=3/4; case 118 inj-q8-lmhead-batch-reloops: 1 words differ from the twin, so this is not a bytes-only catch
+  verdict:
+    RESULT PASS oracle arm filled=1884/27488 words slab=557568 B hidden=68
+    RESULT PASS host arm cases=192 items=1186
+    CHECKS ran=1517 failed=10 host case=16 honest-q8-lmhead-dense-batched oxor==recount,host case=16 honest-q8-lmhead-dense-batched osum==recount,host case=16 honest-q8-lmhead-dense-batched BAND inside the derived band,host case=17 honest-q8-lmhead-perrow0 EXACT vs cmp_off=160 batch=0,host case=21 honest-q8-lmhead-gather EXACT vs cmp_off=160 batch=0,host case=101 inj-q8-lmhead-half-accum INSIDE: moved but never beyond the band,host case=118 inj-q8-lmhead-batch-reloops BYTES: output still equals its twin,host case=120 inj-q8-lmhead-cross-table-read BYTES: output still equals its twin
+    RESULT FAIL lm_head host-only checks=1517 findings=10
+
+====================================================================================================
+WITNESS W7 no-fire (pre-existing control) — an injection made honest after the census ran, so 16 words are claimed honest but were never banded
+  command: gate.py --check-only --control no-fire
+  source log: work/bandfix/w-no-fire.log
+  sabotage marker lines: 1
+  | CONTROL no-fire neutralising case=190 inj-q8-synth-drop-last-k (mode 6 -> CORRECT): the run MUST go red
+  named checks that went RED: 3
+  CHECK name=the band file equals gamma_index(products_inexact) * fsum(|h_k w_k|) recomputed from these bytes ok=0 n=1884 verified=1884 expected=1884 words=1900 mismatches=0 first=[]
+  CHECK name=every banded word was priced, none is un-banded, and no band is below one ulp of its own answer ok=0 n=1900 sigmas=1884 words=1900 unbanded=16 below_ulp=0 first_unbanded=[(190, 27456), (190, 27457), (190, 27458)] first_below_ulp=[]
+  CHECK name=host case=190 inj-q8-synth-drop-last-k declared class is legal and matches the derivation ok=0 n=1 plan=AUTO derived=EXACT
+  verdict:
+    RESULT PASS oracle arm filled=1884/27488 words slab=557568 B hidden=68
+    RESULT PASS host arm cases=192 items=1186
+    CHECKS ran=1518 failed=3 the band file equals gamma_index(products_inexact) * fsum(|h_k w_k|) recomputed from these bytes,every banded word was priced, none is un-banded, and no band is below one ulp of its own answer,host case=190 inj-q8-synth-drop-last-k declared class is legal and matches the derivation
+    RESULT FAIL lm_head host-only checks=1518 findings=3
+
