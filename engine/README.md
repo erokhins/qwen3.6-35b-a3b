@@ -207,9 +207,12 @@ Two paths are deliberately **not** built, and they raise rather than guess:
 Read this before building on the directory. None of it is a gate failure; all of it is a claim this
 directory does not make.
 
-* **No GPU work of any kind.** No allocation, no copy, no kernel, no residency measurement. `engine/` is
-  byte-accurate bookkeeping. The gate never invokes the stream lock and prints no rate figures, and it
-  checks that nobody has added either.
+* **No GPU work in the gate itself.** The gate does no allocation, copy, kernel or residency
+  measurement; `engine/`'s only device path is `stage_run.py`'s `--device` branch, which refuses by
+  name without the flag, owns no lock, and whose first hardware run is still pending (its first
+  attempt was invalidated by `devices/evidence/device-window-2026-10-26c.md` §2; the replacement
+  command is in `engine/HANDOFF.md`). The gate never invokes the stream lock and prints no rate
+  figures, and it checks that nobody has added either.
 * **The data section has been read — by the probe arm, and it crashed first.** This bullet used to read
   "No data-section bytes were read in this certification run", which was true when it was written: the
   arm had never executed and the gate printed `SKIPPED`, never `PASS`. It was run on 2026-10-26 with the
@@ -230,9 +233,16 @@ directory does not make.
   witnessed against real bytes at the sampled positions while the fault arms remain the only witness for
   its refusals. Real block *sizes* are validated against the real file by the file-size identity
   (residue 0 B), not only by a block table.
-* **The staging plan is a plan.** 464 runs / 23,812,820,480 B has never been executed, so what staging
-  actually costs at peak is unconfirmed, and so is the allocation-*count* question §7 item 2 was written
-  for. And the shape that would be executed is *not* the shape §7 item 2 proposes to probe: this plan is
+* **The staging plan is executed on the CPU side; the device read-back has never run on
+  hardware.** 464 runs / 23,812,820,480 B are now staged and dual-digested by
+  `engine/stage_run.py --check-only` (`RESULT PASS mode=check-only checks=34 findings=0
+  controls=8 fired=8 device=off`; evidence `specification/evidence/stage-run-check-only-*.log`),
+  and `--device` now writes a per-run `READBACK idx=... readback_sha256=...` record with a
+  plan-derived denominator plus the two device controls — but **the real-hip run of that is the
+  next clean window's** (window-c §2 replaced the first attempt's hollow PASS). What staging
+  actually costs at peak is therefore still unconfirmed, and so is the allocation-*count* question
+  §7 item 2 was written for. And the shape that would be executed is *not* the shape §7 item 2
+  proposes to probe: this plan is
   `weights.experts` 19,568,525,312 B in 120 runs, `weights.tables`
   957,521,920 B in 2, `weights.attention` 1,359,216,640 B in 90, `weights.shared` 133,693,440 B in 120,
   `weights.exact` 104,581,632 B in 131 runs averaging 0.76 MiB, and the draft as a single 1,689,281,536 B

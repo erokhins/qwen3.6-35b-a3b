@@ -763,6 +763,7 @@ decisions so that a later session can tell who ratified what.
 | D-20 | which Higham form bands an `lm_head` dot? | **DECIDED (user, 2026-10-26)** — γ<sub>2K−1</sub> where products are measurably inexact, γ<sub>K−1</sub> where exact |
 | D-21 | under what licence are GDN decode rows judged? | **DECIDED (agent, 2026-10-26)** — `recurrent|pinned`, *conditioned* on an inside-the-arm pad witness |
 | D-22 | what does "comparable to llama.cpp" mean? | **DECIDED (agent, 2026-10-26)** — ≥ 48 t/s = 90 % of the measured 53.4 t/s median, identical recorded conditions |
+| D-24 | what does M1's device read-back actually verify, and against what denominator? | **DECIDED (agent, 2026-10-26)** — per-run D2H sha256 vs the artifact digest, denominator derived from the plan (`463 stageable + 1 draft-refused`), device checks a superset of check-only; witnessed against the stub, **not yet against real HIP** |
 | D-23 | what reduction form does `gdn_sumsq` ship with? | **DECIDED (agent, 2026-10-26)** — pairwise f32 tree; wide fp64 accumulator kept behind a define; the band was right and was not touched |
 
 ### D-18 — may an agent decide engineering questions alone? — **DECIDED (user grant, 2026-10-26)**
@@ -1002,3 +1003,48 @@ derived from a file, is therefore the first thing to build; the acceptance rule 
 **What this replaces, and what it does not.** It replaces the practice of escalating individual ±1 findings for
 approval (the D-14 pattern). D-14 is **not** retroactively widened: its ratification stays scoped to the two
 `ssm_a` cases it named. The machinery covers future cases of its own kind; it does not enlarge past decisions.
+
+### D-24 — what does M1's device read-back verify, and against what denominator? — **DECIDED (agent, 2026-10-26)**
+
+**What was wrong.** Window `c` found that `--device` printed `RESULT PASS … verified=464 device=on` while the
+evidence carried **no device-side digest at all** (`grep -cE "dev_sha256|device_sha256|readback_sha256|dev_digest"`
+→ 0 over 290,067 B), `controls=0 fired=0`, and its only device check was answered by construction. M1's exit gate
+in `AGENTS.md` is per-tensor read-back digests; it had never been executed.
+
+**The four decisions, all agent-owned under D-18.**
+1. **Read-back protocol (a D-19 addendum).** For every staging run: copy in, `hipMemcpyDtoH` the region back,
+   sha256 what came back, compare against the digest the artifact region independently produces, and write that
+   digest into the evidence record for that run. llama.cpp consulted per D-19: `src/llama-model-loader.cpp::load_all_data`
+   and `::init_mappings` validate sizes against the header and then **trust the mapping** — it has no read-back,
+   because on its path a short copy is a load error. Our path is an artifact-to-device copy through our own staging
+   slab, where a silent short copy is invisible to every other check in the driver, so the property is adopted and
+   the trust is not.
+2. **The denominator is derived, never typed.** `stageable = [r for r in plan if slab(r.slab).source == "gguf"]`;
+   `expected = len(stageable)`. Today that is `463 stageable + 1 draft-refused`: the 464th run is the MTP draft
+   block, `draft:draft-requantizer-absent`, 1,689,281,536 B, recorded with `dev_read=0 readback_sha256=-` rather
+   than deleted. The literal `readback_count == 464` in the task brief is unsatisfiable while `loader.stage_draft`
+   refuses draft-expert addressing, and the honest answer to an unsatisfiable literal is to derive the population
+   and print both halves — not to relax the count to whatever the build happens to produce.
+3. **A short read is judged by bytes returned vs bytes requested**, not by a return code, and `device-short-d2h`
+   is a control that must redden it.
+4. **Device mode must be a check-superset of `--check-only`** (`device_mode_checks_superset_of_check_only`). The
+   old inversion — device running 31 checks where check-only ran 34 — is the shape a "more rigorous" mode takes
+   when it silently drops the checks it cannot satisfy.
+
+**Witnessed, and where the witness stops.** Against the Python stub: `RESULT PASS mode=device checks=40
+findings=0 controls=10 fired=10 run_set=464 plan=464 readback=463/463 verified=464 residue=0 uncovered=0
+device=on`, and the window-`c` grep now returns 486 matches, 477 `READBACK` records, 33 `fired=RED`. The two
+corruption controls corrupt a device buffer and must restore it — a control that cannot restore exits the run
+red rather than leaving a slab wrong. **The real HIP path has still never executed**: real per-run digests of
+device memory, real 1-byte corruption and the 464-run device plan are untested on hardware until the main agent
+runs the window. Every device check above is a stub witness, and no sentence in this repo may imply otherwise
+until that run exists.
+
+**Also verified here, because a prohibition check is the easiest thing in the repo to fake.** `copy-path-owns-no-lock`
+passes when `LOCK_INVOKED` and `HIP_IMPORT` find nothing in the driver — and `LOCK_INVOKED` is written as a split
+literal (`r"gpu_" r"lock\.sh"`) so the file cannot self-match, which also means a broken pattern would print the
+same PASS. `engine/probe_lock_check_vacuity.py` feeds each pattern probes it must fire on: 9/9 correct
+(`gpu_lock.sh`, `import hip`, `from rocm import util`, `import amdsmi` fire; `import ctypes`,
+`HIP_LIBRARY = "/opt/rocm/lib/…"` and the lockdir path do not), and neither fires on the driver itself. Note
+`import ctypes` is deliberately **not** prohibited — the HIP library is `dlopen`ed only inside `HipStaging.__init__`,
+which the CPU path never constructs — so the prohibition targets importing a HIP/ROCm module, not touching ctypes.

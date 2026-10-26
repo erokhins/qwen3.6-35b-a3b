@@ -1,96 +1,87 @@
-# `engine/stage_run.py` — HANDOFF (M1: execute the staging plan, certify it byte for byte)
+# `engine/stage_run.py` — HANDOFF (M1 fix: the device read-back must exist, count, and be falsifiable)
 
-Written by the implementation worker at ~minute 70 of the run, before the gate wiring. If you are the
-main agent: §What to run in your window is the part you need; §Done and §Not done tell you whether the
-lane finished.
+Supersedes the previous (staging-lane) version of this file. The finding implemented here is
+`devices/evidence/device-window-2026-10-26c.md` §2: the first device run's `RESULT PASS` had
+**no device digest anywhere in its evidence** (all 464 RUN records said
+`dev=- staged=not-attempted` because `print_rows` ran before `stage_device`), one check answered
+by construction (`device-path-was-exercised`, now deleted), `controls=0 fired=0`, and 31 checks
+vs check-only's 34.
 
-## Status
+## What changed in the driver
 
-**Code complete and CPU-green.** `--check-only` ends in
+* **Per-run read-back records.** `stage_device` fills `dev_sha` + `dev_read` on every staged row;
+  `print_readbacks` prints one `READBACK idx=... readback_sha256=... expected_plan_sha256=...
+  expected_header_sha256=... verdict=MATCH` record per plan run (464 = 463 stageable + 1
+  draft-refused) into stdout and `--keep-evidence`. RUN lines print AFTER staging now, so `dev=`
+  is real. Staging split into `stage_run_to_device` / `device_read_back` so a control can change
+  the device buffer **between** H2D and D2H; the read-back hash covers exactly the bytes the D2H
+  was asked for, and the verdict is a byte-count rule first (`device_read_back` docstring says
+  why: a real `hipMemcpy` never short-copies without an error, so a short read-back can only ever
+  be a short request).
+* **Denominator enforced, derived.** `device_readback_count_eq_plan` requires digest count ==
+  (plan runs − draft-sourced runs), counted from the plan's own rows, never typed;
+  `device_readback_lines_reconciled` requires printed == parsed == one per plan run;
+  `device_readback_digest_eq_file_digest` requires every stageable run's read-back digest to
+  equal BOTH host digests; `run-rule-readback-short` / `run-rule-readback-digest` name the rules
+  the controls must redden. A `--device` run with fewer digests FAILS, it cannot pass quietly
+  (witnessed falsifiable by arm F of the stub harness: strip one row's digests → `FAIL`).
+* **Falsifiable.** Two device-mode controls: `device-corrupt` (one byte flipped in the DEVICE
+  buffer by a deliberate 1-byte H2D — the same four calls the real hip path makes — clean stage
+  must match, corrupt must mismatch, re-stage must match again) and `device-short-d2h` (D2H
+  returns length−1 bytes; the count rule reddens). Check `device_corruption_control_reddens`
+  requires both to fire.
+* **The 31-vs-34 inversion is structurally dead.** Device mode runs the 8 CPU controls plus the
+  2 device ones (10/10 must fire), and
+  `device_mode_checks_superset_of_check_only` shadow-evaluates the whole check-only roster in-process
+  and FAILS if any name is missing (only carve-out: `device-path-not-exercised`, which `--device`
+  makes self-contradictory). `device-path-was-exercised` is gone.
+* **Evidence-record schema (device mode).** per run:
+  `RUN ... plan=<sha> ref=<sha> dev=<sha> verdict=VERIFIED staged=STAGED ...` then
+  `READBACK idx=N slab=S length=L dev_read=L readback_sha256=<sha> expected_plan_sha256=<sha>
+  expected_header_sha256=<sha> verdict=MATCH` (draft row: `dev_read=0 readback_sha256=-
+  verdict=refused-not-wired`); trailer `readback_printed/parsed/expected/done/match/refused`.
+  The window-c grep (`grep -oE "dev_sha256|device_sha256|readback_sha256|dev_digest"`) now
+  matches (468 hits against the stub full-plan evidence vs 0 for window c).
+* **RESULT line** gained `readback=done/expected` (or `readback=off` in CPU modes).
+
+## Where each mode stands (all green; before → after named-check counts)
+
+| mode | before | after | controls |
+|---|---|---|---|
+| `--check-only` | 34 | **34** | 8 declared / 8 fired (unchanged) |
+| `--selftest` | 33 | **33** | 8 / 8 |
+| `--verify` (CPU, run alone) | 31 | **31** | 0 / 0 (no controls in verify mode) |
+| `--device` (against the STUB hip) | 31 | **40** | 10 / 10 |
+
+Verbatim lines: see `specification/evidence/stage-run-check-only-m1fix-2026-10-26.log`,
+`specification/evidence/stage-run-stub-readback-2026-10-26.log` (+ its child evidence
+`stage-run-stub-device-fullplan-2026-10-26.log`). The stub witness's every arm line states it ran
+against the stub only — **the real hip path (real `hipMalloc`/`hipMemcpy`, real device-buffer
+corruption) has still never been exercised**; every device check above was witnessed against the
+Python stub.
+
+## What the main agent must run in the next clean window
+
+Same window rules as window-c (zero workers, halogen down, the machine-wide stream lock held by
+you under your tag, blocking, foreground — `AGENTS.md §GPU-execution-is-serialized`):
 
 ```
-RESULT PASS mode=check-only checks=34 findings=0 controls=8 fired=8 run_set=464 plan=464
-       verified=464 residue=0 uncovered=0 device=off ordering_log=242->243
+/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python engine/stage_run.py --device \
+    --verify --keep-evidence specification/evidence/stage-run-device-<date>.log
 ```
 
-transcript: `specification/evidence/stage-run-check-only-2026-10-26.log`.
+Expect `RESULT PASS mode=device checks=40 findings=0 controls=10 fired=10 run_set=464 plan=464
+readback=463/463 verified=464 residue=0 uncovered=0 device=on`, 464 READBACK records (463 MATCH +
+1 refused-not-wired), and `grep -cE "dev_sha256|device_sha256|readback_sha256|dev_digest"` over
+the evidence returning 463 — the exact grep window-c §2 used and got 0 on. The two device
+controls corrupt REAL device memory in this run, each with a clean re-stage immediately after; a
+control that cannot restore exits the run red rather than leaving a slab wrong. CPU gates (any
+time, no lock, no device): `--check-only`, `--selftest`, and
+`/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python specification/evidence/stage-run-stub-device-2026-10-26.py`
+(its full-plan child needs ~30 GiB free RAM and refuses under that; leave `SR_STUB_SKIP_CHILD`
+unset for a witness-complete run).
 
-## What exists
-
-* `engine/stage_run.py` — one file, no new dependencies. Modes: `--plan-only`, `--verify`,
-  `--selftest`, `--check-only`, `--device`, plus `--keep-evidence PATH`, `--fault NAME` (one control),
-  `--cap BYTES`. An unknown flag is refused (`tag=unknown-argument`), no mode is refused
-  (`tag=no-mode`), `--check-only --device` is refused.
-* The plan is `loader.Loader.stage_runs()` verbatim — CHECK `plan-is-the-loaders-plan` compares the
-  staged list against a freshly built `layout.ResidencyLayout.copy_plan()` field by field. No table,
-  no plan, no width is re-derived or copied here.
-* Two digests per run: the **plan lane** hashes `[run.file_off, +run.length)`; the **header lane**
-  hashes the same bytes reached through the member tensors' own records
-  (`loader.ruler`/`draft`, priced by `tools/gguf_width_table.py` while the plan's come from
-  `tools/ggml_block_geom.py`). A run is `VERIFIED` only on equality **and** on span, membership,
-  consecutiveness, per-tensor two-ruler agreement, the file bound, and no short read on either lane.
-* Completeness: `residue` (bytes verified runs cover that no admitted tensor owns, plus any byte
-  counted twice) and `uncovered` (admitted bytes no verified run covers), both derived by interval
-  arithmetic over `layout`'s placements — `merge_ranges`/`intersect_len` here are ports of
-  `engines/llama.cpp/src/llama-model-loader.cpp::merge_ranges`/`sub_ranges`. Printed every run; both
-  are 0 on the whole plan.
-* Device path (`--device` only): `hipMalloc` per slab, one `hipHostMalloc` staging buffer at the
-  largest staged run's size, one bulk H2D per run, one bulk D2H read-back, a third sha256, `STAGED`
-  only when all three digests agree. `weights.draft` is **refused**, obeying `loader.stage_draft`'s
-  `NotWired("draft-requantizer-absent")`. Guarded in the function, not only the CLI:
-  `stage_device(..., enabled=False)` raises `Refused(tag="device-flag-absent")`, and the device-guard
-  control proves it while asserting `DEVICE_EXERCISED` did not move. `--check-only` goes red if the
-  device path was exercised in-process.
-
-## Controls (all eight fire; `--selftest` prints one `CONTROL` line each)
-
-`short-read` (1 byte served short), `wrong-offset` (run read at `file_off+1`), `wrong-width` (one
-member repriced F32→Q4_K **on the ruler side only**, so the plan keeps its span), `skipped-run`
-(uncovered moves by exactly the dropped run's 1024 B), `corrupted-byte` (one byte flipped **in the
-plan lane of the in-memory copy** — a corruption both lanes see is invisible to a digest comparison by
-construction, so planting it in one lane is what proves the header walk is a real second read),
-`duplicated-run` (residue moves by exactly the run's size; without it `residue=0` would never have
-been seen non-zero), `window-guard` (a read outside every loaded window must be refused), and
-`device-guard`. Injections land on copies; the artifact is never written.
-
-## What the main agent must run, and what to expect
-
-1. **CPU, any time, no lock, no device**:
-   `/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python engine/stage_run.py --check-only
-   --keep-evidence specification/evidence/stage-run-check-only-<date>.log`
-   Expect 464 `RUN ... verdict=VERIFIED`, `residue=0 uncovered=0`, `controls=8 fired=8`, `device=off`.
-   It reads the 22,134,528,992 B file twice through the audit reader and appends **one** line to
-   `quantization/evidence/audit-ordering-2026-10-26.log` per process (the RESULT line reports the
-   before/after count).
-2. **The M1 device run — yours, in a clean window** (zero workers, halogen down, `gpu_lock` held by
-   you, blocking, foreground):
-   `... engine/stage_run.py --device --keep-evidence specification/evidence/stage-run-device-<date>.log`
-   Expect, in order: 5 `hipMalloc`s (`weights.experts` 19,568,525,312 B; `.attention` 1,359,216,640;
-   `.shared` 133,693,440; `.tables` 957,521,920; `.exact` 104,581,632 — **not** `weights.draft`), one
-   pinned staging buffer at 540,344,320 B (the largest staged run, `output.weight`), then 463
-   `RUN ... staged=STAGED` and one `staged=refused-not-wired`, then `STAGED slabs=5 ... refused=1`.
-   Device footprint is 20,523,418,848 B of slabs + the staging buffer, inside the ≈32 GiB
-   co-resident pool (`pitfalls/10-device-memory.md`); a refusal prints the hip error string, the
-   `mem_info_gtt_used` and `MemAvailable` around the attempt, and exits non-zero — an instant refusal
-   is the accounting limit, not memory pressure, and that distinction is in the line.
-   This is also the answer to `quantization/residency-layout.md §7` item 2: it is **5** allocations of
-   a lumpy distribution, not 712 equal ones, and not the 48 GiB single allocation that item 1 asks for.
-   **Not yet executed by anyone** — the ctypes HIP path (`libamdhip64.so`, `hipMalloc`/`hipMemcpy`/
-   `hipHostMalloc`) has only ever been read, never run, on this box. First execution may well find a
-   bug; expect to fix it there, and treat the first green `staged=STAGED` line as untrusted until the
-   log has been read.
-3. **Gate**: `engine/gate.py` gained checks for this file (§README table). The expensive whole-plan
-   arm is opt-in: `engine/gate.py --probe --stage-verify`; without `--stage-verify` that arm is
-   `SKIPPED`, printed as such, not credited.
-
-## Not done by this lane
-
-* No device run (by instruction), so the `--device` branch is unexecuted.
-* `engine/README.md` §Not established still says the plan "has never been executed"; the lane that
-  runs `--device` should update it, along with the `--probe` bullet, which this file supersedes for
-  staging (the probe samples 90 runs and reads 512 B windows; this executes all 464 and hashes every
-  byte of them).
-* The DECISIONS.md entry for the staging mechanism (agent-decided, must not wear the user's
-  authority) — this lane's write boundary is `engine/` and `specification/evidence/`, so the text is
-  in the worker's report and the main agent commits it. Suggested heading:
-  `D-19 (agent, 2026-10-26): staging is one bulk copy per planned run, digested on both sides`.
+**Run `stage_run.py` modes one at a time.** `ordering-log-append-witnessed` asserts each process's
+ordering-log delta equals its own token grants; a second concurrent `stage_run` process (observed
+with a CPU `--verify` overlapping the stub harness) makes it correctly red for both — the check is
+real, but it assumes one process at a time. No timing taken.

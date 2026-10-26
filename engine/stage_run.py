@@ -24,8 +24,18 @@ What a run must do to be recorded VERIFIED — all four, or it is recorded with 
    `st_size` — the check llama.cpp makes in `src/llama-model-loader.h::llama_tensor_weight`.
 
 The device path is a third digest, not a fourth ruler: read the run into one pinned host staging
-buffer, one bulk H2D copy into its slab, one bulk D2H read-back into the same buffer, hash what comes
-back, and a run is STAGED only when the read-back hash equals the two host hashes it was staged from.
+buffer, one bulk H2D copy into its slab, one bulk D2H read-back of the same length into that
+buffer, hash exactly the bytes the copy was asked to return, and a run is STAGED only when the
+read-back hash equals the two host hashes it was staged from. The read-back digest is a PER-RUN
+evidence record — `READBACK idx=... readback_sha256=...`, one line per plan run — not an
+in-memory fact: `devices/evidence/device-window-2026-10-26c.md` §2 is why. The first device run
+hashed the read-back but printed its RUN lines before staging, so every record it left behind
+said `dev=-`, and its `RESULT PASS` could not be audited afterwards. The count of read-back
+digests is enforced against a denominator derived from the plan (plan runs minus draft-sourced
+runs), and two device-mode controls — `device-corrupt` (one byte of the DEVICE-side buffer
+flipped by a deliberate 1-byte H2D) and `device-short-d2h` (a read-back that returns fewer
+bytes than the run's length) — must redden the comparison, or the read-back is decorative even
+when it runs.
 
 llama.cpp is the shape reference (AGENTS.md §GOAL, D-19). Read before writing this file:
 `engines/llama.cpp/src/llama-model-loader.cpp::llama_model_loader::init_mappings` (the denominator
@@ -53,8 +63,10 @@ Modes are mutually exclusive and an unknown flag is refused rather than ignored:
                     set, never on the artifact; the device path is never invoked here.
     --check-only    --verify plus --selftest, then one RESULT line. Refuses --device outright and
                     goes red if the device path was exercised in this process.
-    --device        CPU path plus the staging/read-back copy. Without this flag the device path
-                    refuses by name, so a copy can never happen by accident.
+    --device        CPU path plus the staging/read-back copy and the two device controls (the
+                    eight CPU controls run here too — device mode never reports controls=0).
+                    Without this flag the device path refuses by name, so a copy can never
+                    happen by accident.
     --fault NAME    run one control by name (what --selftest runs, one control at a time)
 
 CPU-only by default: no HIP import, no device call, no lock of any kind (this file owns none — a
@@ -693,8 +705,84 @@ class Stager(object):
 # -----------------------------------------------------------------------------------------------
 # 5. the device path — guarded, and never reached from the selftest
 # -----------------------------------------------------------------------------------------------
+def _stage_fill(hip, source, r, path):
+    """Read the run's bytes into the pinned staging buffer, refusing on any short read."""
+    pos = 0
+    while pos < r["length"]:
+        want = min(CHUNK, r["length"] - pos)
+        got = source.raw_read(path, r["read_off"] + pos, want)
+        if len(got) != want:
+            raise StageError("stage-short-read",
+                             "run %d (%s) asked for %d B at +%d and got %d B; a partial staging "
+                             "buffer would still copy and still hash" % (r["idx"], r["slab"],
+                                                                         want, pos, len(got)))
+        hip.fill(pos, got)
+        pos += want
+
+
+def _digest_stage(hip, n):
+    """sha256 over exactly the first `n` bytes of the staging buffer."""
+    h = hashlib.sha256()
+    pos = 0
+    while pos < n:
+        want = min(CHUNK, n - pos)
+        h.update(hip.view(pos, want))
+        pos += want
+    return h.hexdigest()
+
+
+def stage_run_to_device(hip, source, r, path):
+    """fill + one bulk H2D; returns the device address the run was copied to.
+
+    Fill and copy are split from the read-back on purpose: the device controls must be able to
+    change what sits in the device BUFFER between the two, with the artifact, the host source and
+    the staging buffer all still holding the correct bytes — that is the only corruption a
+    read-back digest comparison can see (pitfalls/40 §a-check-whose-reference-side-is-derived-
+    from-the-thing-under-test, applied to arms)."""
+    _stage_fill(hip, source, r, path)
+    dev = _shift(hip.ptrs[r["slab"]], r["slab_off"])
+    hip.to_device(dev, r["length"])
+    return dev
+
+
+def device_read_back(hip, r, dev, n_back=None):
+    """One bulk D2H of `n_back` bytes, hashed over exactly those bytes; returns (sha, n_back).
+
+    `n_back` defaults to the run's length and is only ever smaller (the short-d2h control). A
+    real `hipMemcpy` bulk copy either copies the whole request or returns an error — `hip` has
+    no short-without-error — so the observable shape of "a short read-back" is a short REQUEST,
+    against stub and hardware alike; what reddens it is that the returned count is not the run's
+    length, which is why the hash covers the request size and the caller compares counts, not
+    just digests (stale staging bytes left beyond a short copy can equal the file's own bytes — a
+    digest alone would not see the truncation)."""
+    n_back = r["length"] if n_back is None else n_back
+    if not 0 <= n_back <= r["length"]:
+        raise StageError("readback-size",
+                         "asked to read back %d B of a %d B run; a read-back cannot be longer "
+                         "than what was staged, and a negative count cannot adjudicate anything"
+                         % (n_back, r["length"]))
+    if n_back:
+        hip.from_device(dev, n_back)
+    return _digest_stage(hip, n_back), n_back
+
+
+def device_verdict(r):
+    """Score one staged run's read-back against the two host digests and set `staged`.
+
+    The verdict is re-computed from the row's current fields so a control that re-stages (and
+    thereby repairs) a run leaves the row's verdict true to the device state at print time."""
+    if r.get("dev_read", 0) == 0:
+        return "STAGE-NO-READBACK"
+    if r["dev_read"] != r["length"]:
+        return "STAGE-MISMATCH"
+    return ("STAGED" if r.get("dev_sha") == r["plan_sha"] == r["ref_sha"]
+            else "STAGE-MISMATCH")
+
+
 def stage_device(L, stager, rows, source, enabled, hip=None):
-    """Copy each VERIFIED run into its slab and read it back, then hash what came back.
+    """Copy each VERIFIED run into its slab, read it back, and record the per-run read-back
+    digest and byte count on the row; `print_readbacks` turns those fields into the evidence
+    records, and this function never prints.
 
     The guard is a parameter, not a CLI check, so an in-process caller that forgot the flag is
     refused by the same sentence the command line is. `enabled` False raises; it does not quietly
@@ -723,31 +811,18 @@ def stage_device(L, stager, rows, source, enabled, hip=None):
     hip.alloc_stage(peak)
     for r in staged:
         path = source.path_for(r["slab"])
-        pos = 0
-        while pos < r["length"]:
-            want = min(CHUNK, r["length"] - pos)
-            got = source.raw_read(path, r["read_off"] + pos, want)
-            if len(got) != want:
-                raise StageError("stage-short-read",
-                                 "run %d (%s) asked for %d B at +%d and got %d B; a partial staging "
-                                 "buffer would still copy and still hash" % (r["idx"], r["slab"],
-                                                                             want, pos, len(got)))
-            hip.fill(pos, got)
-            pos += want
-        dev = _shift(hip.ptrs[r["slab"]], r["slab_off"])
-        hip.to_device(dev, r["length"])
-        hip.from_device(dev, r["length"])
-        h = hashlib.sha256()
-        pos = 0
-        while pos < r["length"]:
-            want = min(CHUNK, r["length"] - pos)
-            h.update(hip.view(pos, want))
-            pos += want
-        r["dev_sha"] = h.hexdigest()
-        r["staged"] = "STAGED" if r["dev_sha"] == r["plan_sha"] == r["ref_sha"] else "STAGE-MISMATCH"
+        dev = stage_run_to_device(hip, source, r, path)
+        r["dev_sha"], r["dev_read"] = device_read_back(hip, r, dev)
+        r["staged"] = device_verdict(r)
         if r["staged"] != "STAGED":
-            r["reasons"].append("read-back:device digest %s.. != host %s../%s.."
-                                % (r["dev_sha"][:12], r["plan_sha"][:12], r["ref_sha"][:12]))
+            if r["dev_read"] != r["length"]:
+                r["reasons"].append(
+                    "read-back-short:D2H returned %d of %d B; a digest over bytes that were "
+                    "never read back cannot certify them" % (r["dev_read"], r["length"]))
+            else:
+                r["reasons"].append(
+                    "read-back-digest:device read-back %s.. != host plan %s.. header %s.."
+                    % (r["dev_sha"][:12], r["plan_sha"][:12], r["ref_sha"][:12]))
     for r in refused:
         # The draft block is bf16 on disk and policy A prices it at Q4_K/Q8_0; loader.stage_draft
         # refuses to hand those bytes back under a quantized label, and this file obeys that refusal
@@ -774,7 +849,9 @@ def _shift(dev_ptr, delta):
 # -----------------------------------------------------------------------------------------------
 # Which rule a run's reason string belongs to. The control that must fire a named rule asks for that
 # name, so "something went red" is never enough (pitfalls/40 §a-negative-control-with-an-empty-
-# must-catch-set): each of these is a rule the CPU path also enforces on the real bytes.
+# must-catch-set): each of these is a rule the CPU path also enforces on the real bytes. The
+# device path carries its own reasons and its own rule set (`DEVICE_RULES` below); `_tag_of`
+# deliberately does not match them, so a device reason can never be double-counted as a CPU rule.
 JUDGEMENTS = ("bound", "span-records", "span-ruler", "membership", "consecutive", "two-rulers",
               "short-read", "short-read-ref", "digest", "read-error")
 _REASON_TAG = (("short-read-ref", "short-read-ref"), ("short-read", "short-read"),
@@ -804,6 +881,38 @@ def judge(rows):
             if tag:
                 red.add(tag)
     return {name: name not in red for name in JUDGEMENTS}
+
+
+# The device-side rules, same shape as JUDGEMENTS: each is reddened by a named reason prefix that
+# only the device path appends, so the `run-rule-*` naming stays uniform and a device failure can
+# never masquerade as (or cancel) a CPU one. There is deliberately no "no read-back at all" rule:
+# a stageable run that produced no digest is caught by `device_readback_count_eq_plan` and the
+# digest check (a rule that no code path can append would be a green-by-construction check).
+DEVICE_RULES = ("readback-short", "readback-digest")
+_DEVICE_REASON = (("read-back-short:", "readback-short"),
+                  ("read-back-digest:", "readback-digest"))
+
+
+def _dev_tag_of(reason):
+    for pre, tag in _DEVICE_REASON:
+        if reason.startswith(pre):
+            return tag
+    return None
+
+
+def _has_dev_tag(row, tag):
+    return any(_dev_tag_of(x) == tag for x in row["reasons"])
+
+
+def jdev(rows):
+    """{device rule: ok} over a set of run rows, read off the read-back reasons they carry."""
+    red = set()
+    for r in rows:
+        for reason in r["reasons"]:
+            tag = _dev_tag_of(reason)
+            if tag:
+                red.add(tag)
+    return {name: name not in red for name in DEVICE_RULES}
 
 
 class Verifier(object):
@@ -841,6 +950,9 @@ RUN_RE = re.compile(r"^RUN idx=(\d+) slab=(\S+) slab_off=(\d+) ", re.M)
 TENSOR_RE = re.compile(r"^TENSOR name=(\S+) slab=(\S+) run=(\d+) ", re.M)
 SLAB_RE = re.compile(r"^SLAB name=(\S+) source=(\S+) ", re.M)
 CONTROL_RE = re.compile(r"^CONTROL name=(\S+) fired=(RED|SILENT) ", re.M)
+# The per-run device read-back record (window-c §2: the digest must live in the evidence file).
+# Anchored, and the trailer keyword is `TRAILER` — a `^READBACK ` parse cannot count it.
+READBACK_RE = re.compile(r"^READBACK idx=(\d+) slab=(\S+) length=(\d+) ", re.M)
 RATE = re.compile(r"(\btok/s\b|\bGB/s\b|\bMB/s\b|[0-9](\.[0-9]+)?\s*ms\b|elapsed|duration)", re.I)
 
 
@@ -918,6 +1030,44 @@ def print_tensors(p, stager, L, idxs, rows):
     p.say("TRAILER tensors_planned=%d tensors_printed=%d tensors_parsed=%d"
           % (shown, shown, parsed))
     return shown, parsed
+
+
+def print_readbacks(p, stager, rows):
+    """One READBACK record per plan run — the window-c §2 fix: the device digest must live in the
+    evidence file, not only in memory (the first device run's 464 RUN records all said `dev=-`).
+
+    The population is the plan's rows, derived: stageable runs (source == gguf) carry the
+    read-back digest, the returned byte count and a verdict; draft-sourced runs carry
+    verdict=refused-not-wired so every plan run has exactly one READBACK line and the count can
+    be enforced. The trailer's printed-vs-parsed counts are what `device_readback_lines_reconciled`
+    and `device_readback_count_eq_plan` re-check against this text."""
+    L = stager.L
+    printed = n_expected = n_done = n_match = n_refused = 0
+    for r in rows:
+        if L.lay.slab(r["slab"]).source == "gguf":
+            n_expected += 1                       # the stageable denominator, derived from the plan
+            dr = r.get("dev_read", 0)
+            sha = r.get("dev_sha") or "-"
+            ok = (dr == r["length"] and len(sha) == 64 and sha != EMPTY_SHA256
+                  and sha == r["plan_sha"] == r["ref_sha"])
+            n_done += 1 if dr > 0 else 0
+            n_match += 1 if ok else 0
+            verdict = ("MATCH" if ok else "SHORT" if 0 < dr < r["length"]
+                       else "ABSENT" if dr == 0 else "MISMATCH")
+        else:
+            dr, sha = 0, "-"
+            verdict = r["staged"]                 # refused-not-wired; REFUSED-LEAKED if it leaks
+            n_refused += 1
+        p.say("READBACK idx=%d slab=%s length=%d dev_read=%d readback_sha256=%s "
+              "expected_plan_sha256=%s expected_header_sha256=%s verdict=%s"
+              % (r["idx"], r["slab"], r["length"], dr, sha, r["plan_sha"], r["ref_sha"], verdict))
+        printed += 1
+    parsed = len(READBACK_RE.findall(p.text()))
+    p.say("TRAILER readback_printed=%d readback_parsed=%d readback_expected=%d readback_done=%d "
+          "readback_match=%d readback_refused=%d"
+          % (printed, parsed, n_expected, n_done, n_match, n_refused))
+    return dict(printed=printed, parsed=parsed, expected=n_expected, done=n_done,
+                match=n_match, refused=n_refused)
 
 
 # -----------------------------------------------------------------------------------------------
@@ -1170,16 +1320,133 @@ def c_device_guard(ctx):
         "the device path RAN without --device; that is the accident the guard exists for"
 
 
+def _device_target(ctx, why):
+    """Pick a staged run for a device control to adjudicate against, or refuse out loud.
+
+    The bytes are staged through a bounded window copy so those reads land in `copy_bytes`
+    (`bytes-read-reconciled` has to balance over every source), and the target must be a run the
+    main device pass actually staged — a control cannot corrupt a run that never went there."""
+    stager = ctx["stager"]
+    if ctx.get("hip") is None:
+        raise StageError("control-device-not-running",
+                         "%s is a --device control: it needs the live staging pass and runs in "
+                         "device mode only (--check-only certifies no device call happened)" % why)
+    byidx = {r["idx"]: r for r in ctx["rows"]}
+    t = _pick(stager, ctx["idxs"],
+              lambda i: i in byidx and byidx[i]["verdict"] == "VERIFIED"
+              and byidx[i]["staged"] == "STAGED"
+              and stager.L.lay.slab(byidx[i]["slab"]).source == "gguf",
+              why)
+    src = load_windows(stager, ctx["source"], [t])
+    return t, byidx[t], src
+
+
+def c_device_corrupt(ctx):
+    """Flip ONE byte of the DEVICE-side buffer and require the read-back comparison to notice.
+
+    The artifact, the host source and the staging buffer all still hold the correct bytes here:
+    the only thing that differs from a clean stage is what sits in the device BUFFER between the
+    H2D and the D2H. A corruption both digests already read could not redden a digest comparison
+    (that is why `corrupted-byte` plants in one lane), so this is the only shape of corruption
+    this path can see — and without it the read-back is decorative even when it runs
+    (window-c §2). The restore leg matters as much as the corrupt leg: without it a mismatch
+    could mean a broken rig rather than the injected corruption.
+
+    The mechanism is a deliberate 1-byte H2D written through `hip.fill`/`hip.to_device`/`hip.
+    from_device`/`hip.view` — the same four calls on the real `HipStaging` and on the stub, so
+    nothing stub-only is on the control's path."""
+    hip = ctx["hip"]
+    t, row, src = _device_target(ctx, "device-corrupt: a staged run to corrupt in the device buffer")
+    path = src.path_for(row["slab"])
+    dev = stage_run_to_device(hip, src, row, path)
+    sha0, back0 = device_read_back(hip, row, dev)
+    clean_ok = back0 == row["length"] and sha0 == row["plan_sha"] == row["ref_sha"]
+    hip.from_device(dev, 1)
+    was = hip.view(0, 1)[0]
+    hip.fill(0, bytes([was ^ 0xFF]))
+    hip.to_device(dev, 1)                       # the corruption: one wrong byte INTO the device
+    hip.from_device(dev, 1)
+    now = hip.view(0, 1)[0]
+    sha1, back1 = device_read_back(hip, row, dev)
+    corrupt_caught = (back1 == row["length"] and was != now and sha1 != row["plan_sha"])
+    stage_run_to_device(hip, src, row, path)    # restore the slab to the artifact's bytes
+    row["dev_sha"], row["dev_read"] = device_read_back(hip, row, dev)
+    row["staged"] = device_verdict(row)
+    restore_ok = row["staged"] == "STAGED"
+    fired = clean_ok and corrupt_caught and restore_ok
+    return fired, (
+        "one byte of the DEVICE-side buffer at run %d (%s) slab_off+0 flipped by a deliberate "
+        "1-byte H2D: 0x%02X -> 0x%02X (artifact, host source and staging untouched)" % (
+            t, row["slab"], was, now)), (
+        "clean read-back %d/%d B ok=%s; corrupted: readback_sha256 %s.. vs expected %s.. over "
+        "%d/%d B (digest-only judgement, count is right) -> would score %s; restored: %s "
+        "readback_sha256 %s.." % (
+            back0, row["length"], "ok" if clean_ok else "NOT-ok",
+            sha1[:12], row["plan_sha"][:12], back1, row["length"],
+            device_verdict(dict(row, dev_sha=sha1)), row["staged"], row["dev_sha"][:12]))
+
+
+def c_device_short_d2h(ctx):
+    """Read back one byte SHORT and require the returned-count rule to redden.
+
+    A real `hipMemcpy` bulk copy never short-copies without an error, so the fault this models is
+    the one that IS observable on hardware: a read-back that asks for less than the run's length
+    (a stale `n` in the copy call, a run length taken from the wrong field). The digest may or
+    may not move — bytes left in staging past a short copy can be the run's own — so what reddens
+    this is `dev_read != length`, which is why the verdict is a count rule first (`pitfalls/40
+    §a-check-whose-predicate-is-True`: a digest comparison that cannot see the truncation is no
+    test of it). Restore leg as in `device-corrupt`."""
+    hip = ctx["hip"]
+    t, row, src = _device_target(ctx, "device-short-d2h: a staged run to read back short")
+    if row["length"] < 2:
+        raise StageError("control-target",
+                         "short-d2h needs a run of at least 2 B; sampled run %d is %d B" % (
+                             t, row["length"]))
+    path = src.path_for(row["slab"])
+    dev = stage_run_to_device(hip, src, row, path)
+    sha_s, back_s = device_read_back(hip, row, dev, row["length"] - 1)
+    short_caught = (back_s == row["length"] - 1
+                    and device_verdict(dict(row, dev_sha=sha_s, dev_read=back_s))
+                    == "STAGE-MISMATCH")
+    stage_run_to_device(hip, src, row, path)
+    row["dev_sha"], row["dev_read"] = device_read_back(hip, row, dev)
+    row["staged"] = device_verdict(row)
+    fired = short_caught and row["staged"] == "STAGED"
+    return fired, (
+        "run %d (%s, %d B) read back %d B — one byte short; the count rule, not the digest, is "
+        "what reddens it" % (t, row["slab"], row["length"], back_s)), (
+        "short: readback_sha256 %s.. vs expected %s.. over %d/%d B -> scores %s; restored: %s "
+        "readback_sha256 %s.." % (
+            sha_s[:12], row["plan_sha"][:12], back_s, row["length"],
+            device_verdict(dict(row, dev_sha=sha_s, dev_read=back_s)),
+            row["staged"], row["dev_sha"][:12]))
+
+
+# (`name`, what it injects, fn, modes) — `cpu` controls run in every mode that runs controls;
+# `device` controls run in device mode only (a CPU mode that could touch the iGPU is not a CPU
+# selftest). The population any count is checked against is DERIVED from this table and the mode.
 CONTROLS = (
-    ("short-read", "one run's planned range served one byte short", c_short_read),
-    ("wrong-offset", "one run read from file_off+1 instead of its planned file_off", c_wrong_offset),
-    ("wrong-width", "one member tensor repriced at the wrong bpw on the ruler side", c_wrong_width),
-    ("skipped-run", "one run dropped from the plan", c_skipped_run),
-    ("corrupted-byte", "one byte of the in-memory copy flipped", c_corrupted_byte),
-    ("duplicated-run", "one run counted twice", c_duplicated_run),
-    ("window-guard", "the control source asked for bytes outside every window", c_window_guard),
-    ("device-guard", "the device path called with the flag absent", c_device_guard),
+    ("short-read", "one run's planned range served one byte short", c_short_read, "cpu"),
+    ("wrong-offset", "one run read from file_off+1 instead of its planned file_off", c_wrong_offset,
+     "cpu"),
+    ("wrong-width", "one member tensor repriced at the wrong bpw on the ruler side", c_wrong_width,
+     "cpu"),
+    ("skipped-run", "one run dropped from the plan", c_skipped_run, "cpu"),
+    ("corrupted-byte", "one byte of the in-memory copy flipped", c_corrupted_byte, "cpu"),
+    ("duplicated-run", "one run counted twice", c_duplicated_run, "cpu"),
+    ("window-guard", "the control source asked for bytes outside every window", c_window_guard,
+     "cpu"),
+    ("device-guard", "the device path called with the flag absent", c_device_guard, "cpu"),
+    ("device-corrupt", "one byte of the DEVICE-side buffer flipped via a deliberate 1-byte H2D",
+     c_device_corrupt, "device"),
+    ("device-short-d2h", "the D2H read-back requests one byte less than the run's length",
+     c_device_short_d2h, "device"),
 )
+
+
+def controls_for(mode):
+    """The control population this mode must exercise — derived from CONTROLS, never typed."""
+    return [c for c in CONTROLS if c[3] == "cpu" or mode == "device"]
 
 
 # -----------------------------------------------------------------------------------------------
@@ -1204,7 +1471,7 @@ def _order_log_lines():
 
 
 def add_checks(v, L, stager, p, mode, idxs, rows, cov, cov_addr, source, ran_selftest, sample,
-               order_before, order_after, staged_bytes):
+               order_before, order_after, staged_bytes, rd=None, shadow=False):
     full = mode in ("verify", "check-only", "device")
     digests = mode != "plan-only"
     # ---- A. the plan this file executed is the loader's plan, field for field --------------------
@@ -1300,31 +1567,37 @@ def add_checks(v, L, stager, p, mode, idxs, rows, cov, cov_addr, source, ran_sel
             % (source.bytes_read, source.reads, sum(r["read"] + r["ref_read"] for r in rows)
                + staged_bytes, source.copy_bytes))
     # ---- D. the controls ---------------------------------------------------------------------------
-    if ran_selftest:
+    # device mode runs the controls too: the first device run printed `controls=0 fired=0`, so
+    # none of the injection controls had ever touched the path being claimed.
+    ran_ctl = ran_selftest or mode == "device"
+    if ran_ctl:
+        pop = controls_for(mode)
         printed = len(CONTROL_RE.findall(p.text()))
         fired = len([c for c in v.controls if c[1]])
         v.check("controls-population-derived",
-                printed == len(v.controls) == len(CONTROLS), len(CONTROLS),
-                "%d controls declared, %d printed a CONTROL line, %d parsed back off the text"
-                % (len(CONTROLS), len(v.controls), printed))
-        v.check("controls-all-fired", fired == len(CONTROLS) and bool(CONTROLS), len(CONTROLS),
-                "%d/%d fired; silent: %s" % (fired, len(CONTROLS),
+                printed == len(v.controls) == len(pop), len(pop),
+                "%d controls declared for mode=%s, %d printed a CONTROL line, %d parsed back off "
+                "the text%s" % (len(pop), mode, len(v.controls), printed,
+                                " (device mode adds device-corrupt and device-short-d2h; a CPU "
+                                "mode cannot run them and must not claim to)"
+                                if mode == "device" else ""))
+        v.check("controls-all-fired", fired == len(pop) and bool(pop), len(pop),
+                "%d/%d fired; silent: %s" % (fired, len(pop),
                                              [c[0] for c in v.controls if not c[1]] or "none"))
         v.check("selftest-window-bounded", sample is not None and sample[1] <= SELFTEST_CAP,
                 sample[1] if sample else 0,
                 "the controls digested %d B of a %d B cap, so the CPU selftest is not reading the "
                 "artifact end to end" % (sample[1] if sample else 0, SELFTEST_CAP))
-    # ---- E. the guards -------------------------------------------------------------------------------
+    # ---- E. the guards ---------------------------------------------------------------------------
     if mode in ("plan-only", "verify", "selftest", "check-only"):
         v.check("device-path-not-exercised", DEVICE_EXERCISED["calls"] == 0,
                 DEVICE_EXERCISED["calls"],
                 "mode=%s took %d device calls; %s" % (mode, DEVICE_EXERCISED["calls"],
                                                       DEVICE_EXERCISED["notes"] or "no notes"))
-    if mode == "device":
-        v.check("device-path-was-exercised", DEVICE_EXERCISED["calls"] >= 1,
-                DEVICE_EXERCISED["calls"],
-                "--device asked for a copy and %d device construction(s) happened" % (
-                    DEVICE_EXERCISED["calls"]))
+    # `device-path-was-exercised` is GONE (window-c §2: "--device asked for a copy and 1 device
+    # construction(s) happened" is answered by construction and cannot come back RED). Device
+    # mode is instead guarded by section F, which can only go green if every staged run's bytes
+    # came back and the device controls reddened the comparison.
     v.check("data-reads-went-through-the-gated-reader",
             (source.data_read and source.token is not None) or not source.data_read, 1,
             "data_read=%s token_granted=%s grants=%d (tools/audit_published_quant.require_selftest "
@@ -1352,6 +1625,78 @@ def add_checks(v, L, stager, p, mode, idxs, rows, cov, cov_addr, source, ran_sel
             "%d printed lines scanned for tok/s, GB/s, MB/s, ms, elapsed, duration: %s" % (
                 len(p.lines), rates or "none"))
 
+    # ---- F. the device read-back ---------------------------------------------------------------
+    # window-c §2's fix. Each of these goes red on a real, reachable state: a missing per-run
+    # digest, a short read-back, a corrupted device byte, a control that never fired, or a
+    # roster that drops a check-only check (the 31-vs-34 inversion).
+    if mode == "device" and not shadow:
+        stageable = [r for r in rows if L.lay.slab(r["slab"]).source == "gguf"]
+        expected = len(stageable)                   # plan runs minus draft-sourced: derived, not 464
+        done = [r for r in stageable if r.get("dev_read", 0) > 0]
+        rb_parsed = len(READBACK_RE.findall(p.text()))
+        v.check("device_readback_lines_reconciled",
+                rd is not None and rd["printed"] == rd["parsed"] == rb_parsed == len(rows)
+                and rb_parsed > 0, rb_parsed,
+                "%d READBACK records printed, %d parsed back off the text — one per plan run "
+                "(%d stageable + %d draft-refused); printed-vs-parsed must agree or a parser "
+                "matching nothing would pass" % (
+                    rd["printed"] if rd else 0, rb_parsed, expected,
+                    len(rows) - expected if rd else 0))
+        v.check("device_readback_count_eq_plan",
+                rd is not None and len(done) == expected and expected > 0, expected,
+                "denominator derived from the plan: %d runs staged - %d draft-sourced = %d "
+                "stageable; %d of them produced a read-back digest. A --device run with fewer "
+                "digests than stageable runs FAILS here (the old device run had 0), and the 464 "
+                "is never typed: it is len(plan) minus the plan's draft-sourced rows" % (
+                    len(rows), len(rows) - expected, expected, len(done)))
+        dred = jdev(rows)
+        for name in DEVICE_RULES:
+            bad = [str(r["idx"]) for r in rows if _has_dev_tag(r, name)]
+            v.check("run-rule-" + name, dred[name], len(rows),
+                    "%d/%d runs clean on %s; offending run indices: %s" % (
+                        len(rows) - len(bad), len(rows), name, ",".join(bad[:12]) or "none"))
+        mism = [str(r["idx"]) for r in stageable
+                if not (r.get("dev_read", 0) == r["length"]
+                        and len(r.get("dev_sha") or "") == 64
+                        and (r.get("dev_sha") or "-") != EMPTY_SHA256
+                        and r.get("dev_sha") == r["plan_sha"] == r["ref_sha"])]
+        v.check("device_readback_digest_eq_file_digest", not mism and expected > 0, expected,
+                "%d/%d stageable runs: the D2H read-back digest equals BOTH host digests (the "
+                "artifact-region digests the plan lane and the header lane produced "
+                "independently); offenders: %s" % (expected - len(mism), expected,
+                                                   ",".join(mism[:12]) or "none"))
+        dev_ctls = [c for c in v.controls if c[0] in
+                    ("device-corrupt", "device-short-d2h")]
+        required = len([c for c in CONTROLS if c[3] == "device"])
+        v.check("device_corruption_control_reddens",
+                len(dev_ctls) == required and all(c[1] and c[2] != "(never injected)"
+                                                  for c in dev_ctls),
+                required,
+                "%d device controls declared; fired: %s. device-corrupt flips one byte of the "
+                "DEVICE-side buffer by a deliberate 1-byte H2D and the read-back digest "
+                "comparison must go STAGE-MISMATCH, then a clean re-stage must match again; "
+                "device-short-d2h reads back one byte short and the returned-count rule must "
+                "redden. Without both, the read-back is decorative even when it runs" % (
+                    required, ["%s=%s" % (c[0], "RED" if c[1] else "SILENT")
+                               for c in dev_ctls] or "none"))
+        # The 31-vs-34 inversion, made structurally impossible: shadow-evaluate the whole
+        # check-only roster in this process (the CPU-path data is identical here) and require
+        # device mode to have run every name it computes. A future check gated to check-only
+        # alone shows up here by name instead of quietly shrinking the device run.
+        shadow_v = Verifier()
+        add_checks(shadow_v, L, stager, p, "check-only", idxs, rows, cov, cov_addr, source,
+                   True, sample, order_before, order_after, staged_bytes, rd, shadow=True)
+        have = {row[0] for row in v.rows}
+        probe = {row[0] for row in shadow_v.rows}
+        carve = {"device-path-not-exercised"}
+        missing = sorted(probe - have - carve)
+        v.check("device_mode_checks_superset_of_check_only", not missing, len(probe),
+                "shadow pass over the check-only roster computed %d named checks; device mode has "
+                "run %d of them at this point; names check-only has that device lacks: %s. The "
+                "only carved-out name is device-path-not-exercised, which --device makes self-"
+                "contradictory (window-c §2 replaced it); counts here precede the RESULT line's "
+                "totals" % (len(probe), len(probe & have), ",".join(missing) or "none"))
+
 
 # -----------------------------------------------------------------------------------------------
 # 11. CLI
@@ -1362,13 +1707,13 @@ OPTS = ("--keep-evidence", "--fault", "--cap")
 USAGE = __doc__.split("CPU-only by default")[0]
 
 
-def run_controls(p, v, L, stager, source, idxs, only=None):
-    chosen = [c for c in CONTROLS if only is None or c[0] == only]
+def run_controls(p, v, L, stager, source, idxs, only=None, mode="selftest", hip=None, rows=None):
+    chosen = [c for c in controls_for(mode) if only is None or c[0] == only]
     if only is not None and not chosen:
-        raise StageError("unknown-control", "%r is not a control; the population is %s"
-                         % (only, [c[0] for c in CONTROLS]))
-    for name, what, fn in chosen:
-        ctx = dict(stager=stager, L=L, source=source, idxs=idxs)
+        raise StageError("unknown-control", "%r is not a control %s can run; the population is %s"
+                         % (only, mode, [c[0] for c in controls_for(mode)]))
+    for name, what, fn, _modes in chosen:
+        ctx = dict(stager=stager, L=L, source=source, idxs=idxs, hip=hip, rows=rows or [])
         try:
             fired, injected, detail = fn(ctx)
         except StageError as ex:
@@ -1447,9 +1792,11 @@ def main(argv):
     hip = None
     staged_bytes = 0
     ran_selftest = mode in ("selftest", "check-only")
+    ran_ctl = ran_selftest or mode == "device"
     sample = None
     rows, cov = [], stager.coverage([], [])
     idxs = []
+    rd = None
     failure = None
     try:
         if mode == "selftest":
@@ -1459,7 +1806,7 @@ def main(argv):
                   % (len(idxs), sample_bytes, cap))
         else:
             idxs = list(range(stager.plan_count))
-            if ran_selftest:
+            if ran_ctl:
                 # the controls always judge a bounded, derived sample; --check-only is the whole plan
                 # digested plus this, never the whole plan digested twice over
                 ctl_idxs, sample_bytes = choose_sample(stager, cap)
@@ -1470,23 +1817,29 @@ def main(argv):
         print_slabs(p, L, stager, idxs)
         if mode != "plan-only":
             rows = stager.verify(source, idxs=idxs)
+        rd = None
+        if mode == "device":
+            # stage BEFORE the run rows are printed: the first device run printed its RUN lines
+            # before staging, so all 464 records it left said dev=- / staged=not-attempted and
+            # the digests existed only in memory (window-c §2)
+            hip, slabs, peak = stage_device(L, stager, rows, source, True)
         print_rows(p, stager, idxs, rows)
         cov = stager.coverage(idxs, rows)
         print_tensors(p, stager, L, idxs, rows)
         if mode == "device":
-            hip, slabs, peak = stage_device(L, stager, rows, source, True)
             for a in hip.allocs:
                 p.say("ALLOC slab=%s bytes=%d rc=%d gtt_after=%s mem_available_after=%s"
                       % (a["slab"], a["bytes"], a["rc"], a["after"].get("gtt_used_bytes"),
                          a["after"].get("mem_available_bytes")))
+            rd = print_readbacks(p, stager, rows)
             p.say("STAGED slabs=%d peak_staging=%d staged=%d mismatched=%d refused=%d"
                   % (len(slabs), peak,
                      sum(1 for r in rows if r["staged"] == "STAGED"),
                      sum(1 for r in rows if r["staged"] == "STAGE-MISMATCH"),
                      sum(1 for r in rows if r["staged"] == "refused-not-wired")))
             staged_bytes = sum(r["length"] for r in rows if r["staged"] == "STAGED")
-        if ran_selftest:
-            run_controls(p, v, L, stager, source, sample[0], only)
+        if ran_ctl:
+            run_controls(p, v, L, stager, source, sample[0], only, mode=mode, hip=hip, rows=rows)
         cov_addr = stager.coverage(list(range(stager.plan_count)),
                                    [dict(idx=i, verdict="VERIFIED")
                                     for i in range(stager.plan_count)])
@@ -1495,7 +1848,7 @@ def main(argv):
               % (cov["run_set"], cov["planned_bytes"], cov["union_bytes"], cov["residue"],
                  cov["uncovered"], cov_addr["residue"], cov_addr["uncovered"]))
         add_checks(v, L, stager, p, mode, idxs, rows, cov, cov_addr, source, ran_selftest, sample,
-                   order_before, _order_log_lines(), staged_bytes)
+                   order_before, _order_log_lines(), staged_bytes, rd)
     except StageError as ex:
         failure = ex
     finally:
@@ -1513,10 +1866,12 @@ def main(argv):
         print("CHECK name=%-44s verdict=%s n=%s %s" % (name, "PASS" if ok else "FAIL", n, detail))
     bad = v.failed
     fired = sum(1 for c in v.controls if c[1])
+    rb_txt = "%d/%d" % (rd["done"], rd["expected"]) if rd else "off"
     result = ("RESULT %s mode=%s checks=%d findings=%d controls=%d fired=%d run_set=%d plan=%d "
-              "verified=%d residue=%d uncovered=%d device=%s ordering_log=%s->%s"
+              "readback=%s verified=%d residue=%d uncovered=%d device=%s ordering_log=%s->%s"
               % ("FAIL" if (bad or failure) else "PASS", mode, len(v.rows), len(bad) + (failure and 1 or 0),
                  len(v.controls), fired, len(idxs), stager.plan_count,
+                 rb_txt,
                  sum(1 for r in rows if r["verdict"] == "VERIFIED"), cov["residue"],
                  cov["uncovered"], "on" if mode == "device" else "off",
                  order_before, order_after))
