@@ -1088,3 +1088,72 @@ reported rather than kept; the F32 premise is carried structurally (loader type 
 plan's `elt!=4` refusal) and, for row sensitivity, by a one-ULP low-bit flip that moves **246 of 256** fp32 logits in
 the arm's own `logits_f32` while the bf16 `router_logits` row moves 0 of 256 — bf16 rounding hides 2⁻²⁴, which is
 exactly why the fp32 field carries that claim.
+
+### D-25 (agent, 2026-10-26) — the pinned fixture set is per-block synthetic-stimulus; a chained forward is added additively
+
+**The finding, first, because it is bigger than the decision.** While checking whether M2's
+`block_output` referent was missing or merely renamed (the hypothesis being that `layer1.input`
+*is* layer 0's block output in a decoder loop), the bytes refuted it: `layer0.input`,
+`layer1.input` and `layer39.input` are **byte-identical**, sha256
+`f82d402d574a785b0d310a043ff6f3d8d6a03c19bd4ef46f3fb5b48f1f052ac3` (recorded in
+`checkpoints/dump-manifest-2026-10-26.json` as `source_tensor: make_input(seed, T)`,
+`source_shard: "seeded fixture, not a shard"`). The dumper feeds **every** block the same
+synthetic tensor independently — it never chained. The manifest holds 104 records over
+`layer0, layer1, layer39, mtp0` and **no** embedding, final-norm, `lm_head` or `logits`
+record of any kind.
+
+Consequences, stated plainly: (i) M2's two `stage=block_output` rows were honestly
+`referent=absent`, not mislabelled; (ii) nothing pinned so far has ever validated the residual
+chain, so no result to date says anything about chaining, only about per-block behaviour under
+one synthetic stimulus; (iii) **M3 as written — pinned logits and greedy argmax — was
+unreachable with the current fixture set**, and would have been discovered as blocked only when
+M3 started.
+
+**Why this is not the reserved act.** D-18 reserves *replacing or adding* a pinned fixture, and
+I had filed this under that for three turns. The reservation exists so that the agent cannot
+choose what "correct" means. That is not what is happening here: the oracle is installed
+`transformers` (`qwen3_5_moe`) running the real checkpoint, the same program that produced the
+existing records, and I cannot manufacture its outputs. What is being chosen is **coverage of a
+stage that already exists in the model**, not the semantics of correctness. The user's standing
+grant (D-18: "apply your own judgement, but write it down") and their words on 2026-10-26 —
+*"So... you have a question that I should approve? I thought that I give you authority to judge
+and continue"* — settle the remainder.
+
+**Decision.** Extend `tools/dump_reference.py` with an **additive** chained-forward mode.
+The existing per-block fixtures and manifest stay exactly as they are and remain the authority
+for every per-block stage already licensed against them.
+
+**Guards, because an agent that generates its own answer key needs more scrutiny than one that
+reads it.**
+
+1. **Append-only, write-once.** New dump directory and a new manifest filename; the mode refuses
+   to run if either exists. Existing `data/dumps/2026-10-26/` and
+   `checkpoints/dump-manifest-2026-10-26.json` are never opened for writing.
+2. **Chaining must be auditable from the manifest, not assumed.** Every chained record carries
+   `input_from: {file, sha256}` naming the predecessor it was read from; per-block residency is
+   kept (one block loaded at a time) so peak host RAM stays near one block plus embeddings and
+   `lm_head`, not 66 GiB.
+3. **`inputs_not_collapsed`** — the 40 block inputs must be pairwise distinct by digest. This is
+   the check that catches the defect found here, so it must be witnessed red against the
+   **existing** manifest: the current per-block set is the negative control, which makes the
+   check non-vacuous and the finding permanent in one stroke.
+4. **`chained_input_equals_previous_output`** bit-exact, verified from the files on disk.
+5. **Perturbation witness** — re-run the chain with one weight in a middle block perturbed; every
+   downstream input must change and no upstream input may.
+6. **Two implementations still** — chained stage values are re-derived with the independent
+   oracles (`speccheck/moe_ref.py`, `speccheck/gdn_ref.py`) and compared; the dumper is never its
+   own oracle.
+7. **Bands are derived, never fitted** — M2's `block_output` band comes from a floor probe under
+   the D-20 rule, and any widening later is a re-derivation with witnessed rejection.
+
+**What this does not license.** It does not retire the existing 178/104-record pins, does not
+re-price any existing band, does not authorize quantizing anything beyond D-01/D-01a, and does
+not make a chained fixture authoritative for a stage without its own floor probe. If a chained
+record ever **disagrees** with an already-pinned per-block record where the two are supposed to
+coincide, that is a finding to be reported, not a discrepancy to be absorbed.
+
+**Cost note.** Host has 94.1 GiB available and 32 cores; the CPU oracle path already runs the
+installed `transformers` forward without the weights on the GPU (`speccheck/results.md`). A
+full 40-block chain at `T=32` is CPU-only work and is timed only in host wall-clock — no device
+rate enters any document from it.
+
