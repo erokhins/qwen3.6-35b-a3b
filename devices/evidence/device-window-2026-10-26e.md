@@ -78,3 +78,23 @@ explicitly which path it covers — silence is not an option.
   ladder rungs M4/M5 are untouched, and no rate from any window may be quoted beside another's ruler.
 - GDN and routed-expert gather still have no engine-side kernel: they were the hard stop of the router slice and
   remain separately delegated.
+
+## Window `f` — the device-path legs, witnessed
+
+Preconditions asserted rather than piped (`engine/work/window_f.sh`, `set -uo pipefail`, no gate inside a pipeline,
+lock status matched against the expected tag because `gpu_lock.sh status` prints `HELD: someone else` and still exits
+0, engine-down read from `rocm-smi` → `VRAM_USED=891,719,680`):
+
+```
+RESULT mode=device checks=32 findings=0 controls=10 fired=10 rows=6 arms=policy_a device=on staged=admitted hip_calls=19+24 launches=7 bytes_to_device=10903552 bytes_from_device=10921168 band_digest=27a68c7e82c9aa05
+FIRED=10 SILENT=0
+CONTROL name=topk-selection-perturbations-redden-ids fired=RED legs=device:2,host_cpubody:2
+WPRESCOPE field=wpre pair=rt_hip_device_vs_rt_hip_hostpath n=8 ndiff=5/8 ulp_per_slot=1,1,1,0,0,0,2,1 measured_max_ulp=2 scope_ulp=9 binding=documented
+```
+
+The two findings of window `e2` are gone: the `wpre` claim is split, licensed fields (`ids`, `ids_alt`, `wcast`) at
+zero tolerance, `wpre` inside a bound taken from documentation (9 ULP, §R5) rather than from the measurement (2), and
+the tie control now executes two legs **on the device path** — the thing only a window can witness. `checks` rose
+32 vs the CPU witness's 28 because the device mode runs per-path legs. Log:
+`specification/evidence/blockdevice-device-2026-10-26-f.log`. **M2's device arm is green; its terminal verdict remains
+`QUALIFIED` pending the layer-0 residual fixture, and no timing exists anywhere in these windows.**
