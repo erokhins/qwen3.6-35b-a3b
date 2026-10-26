@@ -17,6 +17,7 @@ of this file verbatim into `engine/HANDOFF-m1.md`; this file is M2 only.
 | `engine/block_gate.py` (CPU, no flags) | `blockgate-cpu-2026-10-26-fixed.log` | exit 0, 161 lines, `verdict=QUALIFIED`, `checks=17 findings=0`, `controls=11 fired=11`, `rows=58 parsed=58`, `licensed=12 accepted=12 rejected=0 unlicensed=46` |
 | `engine/block_gate.py --staged-evidence specification/evidence/stage-run-device-readback-2026-10-26.log` | `blockgate-cpu-2026-10-26-staged.log` | exit 0, same gate, plus `PRECONDITION … verdict=ADMITTED … tensors=17/17 bytes_rehashed=537215744 log_readback=463/463` |
 | the state this pass inherited | `blockgate-cpu-2026-10-26.log` | exit 1: `verdict=FAIL`, `checks=14 findings=5`, `controls=4 fired=3` (silent: `stage-row-count-mismatch`), `parsed=0 printed=58`, `licensed=12 accepted=11 rejected=1` — the five RED lines are exactly bugs (b), (c), (d) below, the parse reconciliation, and that silent control |
+| **PASS 4** `engine/block_device.py` (CPU, no device, no lock, no timing) | `blockdevice-cpu-2026-10-26-p4.log` | exit 0, `checks=28 findings=0 controls=10 fired=10`, `rows=6 parsed=6`, `licensed=3 accepted=3 rejected=0 unlicensed=3`, same `band_digest`. See §PASS 4: the `wpre` claim is split and re-derived, the tie control now runs on the path it claims, and §5 replaces both `--device` command blocks |
 
 Verbatim RESULT lines of the two green runs:
 
@@ -420,6 +421,11 @@ own tag, blocking, foreground. **`engine/block_device.py` never acquires `gpu_lo
 self-acquires and is called by a caller already holding it deadlocks silently (`pitfalls/50`), so take the
 lock outside it:
 
+> **SUPERSEDED by PASS 4 §5 — do not paste this block.** It sets no `pipefail`, it lets
+> `tools/gpu_lock.sh status` print "someone else holds it" and exit 0 anyway, and it ends with
+> `echo exit=$?`, which turns a gate refusal into a number in scrollback. PASS 4 §5 is the block that
+> refuses instead.
+
 ```bash
 cd /home/erokhins/erokhins_projects/qwen3.6-35b-a3b
 V=/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python
@@ -728,6 +734,10 @@ Main agent only: zero subagents active, halogen down through `tools/halogen_gate
 **The driver never acquires the lock itself** (`grep -c gpu_lock engine/block_device.py` = 0) — a driver that
 self-acquires and is called by a caller already holding it deadlocks silently (`pitfalls/50`):
 
+> **SUPERSEDED by PASS 4 §5 — do not paste this block**, for the reasons listed there (no `pipefail`, a
+> status print that is not a gate, an `EXIT` trap that may never fire, and `echo exit=$?` where a refusal
+> belongs). The "must be true" list below is also corrected by PASS 4 §5 and §7.
+
 ```bash
 cd /home/erokhins/erokhins_projects/qwen3.6-35b-a3b
 V=/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python
@@ -832,3 +842,327 @@ None of these is a user decision; none touches a width, a band, a floor or a rou
   pass; the gather half is still not (§8.4).
 - Pass 2 §2's `checks=17 controls=5` is superseded by `checks=23 controls=9` for the current file; the
   17-check/5-control run is a real earlier state of a smaller driver, not a stale claim about it.
+
+---
+
+## PASS 4 (2026-10-26, window `e2`'s two REDs) — the `wpre` claim is split and re-derived; the tie control learns which path it is on; the device block stops being able to swallow a refusal
+
+Inherited from the first device execution of the router arm
+(`specification/evidence/blockdevice-device-2026-10-26-e2.log`): the accepted facts (licensed router rows
+`router_logits`/`topk_ids`/`topk_weights` at `ndiff=0`, `compiled-pair-byte-identical` PASS at 22,532 B
+with `ndiff_bytes=0`, four `STAGERUN VERIFIED`, nine `BIND dev_sha256`, `launches=4+3=7`, shared-expert
+rows honestly `UNLICENSED`) stayed as they were, and two REDs were fixed. Nothing here touches the band
+file, any licence, or the digest: the run below still prints
+`27a68c7e82c9aa0507b9bcd677adc0d5d1b0bc865dd1e86bf495ed90f47392ee`.
+
+| run (this pass) | log | outcome |
+|---|---|---|
+| `engine/block_device.py` (CPU, no device, no lock, no timing) | `engine/work/blockdevice-cpu-2026-10-26-p4.log` | exit 0, `checks=28 findings=0 controls=10 fired=10`, `rows=6 parsed=6`, `licensed=3 accepted=3 rejected=0 unlicensed=3`, `verdict=QUALIFIED` |
+| replay of window `e2`'s preserved device records through the new code (no device act) | `specification/evidence/blockdevice-wpre-scope-replay-2026-10-26.log` | device-vs-host field census, attribution, premise, and the bound's rejection legs, all on the real device bytes |
+| derivation + attribution write-up | `specification/evidence/blockdevice-wpre-scope-2026-10-26.md` | the three priors, the arithmetic, and what was proven where |
+
+## 1. RED 1 — `wpre` differs between the two compilations, and that was the claim's bug, not the kernel's
+
+`PAIR … ndiff_bytes=237 … claimed_ndiff=ids=0/8,ids_alt=0/8,wcast=0/8,wpre=5/8 verdict=CLAIMED-DIFFER`
+came from window `e2`'s own records, preserved byte-for-byte in `engine/work/e2-device-records/`
+(`rt_out_device.bin` sha256 `9430f861…bb97`; the host twin and the hipcc host path are the same
+`63dccf2c…c36`). Measured on those bytes, fp32 ULP throughout:
+
+| field | ndiff | worst ULP | what it says |
+|---|---|---|---|
+| `logits`, `logits_f32` (R1) | 0/256 | 0 | R1 bit-identical — the long dot is not the mechanism |
+| `probs` (R2) | 232/256 | 3 | the two compilations' `exp()` |
+| `wpre` (R4) | 5/8 | **2** | per slot `1,1,1,0,0,0,2,1`; relative `8.5e-08…1.4e-07` |
+| `wcast` (R5) | 0/8 | 0 | the bf16 cast absorbs the fp32 spread, exactly as §R5 predicts |
+| `ids`, `ids_alt`, `wleak` | 0/8 | 0 | selection and the leak row unmoved |
+
+The attribution is answerable in four separately-checked conditions rather than asserted: R1 identical,
+`wcast` identical, **every moving `wpre` slot has its own `probs` addend moving** (5 of 5; the 3 that did
+not move had an addend that did not move), and no field outside the `exp()` path moved. All four hold, so
+this is `prototype/moe_router/moe_router_kernels.h` §R5/§`mr_exp`'s documented `exp()` scope and **not a
+codegen defect** — and each condition is its own check
+(`rt-device-host-difference-is-the-documented-exp-scope`), so the next build cannot inherit this
+conclusion as a assumption. `wpre` is `p_k / SUM_K p_j` with `p_i = exp(logit_i) / SUM_E exp(logit_e)`,
+which is the only route by which a one-step `exp()` difference reaches a `wpre` slot while R1 sits still;
+both routes are also inside the licensor's own `weights_vs_pinned_f32_ulp = 5` of the pinned pre-cast
+weights (device 4 ULP, host twin 2 ULP). The full write-up is
+`specification/evidence/blockdevice-wpre-scope-2026-10-26.md`; the driver line:
+
+```
+RTATTRIB pair=rt_hip_device_vs_rt_hip_hostpath r1_fields_bit_identical=True wcast_bit_identical=True every_moving_slot_has_a_moving_probs_addend=True fields_moving_outside_the_exp_path=none premise_ulp_to_pinned_pre_cast=4/2 (band 5) zero_tolerance_ndiff=ids=0/8,ids_alt=0/8,wcast=0/8 verdict=CONSISTENT-WITH-R5-EXP-SCOPE note=§R5 predicts exactly this shape…
+```
+
+Format is what `engine/block_device.py` prints in one line; the numbers above are what the **replay of
+window `e2`'s preserved records** produces (`blockdevice-wpre-scope-replay-2026-10-26.log`), not a witnessed
+device line — a window has to reproduce them.
+
+## 2. The claim, split: three fields stay at zero tolerance, `wpre` gets a derived scope
+
+The claim was **not** deleted — D-18 reserves relaxing a band to the user, and "stop requiring bit-identity
+on a field nobody licensed at exactness" is exactly that. Following the D-20 precedent, the requirement was
+**re-derived** with a witnessed rejection, from three independent prior sources, none of them this build's
+output (`engine/block_device.py::rt_wpre_scope`, recomputed every run; it **refuses** if the wording it
+cites has moved out of the headers):
+
+```
+WPRESCOPE field=wpre pair=rt_hip_device_vs_rt_hip_hostpath n=8 ndiff=5/8 ulp_per_slot=1,1,1,0,0,0,2,1
+  measured_max_ulp=2
+  scope_ulp=9 binding=documented §R5 'to single-digit ULP' -> at most 9 ULP
+  prior=10 triangle(2 x licensed weights_vs_pinned_f32_ulp=5, prototype/moe_router/evidence/moe-router-host-2026-10-26.json §bands)
+  prior=9  documented §R5 'to single-digit ULP' -> at most 9 ULP
+  prior=22 propagated §mr_exp 'differ by an ULP or two' (2 ULP/call) through R2 then R4 -> 1.311e-06 relative
+  verdict=WITHIN-SCOPE
+```
+
+(Line breaks added to read it; the driver prints one line, and the numbers above are the replay's on the
+preserved device record — the CPU witness prints the same line with its own pair and `measured_max_ulp=0`.)
+
+The **strictest** prior binds (9), so a document loosening cannot silently widen the bound; the measured 2
+is 4.5× inside it, and the bound is itself stricter than the prototype lane's own cross-arm allowance for
+the same field (`prototype/moe_router/gate.py::compare_arms` uses `4 × 5 = 20` ULP). The first prior's
+premise is measured, not assumed: `rt-wpre-premise-measured-against-the-pin` requires **both** compilations
+inside the licensed 5 ULP of the pinned pre-cast record before the triangle inequality is allowed to
+license a cross-compilation number. The artifact's grip on the bound is witnessed, not claimed: the
+triangle prior is exactly twice `weights_vs_pinned_f32_ulp` as the artifact reads it (5 → 10), and
+re-deriving with that number set to 1 in memory makes the prior 2 (`rt-wpre-scope-derived-from-artifacts`);
+a bound typed into this file would not move. And `rt-ulp-ruler-matches-the-licensor` forces this file's
+per-slot ULP ruler to agree with `engine/block_gate.py::ulp_diff` on the same data, so there is one ruler
+in the repo. The checks that
+replace the old single `rt-device-host-claimed-fields-identical`:
+
+| check | tolerance | reddens on |
+|---|---|---|
+| `rt-device-host-licensed-fields-identical` | zero, on `ids`, `ids_alt`, `wcast` | any single differing bit — it cannot hide inside `wpre`'s spread |
+| `rt-device-host-wpre-within-derived-scope` | the derived 9 ULP | a `wpre` slot past the scope, or a record whose slot count is not `MR_K` |
+| `rt-wpre-premise-measured-against-the-pin` | each route ≤ the licensed 5 ULP | a route that has drifted past its own licence, which voids the triangle step |
+| `rt-device-host-difference-is-the-documented-exp-scope` | the four attribution conditions | any of them failing — i.e. a codegen defect masquerading as the `exp()` story |
+| `rt-wpre-scope-derived-from-artifacts`, `rt-ulp-ruler-matches-the-licensor` | structural | a bound that is typed, or a ruler that drifted from the licensor's |
+
+## 3. The bound is seen to reject: control 10
+
+`CONTROL name=wpre-scope-rejects-a-bigger-perturbation`, six legs, every perturbation sized from the
+**limit** and never from the spread — "a limit of `>= d` rejects nothing and is not a gate"
+(`pitfalls/40-gates-and-admissions.md`). CPU witness, verbatim:
+
+```
+CONTROL name=wpre-scope-rejects-a-bigger-perturbation fired=RED legs=host_cpubody:1 claims=host_cpubody field=wpre scope=9 ULP; legs: honest-pair pair=rt_hip_hostpath_vs_rt_hip_gpp_twin ndiff=0/8 max_ulp=0 limit=9 -> INSIDE; real-arm-mistake path=host_cpubody mode=softmax_bf16 ndiff=8/8 max_ulp=53110 limit=9 -> OUTSIDE (rejected, as it must be); at-limit moved=9ULP ndiff=8/8 max_ulp=9 limit=9 -> INSIDE; one-past-limit moved=10ULP ndiff=8/8 max_ulp=10 limit=9 -> OUTSIDE; far-past-limit moved=64ULP ndiff=8/8 max_ulp=64 limit=9 -> OUTSIDE; licensed-field-one-bit xor bit0 of one slot each -> wcast=1/8, ids=1/8, ids_alt=1/8 (each must read 1/8, so the zero-tolerance half still bites one bit). No constant predicate: legs 1 and 2 are records the arms produced, 3-5 are perturbations sized from the derived limit, and 6 is a bit flip on the licensed fields. Arm legs executed by this control=host_cpubody:1; rows emitted=0
+```
+
+Leg 2 is not an injected bit: `mode=softmax_bf16` is the lane's own named mistake (the bf16-renormalise
+error in the engine header's R4 comment), `mr_mode_reaches` says it reaches `wpre`, and the arm produced
+the rejecting record. Legs 1–4 and 6 run in a CPU witness too, so the bound is falsifiable without a
+device window; the replay of the device record gives the same verdicts at 9/10/64 ULP.
+
+## 4. RED 2 — the tie control guarded one path and claimed the other
+
+It ran both legs on the host twin while the honest record of a `--device` run is the device arm's, so its
+"fields that must not move" test compared a host-twin record against a device record, found `probs` moved
+— §`mr_exp`'s documented `exp()` scope, not a `topk_ascending` bug — and read **SILENT in exactly the mode
+everything above M2 is built on**. Now: every path the run executed gets **both** legs against **its own**
+honest record (host legs on the g++ twin, device legs on the device arm, written under
+`work/rtselect_device/`), and the leg counts are read off each arm's own `RUN path=` report
+(`arm_leg`), not asserted by the control. CPU witness, verbatim:
+
+```
+CONTROL name=topk-selection-perturbations-redden-ids fired=RED legs=host_cpubody:2 claims=host_cpubody per path, each leg against that path's own honest record — host_cpubody legs=2: tie ids 0->0, other-rule row 3 (must exceed 0); ascending ids 0->6, weights 0->5, fields that had to stay put and did: none. …
+```
+
+Device mode runs the same two legs a second time under `path=device` (tie-forge reddening `ids_alt`, and
+`topk_ascending` moving `ids` and the weights), so the expected device line is
+`fired=RED legs=device:2,host_cpubody:2 claims=host_cpubody,device` (the leg map prints sorted, so `device`
+comes first) — that line is **not yet witnessed**; it needs a window. Two checks back it up:
+
+- `control-legs-cover-the-path-under-claim` — a control that declares a path with zero arm acts counted on
+  it reddens, and a control reporting device legs in a run with no device act reddens; the detail names
+  which controls declare a path and which do not, so "declare nothing" is visible rather than a loophole.
+- `device-path-claims-executed-on-device` — in a device run the path-claiming controls must have executed
+  at least two legs under `path=device`. In a CPU run it says it is vacuous and why.
+
+## 5. The device-window command, corrected (supersedes pass 2 §5 and pass 3 §7)
+
+Pass 3 §7's block could report success on a refused gate. Specifically: it set no `pipefail`, so a
+`gate | tee`/`| head` would return the last stage's status and throw the gate's away; it ran
+`tools/gpu_lock.sh status && tools/gpu_lock.sh util`, which (a) prints `HELD: someone else` and still
+exits 0, so "grepped the status" was never a gate, and (b) short-circuits on a non-zero status and sails on
+without a lock; it released the lock through an `EXIT` trap in a snippet that may never exit as its own
+process, which is how a lock outlives its window; and it ended with
+`echo exit=$?` — a number in scrollback, not a refusal anyone had to clear. Halogen-down was asserted by
+reading a message rather than the device. Corrected block, main agent only (zero workers **stopped**, not
+quiet; blocking, foreground; the driver still never acquires the lock itself, `grep -c gpu_lock
+engine/block_device.py` = 0):
+
+```bash
+set -uo pipefail                                    # before any pipeline exists; not after the first one
+cd /home/erokhins/erokhins_projects/qwen3.6-35b-a3b || exit 1
+V=/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python
+day=$(date +%F); tag="m2-device-window-$day"; log="engine/work/blockdevice-device-$day.log"
+ACQUIRED=0
+die() { printf 'WINDOW-ABORT %s\n' "$*"
+        [ "$ACQUIRED" = 1 ] && tools/gpu_lock.sh release "$tag"
+        exit 1; }
+
+# --- preconditions. Each one is a command that can refuse, and refusing stops the window. ---------
+[ -x "$V" ]                                              || die "no venv python at $V"
+[ -x engine/device/build.sh ]                            || die "engine/device/build.sh missing"
+[ -e /tmp/pi_halogen.lock ]                              && die "a halogen worker holds the stream lock; it is a device activity, so this window cannot open beside it"
+[ "${PI_PROVIDER:-}" != "halogen" ]                      || die "this shell is served by halogen; stopping the engine would decapitate the session doing the stopping"
+gl=$(tools/gpu_lock.sh status)                           || die "gpu_lock.sh status unreadable"
+printf 'gpu_lock status before acquire: %s\n' "$gl"
+[ "$gl" = "free" ]                                       || die "gpu_lock is not free ($gl) — do not steal it; wait, or stop the holder"
+tools/gpu_lock.sh acquire "$tag"                         || die "gpu_lock acquire refused"
+ACQUIRED=1
+gl=$(tools/gpu_lock.sh status)                           || die "gpu_lock status unreadable after acquire"
+printf 'gpu_lock status after acquire: %s\n' "$gl"
+case "$gl" in "HELD:"*"$tag"*) ;; *) die "acquire returned 0 but the lock is not held as $tag ($gl)" ;; esac
+grep -qF "$tag" /tmp/pi_gpu.lock/holder                  || die "the lock file does not name our tag"
+tools/gpu_lock.sh util
+GPU_LOCK_TAG="$tag" tools/halogen_gate.sh down           || die "halogen_gate down refused"
+
+# Engine-down, read off the device, not off a message. `rocm-smi --showmeminfo vram` is printed because
+# it is the line a reader expects and because it proves the device answers; it CANNOT be the gate: on this
+# APU `mem_info_vram_used` is the 2.0 GiB dedicated BAR and read 1.68 GiB while 21 GiB of weights were
+# resident (`devices/measured-facts.md` §"what each instrument can see"), so a threshold on it could never
+# fail. The counters that can see the engine are `rocm-smi --showpids` (which is what
+# `tools/halogen_gate.sh::resident_bytes` reads) and `mem_info_gtt_used`.
+rocm-smi --showmeminfo vram                              || die "cannot read vram"
+rocm-smi --showpids > engine/work/showpids-$day.txt      || die "cannot read --showpids"
+grep -q flash_serve engine/work/showpids-$day.txt        && die "flash_serve is still resident (see engine/work/showpids-$day.txt)"
+gtt=$(cat /sys/class/drm/card*/device/mem_info_gtt_used | sort -n | tail -1)
+[ "${gtt:-0}" -lt 24696061952 ]                          || die "gtt_used=${gtt} B is the recorded halogen-resident footprint (23.53-23.66 GiB, devices/measured-facts.md §Residency above the pool); the engine is up whatever the message said"
+
+b=$(./engine/device/build.sh)                            || die "engine/device/build.sh failed"
+printf '%s\n' "$b"
+[ "$(printf '%s\n' "$b" | grep -c 'BUILD ok')" = 2 ]     || die "build did not print BUILD ok twice (both arms)"
+
+# --- the gate itself: no pipeline, exit status checked before anything reads the log --------------
+"$V" engine/block_device.py --device > "$log" 2>&1
+rc=$?
+printf 'driver exit=%d log=%s\n' "$rc" "$log"
+[ "$rc" = 0 ] || die "block_device.py --device exited $rc — the refusal is in $log; a REFUSED tag is a finding, not a retry signal"
+
+# --- the log has to have PRINTED the device claims; exit 0 alone is not a device run ---------------
+missing=0
+while read -r pat; do
+  grep -q -- "$pat" "$log" || { printf 'MUST-BE-TRUE missing: %s\n' "$pat"; missing=1; }
+done <<'PAT'
+RESULT mode=device checks=32 findings=0 controls=10 fired=10
+WPRESCOPE field=wpre pair=rt_hip_device_vs_rt_hip_hostpath
+zero_tolerance_fields=ids,ids_alt,wcast
+verdict=CONSISTENT-WITH-R5-EXP-SCOPE
+scoped_field=wpre
+verdict=CLAIMED-IDENTICAL
+CONTROL name=topk-selection-perturbations-redden-ids fired=RED legs=device:2,host_cpubody:2 claims=host_cpubody,device
+real-arm-mistake path=device
+CONTROL name=wpre-scope-rejects-a-bigger-perturbation fired=RED
+CHECK name=device-path-claims-executed-on-device verdict=PASS
+PAT
+# The required lines are exact strings, so a pattern the code no longer prints reddens the window instead
+# of quietly becoming decorative. `checks=32` is 28 both-mode + 4 device-only; **if a check is added or
+# removed, update this list in the same commit** — see §5's note below the block.
+nstage=$(grep -c '^STAGERUN' "$log")
+[ "$nstage" = 4 ]                                        || die "expected 4 STAGERUN rows (three shared spans + the router span), got $nstage"
+nbind=$(grep -c '^BIND ' "$log")
+[ "$nbind" = 10 ]                                        || die "expected 10 BIND lines carrying a read-back digest (the 5 honest spans plus the 5 the corrupt control re-binds, which is what window e2 printed; pass 3 counted only the honest five), got $nbind"
+[ "$missing" = 0 ] || die "the run exited 0 without printing what a device run has to print; treat the window as not taken"
+printf 'WINDOW ok log=%s no timing taken\n' "$log"
+printf 'NOTE halogen is still DOWN. When this session has taken every timing it wants: tools/halogen_gate.sh up\n'
+tools/gpu_lock.sh release "$tag"                         || die "release refused; release by hand with the tag $tag"
+```
+
+The check count is part of the required line on purpose: a check that silently stops being reached is the
+`e2` failure class, and `checks=32` is 28 both-mode + 4 device-only (`rt-device-launch-counted`,
+`rt-device-host-licensed-fields-identical`, `rt-device-host-wpre-within-derived-scope`,
+`rt-device-host-difference-is-the-documented-exp-scope`). **If a check is added or removed, this block's
+pattern is updated in the same commit** — a required line nobody updates is a required line nobody reads.
+
+## 6. DECIDED (agent, 2026-10-26) — pass-4 drafts to transplant into `DECISIONS.md`
+
+None of these is a user decision; none touches a width, a band, a floor, a route allowance, a pinned
+fixture, or halogen. Each names the number or failure that forced it.
+
+1. **`wpre`'s cross-compilation requirement is a derived scope of 9 f32 ULP, not bit-identity and not the
+   measured 2 ULP.** DECIDED (agent), forced by window `e2`'s 237 differing bytes and by §R5's sentence
+   "reproduces the pinned f32 pre-cast weights to single-digit ULP and NOT bit-exactly". Three independent
+   priors were computed before the measurement was compared with them — triangle inequality over the
+   licensor's `weights_vs_pinned_f32_ulp = 5` (10), §R5's own wording parsed at run time (9), and an error
+   propagation from §`mr_exp`'s "an ULP or two" through R2 then R4 (22) — and the **strictest** binds, so
+   no source can silently loosen the bound and the number is not this build's output. The licensor's own
+   cross-arm allowance for this field is 20 ULP
+   (`prototype/moe_router/gate.py::compare_arms`), so this is a tightening. This is a **scope on one
+   unlicensed field**, not a band: `ids`, `ids_alt` and `wcast` stay at zero tolerance, `probs`/`logits`
+   remain reported-and-not-absorbed, and the rejection control (`wpre-scope-rejects-a-bigger-perturbation`)
+   is what makes it a bound. D-20 is the precedent (a re-derivation with a witnessed rejection), D-18 is
+   why the claim could not simply be dropped.
+2. **The first prior is only admitted while its premise is measured.** DECIDED (agent): the triangle
+   inequality needs both routes inside the licensor's band of the pinned pre-cast weights, so
+   `rt-wpre-premise-measured-against-the-pin` measures it every run (4 and 2 ULP against 5) and reddens if
+   a route drifts past its own licence. Forced by the risk of a bound derived from two licensed legs
+   quietly licensing a third number nobody licensed.
+3. **A control's path claim is counted off the arm's report, and an unfulfilled claim reddens.** DECIDED
+   (agent), forced by `topk-selection-perturbations-redden-ids` reading SILENT in `--device` while both
+   its legs ran on the host twin. `arm_leg` tallies each act under the `RUN path=` the arm printed;
+   `control-legs-cover-the-path-under-claim` and `device-path-claims-executed-on-device` are the two
+   checks. The alternative — leaving the control host-only and saying so in prose — was rejected because
+   the licensed rows in a device run are the device arm's, so a tie control that never touches the device
+   licenses nothing above M2.
+4. **The bound-rejection control runs in the CPU witness as well as in a window.** DECIDED (agent): a
+   limit that can only be falsified on a device can only be falsified when a device is free, which is the
+   scarcest resource on this box (one window per session, halogen down, lock held). Legs 1, 3, 4 and 6 need
+   no device; leg 2 runs whichever paths the run has. Control count 9 → 10, checks 23 → 28 (CPU) / 32
+   (device); `findings=0` and `fired == controls` remain the load-bearing invariants, not the counts.
+5. **The device-window block is written so a refusal cannot be swallowed, and "engine down" is read off the
+   device.** DECIDED (agent): `set -uo pipefail`, no gate inside a pipeline, every precondition a command
+   that can abort, the driver's exit status checked before any reader sees the log, and the log audited
+   against a required-line list (`exit 0` without the device claims is treated as a window not taken).
+   `rocm-smi --showmeminfo vram` is printed but explicitly not the gate: `devices/measured-facts.md`
+   §"what each instrument can see" records `mem_info_vram_used` at 1.68 GiB while 21 GiB was resident, so a
+   threshold there could never fail; `rocm-smi --showpids` (no `flash_serve`) and `mem_info_gtt_used`
+   (< the recorded 23.53–23.66 GiB resident footprint) are the instruments that can see it. The lock is
+   released on every abort path and is never self-acquired by the driver.
+
+## 7. Corrections to PASS 3's text (read with §5 above, not instead of it)
+
+- Pass 3 §7's bullet describing `PAIR pair=rt_hip_device_vs_rt_hip_hostpath … claimed_fields=ids,ids_alt,
+  wpre,wcast` and `verdict=CLAIMED-IDENTICAL` is **superseded**: `wpre` is no longer in the zero-tolerance
+  set, and the line now prints `zero_tolerance_fields=ids,ids_alt,wcast` plus `scoped_field=wpre
+  scoped_ndiff=… scoped_max_ulp=… scoped_limit_ulp=9`. The old `rt-device-host-claimed-fields-identical`
+  check name no longer exists; §2's table replaces it.
+- Pass 3 §7's "Expected verdict `QUALIFIED` with `checks=23 findings=0 controls=9 fired=9`" is superseded:
+  CPU witness is `checks=28 findings=0 controls=10 fired=10`, device mode expects
+  `checks=32 findings=0 controls=10 fired=10`, both still `QUALIFIED` with `unlicensed=3`.
+- Pass 3 §6's "the nine controls, all `fired=RED`" is now ten.
+- The `--device` command block in pass 2 §5 and pass 3 §7 is superseded by §5 above; do not paste the old
+  one, it can report success on a refused lock, a refused gate, or an engine that is still resident.
+
+## 8. Not proven by anything in pass 4 — do not cite these as done
+
+1. **Every device-mode line in §2–§4 is unwitnessed until the next window.** The `wpre` numbers come from
+   window `e2`'s preserved records replayed through the new code (no device act), and the CPU witness
+   proves the derivation and the rejection, not the device run. What a window must newly show: the
+   `WPRESCOPE`/`RTATTRIB`/split-`PAIR` lines, `real-arm-mistake path=device … OUTSIDE`, and
+   `legs=device:2,host_cpubody:2` on the tie control. Two local smokes stand in for the parts of the device
+   branch that a window would otherwise be the first to run: `engine/work/probe_pass4_local_smokes.py`
+   counts every literal-%-format `print`/`check`/`control` argument against its specifiers (68 calls, 0
+   mismatches, which is what makes the device-only `RTATTRIB`/`PAIR` lines safe to print), and then runs
+   both rewritten controls **and both path-claim checks** with `device=True` and the arm acts stubbed to the
+   preserved records: the tie control tallies `legs=device:2,host_cpubody:2`, the bound control
+   `legs=device:1,host_cpubody:1`, and `device-path-claims-executed-on-device` passes on 3 device legs. In
+   that second smoke the two controls report `fired=SILENT` **by construction** — every stub "variant" is
+   the honest record again — so it is path coverage, not a result, and its lines are prefixed `DRY>` so they
+   cannot be mistaken for evidence. The log is `engine/work/pass4-local-smokes.log`.
+2. **The scope is one token row's worth of cross-compilation evidence.** 8 slots, one pinned row, one
+   prompt token. It says the two compilations of R4 agree inside a derived bound on this row; it does not
+   say they agree over a prompt, and `router_logits`'s licence remains the prototype's floor probe, not
+   this scope.
+3. **The propagation prior is a bound, not a model.** 22 ULP comes from worst-case spacing at each step
+   (numerator, denominator, two division roundings); the measured 2 is well inside it and the binding prior
+   is the documentary one. Nobody should read `prior=22` as an expected size.
+4. **The corrected command block is unexecuted code.** Its non-device parts were exercised locally: the
+   block is extracted from this file by `engine/work/extract_device_block.py` (so the text a reader copies
+   and the text that gets checked are the same), it passes `bash -n`, and
+   `engine/work/test_device_block_audit.sh` runs the required-line audit twice — against the CPU witness
+   log, where it must and does report the device-shaped lines missing, and against a synthetic log carrying
+   every required line, where it must and does stay quiet. What has NOT run: the halogen-down read, the two
+   `rocm-smi` reads, the build step, and the driver invocation itself. Those belong to the main agent's
+   window.
+5. **The routed-expert gather and the GDN decode step are still not built** (unchanged from pass 3 §8).

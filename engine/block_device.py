@@ -6,7 +6,7 @@ gfx1151 kernel on them, adjudicate the rows it produced under the licences that 
 window this belongs to and the exact command line. This file is the driver: what runs, what is
 printed, and what it refuses.
 
-THREE WAYS THIS COULD BE DISHONEST, and the mechanism that closes each.
+FOUR WAYS THIS COULD BE DISHONEST, and the mechanism that closes each.
   * A device result without a device. A device-shaped line (`DEVICESTAGED`, `device=on`,
     `verdict=MATCH`) is printed only inside the `--device` branch, that branch only survives real
     `hipMalloc`/`hipMemcpy` calls whose counts are printed, and `device-claims-come-from-device-only`
@@ -25,6 +25,22 @@ THREE WAYS THIS COULD BE DISHONEST, and the mechanism that closes each.
     requires both the bind to break and the affected stage rows to move, so the chain is seen to be
     load-bearing rather than merely printed.
 
+A FOURTH WAY, found by running it (window e2): a claim stricter than any licence. The router arm and the
+host twin are two compilations of one translation unit, and their records differ — `wpre`, R4's fp32
+pre-cast weight, moves in 5 of 8 slots. Three of the four fields that claim compares (`ids`, `ids_alt`,
+`wcast`) are what a licence measures at exactness and stay at zero tolerance; `wpre` is documented in
+`prototype/moe_router/moe_router_kernels.h` §R5 as NOT bit-exact across an independent fp32 route, so
+requiring bit-identity there was unfireable and dropping the claim would be a relaxation the agent does not
+own (D-18). The claim is therefore split: `rt-device-host-licensed-fields-identical` keeps zero tolerance
+on the licensed trio, and `wpre` is held to a scope re-derived every run from three independent prior
+sources — the licensor's own `weights_vs_pinned_f32_ulp` applied by the triangle inequality, §R5's wording,
+and an error propagation from §mr_exp's documented `exp()` scope — with the strictest binding, its premise
+measured against the pinned pre-cast record, and a control
+(`wpre-scope-rejects-a-bigger-perturbation`) showing the bound rejects a bigger perturbation. Attribution
+is a check too (`rt-device-host-difference-is-the-documented-exp-scope`), so "the two libms differ" cannot
+become the permanent excuse for a future codegen defect. Derivation and evidence:
+`specification/evidence/blockdevice-wpre-scope-2026-10-26.md` and `engine/HANDOFF.md` §PASS 4.
+
 NO BAND IS AUTHORED HERE. Rows go through `engine/block_gate.py::stage_row` and `::adjudicate`, which
 consult only `speccheck/evidence/gdn-band-2026-10-26.json` (digest printed every run, and checked
 against the pinned `27a68c7e82c9aa05…`) and the prototype lanes' floor probes re-read from their
@@ -41,6 +57,7 @@ output. Ask for `--device` and, if this process cannot prove it performed the ac
 
 import argparse
 import hashlib
+import math
 import re
 import sys
 from pathlib import Path
@@ -67,6 +84,23 @@ RT_STAGES = ("router_logits", "topk_ids", "topk_weights")
 WITNESS = {"hip_calls_python": 0, "hip_calls_arm": 0, "launches": 0, "allocs": 0,
            "bytes_to_device": 0, "bytes_from_device": 0, "staged_runs": 0, "slabs": 0,
            "rows_emitted": 0}
+# Arm acts, counted under the path the ARM reported (`RUN path=`), not under the path the caller
+# meant. A control's leg count is read off the arm's own report, which is what makes
+# `control-legs-cover-the-path-under-claim` able to catch a control that claims a path it never ran.
+PATH_LEGS = {"host_cpubody": 0, "device": 0}
+
+
+def arm_leg(binary, plan, slab, out, device=False, fault=None, label=None):
+    """`device_arm.run_arm` with the executed path tallied. Same refusal behaviour, one more counter."""
+    rec = DA.run_arm(binary, plan, slab, out, device=device, fault=fault, label=label)
+    path = rec["run"]["path"]
+    PATH_LEGS[path] = PATH_LEGS.get(path, 0) + 1
+    return rec
+
+
+def legs_since(snapshot):
+    """The arm acts executed since `snapshot`, keyed by the path that ran them."""
+    return dict((p, n - snapshot.get(p, 0)) for p, n in PATH_LEGS.items() if n - snapshot.get(p, 0))
 
 
 class Refused(DA.Refused):
@@ -74,10 +108,17 @@ class Refused(DA.Refused):
 
 
 class Verifier:
-    """Named checks and witnessed controls (`engine/stage_run.py`::Verifier is the house shape)."""
+    """Named checks and witnessed controls (`engine/stage_run.py`::Verifier is the house shape).
+
+    A control may also declare which execution paths it covered (`claims`) and how many arm acts it
+    actually executed on each (`legs`, counted by `arm_leg` off the arms' own reports). That is what
+    separates "exercised and clean on the device path" from "not exercised on the device path" — see
+    `control-legs-cover-the-path-under-claim`.
+    """
 
     def __init__(self):
         self.names, self.red, self.controls = [], [], []
+        self.control_paths = {}
         self.fired = 0
 
     def check(self, name, predicate, detail):
@@ -88,13 +129,20 @@ class Verifier:
         print("CHECK name=%s verdict=%s %s" % (name, "PASS" if ok else "FAIL", detail))
         return ok
 
-    def control(self, name, fired, detail):
+    def control(self, name, fired, detail, legs=None, claims=None):
         self.controls.append(name)
         if fired:
             self.fired += 1
         else:
             self.red.append("control:" + name)
-        print("CONTROL name=%s fired=%s %s" % (name, "RED" if fired else "SILENT", detail))
+        self.control_paths[name] = dict(legs=dict(legs or {}), claims=tuple(claims or ()))
+        pathnote = ""
+        if legs or claims:
+            pathnote = " legs=%s claims=%s" % (
+                ",".join("%s:%d" % (p, n) for p, n in sorted((legs or {}).items())) or "none",
+                ",".join(claims or ()) or "none")
+        print("CONTROL name=%s fired=%s%s %s" % (name, "RED" if fired else "SILENT", pathnote,
+                                                 detail))
         return bool(fired)
 
 
@@ -586,6 +634,182 @@ def rt_form_distance(dumps, refname, values):
     return BG.ulp_diff(mine.contiguous(), ref)
 
 
+def rt_ordered_index(values):
+    """fp32 patterns -> the ordered integer image, so `|ia - ib|` is a ULP distance.
+
+    The same fold `engine/block_gate.py::ulp_diff` applies (`0x7FFFFFFF - signed`, written here over
+    uint32 as `0xFFFFFFFF - bits` so it is computed in int64 and cannot wrap), widened because a
+    256-element spread does not have to stay inside int32. It is an involution: `rt_from_index`
+    inverts it exactly, which is what lets a control inject a perturbation of an exact ULP size.
+    """
+    bits = np.ascontiguousarray(np.asarray(values, dtype=np.float32)).view(np.uint32).astype(np.int64)
+    return np.where(bits < 0x80000000, bits, 0xFFFFFFFF - bits)
+
+
+def rt_from_index(index):
+    """The exact inverse of `rt_ordered_index`, back to fp32 values."""
+    bits = np.where(index < 0x80000000, index, 0xFFFFFFFF - index).astype(np.uint32)
+    return np.ascontiguousarray(bits.view(np.float32))
+
+
+def rt_ulp_slots(a, b):
+    """Per-element fp32 ULP distances between two equal-length field lists.
+
+    A metric on the finite float set (the ordered image is an integer embedding), which is what makes
+    the triangle inequality in `rt_wpre_scope` exact rather than a rule of thumb. Reconciled against
+    the licensor's own ruler by `rt-ulp-ruler-matches-the-licensor`, so there is one ruler in the
+    repo even though this one reports per slot.
+    """
+    return np.abs(rt_ordered_index(a) - rt_ordered_index(b))
+
+
+def rt_field_distance(dev_values, host_values):
+    """(n_differing, n_slots, worst ULP) between two compilations' versions of one field."""
+    slots = rt_ulp_slots(dev_values, host_values)
+    return int(np.count_nonzero(slots)), int(len(slots)), (int(slots.max()) if len(slots) else 0)
+
+
+def rt_bump(values, steps):
+    """Move every element of `values` exactly `steps` ULP away, for the rejection legs."""
+    return rt_from_index(rt_ordered_index(values) + steps)
+
+
+def rt_words(text, patterns, what):
+    """Pull one spelled numeral out of a document's own words, or refuse.
+
+    The bound on `wpre` rests on what two documents say, so the numbers are read out of them at run
+    time: if a document is reworded the derivation refuses instead of quietly enforcing a limit that
+    nothing licenses any more.
+    """
+    spelled = {"single": 1, "one": 1, "two": 2, "double": 2}
+    for pat in patterns:
+        m = re.search(pat, text, re.S)
+        if m:
+            word = m.group(1).lower()
+            if word not in spelled:
+                raise Refused("rt-scope-word-unmapped",
+                              "%s names %r in a sentence this file reads as a numeral; a spelled "
+                              "number it cannot map is one it cannot judge" % (what, word))
+            return spelled[word], m.group(0).strip()
+    raise Refused("rt-scope-undocumented",
+                  "no sentence in %s matches %s; the cross-compilation scope is derived from that "
+                  "wording, and wording that has moved means the scope has to be re-derived, not "
+                  "remembered" % (what, patterns[0]))
+
+
+def rt_wpre_scope(bands, route_ulp_max):
+    """The cross-compilation scope on `wpre`, re-derived every run from artifacts — never measured.
+
+    `route_ulp_max` is what this run's pair measured; it is an argument only so the caller can print
+    the witness beside the priors, and nothing in the limit depends on it.
+
+    `wpre` is R4's fp32 pre-cast weight. No licence measures it at exactness, and
+    `prototype/moe_router/moe_router_kernels.h` §R5 says why: an independent fp32 route reproduces
+    the pinned pre-cast weights to single-digit ULP and NOT bit-exactly, with §mr_exp naming the two
+    libms' `exp()` as the mechanism. Bit-identity there was an unfireable claim; the admissible move
+    (D-18: a re-derivation, not a relaxation) is a limit with three INDEPENDENT prior sources, none
+    of them this build's output, and the run shows its own spread inside all three:
+
+      1. the licensor's own licensed band for this field, `weights_vs_pinned_f32_ulp` from
+         `prototype/moe_router/evidence/moe-router-host-2026-10-26.json` (a floor probe over the
+         pinned rows, re-read here through `block_gate.prototype_limits()`), applied by the triangle
+         inequality: two fp32 routes each within `band` of the pinned pre-cast arm are within
+         `2 * band` of each other, exactly, because ULP distance is a metric;
+      2. the documentary scope, §R5's own words ("single-digit ULP"), read out of the header; the
+         largest value that phrase licenses is the largest number with that many digits;
+      3. an error propagation from §mr_exp's documented exp scope: `p_i = exp_i / SUM_E exp` and
+         `w_k = p_k / SUM_K p` are all same-sign sums, so a per-call exp difference of the documented
+         size survives into `wpre` at worst-case binary32 spacing.
+
+    The binding limit is the STRICTEST of the three, so a document that loosens cannot widen the bound
+    silently, and the licensor's band (prior 1) is used only while its premise is seen to hold — both
+    routes measured within it of the pinned pre-cast record — which is checked and printed by
+    `rt-wpre-premise-measured-against-the-pin`.
+    """
+    proto = DA.RT_HEADER.read_text()
+    priors = []
+    band = bands.get("weights_vs_pinned_f32_ulp")
+    if band is None or int(band) <= 0:
+        raise Refused("rt-scope-band-absent",
+                      "weights_vs_pinned_f32_ulp is %r in the licensor's floor-probe artifact; the "
+                      "first prior of this bound is that probe, and without it there is no licensed "
+                      "number to apply the triangle inequality to" % (band,))
+    priors.append((2 * int(band),
+                   "triangle(2 x licensed weights_vs_pinned_f32_ulp=%s, "
+                   "prototype/moe_router/evidence/moe-router-host-2026-10-26.json §bands)" % band))
+    digits, quote = rt_words(proto, (r"to (single|one|two|double)-digit ULP",), str(DA.RT_HEADER))
+    doc = 10 ** digits - 1
+    priors.append((doc, "documented §R5 %r -> at most %d ULP" % (quote, doc)))
+    exp_ulp, exp_quote = rt_words(proto, (r"differ by an ULP or (two|one)",), str(DA.RT_HEADER))
+    wide = 2.0 ** -23
+    d_exp = exp_ulp * wide
+    rho_w = 4 * d_exp + 3 * wide
+    priors.append((int(math.ceil(rho_w / (2.0 ** -24))),
+                   "propagated §mr_exp %r (%d ULP/call) through R2 then R4 -> %.3e relative" %
+                   (exp_quote, exp_ulp, rho_w)))
+    limit, label = min((v, why) for v, why in priors)
+    parts = ["scope_ulp=%d binding=%s" % (limit, label)]
+    for v, why in priors:
+        parts.append("prior=%d %s" % (v, why))
+    return limit, "; ".join(parts)
+
+
+RT_ZERO_TOLERANCE_FIELDS = ("ids", "ids_alt", "wcast")
+RT_SCOPED_FIELD = "wpre"
+RT_R1_FIELDS = ("logits", "logits_f32")
+
+
+def rt_scope_block(ctx, dumps, pair_label, a_fields, b_fields, pair_sides):
+    """Derive the `wpre` cross-compilation scope, print `WPRESCOPE`, and stash both for the checks.
+
+    Runs in both modes on purpose: the same derivation licenses the hipcc-host-vs-g++ pair on a laptop
+    and the device-vs-host pair in a window, so the bound and its rejection control are exercisable
+    without a device window, and the number a device run enforces is not one only a device run can see.
+    """
+    nd, n, mx = rt_field_distance(a_fields[RT_SCOPED_FIELD], b_fields[RT_SCOPED_FIELD])
+    band = int(ctx["limits_raw"]["weights_vs_pinned_f32_ulp"])
+    to_pin = dict((label, rt_form_distance(dumps, "layer0.topk_weights_f32", f[RT_SCOPED_FIELD])[1])
+                  for label, f in zip(pair_sides, (a_fields, b_fields)))
+    limit, why = rt_wpre_scope(ctx["limits_raw"], mx)
+    ctx["rt_wpre_scope"] = (limit, why)
+    ctx["rt_wpre"] = dict(pair=pair_label, sides=pair_sides, a=a_fields, b=b_fields, ndiff=nd, n=n,
+                          max_ulp=mx, band=band, to_pin=to_pin,
+                          slots=[int(x) for x in rt_ulp_slots(a_fields[RT_SCOPED_FIELD],
+                                                              b_fields[RT_SCOPED_FIELD])])
+    print("WPRESCOPE field=%s pair=%s n=%d ndiff=%d/%d ulp_per_slot=%s measured_max_ulp=%d %s "
+          "verdict=%s note=the limit comes from three independent priors (one licensor floor probe, "
+          "two documents) and the strictest of them binds; measured_max_ulp is the witness that none "
+          "of them is contradicted, never the source of the limit"
+          % (RT_SCOPED_FIELD, pair_label, n, nd, n, ",".join(str(x) for x in ctx["rt_wpre"]["slots"]),
+             mx, why, "WITHIN-SCOPE" if mx <= limit else "OUTSIDE-SCOPE"))
+
+
+def rt_attribution(fields, names):
+    """Is the device-vs-host difference the documented `exp()` scope, or is it a codegen defect?
+
+    Falsifiable, and each named condition is a separate answer printed in the caller's line: R1's two
+    outputs identical (the long dot is not the mechanism); the cast field identical (§R5: the bf16
+    cast reproduces bit-exactly even when `wpre` does not); every moving scoped slot has its own
+    numerator addend in `probs` moving (the causal chain, not just correlation); and no field moves
+    that is not downstream of `exp()`.
+    """
+    d, h = fields
+    r1_clean = all(rt_field_distance(d[n], h[n])[0] == 0 for n in names["r1"])
+    cast_clean = rt_field_distance(d["wcast"], h["wcast"])[0] == 0
+    ids = [int(x) for x in d["ids"]]
+    causal, moved_outside = True, []
+    for k, eid in enumerate(ids):
+        wpre_moved = rt_field_distance([d["wpre"][k]], [h["wpre"][k]])[0] != 0
+        probs_moved = rt_field_distance([d["probs"][eid]], [h["probs"][eid]])[0] != 0
+        if wpre_moved and not probs_moved:
+            causal = False
+    for name in names["other"]:
+        if rt_field_distance(d[name], h[name])[0]:
+            moved_outside.append(name)
+    return dict(r1_clean=r1_clean, cast_clean=cast_clean, causal=causal,
+                moved_outside=moved_outside)
+
+
 def control_rt_dtype_order(v, ctx):
     """Prediction 4, enforced in the arm rather than assumed of it.
 
@@ -632,56 +856,172 @@ def control_rt_dtype_order(v, ctx):
 
 
 def control_rt_selection(v, ctx):
-    """Top-k selection must be the thing the `topk_ids` row is about, in both of its halves.
+    """Top-k selection must be the thing the `topk_ids` row is about, in both halves, ON THE PATH.
 
-    Two legs, both run on the engine's own bytes:
+    Window e2 caught this control guarding only one path: both legs ran on the host twin while the
+    honest record of a `--device` run is the DEVICE arm's, so the must-not-move test compared a
+    host-twin record against a device record, found `probs` moved (§mr_exp's documented exp() scope,
+    not a `topk_ascending` bug), and read SILENT in exactly the mode everything above M2 is built on.
+    A leg that did not run on the path under test is not a leg on that path, so every path this run
+    executed now gets both legs against its OWN honest record, and the leg counts come off the arms'
+    own `RUN path=` reports rather than from this control's intention:
+
       * tie-break — a forced exact tie across the K boundary (forged at the boundary the row itself
-        selects, not at a typed index), where the lower-index rule and the higher-index rule must name
-        different experts, and the row must move;
-      * slot order — the prototype's own `topk_ascending` mode, which must move the ids and the weights
-        while leaving the logits and the probabilities bit-identical, because `mr_mode_reaches` says it
-        cannot reach them. A mode that moves more than it names is a second bug, and a control that
-        only looked at the ids row would not see that.
+        selects, not at a typed index), where the rule in force (lower index) must still pick the
+        pinned expert while the other rule (higher index) names a different one, reddening that
+        path's own `topk_ids` row;
+      * slot order — the prototype's own `mode=topk_ascending`, which must move the ids and the
+        weights while leaving that same path's logits and probabilities bit-identical, because
+        `mr_mode_reaches` says it cannot reach them. A mode that moves more than it names is a second
+        bug, and a control that only looked at the ids row would not see that.
     """
     rt, work, args = ctx["rt"], ctx["work"], ctx["args"]
-    sdir = work / "rtselect"
+    sdir = work / ("rtselect_device" if ctx["device"] else "rtselect")
     sdir.mkdir(parents=True, exist_ok=True)
-    honest = ctx["rt_fields"]
     base = ctx["rt_slab"]["plan"].read_text()
     rows_before = WITNESS["rows_emitted"]
-    honest_nd = {k: rt_form_distance(ctx["dumps"], "layer0.%s" % k, honest[f])[0]
-                 for k, f in (("topk_ids", "ids"), ("topk_weights", "wcast"))}
+    legs_seen = dict(PATH_LEGS)
+    # (path label, binary to run, that path's own honest record, is it a device act)
+    paths = [("host_cpubody", args.rt_host_binary, ctx["rt_fields_host"], False)]
+    if ctx["device"]:
+        paths.append(("device", args.rt_arm_binary, ctx["rt_fields"], True))
+    legs_made, per_path, all_ok = {}, [], True
+    for label, binary, honest, want_device in paths:
+        honest_nd = {k: rt_form_distance(ctx["dumps"], "layer0.%s" % k, honest[f])[0]
+                     for k, f in (("topk_ids", "ids"), ("topk_weights", "wcast"))}
 
-    def run_variant(name, text, fault=None):
-        p = sdir / ("plan_%s.txt" % name)
-        p.write_text(text)
-        out = sdir / ("out_%s.bin" % name)
-        DA.run_arm(args.rt_host_binary, p, ctx["rt_slab"]["slab"], out, fault=fault, label=name)
-        fields, _ = DA.rt_record(out, rt)
-        return fields
+        def run_variant(name, text, path=label, exe=binary, dev=want_device):
+            p = sdir / ("plan_%s_%s.txt" % (path, name))
+            p.write_text(text)
+            out = sdir / ("out_%s_%s.bin" % (path, name))
+            arm_leg(exe, p, ctx["rt_slab"]["slab"], out, device=dev, label="%s:%s" % (path, name))
+            return DA.rt_record(out, rt)[0]
 
-    tie = run_variant("tie_forge", base.replace("tie_forge=0", "tie_forge=1"))
-    tie_nd_ids = rt_form_distance(ctx["dumps"], "layer0.topk_ids", tie["ids"])[0]
-    tie_alt_nd = rt_form_distance(ctx["dumps"], "layer0.topk_ids", tie["ids_alt"])[0]
-    tie_rules_differ = bool((tie["ids"] != tie["ids_alt"]).any())
+        tie = run_variant("tie_forge", base.replace("tie_forge=0", "tie_forge=1"))
+        tie_nd_ids = rt_form_distance(ctx["dumps"], "layer0.topk_ids", tie["ids"])[0]
+        tie_alt_nd = rt_form_distance(ctx["dumps"], "layer0.topk_ids", tie["ids_alt"])[0]
+        tie_rules_differ = bool((tie["ids"] != tie["ids_alt"]).any())
 
-    asc = run_variant("topk_ascending", base.replace("mode=correct", "mode=topk_ascending"))
-    asc_nd_ids = rt_form_distance(ctx["dumps"], "layer0.topk_ids", asc["ids"])[0]
-    asc_nd_w = rt_form_distance(ctx["dumps"], "layer0.topk_weights", asc["wcast"])[0]
-    untouched = [n for n in ("logits", "probs") if bool((asc[n] != honest[n]).any())]
-    detail = ("tie-forge: with an exact tie forged at the boundary, the rule in force (lower index) still "
-              "picked the pinned expert — ids row ndiff %d->%d — but the two tie rules named %s, and the "
-              "other rule's ids row is ndiff %d, so an arm that had the rule backwards would print a red "
-              "`topk_ids` row on this very input; topk_ascending: ids row ndiff %d->%d, weights row ndiff "
-              "%d->%d, fields that must not move and did: %s; rows emitted by the control=%d"
-              % (honest_nd["topk_ids"], tie_nd_ids,
-                 "different experts" if tie_rules_differ else "THE SAME (forgery failed)", tie_alt_nd,
-                 honest_nd["topk_ids"], asc_nd_ids, honest_nd["topk_weights"], asc_nd_w,
-                 untouched or "none", WITNESS["rows_emitted"] - rows_before))
+        asc = run_variant("topk_ascending", base.replace("mode=correct", "mode=topk_ascending"))
+        asc_nd_ids = rt_form_distance(ctx["dumps"], "layer0.topk_ids", asc["ids"])[0]
+        asc_nd_w = rt_form_distance(ctx["dumps"], "layer0.topk_weights", asc["wcast"])[0]
+        untouched = [n for n in ("logits", "probs") if bool((asc[n] != honest[n]).any())]
+        fired = (tie_rules_differ and tie_alt_nd > honest_nd["topk_ids"]
+                 and asc_nd_ids > honest_nd["topk_ids"] and asc_nd_w > honest_nd["topk_weights"]
+                 and not untouched)
+        all_ok = all_ok and fired
+        for p, n in legs_since(legs_seen).items():
+            legs_made[p] = legs_made.get(p, 0) + n
+        legs_seen = dict(PATH_LEGS)
+        per_path.append("%s legs=2: tie ids %d->%d, other-rule row %d (must exceed %d); ascending "
+                        "ids %d->%d, weights %d->%d, fields that had to stay put and did: %s"
+                        % (label, honest_nd["topk_ids"], tie_nd_ids, tie_alt_nd,
+                           honest_nd["topk_ids"], honest_nd["topk_ids"], asc_nd_ids,
+                           honest_nd["topk_weights"], asc_nd_w, untouched or "none"))
+    detail = ("per path, each leg against that path's own honest record — %s. The two rules naming "
+              "different experts is the half that makes the 0 a test and not a tautology: an arm with "
+              "the tie rule backwards prints a red `topk_ids` row on this very input. The ascending "
+              "half compares within one path on purpose — cross-path, §mr_exp's exp() scope moves "
+              "`probs` and the control reddens for a reason it does not measure (window e2). Rows "
+              "emitted by the control=%d"
+              % (" | ".join(per_path), WITNESS["rows_emitted"] - rows_before))
     v.control("topk-selection-perturbations-redden-ids",
-              tie_rules_differ and tie_alt_nd > honest_nd["topk_ids"]
-              and asc_nd_ids > honest_nd["topk_ids"] and asc_nd_w > honest_nd["topk_weights"]
-              and not untouched and WITNESS["rows_emitted"] == rows_before, detail)
+              all_ok and sum(legs_made.values()) == 2 * len(paths)
+              and WITNESS["rows_emitted"] == rows_before,
+              detail, legs=legs_made, claims=tuple(p for p, _, _, _ in paths))
+
+
+def control_rt_wpre_scope(v, ctx):
+    """The derived `wpre` scope is a bound only if it rejects something. Six legs, all printed.
+
+    A bound read off what the current build produced would be the forbidden move — "a limit of `>= d`
+    rejects nothing and is not a gate" (`pitfalls/40-gates-and-admissions.md`). So the size of every
+    perturbation here comes from the derived limit, never from the observed spread, and legs 1, 3, 4
+    and 6 run in CPU mode too, which is what lets the bound be falsified on a laptop instead of
+    waiting for a device window:
+
+      1. `honest-pair` — the pair this run produced must sit INSIDE the scope;
+      2. `real-arm-mistake` — the prototype's own `mode=softmax_bf16` (named in the engine header's
+         R4 comment as the bf16-renormalise mistake, and `mr_mode_reaches` says it reaches `wpre`),
+         executed on each path this run has, must land OUTSIDE it. That is an arm-produced rejection:
+         a real mistake the lane already names, not an injected bit;
+      3/4. `at-limit` / `one-past-limit` — every slot moved by exactly `limit` and `limit + 1` ULP, so
+         the boundary the check enforces is shown to be the boundary it claims, from both sides;
+      5. `far-past-limit` — moved by `1 << (limit.bit_length() + 2)` ULP, which at this magnitude
+         flips an exponent bit and must read OUTSIDE ("flip a high bit", with no typed bit index);
+      6. `licensed-field-one-bit` — xor bit 0 of one `wcast`, one `ids` and one `ids_alt` slot; the
+         zero-tolerance half of the split must report 1/8 for each, so scoping `wpre` cannot have
+         swallowed the three fields that stay at exactness.
+    """
+    rt, work, args = ctx["rt"], ctx["work"], ctx["args"]
+    bdir = work / ("rtbound_device" if ctx["device"] else "rtbound")
+    bdir.mkdir(parents=True, exist_ok=True)
+    limit, _why = ctx["rt_wpre_scope"]
+    legs_seen = dict(PATH_LEGS)
+    rows_before = WITNESS["rows_emitted"]
+    paths = [("host_cpubody", args.rt_host_binary, ctx["rt_fields_host"], False)]
+    if ctx["device"]:
+        paths.append(("device", args.rt_arm_binary, ctx["rt_fields"], True))
+    honest_pair = (ctx["rt_wpre"]["a"]["wpre"], ctx["rt_wpre"]["b"]["wpre"])
+    legs, ok = [], True
+
+    def arm_run(label, text, binary, dev, out):
+        p = bdir / ("plan_%s.txt" % label)
+        p.write_text(text)
+        arm_leg(binary, p, ctx["rt_slab"]["slab"], out, device=dev, label=label)
+        return DA.rt_record(out, rt)[0]
+
+    nd, n, mx = rt_field_distance(*honest_pair)
+    ok = ok and mx <= limit
+    legs.append("honest-pair pair=%s ndiff=%d/%d max_ulp=%d limit=%d -> %s"
+                % (ctx["rt_wpre"]["pair"], nd, n, mx, limit,
+                   "INSIDE" if mx <= limit else "OUTSIDE"))
+
+    for label, binary, honest, want_device in paths:
+        bad = arm_run("%s_softmax_bf16" % label,
+                      ctx["rt_slab"]["plan"].read_text().replace("mode=correct",
+                                                                 "mode=softmax_bf16"),
+                      binary, want_device, bdir / ("out_%s_bf16renorm.bin" % label))
+        nd2, n2, mx2 = rt_field_distance(bad["wpre"], honest["wpre"])
+        outside = mx2 > limit and nd2 > 0
+        ok = ok and outside
+        legs.append("real-arm-mistake path=%s mode=softmax_bf16 ndiff=%d/%d max_ulp=%d limit=%d -> %s"
+                    % (label, nd2, n2, mx2, limit,
+                       "OUTSIDE (rejected, as it must be)" if outside else
+                       "INSIDE (the bound is too loose to catch the lane's own named mistake)"))
+
+    for name, steps, want in (("at-limit", limit, True),
+                              ("one-past-limit", limit + 1, False),
+                              ("far-past-limit", 1 << (limit.bit_length() + 2), False)):
+        nd3, n3, mx3 = rt_field_distance(rt_bump(honest_pair[0], steps), honest_pair[0])
+        passed = (mx3 <= limit) == want
+        ok = ok and passed
+        legs.append("%s moved=%dULP ndiff=%d/%d max_ulp=%d limit=%d -> %s%s"
+                    % (name, steps, nd3, n3, mx3, limit,
+                       "INSIDE" if mx3 <= limit else "OUTSIDE",
+                       "" if passed else " (WRONG: the bound is not the boundary it claims)"))
+
+    bites = []
+    for field in ("wcast", "ids", "ids_alt"):
+        base = np.ascontiguousarray(ctx["rt_fields"][field]).view(np.uint32)
+        flip = base.copy()
+        flip[0] ^= np.uint32(1)
+        nbite = int(np.count_nonzero(flip != base))
+        bites.append("%s=%d/%d" % (field, nbite, len(base)))
+        ok = ok and nbite == 1
+    legs.append("licensed-field-one-bit xor bit0 of one slot each -> %s (each must read 1/%d, so the "
+                "zero-tolerance half still bites one bit)" % (", ".join(bites), len(base)))
+
+    legs_made = legs_since(legs_seen)
+    detail = ("field=%s scope=%d ULP; legs: %s. No constant predicate: legs 1 and 2 are records the "
+              "arms produced, 3-5 are perturbations sized from the derived limit, and 6 is a bit flip "
+              "on the licensed fields. Arm legs executed by this control=%s; rows emitted=%d"
+              % (RT_SCOPED_FIELD, limit, "; ".join(legs),
+                 ",".join("%s:%d" % (p, n) for p, n in sorted(legs_made.items())) or "none",
+                 WITNESS["rows_emitted"] - rows_before))
+    v.control("wpre-scope-rejects-a-bigger-perturbation",
+              ok and sum(legs_made.values()) > 0 and WITNESS["rows_emitted"] == rows_before,
+              detail, legs=legs_made, claims=tuple(p for p, _, _, _ in paths))
 
 
 def control_rt_f32_span(v, ctx):
@@ -858,21 +1198,120 @@ def checks_rt(v, ctx, rt_runs):
             "all 8 fields of the honest router record are fully written: %s. The non-zero leg is "
             "controlled separately, and a census that could only read 0 would prove nothing either way"
             % (",".join("%s=%d" % (k, ctx["rt_nan"][k]) for k in sorted(ctx["rt_nan"]))))
+    wp, limit = ctx["rt_wpre"], ctx["rt_wpre_scope"][0]
+    nd_a, nd_b = np.ascontiguousarray(wp["a"][RT_SCOPED_FIELD], np.float32), \
+        np.ascontiguousarray(wp["b"][RT_SCOPED_FIELD], np.float32)
+    ulp_ndiff, ulp_max = BG.ulp_diff(torch.from_numpy(nd_a), torch.from_numpy(nd_b))
+    v.check("rt-ulp-ruler-matches-the-licensor",
+            len(wp["slots"]) == wp["n"] and (ulp_ndiff, ulp_max) == (wp["ndiff"], wp["max_ulp"]),
+            "`wpre` measured twice, once by `engine/block_gate.py`::ulp_diff (the licensor's ruler, "
+            "aggregate only) and once per slot by `rt_ulp_slots` here: licensor ndiff=%d max_ulp=%d, "
+            "here ndiff=%d max_ulp=%d over %d slots. The two folds are the same map widened to int64, "
+            "and if they ever disagree the ULP number in this file means something different from the "
+            "ULP number in every band"
+            % (ulp_ndiff, ulp_max, wp["ndiff"], wp["max_ulp"], wp["n"]))
+    band_now = int(ctx["limits_raw"]["weights_vs_pinned_f32_ulp"])
+    probe = dict(ctx["limits_raw"])
+    probe["weights_vs_pinned_f32_ulp"] = 1
+    shifted, shift_why = rt_wpre_scope(probe, wp["max_ulp"])
+    want_now = "prior=%d triangle(2 x licensed weights_vs_pinned_f32_ulp=%d," % (2 * band_now, band_now)
+    want_probe = "prior=2 triangle(2 x licensed weights_vs_pinned_f32_ulp=1,"
+    v.check("rt-wpre-scope-derived-from-artifacts",
+            limit > 0 and ctx["rt_wpre_scope"][1].count("prior=") == 3
+            and want_now in ctx["rt_wpre_scope"][1] and want_probe in shift_why,
+            "the scope on `wpre` (%d ULP on pair `%s`) is the strictest of three priors — a licensor "
+            "floor probe, §R5's wording, and an error propagation from §mr_exp's — and none of them is "
+            "this build's output. The dependence on the licensor's artifact is witnessed, not claimed: "
+            "the triangle prior is exactly twice `weights_vs_pinned_f32_ulp` as the artifact reads it "
+            "(%d x 2 = %d), and re-deriving with that number set to 1 in memory makes the prior 2 (the "
+            "binding limit would then be %d). A bound typed into this file would not move. Wording the "
+            "driver cannot find in its source documents is a refusal, not a default"
+            % (limit, wp["pair"], band_now, 2 * band_now, shifted))
+    v.check("rt-wpre-premise-measured-against-the-pin",
+            len(wp["to_pin"]) == 2 and all(u <= wp["band"] for u in wp["to_pin"].values()),
+            "the triangle-inequality prior only holds if both compilations are themselves inside the "
+            "licensed band of the pinned pre-cast weights: %s ULP against a licensed "
+            "`weights_vs_pinned_f32_ulp` of %d. If a route drifts past its own licence the premise "
+            "fails and this reddens, rather than letting a bound derived from two licensed legs "
+            "license a third number nobody licensed"
+            % (",".join("%s=%d" % (k, u) for k, u in sorted(wp["to_pin"].items())), wp["band"]))
     if device:
         v.check("rt-device-launch-counted",
                 any(int(a["rec"]["run"]["launches"]) > 0 and int(a["rec"]["run"]["hip_calls"]) > 0
                     for a in rt_runs.values() if a["rec"]["run"]["path"] == "device"),
                 "the device arm counted at least one launch and one HIP call; the flag is not the "
                 "evidence, the counter is")
-        cl = ctx["rt_devdiff"]["claimed"]
-        v.check("rt-device-host-claimed-fields-identical",
-                all(v[0] == 0 for v in cl.values()) and len(cl) == 4,
-                "device arm vs host twin on the four fields the licences measure at exactness: %s "
-                "(whole record ndiff_bytes=%d of %d). The long-dot fields are outside this claim on "
-                "purpose: `prototype/moe_router/moe_router_kernels.h` §mr_exp documents that the two "
-                "libms' exp() may differ by an ULP, and that is a printed fact, not a band"
-                % (",".join("%s=%d/%d" % (k, v[0], v[1]) for k, v in sorted(cl.items())),
-                   ctx["rt_devdiff"]["full"][1], ctx["rt_devdiff"]["full"][0]))
+        cl, dd = ctx["rt_wpre"], ctx["rt_devdiff"]
+        v.check("rt-device-host-licensed-fields-identical",
+                len(dd["licensed"]) == len(RT_ZERO_TOLERANCE_FIELDS)
+                and all(dd["licensed"][k][0] == 0 for k in RT_ZERO_TOLERANCE_FIELDS),
+                "device arm vs host twin, zero tolerance on the fields a licence measures at "
+                "exactness: %s (whole record ndiff_bytes=%d of %d, which is not this claim — the rest "
+                "of those bytes are the `wpre` scope and the long-dot `probs`, both printed and neither "
+                "absorbed). The tolerance-free form is the point: one differing bit of `topk_ids` or of "
+                "the bf16 `topk_weights` reddens this check and cannot hide inside `wpre`'s measured "
+                "spread, because those rows are licensed at exactness by `speccheck/spec.md §10.6` and "
+                "the licensor's floor probe measured 164 f32 ULP of margin against a 5 ULP route spread "
+                "before it agreed the cast was robust"
+                % (",".join("%s=%d/%d" % (k, dd["licensed"][k][0], dd["licensed"][k][1])
+                            for k in RT_ZERO_TOLERANCE_FIELDS), dd["full"][1], dd["full"][0]))
+        v.check("rt-device-host-wpre-within-derived-scope",
+                wp["max_ulp"] <= limit and wp["n"] == ctx["rt"]["MR_K"],
+                "`wpre` (the fp32 pre-cast renormalised weight) between the two compilations: %d of %d "
+                "slots differ, worst %d ULP, per-slot %s, against the derived scope of %d ULP in "
+                "`WPRESCOPE`. This is a re-derivation, not a relaxation: §R5 documents the field as "
+                "not bit-exact across an independent fp32 route, the limit comes from that document, "
+                "§mr_exp's, and the licensor's floor probe, and `CONTROL "
+                "name=wpre-scope-rejects-a-bigger-perturbation` witnesses that the limit rejects a "
+                "larger-than-scope perturbation. Measuring the spread and enforcing what came out would "
+                "be a gate that reddens on nothing"
+                % (wp["ndiff"], wp["n"], wp["max_ulp"], ",".join(str(x) for x in wp["slots"]), limit))
+        att = dd["attrib"]
+        v.check("rt-device-host-difference-is-the-documented-exp-scope",
+                att["r1_clean"] and att["cast_clean"] and att["causal"]
+                and not att["moved_outside"],
+                "attribution, because 'the two libms differ' is a story until each named condition is "
+                "separately answerable: R1's outputs bit-identical=%s, `wcast` bit-identical=%s, every "
+                "moving `wpre` slot has its own `probs` addend moving=%s, fields moving outside the "
+                "exp() path=%s. All four hold, so the difference is the documented `exp()` scope and "
+                "the fix belongs in the check. If any had failed it would be a codegen defect and the "
+                "fix would belong in `engine/device/m2_rt_kernels.h`, which is why this is a check and "
+                "not a sentence in a log"
+                % (att["r1_clean"], att["cast_clean"], att["causal"],
+                   att["moved_outside"] or "none"))
+    check_control_paths(v, ctx)
+
+
+def check_control_paths(v, ctx):
+    """The two checks that make a control's path claim cost something. Split out of `checks_rt` so the
+    device-shaped case can be exercised without a device (`engine/work/probe_pass4_local_smokes.py`)."""
+    claiming = dict((n, d) for n, d in v.control_paths.items() if d["claims"])
+    silent_claims, unclaimed = [], sorted(set(v.control_paths) - set(claiming))
+    for name, d in sorted(claiming.items()):
+        for path in d["claims"]:
+            if d["legs"].get(path, 0) <= 0:
+                silent_claims.append("%s claims %s and executed 0 legs on it" % (name, path))
+        if not ctx["device"] and d["legs"].get("device", 0) > 0:
+            silent_claims.append("%s reported device legs in a run with no device act" % name)
+    v.check("control-legs-cover-the-path-under-claim",
+            bool(claiming) and not silent_claims,
+            "%d of %d controls declare which path they covered, and every declared path has at least "
+            "one arm act counted off that arm's own `RUN path=` report: %s. Controls declaring no path "
+            "(their legs are plan/refusal legs, not path legs): %s. Window e2 is the reason this check "
+            "exists: `topk-selection-perturbations-redden-ids` claimed the device path while both its "
+            "legs ran on the host twin, and read SILENT in the mode everything above M2 is built on"
+            % (len(claiming), len(v.control_paths),
+               "; ".join("%s=%s" % (n, ",".join("%s:%d" % (p, d["legs"].get(p, 0))
+                                                 for p in d["claims"]))
+                         for n, d in sorted(claiming.items())) or "none",
+               ",".join(unclaimed) or "none"))
+    v.check("device-path-claims-executed-on-device",
+            (not ctx["device"]) or sum(d["legs"].get("device", 0) for d in claiming.values()) >= 2,
+            "a device run has to have run the perturbation controls on the device, not merely beside "
+            "it: %d control legs executed under `path=device` (the licensed-row controls need their tie "
+            "and bound legs on the arm they license). In a CPU run this check is vacuous by "
+            "construction and says so, because there is no device path to claim"
+            % sum(d["legs"].get("device", 0) for d in claiming.values()))
 
 
 def want_reads(layout, which):
@@ -992,7 +1431,7 @@ def run(out, args):
     dumps = BF.Dumps()
     band = G.load_band(BF.BAND_PATH)
     digest = G.band_digest(band)
-    limits, _raw, missing = BG.prototype_limits()
+    limits, raw_probes, missing = BG.prototype_limits()
     population = derived_arm_population(dumps)
     BG.REFERENT_GDN = set(population["from_manifest"]["gdn"])
     BG.REFERENT_MOE = set(population["from_manifest"]["moe"])
@@ -1062,9 +1501,18 @@ def run(out, args):
                 dict(label="rt_host_twin_vs_rt_hip_hostpath", bytes=rt_bytes, ndiff=rt_diff,
                      device=False)]
     ctx = dict(args=args, layout=layout, rt=rt, cfg=cfg, dumps=dumps, band=band, digest=digest,
-               limits=limits, population=population, st=st, slab=slab, rt_slab=rt_slab, work=work,
-               device=device, x_bytes=x_bytes, pair=(n_bytes, n_diff), rt_pairs=rt_pairs)
-
+               limits=limits, limits_raw=raw_probes, population=population, st=st, slab=slab,
+               rt_slab=rt_slab, work=work, device=device, x_bytes=x_bytes, pair=(n_bytes, n_diff),
+               rt_pairs=rt_pairs)
+    host_f, _ = DA.rt_record(work / "rt_out_host.bin", rt)
+    hip_f, _ = DA.rt_record(work / "rt_out_hip.bin", rt)
+    # `rt_fields` is the honest record the licensed router rows are read from — the device arm's in a
+    # device run, the hipcc host path's otherwise. `rt_fields_host` is the g++ twin, and it is the
+    # other side of every cross-compilation comparison below; naming both is what keeps a control from
+    # silently comparing one path against the other (window e2).
+    ctx["rt_fields_host"] = host_f
+    pair_a, pair_b = hip_f, host_f
+    pair_label, pair_sides = "rt_hip_hostpath_vs_rt_hip_gpp_twin", ("hip_hostpath", "host_twin")
     if device:
         register(arm_runs, "hip_device", DA.run_arm(args.arm_binary, slab["plan"], slab["slab"],
                                                     work / "out_device.bin", device=True,
@@ -1074,25 +1522,59 @@ def run(out, args):
                                                       device=True, label="rt_hip_device"))
         rt_pairs.append(dict(label="rt_hip_device_vs_rt_hip_hostpath", bytes=0, ndiff=0,
                              device=True))
+        pair_a = DA.rt_record(work / "rt_out_device.bin", rt)[0]
+        pair_label, pair_sides = "rt_hip_device_vs_rt_hip_hostpath", ("device", "host_twin")
+    ctx["rt_fields"] = pair_a
+    rt_scope_block(ctx, dumps, pair_label, pair_a, pair_b, pair_sides)
+
+    if device:
         rec_bytes, rec_diff = DA.pair_bytes(work / "rt_out_device.bin", work / "rt_out_host.bin")
-        host_f, _ = DA.rt_record(work / "rt_out_host.bin", rt)
-        dev_f, _ = DA.rt_record(work / "rt_out_device.bin", rt)
-        claimed = ("ids", "ids_alt", "wpre", "wcast")
-        ctx["rt_devdiff"] = dict(
-            full=(rec_bytes, rec_diff),
-            claimed=dict((k, (int((np.ascontiguousarray(dev_f[k]).view(np.uint32)
-                                    != np.ascontiguousarray(host_f[k]).view(np.uint32)).sum()),
-                               int(len(dev_f[k])))) for k in claimed))
-        print("PAIR pair=rt_hip_device_vs_rt_hip_hostpath file=router_record.f32 bytes=%d "
-              "ndiff_bytes=%d claimed_fields=%s claimed_ndiff=%s verdict=%s note=reported, not banded: "
-              "the claimed fields are the ones the licences measure at exactness, and a difference on "
-              "the long-dot logits or probabilities is the prototype header's documented exp() scope, "
-              "not a tolerance to absorb"
-              % (rec_bytes, rec_diff, ",".join(claimed),
-                 ",".join("%s=%d/%d" % (k, v[0], v[1]) for k, v in
-                          sorted(ctx["rt_devdiff"]["claimed"].items())),
-                 "CLAIMED-IDENTICAL" if all(v[0] == 0 for v in ctx["rt_devdiff"]["claimed"].values())
-                 else "CLAIMED-DIFFER"))
+        wp = ctx["rt_wpre"]
+        # The claim is split, because the four fields do not carry the same kind of claim. Three of
+        # them are what a licence measures at exactness and stay at zero tolerance; the fourth, `wpre`,
+        # is R4's fp32 pre-cast weight, which §R5 documents as NOT bit-exact across an independent
+        # fp32 route. Dropping it would be a relaxation (D-18); what is done instead is a re-derivation
+        # whose limit comes from documents and from the licensor's own floor probe, printed in full,
+        # with a control (`wpre-scope-rejects-a-bigger-perturbation`) showing it rejects something.
+        licensed = dict((k, rt_field_distance(pair_a[k], pair_b[k]))
+                        for k in RT_ZERO_TOLERANCE_FIELDS)
+        attrib = rt_attribution(
+            (pair_a, pair_b), dict(r1=RT_R1_FIELDS,
+                                   other=RT_ZERO_TOLERANCE_FIELDS + RT_R1_FIELDS + ("wleak",)))
+        ctx["rt_devdiff"] = dict(full=(rec_bytes, rec_diff), licensed=licensed, attrib=attrib,
+                                 fields=(pair_a, pair_b))
+        print("RTATTRIB pair=%s r1_fields_bit_identical=%s wcast_bit_identical=%s "
+              "every_moving_slot_has_a_moving_probs_addend=%s fields_moving_outside_the_exp_path=%s "
+              "premise_ulp_to_pinned_pre_cast=%s/%s (band %d) zero_tolerance_ndiff=%s verdict=%s note=%s"
+              % (pair_label, attrib["r1_clean"], attrib["cast_clean"], attrib["causal"],
+                 attrib["moved_outside"] or "none", wp["to_pin"][pair_sides[0]],
+                 wp["to_pin"][pair_sides[1]], wp["band"],
+                 ",".join("%s=%d/%d" % (k, licensed[k][0], licensed[k][1])
+                          for k in RT_ZERO_TOLERANCE_FIELDS),
+                 "CONSISTENT-WITH-R5-EXP-SCOPE"
+                 if attrib["r1_clean"] and attrib["cast_clean"] and attrib["causal"]
+                 and not attrib["moved_outside"] else "CODEGEN-DEFECT-ATTRIBUTION-FAILS",
+                 "§R5 predicts exactly this shape: R1 identical, `probs` moved by the two libms' "
+                 "exp(), `wpre` moved inside that scope, `wcast` identical because the bf16 cast "
+                 "absorbs it, `wleak` identical because both arms round R1 to the same bf16 before "
+                 "renormalising. If any of those four fails the difference is not the documented "
+                 "scope and the fix belongs in the kernel, not in this check"))
+        print("PAIR pair=%s file=router_record.f32 bytes=%d ndiff_bytes=%d zero_tolerance_fields=%s "
+              "zero_tolerance_ndiff=%s scoped_field=wpre scoped_ndiff=%d/%d scoped_max_ulp=%d "
+              "scoped_limit_ulp=%d verdict=%s note=the zero-tolerance fields are the ones the licences "
+              "measure at exactness, and one differing bit reddens "
+              "`rt-device-host-licensed-fields-identical`; `wpre` is held to the derived scope in "
+              "`WPRESCOPE` because `prototype/moe_router/moe_router_kernels.h` §R5 documents it as not "
+              "bit-exact across an independent fp32 route; a difference on the long-dot logits or "
+              "probabilities is §mr_exp's documented exp() scope, reported not absorbed"
+              % (pair_label, rec_bytes, rec_diff, ",".join(RT_ZERO_TOLERANCE_FIELDS),
+                 ",".join("%s=%d/%d" % (k, licensed[k][0], licensed[k][1])
+                          for k in RT_ZERO_TOLERANCE_FIELDS),
+                 wp["ndiff"], wp["n"], wp["max_ulp"], ctx["rt_wpre_scope"][0],
+                 "CLAIMED-IDENTICAL"
+                 if all(v[0] == 0 for v in licensed.values()) and wp["max_ulp"]
+                 <= ctx["rt_wpre_scope"][0] else "CLAIMED-DIFFER"))
+
         record_path = work / "out_device.bin"
         rt_record_path = work / "rt_out_device.bin"
         provenance = ("device:engine/device/build/m2_se_arm --device + "
@@ -1124,6 +1606,7 @@ def run(out, args):
     control_modes(v, ctx)
     control_rt_dtype_order(v, ctx)
     control_rt_selection(v, ctx)
+    control_rt_wpre_scope(v, ctx)
     control_rt_f32_span(v, ctx)
     control_rt_poison(v, ctx)
     control_claim_scan(v, ctx)
