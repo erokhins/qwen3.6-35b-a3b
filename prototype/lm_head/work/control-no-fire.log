@@ -1712,6 +1712,7 @@ AMORTISE tag=host group=54 rows=4 bcount=4 batched_bytes=8704 perrow_bytes_sum=3
 AMORTISE tag=host group=62 rows=32 bcount=4 batched_bytes=131072 perrow_bytes_sum=524288 ratio=4.00 geometry=131072
 AMORTISE tag=host group=67 rows=32 bcount=8 batched_bytes=131072 perrow_bytes_sum=1048576 ratio=8.00 geometry=131072
 CHECK name=host batching amortises the weight read by exactly bcount ok=1 n=10 all groups exact
+AMORTISE tag=host families_judged=10 families_host_only_excluded=none batched_dense_cases=50 of 50 (on_device filter)
 AMORTISE tag=host shape=table0/rows0+n4 bytes=16384 constant across bcounts [1, 2, 4]
 AMORTISE tag=host shape=table0/rows0+n32 bytes=131072 constant across bcounts [4, 8]
 AMORTISE tag=host shape=table1/rows0+n4 bytes=16384 constant across bcounts [1, 4]

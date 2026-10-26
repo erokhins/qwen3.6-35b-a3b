@@ -1,0 +1,225 @@
+# specification/evidence/cross-check-engine-loader-selftest-2026-10-26.txt
+# Command (exit 0, 2026-10-26):
+#   /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python \
+#       prototype/moe_gather/cross_check_loader.py --selftest --keep-evidence <this file>
+# CPU-only, no device lock, no timing taken. This is the witness file: it holds the honest arm AND one
+# arm per injected disagreement, and every one of the 10 injections turns a NAMED check red. A check
+# that cannot fail is no check (pitfalls/40-gates-and-admissions.md §empty-parse-PASS), so the file also
+# records parsed_xcheck == printed_checks for all 11 arms -- an arm whose parser dropped a line, or
+# parsed nothing, could not have printed this RESULT PASS.
+# Injections and what each one is a model of:
+#   expert_off_by_one / expert_len_by_one  the prototype's expert address moves by a byte -> red
+#   axis_swap          ruler B claims dims[0] is the expert axis (AGENTS.md prediction 3's failure)
+#   refusal_ignored    a ruler that WRAPS an out-of-range expert id instead of refusing it
+#   width_table_stale  a block table out of date by 16 B/256 (the real Q5_K-at-5.0-bpw bug)
+#   alignment_wrong    the packing alignment is not the file's general.alignment
+#   file_off_shift     one tensor's header offset lies by 32 B
+#   type_swap          two type-id tables disagree about Q5_K vs Q6_K
+#   population_shrunk  the sampled population is smaller than geometry derives -> denominator is red
+#   empty_ruler        an empty parse may never print PASS
+===== arm=honest =====
+XCHECK name=population-derived ok=1 n=1320 40 layers x 3 routed roles x 11 expert indices (4 boundary + 7 interior-derived) = 1320 address comparisons over 120 records; every name present in BOTH rulers
+XCHECK name=ruler-header-agreement ok=1 n=752 752 records agree on name, dims, stored width and absolute file offset across two tokenizers (733 gguf declared by ruler B's header + 19 draft tensors = 752 the engine parsed)
+XCHECK name=data-span-closure ok=1 n=752 ruler B prices 22123538944 B of gguf data + 1689281536 B of draft with residue 0 B and 0 B (both must be 0: 752 records, two files)
+XCHECK name=expert-address-bytes ok=1 n=1320 1320 of 1320 expert byte ranges agree EXACTLY (file_off and length) between engine/loader.expert_range and oracle_arm.read_expert_role
+XCHECK name=expert-refusal-paired ok=1 n=480 480 out-of-range refusals paired across both rulers (120 records x 4 indices), and 2 draft routed records refused as strided [down_proj:expert-slice-strided,gate_up_proj:expert-slice-strided] — the NotWired boundary, stated not bridged
+XCHECK name=expert-axis-agreement ok=1 n=120 both rulers name axis 2 (the trailing, slowest GGUF axis) as the expert axis on all 120 routed records, E=256
+XCHECK name=slab-offsets-repriced ok=1 n=758 752 placements and 6 slabs re-packed from ruler B's row sizes at align 32 (ruler B's own general.alignment) land on every slab_off, pad and total the engine planned: weights.attention=1359216640/130 weights.draft=1689281536/19 weights.exact=104581632/361 weights.experts=19568525312/120 weights.shared=133693440/120 weights.tables=957521920/2
+XCHECK name=copy-runs-agree ok=1 n=464 464 copy runs, 23812820480 B, re-cut from ruler B's file offsets, rows and alignment: identical run for run in slab, slab_off, file_off, length and tensors-per-run
+XCHECK name=capture-nonvacuous ok=1 n=1320 1320 spans came out of the live prototype code (0 file bytes; 840835072 B of synthetic zeros handed back so the prototype's own length check stayed honest)
+XSUM arm=honest checks=9 findings=0 disagree_lines_printed=0 failing=0 empty_parse=0 data_reads=0 capture_reads=1320
+RESULT PASS cross-check-engine-loader arm=honest checks=9 findings=0
+NOTE cpu-only: no device lock taken; tensor-data reads=0 (the tripwire on gguf_reader's data window raised 0 times); no timing taken
+XSELFTEST arm=honest exit=0 parsed_xcheck=9 printed_checks=9 ok=1
+===== arm=expert_off_by_one =====
+XCHECK name=population-derived ok=1 n=1320 40 layers x 3 routed roles x 11 expert indices (4 boundary + 7 interior-derived) = 1320 address comparisons over 120 records; every name present in BOTH rulers
+XCHECK name=ruler-header-agreement ok=1 n=752 752 records agree on name, dims, stored width and absolute file offset across two tokenizers (733 gguf declared by ruler B's header + 19 draft tensors = 752 the engine parsed)
+XCHECK name=data-span-closure ok=1 n=752 ruler B prices 22123538944 B of gguf data + 1689281536 B of draft with residue 0 B and 0 B (both must be 0: 752 records, two files)
+XCHECK name=expert-address-bytes ok=0 n=1320 1320 of 1320 disagree; first: blk.0.ffn_down_exps.weight expert 0 engine=995267040/720896 proto=995267041/720896 loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XCHECK name=expert-refusal-paired ok=1 n=480 480 out-of-range refusals paired across both rulers (120 records x 4 indices), and 2 draft routed records refused as strided [down_proj:expert-slice-strided,gate_up_proj:expert-slice-strided] — the NotWired boundary, stated not bridged
+XCHECK name=expert-axis-agreement ok=1 n=120 both rulers name axis 2 (the trailing, slowest GGUF axis) as the expert axis on all 120 routed records, E=256
+XCHECK name=slab-offsets-repriced ok=1 n=758 752 placements and 6 slabs re-packed from ruler B's row sizes at align 32 (ruler B's own general.alignment) land on every slab_off, pad and total the engine planned: weights.attention=1359216640/130 weights.draft=1689281536/19 weights.exact=104581632/361 weights.experts=19568525312/120 weights.shared=133693440/120 weights.tables=957521920/2
+XCHECK name=copy-runs-agree ok=1 n=464 464 copy runs, 23812820480 B, re-cut from ruler B's file offsets, rows and alignment: identical run for run in slab, slab_off, file_off, length and tensors-per-run
+XCHECK name=capture-nonvacuous ok=1 n=1320 1320 spans came out of the live prototype code (0 file bytes; 840835072 B of synthetic zeros handed back so the prototype's own length check stayed honest)
+XDISAGREE check=expert-address-bytes what=blk.0.ffn_down_exps.weight expert 0 engine=995267040/720896 proto=995267041/720896 loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=expert-address-bytes what=blk.0.ffn_down_exps.weight expert 1 engine=995987936/720896 proto=995987937/720896 loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=expert-address-bytes what=blk.0.ffn_down_exps.weight expert 32 engine=1018335712/720896 proto=1018335713/720896 loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=expert-address-bytes what=blk.0.ffn_down_exps.weight expert 64 engine=1041404384/720896 proto=1041404385/720896 loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=expert-address-bytes what=blk.0.ffn_down_exps.weight expert 96 engine=1064473056/720896 proto=1064473057/720896 loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE_TRUNCATED hidden=1315
+XSUM arm=expert_off_by_one checks=9 findings=1320 disagree_lines_printed=5 failing=1 empty_parse=0 data_reads=0 capture_reads=1320
+RESULT FAIL cross-check-engine-loader arm=expert_off_by_one checks=9 findings=1320
+NOTE cpu-only: no device lock taken; tensor-data reads=0 (the tripwire on gguf_reader's data window raised 0 times); no timing taken
+XSELFTEST arm=expert_off_by_one exit=1 fired=expert-address-bytes must=expert-address-bytes parsed_xcheck=9 printed_checks=9 ok=1
+===== arm=expert_len_by_one =====
+XCHECK name=population-derived ok=1 n=1320 40 layers x 3 routed roles x 11 expert indices (4 boundary + 7 interior-derived) = 1320 address comparisons over 120 records; every name present in BOTH rulers
+XCHECK name=ruler-header-agreement ok=1 n=752 752 records agree on name, dims, stored width and absolute file offset across two tokenizers (733 gguf declared by ruler B's header + 19 draft tensors = 752 the engine parsed)
+XCHECK name=data-span-closure ok=1 n=752 ruler B prices 22123538944 B of gguf data + 1689281536 B of draft with residue 0 B and 0 B (both must be 0: 752 records, two files)
+XCHECK name=expert-address-bytes ok=0 n=1320 1320 of 1320 disagree; first: blk.0.ffn_down_exps.weight expert 0 engine=995267040/720896 proto=995267040/720897 loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XCHECK name=expert-refusal-paired ok=1 n=480 480 out-of-range refusals paired across both rulers (120 records x 4 indices), and 2 draft routed records refused as strided [down_proj:expert-slice-strided,gate_up_proj:expert-slice-strided] — the NotWired boundary, stated not bridged
+XCHECK name=expert-axis-agreement ok=1 n=120 both rulers name axis 2 (the trailing, slowest GGUF axis) as the expert axis on all 120 routed records, E=256
+XCHECK name=slab-offsets-repriced ok=1 n=758 752 placements and 6 slabs re-packed from ruler B's row sizes at align 32 (ruler B's own general.alignment) land on every slab_off, pad and total the engine planned: weights.attention=1359216640/130 weights.draft=1689281536/19 weights.exact=104581632/361 weights.experts=19568525312/120 weights.shared=133693440/120 weights.tables=957521920/2
+XCHECK name=copy-runs-agree ok=1 n=464 464 copy runs, 23812820480 B, re-cut from ruler B's file offsets, rows and alignment: identical run for run in slab, slab_off, file_off, length and tensors-per-run
+XCHECK name=capture-nonvacuous ok=1 n=1320 1320 spans came out of the live prototype code (0 file bytes; 840835072 B of synthetic zeros handed back so the prototype's own length check stayed honest)
+XDISAGREE check=expert-address-bytes what=blk.0.ffn_down_exps.weight expert 0 engine=995267040/720896 proto=995267040/720897 loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=expert-address-bytes what=blk.0.ffn_down_exps.weight expert 1 engine=995987936/720896 proto=995987936/720897 loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=expert-address-bytes what=blk.0.ffn_down_exps.weight expert 32 engine=1018335712/720896 proto=1018335712/720897 loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=expert-address-bytes what=blk.0.ffn_down_exps.weight expert 64 engine=1041404384/720896 proto=1041404384/720897 loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=expert-address-bytes what=blk.0.ffn_down_exps.weight expert 96 engine=1064473056/720896 proto=1064473056/720897 loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE_TRUNCATED hidden=1315
+XSUM arm=expert_len_by_one checks=9 findings=1320 disagree_lines_printed=5 failing=1 empty_parse=0 data_reads=0 capture_reads=1320
+RESULT FAIL cross-check-engine-loader arm=expert_len_by_one checks=9 findings=1320
+NOTE cpu-only: no device lock taken; tensor-data reads=0 (the tripwire on gguf_reader's data window raised 0 times); no timing taken
+XSELFTEST arm=expert_len_by_one exit=1 fired=expert-address-bytes must=expert-address-bytes parsed_xcheck=9 printed_checks=9 ok=1
+===== arm=axis_swap =====
+XCHECK name=population-derived ok=1 n=1320 40 layers x 3 routed roles x 11 expert indices (4 boundary + 7 interior-derived) = 1320 address comparisons over 120 records; every name present in BOTH rulers
+XCHECK name=ruler-header-agreement ok=1 n=752 752 records agree on name, dims, stored width and absolute file offset across two tokenizers (733 gguf declared by ruler B's header + 19 draft tensors = 752 the engine parsed)
+XCHECK name=data-span-closure ok=1 n=752 ruler B prices 22123538944 B of gguf data + 1689281536 B of draft with residue 0 B and 0 B (both must be 0: 752 records, two files)
+XCHECK name=expert-address-bytes ok=1 n=1320 1320 of 1320 expert byte ranges agree EXACTLY (file_off and length) between engine/loader.expert_range and oracle_arm.read_expert_role
+XCHECK name=expert-refusal-paired ok=1 n=480 480 out-of-range refusals paired across both rulers (120 records x 4 indices), and 2 draft routed records refused as strided [down_proj:expert-slice-strided,gate_up_proj:expert-slice-strided] — the NotWired boundary, stated not bridged
+XCHECK name=expert-axis-agreement ok=0 n=120 BAD 0 of 120: blk.0.ffn_down_exps.weight engine=axis 2 wide 256 proto=axis 0 wide 512 loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XCHECK name=slab-offsets-repriced ok=1 n=758 752 placements and 6 slabs re-packed from ruler B's row sizes at align 32 (ruler B's own general.alignment) land on every slab_off, pad and total the engine planned: weights.attention=1359216640/130 weights.draft=1689281536/19 weights.exact=104581632/361 weights.experts=19568525312/120 weights.shared=133693440/120 weights.tables=957521920/2
+XCHECK name=copy-runs-agree ok=1 n=464 464 copy runs, 23812820480 B, re-cut from ruler B's file offsets, rows and alignment: identical run for run in slab, slab_off, file_off, length and tensors-per-run
+XCHECK name=capture-nonvacuous ok=1 n=1320 1320 spans came out of the live prototype code (0 file bytes; 840835072 B of synthetic zeros handed back so the prototype's own length check stayed honest)
+XDISAGREE check=expert-axis-agreement what=blk.0.ffn_down_exps.weight engine=axis 2 wide 256 proto=axis 0 wide 512 loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=expert-axis-agreement what=blk.0.ffn_gate_exps.weight engine=axis 2 wide 256 proto=axis 0 wide 2048 loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=expert-axis-agreement what=blk.0.ffn_up_exps.weight engine=axis 2 wide 256 proto=axis 0 wide 2048 loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=expert-axis-agreement what=blk.1.ffn_down_exps.weight engine=axis 2 wide 256 proto=axis 0 wide 512 loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=expert-axis-agreement what=blk.1.ffn_gate_exps.weight engine=axis 2 wide 256 proto=axis 0 wide 2048 loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE_TRUNCATED hidden=115
+XSUM arm=axis_swap checks=9 findings=120 disagree_lines_printed=5 failing=1 empty_parse=0 data_reads=0 capture_reads=1320
+RESULT FAIL cross-check-engine-loader arm=axis_swap checks=9 findings=120
+NOTE cpu-only: no device lock taken; tensor-data reads=0 (the tripwire on gguf_reader's data window raised 0 times); no timing taken
+XSELFTEST arm=axis_swap exit=1 fired=expert-axis-agreement must=expert-axis-agreement parsed_xcheck=9 printed_checks=9 ok=1
+===== arm=refusal_ignored =====
+XCHECK name=population-derived ok=1 n=1320 40 layers x 3 routed roles x 11 expert indices (4 boundary + 7 interior-derived) = 1320 address comparisons over 120 records; every name present in BOTH rulers
+XCHECK name=ruler-header-agreement ok=1 n=752 752 records agree on name, dims, stored width and absolute file offset across two tokenizers (733 gguf declared by ruler B's header + 19 draft tensors = 752 the engine parsed)
+XCHECK name=data-span-closure ok=1 n=752 ruler B prices 22123538944 B of gguf data + 1689281536 B of draft with residue 0 B and 0 B (both must be 0: 752 records, two files)
+XCHECK name=expert-address-bytes ok=1 n=1320 1320 of 1320 expert byte ranges agree EXACTLY (file_off and length) between engine/loader.expert_range and oracle_arm.read_expert_role
+XCHECK name=expert-refusal-paired ok=0 n=0 BAD paired=0 need=480 blk.0.ffn_down_exps.weight expert 256 engine=refused(expert-index) proto=ADDRESSED a wrapped index loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XCHECK name=expert-axis-agreement ok=1 n=120 both rulers name axis 2 (the trailing, slowest GGUF axis) as the expert axis on all 120 routed records, E=256
+XCHECK name=slab-offsets-repriced ok=1 n=758 752 placements and 6 slabs re-packed from ruler B's row sizes at align 32 (ruler B's own general.alignment) land on every slab_off, pad and total the engine planned: weights.attention=1359216640/130 weights.draft=1689281536/19 weights.exact=104581632/361 weights.experts=19568525312/120 weights.shared=133693440/120 weights.tables=957521920/2
+XCHECK name=copy-runs-agree ok=1 n=464 464 copy runs, 23812820480 B, re-cut from ruler B's file offsets, rows and alignment: identical run for run in slab, slab_off, file_off, length and tensors-per-run
+XCHECK name=capture-nonvacuous ok=1 n=1320 1320 spans came out of the live prototype code (0 file bytes; 840835072 B of synthetic zeros handed back so the prototype's own length check stayed honest)
+XDISAGREE check=expert-refusal-paired what=blk.0.ffn_down_exps.weight expert 256 engine=refused(expert-index) proto=ADDRESSED a wrapped index loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=expert-refusal-paired what=blk.0.ffn_down_exps.weight expert 257 engine=refused(expert-index) proto=ADDRESSED a wrapped index loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=expert-refusal-paired what=blk.0.ffn_down_exps.weight expert -1 engine=refused(expert-index) proto=ADDRESSED a wrapped index loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=expert-refusal-paired what=blk.0.ffn_down_exps.weight expert -257 engine=refused(expert-index) proto=ADDRESSED a wrapped index loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=expert-refusal-paired what=blk.0.ffn_gate_exps.weight expert 256 engine=refused(expert-index) proto=ADDRESSED a wrapped index loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE_TRUNCATED hidden=475
+XSUM arm=refusal_ignored checks=9 findings=480 disagree_lines_printed=5 failing=1 empty_parse=1 data_reads=0 capture_reads=1320
+RESULT FAIL cross-check-engine-loader arm=refusal_ignored checks=9 findings=480
+NOTE cpu-only: no device lock taken; tensor-data reads=0 (the tripwire on gguf_reader's data window raised 0 times); no timing taken
+XSELFTEST arm=refusal_ignored exit=1 fired=expert-refusal-paired must=expert-refusal-paired parsed_xcheck=9 printed_checks=9 ok=1
+===== arm=width_table_stale =====
+XCHECK name=population-derived ok=1 n=1320 40 layers x 3 routed roles x 11 expert indices (4 boundary + 7 interior-derived) = 1320 address comparisons over 120 records; every name present in BOTH rulers
+XCHECK name=ruler-header-agreement ok=0 n=752 BAD 1 of 752: blk.0.ffn_down_exps.weight engine=(995267040,184549376,Q5_K,(512, 2048, 256)) rulerB=(995267040,167772160,Q5_K,(512, 2048, 256))
+XCHECK name=data-span-closure ok=0 n=752 ruler B prices 21502781952 B of gguf data + 1689281536 B of draft with residue 620756992 B and 0 B (both must be 0: 752 records, two files)
+XCHECK name=expert-address-bytes ok=1 n=1320 1320 of 1320 expert byte ranges agree EXACTLY (file_off and length) between engine/loader.expert_range and oracle_arm.read_expert_role
+XCHECK name=expert-refusal-paired ok=1 n=480 480 out-of-range refusals paired across both rulers (120 records x 4 indices), and 2 draft routed records refused as strided [down_proj:expert-slice-strided,gate_up_proj:expert-slice-strided] — the NotWired boundary, stated not bridged
+XCHECK name=expert-axis-agreement ok=1 n=120 both rulers name axis 2 (the trailing, slowest GGUF axis) as the expert axis on all 120 routed records, E=256
+XCHECK name=slab-offsets-repriced ok=0 n=758 BAD 121: blk.0.ffn_gate_exps.weight placement engine=slab_off 184549376 proto=repriced 167772160 (pad 0, row_B 150994944) loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XCHECK name=copy-runs-agree ok=0 n=464 BAD weights.experts engine=['weights.experts', 0, 995267040, 184549376, 1] repriced=['weights.experts', 0, 995267040, 167772160, 1]
+XCHECK name=capture-nonvacuous ok=1 n=1320 1320 spans came out of the live prototype code (0 file bytes; 840835072 B of synthetic zeros handed back so the prototype's own length check stayed honest)
+XDISAGREE check=ruler-header-agreement what=blk.0.ffn_down_exps.weight engine=995267040/184549376/Q5_K/(512, 2048, 256) proto=995267040/167772160/Q5_K/(512, 2048, 256) loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=ruler-header-agreement what=blk.1.ffn_down_exps.weight engine=1523578080/184549376/Q5_K/(512, 2048, 256) proto=1523578080/167772160/Q5_K/(512, 2048, 256) loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=ruler-header-agreement what=blk.2.ffn_down_exps.weight engine=2051889120/184549376/Q5_K/(512, 2048, 256) proto=2051889120/167772160/Q5_K/(512, 2048, 256) loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=ruler-header-agreement what=blk.3.ffn_down_exps.weight engine=2582430432/184549376/Q5_K/(512, 2048, 256) proto=2582430432/167772160/Q5_K/(512, 2048, 256) loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=ruler-header-agreement what=blk.4.ffn_down_exps.weight engine=3101172448/184549376/Q5_K/(512, 2048, 256) proto=3101172448/167772160/Q5_K/(512, 2048, 256) loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE_TRUNCATED hidden=37
+XSUM arm=width_table_stale checks=9 findings=42 disagree_lines_printed=5 failing=4 empty_parse=0 data_reads=0 capture_reads=1320
+RESULT FAIL cross-check-engine-loader arm=width_table_stale checks=9 findings=42
+NOTE cpu-only: no device lock taken; tensor-data reads=0 (the tripwire on gguf_reader's data window raised 0 times); no timing taken
+XSELFTEST arm=width_table_stale exit=1 fired=copy-runs-agree,data-span-closure,ruler-header-agreement,slab-offsets-repriced must=data-span-closure parsed_xcheck=9 printed_checks=9 ok=1
+===== arm=alignment_wrong =====
+XCHECK name=population-derived ok=1 n=1320 40 layers x 3 routed roles x 11 expert indices (4 boundary + 7 interior-derived) = 1320 address comparisons over 120 records; every name present in BOTH rulers
+XCHECK name=ruler-header-agreement ok=1 n=752 752 records agree on name, dims, stored width and absolute file offset across two tokenizers (733 gguf declared by ruler B's header + 19 draft tensors = 752 the engine parsed)
+XCHECK name=data-span-closure ok=1 n=752 ruler B prices 22123538944 B of gguf data + 1689281536 B of draft with residue 0 B and 0 B (both must be 0: 752 records, two files)
+XCHECK name=expert-address-bytes ok=1 n=1320 1320 of 1320 expert byte ranges agree EXACTLY (file_off and length) between engine/loader.expert_range and oracle_arm.read_expert_role
+XCHECK name=expert-refusal-paired ok=1 n=480 480 out-of-range refusals paired across both rulers (120 records x 4 indices), and 2 draft routed records refused as strided [down_proj:expert-slice-strided,gate_up_proj:expert-slice-strided] — the NotWired boundary, stated not bridged
+XCHECK name=expert-axis-agreement ok=1 n=120 both rulers name axis 2 (the trailing, slowest GGUF axis) as the expert axis on all 120 routed records, E=256
+XCHECK name=slab-offsets-repriced ok=0 n=758 BAD 758: blk.0.ffn_gate_exps.weight placement engine=slab_off 184549376 proto=repriced 184549398 (pad 22, row_B 150994944) loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XCHECK name=copy-runs-agree ok=0 n=464 BAD run count 752 vs 464
+XCHECK name=capture-nonvacuous ok=1 n=1320 1320 spans came out of the live prototype code (0 file bytes; 840835072 B of synthetic zeros handed back so the prototype's own length check stayed honest)
+XDISAGREE check=slab-offsets-repriced what=blk.0.ffn_gate_exps.weight placement engine=slab_off 184549376 proto=repriced 184549398 (pad 22, row_B 150994944) loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=slab-offsets-repriced what=weights.experts bytes engine=19568525312 proto=repriced 19568527848 at align 33 loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=slab-offsets-repriced what=weights.experts pad_bytes engine=0 proto=repriced 2536 at align 33 loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=slab-offsets-repriced what=weights.attention bytes engine=1359216640 proto=repriced 1359217859 at align 33 loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=slab-offsets-repriced what=weights.attention pad_bytes engine=0 proto=repriced 1219 at align 33 loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE_TRUNCATED hidden=9
+XSUM arm=alignment_wrong checks=9 findings=14 disagree_lines_printed=5 failing=2 empty_parse=0 data_reads=0 capture_reads=1320
+RESULT FAIL cross-check-engine-loader arm=alignment_wrong checks=9 findings=14
+NOTE cpu-only: no device lock taken; tensor-data reads=0 (the tripwire on gguf_reader's data window raised 0 times); no timing taken
+XSELFTEST arm=alignment_wrong exit=1 fired=copy-runs-agree,slab-offsets-repriced must=slab-offsets-repriced parsed_xcheck=9 printed_checks=9 ok=1
+===== arm=file_off_shift =====
+XCHECK name=population-derived ok=1 n=1320 40 layers x 3 routed roles x 11 expert indices (4 boundary + 7 interior-derived) = 1320 address comparisons over 120 records; every name present in BOTH rulers
+XCHECK name=ruler-header-agreement ok=0 n=752 BAD 1 of 752: blk.17.ffn_gate_exps.weight engine=(10132863200,150994944,Q4_K,(2048, 512, 256)) rulerB=(10132863232,150994944,Q4_K,(2048, 512, 256))
+XCHECK name=data-span-closure ok=1 n=752 ruler B prices 22123538944 B of gguf data + 1689281536 B of draft with residue 0 B and 0 B (both must be 0: 752 records, two files)
+XCHECK name=expert-address-bytes ok=1 n=1320 1320 of 1320 expert byte ranges agree EXACTLY (file_off and length) between engine/loader.expert_range and oracle_arm.read_expert_role
+XCHECK name=expert-refusal-paired ok=1 n=480 480 out-of-range refusals paired across both rulers (120 records x 4 indices), and 2 draft routed records refused as strided [down_proj:expert-slice-strided,gate_up_proj:expert-slice-strided] — the NotWired boundary, stated not bridged
+XCHECK name=expert-axis-agreement ok=1 n=120 both rulers name axis 2 (the trailing, slowest GGUF axis) as the expert axis on all 120 routed records, E=256
+XCHECK name=slab-offsets-repriced ok=1 n=758 752 placements and 6 slabs re-packed from ruler B's row sizes at align 32 (ruler B's own general.alignment) land on every slab_off, pad and total the engine planned: weights.attention=1359216640/130 weights.draft=1689281536/19 weights.exact=104581632/361 weights.experts=19568525312/120 weights.shared=133693440/120 weights.tables=957521920/2
+XCHECK name=copy-runs-agree ok=0 n=464 BAD weights.experts engine=['weights.experts', 8455716864, 10132863200, 150994944, 1] repriced=['weights.experts', 8455716864, 10132863232, 150994944, 1]
+XCHECK name=capture-nonvacuous ok=1 n=1320 1320 spans came out of the live prototype code (0 file bytes; 840835072 B of synthetic zeros handed back so the prototype's own length check stayed honest)
+XDISAGREE check=ruler-header-agreement what=blk.17.ffn_gate_exps.weight engine=10132863200/150994944/Q4_K/(2048, 512, 256) proto=10132863232/150994944/Q4_K/(2048, 512, 256) loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=copy-runs-agree what=bulk-copy plan engine=464 runs / 23812820480 B proto=464 runs / 23812820480 B; first diff weights.experts engine=['weights.experts', 8455716864, 10132863200, 150994944, 1] repriced=['weights.experts', 8455716864, 10132863232, 150994944, 1] loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XSUM arm=file_off_shift checks=9 findings=2 disagree_lines_printed=2 failing=2 empty_parse=0 data_reads=0 capture_reads=1320
+RESULT FAIL cross-check-engine-loader arm=file_off_shift checks=9 findings=2
+NOTE cpu-only: no device lock taken; tensor-data reads=0 (the tripwire on gguf_reader's data window raised 0 times); no timing taken
+XSELFTEST arm=file_off_shift exit=1 fired=copy-runs-agree,ruler-header-agreement must=ruler-header-agreement parsed_xcheck=9 printed_checks=9 ok=1
+===== arm=type_swap =====
+XCHECK name=population-derived ok=1 n=1320 40 layers x 3 routed roles x 11 expert indices (4 boundary + 7 interior-derived) = 1320 address comparisons over 120 records; every name present in BOTH rulers
+XCHECK name=ruler-header-agreement ok=0 n=752 BAD 1 of 752: output.weight engine=(10990048,417177600,Q6_K,(2048, 248320)) rulerB=(10990048,349634560,Q5_K,(2048, 248320))
+XCHECK name=data-span-closure ok=0 n=752 ruler B prices 23268149760 B of gguf data + 1689281536 B of draft with residue -1144610816 B and 0 B (both must be 0: 752 records, two files)
+XCHECK name=expert-address-bytes ok=1 n=1320 1320 of 1320 expert byte ranges agree EXACTLY (file_off and length) between engine/loader.expert_range and oracle_arm.read_expert_role
+XCHECK name=expert-refusal-paired ok=1 n=480 480 out-of-range refusals paired across both rulers (120 records x 4 indices), and 2 draft routed records refused as strided [down_proj:expert-slice-strided,gate_up_proj:expert-slice-strided] — the NotWired boundary, stated not bridged
+XCHECK name=expert-axis-agreement ok=1 n=120 both rulers name axis 2 (the trailing, slowest GGUF axis) as the expert axis on all 120 routed records, E=256
+XCHECK name=slab-offsets-repriced ok=0 n=758 BAD 124: blk.0.ffn_gate_exps.weight placement engine=slab_off 184549376 proto=repriced 220200960 (pad 0, row_B 150994944) loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XCHECK name=copy-runs-agree ok=0 n=464 BAD weights.experts engine=['weights.experts', 0, 995267040, 184549376, 1] repriced=['weights.experts', 0, 995267040, 220200960, 1]
+XCHECK name=capture-nonvacuous ok=1 n=1320 1320 spans came out of the live prototype code (0 file bytes; 840835072 B of synthetic zeros handed back so the prototype's own length check stayed honest)
+XDISAGREE check=ruler-header-agreement what=output.weight engine=10990048/417177600/Q6_K/(2048, 248320) proto=10990048/349634560/Q5_K/(2048, 248320) loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=ruler-header-agreement what=blk.0.ffn_down_exps.weight engine=995267040/184549376/Q5_K/(512, 2048, 256) proto=995267040/220200960/Q6_K/(512, 2048, 256) loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=ruler-header-agreement what=blk.1.ffn_down_exps.weight engine=1523578080/184549376/Q5_K/(512, 2048, 256) proto=1523578080/220200960/Q6_K/(512, 2048, 256) loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=ruler-header-agreement what=blk.2.ffn_down_exps.weight engine=2051889120/184549376/Q5_K/(512, 2048, 256) proto=2051889120/220200960/Q6_K/(512, 2048, 256) loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=ruler-header-agreement what=blk.3.ffn_down_exps.weight engine=2582430432/184549376/Q5_K/(512, 2048, 256) proto=2582430432/220200960/Q6_K/(512, 2048, 256) loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE_TRUNCATED hidden=43
+XSUM arm=type_swap checks=9 findings=48 disagree_lines_printed=5 failing=4 empty_parse=0 data_reads=0 capture_reads=1320
+RESULT FAIL cross-check-engine-loader arm=type_swap checks=9 findings=48
+NOTE cpu-only: no device lock taken; tensor-data reads=0 (the tripwire on gguf_reader's data window raised 0 times); no timing taken
+XSELFTEST arm=type_swap exit=1 fired=copy-runs-agree,data-span-closure,ruler-header-agreement,slab-offsets-repriced must=ruler-header-agreement parsed_xcheck=9 printed_checks=9 ok=1
+===== arm=population_shrunk =====
+XCHECK name=population-derived ok=0 n=120 40 layers x 3 routed roles x 1 expert indices (4 boundary + 7 interior-derived) = 120 address comparisons over 120 records; every name present in BOTH rulers
+XCHECK name=ruler-header-agreement ok=1 n=752 752 records agree on name, dims, stored width and absolute file offset across two tokenizers (733 gguf declared by ruler B's header + 19 draft tensors = 752 the engine parsed)
+XCHECK name=data-span-closure ok=1 n=752 ruler B prices 22123538944 B of gguf data + 1689281536 B of draft with residue 0 B and 0 B (both must be 0: 752 records, two files)
+XCHECK name=expert-address-bytes ok=1 n=120 120 of 120 expert byte ranges agree EXACTLY (file_off and length) between engine/loader.expert_range and oracle_arm.read_expert_role
+XCHECK name=expert-refusal-paired ok=1 n=480 480 out-of-range refusals paired across both rulers (120 records x 4 indices), and 2 draft routed records refused as strided [down_proj:expert-slice-strided,gate_up_proj:expert-slice-strided] — the NotWired boundary, stated not bridged
+XCHECK name=expert-axis-agreement ok=1 n=120 both rulers name axis 2 (the trailing, slowest GGUF axis) as the expert axis on all 120 routed records, E=256
+XCHECK name=slab-offsets-repriced ok=1 n=758 752 placements and 6 slabs re-packed from ruler B's row sizes at align 32 (ruler B's own general.alignment) land on every slab_off, pad and total the engine planned: weights.attention=1359216640/130 weights.draft=1689281536/19 weights.exact=104581632/361 weights.experts=19568525312/120 weights.shared=133693440/120 weights.tables=957521920/2
+XCHECK name=copy-runs-agree ok=1 n=464 464 copy runs, 23812820480 B, re-cut from ruler B's file offsets, rows and alignment: identical run for run in slab, slab_off, file_off, length and tensors-per-run
+XCHECK name=capture-nonvacuous ok=1 n=120 120 spans came out of the live prototype code (0 file bytes; 76439552 B of synthetic zeros handed back so the prototype's own length check stayed honest)
+XDISAGREE check=population-derived what=derived population engine=120 proto=missing_engine=0 missing_ruler_b=0 idxs=1 bad=[] loser=comparator owner=cross_check_loader.py --selftest population_shrunk
+XSUM arm=population_shrunk checks=9 findings=1 disagree_lines_printed=1 failing=1 empty_parse=0 data_reads=0 capture_reads=120
+RESULT FAIL cross-check-engine-loader arm=population_shrunk checks=9 findings=1
+NOTE cpu-only: no device lock taken; tensor-data reads=0 (the tripwire on gguf_reader's data window raised 0 times); no timing taken
+XSELFTEST arm=population_shrunk exit=1 fired=population-derived must=population-derived parsed_xcheck=9 printed_checks=9 ok=1
+===== arm=empty_ruler =====
+XCHECK name=population-derived ok=0 n=1320 40 layers x 3 routed roles x 11 expert indices (4 boundary + 7 interior-derived) = 1320 address comparisons over 120 records; every name present in BOTH rulers
+XCHECK name=ruler-header-agreement ok=0 n=0 BAD 752 of 0: output.weight absent from ruler B
+XCHECK name=data-span-closure ok=0 n=752 ruler B prices 0 B of gguf data + 0 B of draft with residue 22123538944 B and 1689281536 B (both must be 0: 752 records, two files)
+XCHECK name=expert-address-bytes ok=1 n=1320 1320 of 1320 expert byte ranges agree EXACTLY (file_off and length) between engine/loader.expert_range and oracle_arm.read_expert_role
+XCHECK name=expert-refusal-paired ok=1 n=480 480 out-of-range refusals paired across both rulers (120 records x 4 indices), and 2 draft routed records refused as strided [down_proj:expert-slice-strided,gate_up_proj:expert-slice-strided] — the NotWired boundary, stated not bridged
+XCHECK name=expert-axis-agreement ok=0 n=120 BAD 0 of 120: none
+XCHECK name=slab-offsets-repriced ok=0 n=758 BAD 764: blk.0.ffn_down_exps.weight engine=slab_off 0 proto=absent from ruler B loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XCHECK name=copy-runs-agree ok=0 n=464 BAD run count 0 vs 464
+XCHECK name=capture-nonvacuous ok=1 n=1320 1320 spans came out of the live prototype code (0 file bytes; 840835072 B of synthetic zeros handed back so the prototype's own length check stayed honest)
+XDISAGREE check=population-derived what=derived population engine=1320 proto=missing_engine=0 missing_ruler_b=120 idxs=11 bad=[] loser=comparator owner=cross_check_loader.py --selftest population_shrunk
+XDISAGREE check=data-span-closure what=file-size identity engine=engine rows 23812820480 proto=rulerB rows 0/0 residue 22123538944/1689281536 loser=prototype owner=prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=slab-offsets-repriced what=blk.0.ffn_down_exps.weight engine=slab_off 0 proto=absent from ruler B loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=slab-offsets-repriced what=blk.0.ffn_gate_exps.weight engine=slab_off 184549376 proto=absent from ruler B loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE check=slab-offsets-repriced what=blk.0.ffn_up_exps.weight engine=slab_off 335544320 proto=absent from ruler B loser=unadjudicated owner=engine/gate.py expert-slices-addressable / staging-plan-matches-ruler vs prototype/moe_gather/gate.py (oracle_arm.read_expert_role)
+XDISAGREE_TRUNCATED hidden=762
+XSUM arm=empty_ruler checks=9 findings=767 disagree_lines_printed=5 failing=6 empty_parse=1 data_reads=0 capture_reads=1320
+RESULT FAIL cross-check-engine-loader arm=empty_ruler checks=9 findings=767
+NOTE cpu-only: no device lock taken; tensor-data reads=0 (the tripwire on gguf_reader's data window raised 0 times); no timing taken
+XSELFTEST arm=empty_ruler exit=1 fired=copy-runs-agree,data-span-closure,expert-axis-agreement,population-derived,ruler-header-agreement,slab-offsets-repriced must=ruler-header-agreement parsed_xcheck=9 printed_checks=9 ok=1
+RESULT PASS cross-check-selftest arms=11 injections=10

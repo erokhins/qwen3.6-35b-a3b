@@ -1,0 +1,26 @@
+# specification/evidence/cross-check-engine-loader-moe-gather-2026-10-26.txt
+# Command (exit 0, 2026-10-26):
+#   /home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python \
+#       prototype/moe_gather/cross_check_loader.py --keep-evidence <this file>
+# CPU-only: no device lock taken, 0 tensor-data bytes read (the harness replaces gguf_reader's data
+# window with a tripwire and raises if it fires), no timing taken.
+# What this run proves: engine/loader.py's expert addressing -- expert_range(), the slab offsets, and
+# the 464-run bulk-copy plan -- agrees TO THE BYTE with the separately gated derivation in
+# prototype/moe_gather/oracle_arm.py §read_expert_role. Two tokenizers (gguf_width_table vs
+# gguf_reader), three width tables (gguf_width_table.BLK, ggml_block_geom via gguf_reader.BLOCK, and
+# moe_gather_kernels.h MG_Q{4,5,6}K_BYTES), one file: agreement here is evidence, not self-agreement.
+# Every denominator is derived from geometry (config L=40, E=256, the prototype's role table, the
+# interior expert lattice (j*E)//8); none is typed. That each check can fail is witnessed by
+# cross-check-engine-loader-selftest-2026-10-26.txt in this same directory.
+XCHECK name=population-derived ok=1 n=1320 40 layers x 3 routed roles x 11 expert indices (4 boundary + 7 interior-derived) = 1320 address comparisons over 120 records; every name present in BOTH rulers
+XCHECK name=ruler-header-agreement ok=1 n=752 752 records agree on name, dims, stored width and absolute file offset across two tokenizers (733 gguf declared by ruler B's header + 19 draft tensors = 752 the engine parsed)
+XCHECK name=data-span-closure ok=1 n=752 ruler B prices 22123538944 B of gguf data + 1689281536 B of draft with residue 0 B and 0 B (both must be 0: 752 records, two files)
+XCHECK name=expert-address-bytes ok=1 n=1320 1320 of 1320 expert byte ranges agree EXACTLY (file_off and length) between engine/loader.expert_range and oracle_arm.read_expert_role
+XCHECK name=expert-refusal-paired ok=1 n=480 480 out-of-range refusals paired across both rulers (120 records x 4 indices), and 2 draft routed records refused as strided [down_proj:expert-slice-strided,gate_up_proj:expert-slice-strided] — the NotWired boundary, stated not bridged
+XCHECK name=expert-axis-agreement ok=1 n=120 both rulers name axis 2 (the trailing, slowest GGUF axis) as the expert axis on all 120 routed records, E=256
+XCHECK name=slab-offsets-repriced ok=1 n=758 752 placements and 6 slabs re-packed from ruler B's row sizes at align 32 (ruler B's own general.alignment) land on every slab_off, pad and total the engine planned: weights.attention=1359216640/130 weights.draft=1689281536/19 weights.exact=104581632/361 weights.experts=19568525312/120 weights.shared=133693440/120 weights.tables=957521920/2
+XCHECK name=copy-runs-agree ok=1 n=464 464 copy runs, 23812820480 B, re-cut from ruler B's file offsets, rows and alignment: identical run for run in slab, slab_off, file_off, length and tensors-per-run
+XCHECK name=capture-nonvacuous ok=1 n=1320 1320 spans came out of the live prototype code (0 file bytes; 840835072 B of synthetic zeros handed back so the prototype's own length check stayed honest)
+XSUM arm=honest checks=9 findings=0 disagree_lines_printed=0 failing=0 empty_parse=0 data_reads=0 capture_reads=1320
+RESULT PASS cross-check-engine-loader arm=honest checks=9 findings=0
+NOTE cpu-only: no device lock taken; tensor-data reads=0 (the tripwire on gguf_reader's data window raised 0 times); no timing taken
