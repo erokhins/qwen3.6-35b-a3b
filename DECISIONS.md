@@ -792,6 +792,14 @@ quantizes the **activation** to Q8_0 (`vec_dot_type`; the measured GPU path shar
 That trade is D-17 territory, so it was **not** imported, and `llama.cpp` remains a speed and
 structure ruler rather than a numerical oracle.
 
+**The rule correcting itself, same day.** The M1 lane found that the GGUF load path cited in its
+brief — `ggml/src/ggml-llama.cpp` — **does not exist** in `engines/llama.cpp`; the real sites are
+`src/llama-model-loader.cpp::load_all_data`, `::init_mappings`, `::load_data_range` and
+`src/llama-model-loader.h::llama_tensor_weight`. Those are adopted as the staging precedent (map or
+bulk-read the contiguous tensor region once, validate its size against the header — not per-tensor
+re-opens), and the wrong cite is recorded here rather than quietly replaced: the D-19 rule is only
+worth having if a cited coordinate is checked to resolve, including by the person receiving the cite.
+
 ### D-20 — which Higham form bands an `lm_head` dot? — **DECIDED (user, 2026-10-26), option A**
 
 K = 2048 terms, u = 2⁻²⁴. γ<sub>K−1</sub> (=γ<sub>2047</sub> = 1.22085215e-04) is valid only if every
