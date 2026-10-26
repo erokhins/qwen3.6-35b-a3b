@@ -120,3 +120,9 @@ prototype/gdn/gdn
 prototype/gdn/host_probe
 prototype/gdn/build/
 prototype/gdn/work/hp_asan
+
+# lm_head run scratch: raw f32 outputs and per-arm selftest trees are run artefacts, not
+# evidence. Ignored by exact pattern because other files under work/ (the control logs)
+# ARE tracked -- a directory rule would hide evidence alongside the scratch.
+prototype/lm_head/work/*.f32
+prototype/lm_head/work/selftest/
