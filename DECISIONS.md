@@ -1,8 +1,11 @@
 # Decision log — open questions that are the user's, not the agent's
 
 An agent that "answers" one of these by itself has spent the user's budget in the wrong place.
-Status is one of `OPEN`, `DECIDED`, `SUPERSEDED`. A decision gets a paragraph of evidence and the
-number or failure that forced it.
+Status is one of `OPEN`, `DECIDED`, `DECIDED (agent, YYYY-MM-DD)`, `SUPERSEDED`. A decision gets a
+paragraph of evidence and the number or failure that forced it. **Since 2026-10-26 the user has
+delegated engineering judgement to the agent (D-18); agent-made decisions are recorded in the same
+detail and clearly labelled as agent-made, never as user ratification. See §Agent-delegated
+decisions at the foot of this file, and `AGENTS.md §GOAL and decision protocol`.**
 
 | id | question | status |
 |---|---|---|
@@ -748,6 +751,97 @@ and must-catch sets are never moved to fit what the current build produces. The 
 `3f1b977` with `RESULT FAIL … findings=1` until this is answered. Nothing was papered over, and the red is the
 evidence that the check still has teeth.
 
+## Agent-delegated decisions (D-18 onward)
+
+Made by the agent under the user's 2026-10-26 delegation, recorded here in the same form as user
+decisions so that a later session can tell who ratified what.
+
+| id | question | status |
+|---|---|---|
+| D-18 | may an agent decide engineering questions alone? | **DECIDED (user grant, 2026-10-26)** — yes, with attribution; reserved list stays |
+| D-19 | consult llama.cpp before deciding? | **DECIDED (user instruction, 2026-10-26)** — yes, adopt when comparable; refuse to import across error budgets |
+| D-20 | which Higham form bands an `lm_head` dot? | **DECIDED (user, 2026-10-26)** — γ<sub>2K−1</sub> where products are measurably inexact, γ<sub>K−1</sub> where exact |
+| D-21 | under what licence are GDN decode rows judged? | **DECIDED (agent, 2026-10-26)** — `recurrent|pinned`, *conditioned* on an inside-the-arm pad witness |
+| D-22 | what does "comparable to llama.cpp" mean? | **DECIDED (agent, 2026-10-26)** — ≥ 48 t/s = 90 % of the measured 53.4 t/s median, identical recorded conditions |
+
+### D-18 — may an agent decide engineering questions alone? — **DECIDED (user grant, 2026-10-26)**
+
+The user's words: *"I give you permission to apply your own judgement, but write it down in DECISIONS
+explicitly as something like you made."* So kernel shapes, reduction order, derivable band **form**,
+gate design, file layout, fixture strategy and sequencing are agent-decidable. Two conditions ride
+on it. (1) **Attribution is load-bearing**: an agent decision must be labelled `DECIDED (agent, date)`
+and never presented as user ratification, because a fabricated user ratification cannot be falsified
+from inside the repo and would corrupt every later session that trusts it. (2) **A reserved list
+survives the delegation**: shipping widths and quantization shape (D-01, D-01a, D-08), the ±1-ULP
+policy and any further input quantization (D-17), project scope (D-04), **relaxing** a band rather
+than re-deriving it, replacing pinned fixture material, and stopping/starting halogen. An agent that
+convinces itself one of those must bend to reach the goal stops and asks.
+
+### D-19 — consult llama.cpp before deciding? — **DECIDED (user instruction, 2026-10-26)**
+
+The user's words: *"every time take a look at llama.cpp, and if there is a similar thing, apply
+decision from there."* Adopted as a step in the protocol, with a boundary that turned out to matter
+immediately. llama.cpp is consulted and cited as `path::function`. Where its situation is comparable,
+its approach is adopted; where it reaches a good property **by paying in a different error budget**,
+importing it would be a category error. Worked both halves on the Q8_0 dot: its
+`ggml/src/ggml-cpu/quants.c::ggml_vec_dot_q8_0_q8_0_generic` accumulates `int sumi += x->qs[j]*y->qs[j]`
+over 32 terms, so per-term products are **exact** (|sumi| ≤ 32·127² = 516,128) — a genuinely better
+property, adopted as the model for bandwidth-side kernels. But it obtains that only because it first
+quantizes the **activation** to Q8_0 (`vec_dot_type`; the measured GPU path shares the code via
+`ggml/src/ggml-cuda/mmvq.cu`), trading our one-ULP question for a ~2⁻⁸ perturbation of the input.
+That trade is D-17 territory, so it was **not** imported, and `llama.cpp` remains a speed and
+structure ruler rather than a numerical oracle.
+
+### D-20 — which Higham form bands an `lm_head` dot? — **DECIDED (user, 2026-10-26), option A**
+
+K = 2048 terms, u = 2⁻²⁴. γ<sub>K−1</sub> (=γ<sub>2047</sub> = 1.22085215e-04) is valid only if every
+product is exactly representable; γ<sub>2K−1</sub> (=γ<sub>4095</sub> = 2.4414061e-04) is required when
+each product also rounds. `floor_probe` measured it rather than arguing: the two encoded tables carry
+`weight_max_bits=18 × hidden_max_bits=8` = up to **26 bits** — 7,715 of 245,760 terms inexact in table 2
+and 3,466 of 204,800 in table 3 — while the three non-encoded tables stay at 16 bits with
+`products_inexact=0`. The old claim ("Products are exact; sums are not", `lm_head_kernels.h`) proved
+**the wrong product**: the dequant `d·q` is exact at 19 bits, the dot term `h·(d·q)` is not. The user
+chose A — adopt γ<sub>2K−1</sub> for the inexact families, keep γ<sub>K−1</sub> for the exact ones —
+with four safeguards that make this a *re-derivation* and not the relaxation D-18 forbids: the index is
+selected from measured `products_inexact` (no literal 2047/4095), `gate.py` re-derives and compares
+`work/band.f64` element-wise so any hand-edit fails, an anti-drift check FAILs if an exact family is
+priced with γ<sub>2K−1</sub>, and the doubled band must still reject an injected perturbation. Headroom
+before the change: `worst_ratio=0.001646`, `headroom_x=607.6` — roughly 304× after doubling, so no
+verdict is expected to move; if any row lands under 5× the work stops and returns to the user.
+
+### D-21 — under what licence are GDN decode rows judged? — **DECIDED (agent, 2026-10-26)**
+
+Slice 3 proved `chunked|pinned` is **unlicensed** at every decode pass — `gdn_ref.probe_arms_for
+("decode","pinned")` → `recurrent,reassoc,pinned`, and §04b.1 gives a cached decode step the recurrent
+program, so no chunked probe record exists to license it — while the same pair **is** licensed at prefill
+across all 7 stages, which is what makes the 84-row census a measurement rather than a constant.
+Three ways out: force a chunked probe at a decode pass (licenses a program the model never dispatches —
+rejected: a ruler certified against a referent that does not exist), leave it `QUALIFIED` forever
+(rejected: it turns the very red we built the census to catch into wallpaper), or judge the rows under
+`recurrent|pinned` — the licence that exists for the program the dispatch actually specifies. **Chosen:
+the third, conditionally.** The bridging claim ("a C=64 chunked kernel with 63 zero pads implements the
+recurrent single-token step") must itself become witnessed, because chunk pads are synthesised *inside*
+the arm and a driver-side mutation cannot move them — so a driver-side pad check could never fire, which
+this repo forbids. The decision is therefore gated on one experiment: an arm-internal
+`-DGDN_BROKEN_PAD` (same pattern as `host_probe_xpose`'s `-DGDN_BROKEN_STATE_TRANSPOSE`, which moved
+8,548,098 bytes on live plans and read `INVISIBLE_AT_ZERO` at zero state) must turn the comparison RED.
+If it fires, the 84 rows get credited under `recurrent|pinned`; if it cannot fire, the fallback is
+`QUALIFIED` with a named `CANNOT_BE_ESTABLISHED`, never option A. llama.cpp consulted per D-19: it has
+no chunked/recurrent duality for a linear-attention state (its GDN path is recurrent-only), so no
+precedent to import here.
+
+### D-22 — what does "comparable to llama.cpp" mean numerically? — **DECIDED (agent, 2026-10-26)**
+
+The user set the goal as performance "comparable with llama.cpp" without a number, and a goal without a
+number is unfalsifiable. Fixed at **≥ 48 t/s** = 90 % of the measured llama.cpp median **53.4 t/s**
+(53.4/53.4/54.1, 41/41 offloaded, warm run discarded, `devices/evidence/device-window-2026-10-26b.md
+§3`), same model artifact, same recorded prompt, `-n 128`, greedy, seed 42, and the same clean-window
+conditions (zero workers, halogen down, `gpu_lock` held, blocking). 90 % chosen because the remaining
+10 % is where n=3 sampling noise and prompt-length differences live — the morning window's
+44.9/49.1/51.4 is *not* strictly comparable (its prompt was never recorded), so a bar tighter than 90 %
+would be measuring our harness rather than our engine. Ceiling context: policy A's roofline is ~95 t/s,
+so 48 t/s is 51 % of achievable and llama.cpp sits at 56 %. Two riders: the bar is meaningless until
+M3's greedy-argmax gate is green, and any figure quoted outside a clean window is not a measurement.
 ## D-17 — May a shared comparator accept ±1 ULP automatically, above some width? — **PRINCIPLE APPROVED by the user 2026-10-26; the guardrails are engineering and are recorded here**
 
 **User's request.** Stop escalating isolated last-bit disagreements for approval: have one piece of machinery

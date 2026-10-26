@@ -47,7 +47,65 @@ for the whole box — ≈32 GiB free while halogen is resident, and host-pinning
 
 `DECISIONS.md` holds the questions that are the user's, not the agent's (which width a tensor family
 gets, whether to download the checkpoint, what counts as a band). Answering one of those by
-yourself is the expensive kind of helpful.
+yourself is the expensive kind of helpful. **What counts as "one of those" was narrowed by the user
+on 2026-10-26 — read §GOAL and decision protocol before treating a question as reserved.**
+
+## GOAL and decision protocol (user grant, 2026-10-26)
+
+**The goal.** A working engine in `engine/` that runs `Qwen/Qwen3.6-35B-A3B` text-only end to end —
+prefill, decode, greedy sampling — under the policy-A residency shape (19.7848 GiB resident,
+2.5252 GiB/token), with every banded row ACCEPTED through a **licensed** band and the greedy argmax
+matching the pinned oracle, and with a decode rate **comparable to llama.cpp**. "Comparable" is
+quantified, not vibes: **≥ 90 % of the measured llama.cpp median under identical recorded
+conditions** — the reference measurement is **53.4 t/s** median (53.4 / 53.4 / 54.1, 41/41 offloaded,
+`devices/evidence/device-window-2026-10-26b.md §3`), so the bar is **≥ 48 t/s**, against a machine
+ceiling of **~95 t/s** (240 GB/s ÷ 2.5252 GiB/token). Correctness gates go green *before* anyone is
+allowed to ask the engine for a number.
+
+**What an agent may decide alone.** On 2026-10-26 the user delegated engineering judgement to the
+agent: "I give you permission to apply your own judgement, but write it down in DECISIONS explicitly
+as something you made." So kernel shapes, reduction order, band *form* where it is derivable from a
+floor probe, file layout, gate design, fixture strategy, sequencing, and whether to adopt a
+llama.cpp approach are all agent-decidable. Every such decision goes into `DECISIONS.md` with status
+**`DECIDED (agent, YYYY-MM-DD)`**, the evidence, and the number or failure that forced it — the same
+discipline as a user decision, differing only in who ratified it. **Never write "the user decided"
+about a decision the agent made**: an agent decision wearing a user's authority is the one
+documentation failure that silently corrupts every later session, because a fabricated user
+ratification is unfalsifiable from inside the repo.
+
+**Still reserved to the user, always.** The shipping widths and quantization shape (D-01, D-01a,
+D-08), the ±1-ULP acceptance policy and anything that quantizes an input further (D-17), project
+scope — which subsystems exist at all (D-04) — **relaxing a band rather than re-deriving it**,
+replacing or inventing pinned fixture material, and stopping or starting halogen. If an agent
+convinces itself that one of these must be bent to reach the goal, it stops and asks; that is the
+question worth interrupting for.
+
+**llama.cpp first (user instruction, 2026-10-26): "every time take a look at llama.cpp, and if there
+is a similar thing, apply decision from there."** Before deciding a numerical, kernel-shape, layout,
+offload or cache question, read the corresponding implementation under `engines/llama.cpp` and adopt
+its approach when the situations are comparable; cite it as `path::function` in the decision entry.
+If llama.cpp's answer rests on a **different error budget** than ours, say so in the entry and do not
+import it. Worked example of both halves, on the record: its Q8_0 dot accumulates int8 products
+*exactly* (`ggml/src/ggml-cpu/quants.c::ggml_vec_dot_q8_0_q8_0_generic`, `int sumi` over 32 terms)
+as int8 — i.e. it first quantizes the **activation** to Q8_0 via `vec_dot_type`, and the measured GPU
+path shares that code through `ggml/src/ggml-cuda/mmvq.cu`. The exact-products trick is adopted in
+spirit for bandwidth work; the activation quantization is **not** imported, because it trades our
+1-ULP question for a 2⁻⁸ input perturbation, which is D-17 territory and therefore the user's call.
+
+**Milestone ladder — the goal decomposed, with no rung skippable.** Each rung has an exit gate that
+must be green and committed before the next rung starts, and no rung may quote a timing before its
+own correctness gate is green:
+
+| rung | what exists at the end | exit gate |
+|---|---|---|
+| **M0** | pinned dumps + independent oracle | *done* — 178 records, byte-identity 162,519,680 B |
+| **M1** | policy-A resident set actually staged on device by `engine/loader.py`, read back byte-exact | staging plan executed (not sampled), 464 runs, per-tensor read-back digest matches |
+| **M2** | one block forward on device (GDN + MoE + shared expert) | per-stage rows ACCEPTED under licensed bands vs pinned |
+| **M3** | all 40 blocks + `lm_head`, pinned prompt | pinned logits matched, **greedy argmax exact** over the pinned rows |
+| **M4** | token stream, n=128, greedy | text reproduced vs llama.cpp and the oracle; zero host syncs per step counted |
+| **M5** | performance | ≥ 48 t/s in a clean window (zero workers, halogen down, `gpu_lock` held, blocking) |
+| **M6** | MTP draft (D-05) | accept-rate measured, then claimed |
+
 
 ## GPU execution is serialized and belongs to the main agent (inherited verbatim in force)
 
