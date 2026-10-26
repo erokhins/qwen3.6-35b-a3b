@@ -1,0 +1,6 @@
+CASE idx=0 block=layer0 name=decode0 T=1 carry=-1 items=682048 out_hash=17c99a924f84ccf0
+CASE idx=1 block=layer0 name=decode1 T=1 carry=-1 items=682048 out_hash=0e5babbaec6e7d91
+CASE idx=2 block=layer0 name=decode2 T=1 carry=-1 items=682048 out_hash=5ff287f363119095
+CASE idx=3 block=layer1 name=decode0 T=1 carry=-1 items=682048 out_hash=fe77aeb853f0f7d6
+CASE idx=4 block=layer1 name=decode1 T=1 carry=-1 items=682048 out_hash=1bfd5e7f07726e23
+CASE idx=5 block=layer1 name=decode2 T=1 carry=-1 items=682048 out_hash=ba74472281bfbe05

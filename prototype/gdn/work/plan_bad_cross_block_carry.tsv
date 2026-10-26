@@ -1,0 +1,3 @@
+#GDNPLAN v2 n_cases=2 T=1
+CASE idx=0 block=layer0 name=decode0 T=1 mode=honest wslot=0 carry=-1
+CASE idx=1 block=layer1 name=decode0 T=1 mode=honest wslot=1 carry=0

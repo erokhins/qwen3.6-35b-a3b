@@ -173,6 +173,39 @@ static int gdn_selftest(const char *arm, const char *compiler) {
                 ++fails;
             }
     }
+    /* THE STATE READ (`gdn_state_dot`) must contract [d_k,d_v] over k. `d_k == d_v == 128`, so an
+     * `S^T` read is the same block, the same word count, no shape error and — at a zero state — the
+     * SAME NUMBER. That is the oracle's `state_stored_transposed` injection, and it is the defect
+     * slice 1 could not have caught: every state it ran was zero. The fixture is therefore non-zero
+     * by construction, the expected value is spelled independently of `gdn_state_dot`, and the last
+     * clause requires the transposed sum to DIFFER from the honest one, so a fixture that made them
+     * agree would fail instead of passing vacuously. The control build
+     * (`build.sh --broken` -> `build/host_probe_xpose`) fails this check. */
+    ++checks;
+    {
+        static float Sst[GDN_D_K * GDN_D_V];
+        float a[GDN_D_K];
+        for (int k = 0; k < GDN_D_K; ++k) a[k] = (float)(k % 7 - 3) * 0.25f;
+        for (long i = 0; i < (long)GDN_D_K * GDN_D_V; ++i)
+            Sst[i] = (float)((i % GDN_D_V) * 3 + (i / GDN_D_V) % 11) * 0.00390625f;
+        const int col = 91;
+        float want = 0.0f, xpose = 0.0f;
+        for (int k = 0; k < GDN_D_K; ++k) {           /* ascending, one accumulator: same order */
+            want += a[k] * Sst[(long)k * GDN_D_V + col];
+            xpose += a[k] * Sst[(long)col * GDN_D_K + k];
+        }
+        float got = gdn_state_dot(a, Sst, col);
+        if (got != want) {
+            printf("SELFTEST FAIL state_read_layout got %.9g want %.9g\n", (double)got,
+                   (double)want);
+            ++fails;
+        }
+        ++checks;
+        if (xpose == want) {
+            printf("SELFTEST FAIL state_read_fixture_vacuous xpose == honest at col %d\n", col);
+            ++fails;
+        }
+    }
     printf("SELFTEST %s arm=%s compiler=%s checks=%d fails=%d\n", fails ? "FAIL" : "PASS", arm,
            compiler, checks, fails);
     return fails ? 1 : 0;
@@ -193,8 +226,9 @@ static int gdn_arm_main(int argc, char **argv, const char *arm, const char *comp
     GdnPlan pl;
     memset(&pl, 0, sizeof(pl));
     long n_decl = 0, T_decl = 0;
-    if (fscanf(fp, "#GDNPLAN v1 n_cases=%ld T=%ld%*[^\n]\n", &n_decl, &T_decl) != 2) {
-        fprintf(stderr, "bad plan header\n");
+    if (fscanf(fp, "#GDNPLAN v2 n_cases=%ld T=%ld%*[^\n]\n", &n_decl, &T_decl) != 2) {
+        fprintf(stderr, "bad plan header: this slice reads '#GDNPLAN v2 n_cases=N T=T' (v1 had no "
+                        "carry= field and is not accepted)\n");
         fclose(fp);
         return 2;
     }
@@ -205,14 +239,15 @@ static int gdn_arm_main(int argc, char **argv, const char *arm, const char *comp
         GdnPlanCase *c = &pl.c[pl.n++];
         memset(c, 0, sizeof(*c));
         char blk[32], nm[64], md[16];
-        int T = 0, ws = -1;
-        if (sscanf(line, "CASE idx=%d block=%31s name=%63s T=%d mode=%15s wslot=%d",
-                   &c->idx, blk, nm, &T, md, &ws) != 6) {
+        int T = 0, ws = -1, carry = -1;
+        if (sscanf(line, "CASE idx=%d block=%31s name=%63s T=%d mode=%15s wslot=%d carry=%d",
+                   &c->idx, blk, nm, &T, md, &ws, &carry) < 6) {
             fprintf(stderr, "bad plan line: %s", line);
             fclose(fp);
             return 2;
         }
         c->wslot = ws;
+        c->carry = carry;
         if (ws < 0) { fprintf(stderr, "plan case %d has no wslot\n", c->idx); fclose(fp); return 2; }
         c->T = T;
         snprintf(c->block, sizeof(c->block), "%s", blk);
@@ -220,7 +255,16 @@ static int gdn_arm_main(int argc, char **argv, const char *arm, const char *comp
         c->mode = gdn_mode_of(md);
         if (c->mode < 0) { fprintf(stderr, "unknown mode %s\n", md); fclose(fp); return 2; }
         if (c->T < 1 || c->T > GDN_C) {
-            fprintf(stderr, "T=%d outside 1..%d: slice 1 is ONE chunk\n", c->T, GDN_C);
+            fprintf(stderr, "T=%d outside 1..%d: this slice is ONE chunk per case\n", c->T, GDN_C);
+            fclose(fp);
+            return 2;
+        }
+        if ((long)c->T != T_decl) {
+            /* One in/out/echo stride addresses every case in the plan, so a case whose T differs
+             * from the header would be bound at a stride its own field sizes disagree with — the
+             * kind of off-by-a-field that reads real bytes from the wrong place and prints numbers. */
+            fprintf(stderr, "plan case %d has T=%d but the plan declares T=%ld: one plan, one T\n",
+                    c->idx, c->T, T_decl);
             fclose(fp);
             return 2;
         }
@@ -235,6 +279,23 @@ static int gdn_arm_main(int argc, char **argv, const char *arm, const char *comp
     for (int i = 0; i < pl.n; ++i) {
         pl.c[i].in_off = (long)i * pl.in_words;
         pl.c[i].out_off = (long)i * pl.out_words;
+        /* A carry must point BACKWARDS, at a case of the SAME block. Forward and self carries would
+         * read a block that has not been written yet (calloc zeros, which is exactly the bug a
+         * zero-state test cannot see), and a cross-block carry would read another block's head
+         * history and still print a plausible state. */
+        if (pl.c[i].carry >= 0) {
+            int j = pl.c[i].carry;
+            if (j >= i) {
+                fprintf(stderr, "plan case %d carries from case %d: a carry must precede it\n",
+                        pl.c[i].idx, j);
+                return 2;
+            }
+            if (strcmp(pl.c[j].block, pl.c[i].block) != 0) {
+                fprintf(stderr, "plan case %d (%s) carries from case %d (%s): a state is per block\n",
+                        pl.c[i].idx, pl.c[i].block, j, pl.c[j].block);
+                return 2;
+            }
+        }
     }
     long echo_words = gdn_echo_words((int)T_decl);
 
@@ -262,7 +323,7 @@ static int gdn_arm_main(int argc, char **argv, const char *arm, const char *comp
     fclose(fi); fclose(fw);
 
     long hip_calls = 0;
-    int refused = 0;
+    int carried = 0;
     FILE *fr = a.report[0] ? fopen(a.report, "w") : NULL;
     for (int i = 0; i < pl.n; ++i) {
         GdnPlanCase *pc = &pl.c[i];
@@ -277,25 +338,32 @@ static int gdn_arm_main(int argc, char **argv, const char *arm, const char *comp
         memset(&c, 0, sizeof(c));
         gdn_bind(&c, &k, inbuf + pc->in_off, wb, obuf + pc->out_off,
                  ebuf + (long)i * echo_words, pc->T);
-        int rc = gdn_case_run(&c, &k, st);
+        if (pc->carry >= 0) {
+            /* the carried state is the PREVIOUS CASE's EMITTED state, in place: no copy, no second
+             * buffer, so what the arm carries is byte-for-byte what it wrote. Reading a block that
+             * is later in the plan is refused above, so this source is always already written. */
+            c.init_state = (const float *)(obuf + pl.c[pc->carry].out_off
+                                           + gdn_stage_off(pc->T, GS_STATE));
+            ++carried;
+        }
+        gdn_case_run(&c, &k, st);
         GdnFp fp[GF_N];
         gdn_census(&c, fp);
         uint64_t oh = gdn_fnv(obuf + pc->out_off, (long)gdn_stage_words(pc->T) * 4);
-        printf("CASE idx=%d block=%s name=%s T=%d mode=%s items=%ld stage_items=%ld "
-               "state_nonzero=%ld pad_nonzero=%ld refuse=%ld out_hash=%016llx\n",
+        printf("CASE idx=%d block=%s name=%s T=%d mode=%s carry=%d items=%ld stage_items=%ld "
+               "state_nonzero=%ld pad_nonzero=%ld out_hash=%016llx\n",
                pc->idx, pc->block, pc->name, pc->T,
                pc->mode == GDN_M_STUB ? "stub" : (pc->mode == GDN_M_NORM_WEIGHT_F32
                                                   ? "norm_weight_f32" : "honest"),
-               st[GDN_ST_ITEMS], st[GDN_ST_STAGE_ITEMS], st[GDN_ST_STATE_NONZERO],
-               st[GDN_ST_PAD_NONZERO], st[GDN_ST_REFUSE], (unsigned long long)oh);
-        if (fr) fprintf(fr, "CASE idx=%d block=%s name=%s T=%d items=%ld out_hash=%016llx\n",
-                        pc->idx, pc->block, pc->name, pc->T, st[GDN_ST_ITEMS],
+               pc->carry, st[GDN_ST_ITEMS], st[GDN_ST_STAGE_ITEMS], st[GDN_ST_STATE_NONZERO],
+               st[GDN_ST_PAD_NONZERO], (unsigned long long)oh);
+        if (fr) fprintf(fr, "CASE idx=%d block=%s name=%s T=%d carry=%d items=%ld out_hash=%016llx\n",
+                        pc->idx, pc->block, pc->name, pc->T, pc->carry, st[GDN_ST_ITEMS],
                         (unsigned long long)oh);
         for (int f = 0; f < GF_N; ++f)
             printf("FP idx=%d field=%s n=%ld sum=%016llx sumidx=%016llx\n", pc->idx,
                    gdn_field_name[f], fp[f].n, (unsigned long long)fp[f].sum,
                    (unsigned long long)fp[f].sumidx);
-        if (rc == 2) ++refused;
     }
     if (fr) fclose(fr);
     if (fwrite(obuf, 4, (size_t)pl.out_words * pl.n, fo) != (size_t)pl.out_words * pl.n) {
@@ -307,14 +375,9 @@ static int gdn_arm_main(int argc, char **argv, const char *arm, const char *comp
     }
     if (fclose(fe)) { fprintf(stderr, "flush failed on echo\n"); return 2; }
     printf("RUN arm=%s compiler=%s cases=%d T=%ld stages=%d case_words=%ld echo_words=%ld "
-           "hip_calls=%ld refused=%d\n", arm, compiler, pl.n, T_decl, GS_N, pl.out_words,
-           echo_words, hip_calls, refused);
+           "hip_calls=%ld carried=%d\n", arm, compiler, pl.n, T_decl, GS_N, pl.out_words,
+           echo_words, hip_calls, carried);
     free(inbuf); free(wbuf); free(obuf); free(ebuf);
-    if (refused) {
-        printf("RESULT FAIL reason=case asked for a nonzero initial state; slice 1 is one chunk "
-               "from a zero state\n");
-        return 3;
-    }
     printf("RESULT PASS arm=%s cases=%d\n", arm, pl.n);
     return 0;
 }

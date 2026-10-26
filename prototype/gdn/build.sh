@@ -3,10 +3,15 @@
 #
 #   ./build.sh            build both (objects under build/)
 #   ./build.sh --check    compile only, run nothing (the same compiles)
-#   ./build.sh --broken   ALSO build build/host_probe_broken: the same source with
-#                         -DGDN_BROKEN_BF16_TRUNC, the control that shows the self-test and the
-#                         read/decode checks can fail. Every check in this lane is witnessed
-#                         failing before it is trusted; this is that witness's compiler.
+#   ./build.sh --broken   ALSO build the two control builds under build/:
+#                         build/host_probe_broken  -DGDN_BROKEN_BF16_TRUNC — the bf16 rule that
+#                             truncates instead of rounding, the witness that the self-test and the
+#                             read/decode checks can fail; and
+#                         build/host_probe_xpose   -DGDN_BROKEN_STATE_TRANSPOSE — the state read
+#                             put back to `S^T` (the oracle's `state_stored_transposed`). Slice 1
+#                             could not see that defect at all, because every state it ran was
+#                             zero, so the witness has to be a build and not a hope.
+#                             Every check in this lane is witnessed failing before it is trusted.
 #   ./build.sh --clean    remove build/ and both binaries
 #
 # Build facts that are not optional on this box (pitfalls/50-harness-and-shell.md §"Build and
@@ -54,6 +59,10 @@ if [ "${1:-}" = "--broken" ]; then
           -c "$HERE/host_probe.cpp" -o "$BUILD/host_probe_broken.o"
     "$CXX" -O2 $RPATH "$BUILD/host_probe_broken.o" -o "$BUILD/host_probe_broken"
     echo "BUILD broken control=$BUILD/host_probe_broken (bf16 conversion truncates instead of rounding)"
+    "$CXX" -O2 -I"$HERE" -std=c++11 $FP -DGDN_BROKEN_STATE_TRANSPOSE \
+          -c "$HERE/host_probe.cpp" -o "$BUILD/host_probe_xpose.o"
+    "$CXX" -O2 $RPATH "$BUILD/host_probe_xpose.o" -o "$BUILD/host_probe_xpose"
+    echo "BUILD xpose control=$BUILD/host_probe_xpose (state read as S^T; invisible at a zero state)"
 fi
 if [ "${1:-}" = "--check" ]; then
     echo "BUILD note --check: compile only; no device was touched and no timing was taken"

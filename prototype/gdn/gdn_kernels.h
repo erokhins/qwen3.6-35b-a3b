@@ -1,5 +1,6 @@
-/* gdn_kernels.h — slice 1 of the GDN token mixer of `Qwen/Qwen3.6-35B-A3B`: the chunked scan core
- * for ONE chunk from a zero initial state, plus §04.7's gated norm and §04.8's out_proj.
+/* gdn_kernels.h — slice 2 of the GDN token mixer of `Qwen/Qwen3.6-35B-A3B`: the chunked scan core
+ * for ONE chunk, from a state that may be LIVE (slice 1's zero-only state is gone), plus §04.7's
+ * gated norm and §04.8's out_proj.
  *
  * ONE arithmetic source, compiled twice (`pitfalls/40` §"a check whose reference side is derived
  * from the thing under test"):
@@ -25,10 +26,28 @@
  *        seven names the oracle uses — q_hat, k_hat, scan_out, core_attn, state, normed, y —
  *        which is exactly `gdn_ref.SCAN_WIDTH_STAGES`, so `band_check_row` applies with no
  *        translation.
- *   OUT: more than one chunk, any carried state, batching, MTP, §04.2/§04.3 (the stages this file
- *        READS), and every performance question. `init_state` must be all zero: `gdn_case_run`
- *        counts the non-zero words and the case REFUSES rather than quietly treating a live state
- *        as zero. A zero state is a case, not a feature.
+ *   IN (slice 2): a NON-ZERO `init_state`. The three places the state is read — §04b.4's delta
+ *        rule, §04b.5's `q_decayed S` term, and §04b.5's carry term `S_old * exp(cum_last)` — are
+ *        the whole of cross-chunk state passing, because the incoming state of chunk n is the
+ *        outgoing state of chunk n-1 and nothing else crosses the boundary. `gdn_case_run` still
+ *        COUNTS the non-zero incoming words (`GDN_ST_STATE_NONZERO`); it no longer refuses them,
+ *        and the count is now load-bearing in `gate.py` against the count the dump itself implies.
+ *   OUT: batching, MTP, device codegen, and every performance question. More than one chunk is
+ *        still not one case — the carry is a chain of cases inside one plan (`carry=` in
+ *        `gdn_case.h`), which is what a cached decode step actually is, and each case is still one
+ *        chunk of the reference width. §04.2/§04.3 (the stages this file READS) stay out.
+ *
+ * WHY THE STATE READ IS A NAMED CHECK AND NOT A HOPE (§04b.6 / the oracle's own fault id
+ * `state_stored_transposed`): `d_k == d_v == 128`, so `[d_k,d_v]` and `[d_v,d_k]` are the same
+ * 16,384-word block and a transposed contraction raises nothing, changes no shape and is
+ * IDENTICAL at a zero state — which is exactly why slice 1, whose every state was zero, could not
+ * have caught it however its bands moved. Every read of the state now goes through
+ * `gdn_state_dot()` in ONE spelling, and `gate.py` runs a control build
+ * (`build.sh --broken` -> `build/host_probe_xpose`, `-DGDN_BROKEN_STATE_TRANSPOSE`) that puts the
+ * `S^T` read back into that one function. The control is witnessed on BOTH plans: byte-identical
+ * to the honest build where the state is zero (proving the old gate could not see it) and red where
+ * the state is live (proving the new one can). The `#ifdef` exists ONLY so the control cannot drift
+ * from the shipped arithmetic; the honest build never defines it.
  *
  * ---------------------------------------------------------------------------------------------
  * DECLARED ARITHMETIC — the compiled arms must agree bit for bit, so the order lives in the source:
@@ -88,7 +107,7 @@
 #define GDN_L2_EPS 1e-6f   /* §04.4's l2norm eps: inside the rsqrt of a SUM */
 #define GDN_RMS_EPS 1e-6f  /* §04.7's rms_norm_eps: same value, different norm */
 
-/* The only two non-honest modes slice 1 has a use for. `STUB` is the honesty control: it writes
+/* The only two non-honest modes this slice has a use for. `STUB` is the honesty control: it writes
  * the input `v_pre` into every output word without doing any of the scan, so a comparator that
  * reads the differ instead of the verdict is caught (`pitfalls/40` §a check whose predicate is a
  * constant). `NORM_WEIGHT_F32` is §04.7's width injection — the case the `normed` band is
@@ -163,7 +182,7 @@ typedef struct {
     const uint32_t *z;         /* [T,h_v,d_v] bf16 image */
     const uint32_t *norm_w;    /* [d_v] bf16 image */
     const uint32_t *out_w;     /* [H, value_dim] bf16 image */
-    const float    *init_state; /* [h_v,d_k,d_v] — required all zero in slice 1 */
+    const float    *init_state; /* [h_v,d_k,d_v] — may be ZERO (prefill) or LIVE (carried) */
     /* per-head scratch */
     float *cum;    /* [h_v,C]        */
     float *ut;     /* [h_v,C,C]      */
@@ -198,7 +217,7 @@ typedef struct {
     int       T;           /* the running case's token count, read by the exit-cast item */
 } GdnCtx;
 
-enum { GDN_ST_STATE_NONZERO = 0, GDN_ST_PAD_NONZERO, GDN_ST_REFUSE, GDN_ST_ITEMS,
+enum { GDN_ST_STATE_NONZERO = 0, GDN_ST_PAD_NONZERO, GDN_ST_ITEMS,
        GDN_ST_STAGE_ITEMS, GDN_ST_N };
 
 /* ---- one load path for every input word, so "what did the kernel see?" has one answer ---------
@@ -242,6 +261,21 @@ GDNDAY_DEV static inline float gdn_dot_col(const float *a, const float *S, int n
     float acc = 0.0f;
     for (int k = 0; k < n; ++k) acc += a[k] * S[(long)k * row_stride + col];
     return acc;
+}
+/* THE state read. Every consumer of the incoming state goes through this one function, so the
+ * orientation of the state is a fact stated once in the shipped source and inverted once in the
+ * control build. The control branch is `state_stored_transposed` — the oracle's own injection, and
+ * `d_k == d_v` is what makes it legal-looking: same block, same word count, different number. */
+GDNDAY_DEV static inline float gdn_state_dot(const float *a, const float *S, int col) {
+#ifdef GDN_BROKEN_STATE_TRANSPOSE
+    /* control build only: the state is read as [d_v,d_k]. Invisible at a zero state, which is the
+     * point of the witness in gate.py, and a different number everywhere else. */
+    float acc = 0.0f;
+    for (int k = 0; k < GDN_D_K; ++k) acc += a[k] * S[(long)col * GDN_D_K + k];
+    return acc;
+#else
+    return gdn_dot_col(a, S, GDN_D_K, col, GDN_D_V);
+#endif
 }
 GDNDAY_DEV static inline float gdn_sumsq(const float *a, int n) {
     float acc = 0.0f;
@@ -361,14 +395,15 @@ GDNDAY_DEV static inline void gdn_item_solve(const GdnCtx *c, int h, int rhs, in
 }
 
 /* ---- item F: §04b.4's delta rule, per (head, column): v_new = new_values - k_cumdecay S.
- * `S` is [d_k, d_v] and the contraction is over k, read with the stride spelled out. The S term
- * is really multiplied and not skipped, so its exact zero in a zero-state case is a measured fact
- * about the case (GDN_ST_STATE_NONZERO) and not an assumption the code makes. */
+ * `S` is [d_k, d_v] and the contraction is over k through `gdn_state_dot`, the ONE state read. The
+ * S term is really multiplied and not skipped, so its exact zero in a zero-state case is a measured
+ * fact about the case (GDN_ST_STATE_NONZERO) and not an assumption the code makes — and with a live
+ * incoming state this term is where a transposed read first shows up. */
 GDNDAY_DEV static inline void gdn_item_vnew(const GdnCtx *c, int h, int col) {
     long stride = (long)h * GDN_C * GDN_D_K;
     const float *S = c->init_state + (long)h * GDN_D_K * GDN_D_V;
     for (int i = 0; i < GDN_C; ++i) {
-        float sub = gdn_dot_col(c->kcd + stride + (long)i * GDN_D_K, S, GDN_D_K, col, GDN_D_V);
+        float sub = gdn_state_dot(c->kcd + stride + (long)i * GDN_D_K, S, col);
         c->vnew[stride + (long)i * GDN_D_K + col] = c->newv[stride + (long)i * GDN_D_K + col] - sub;
     }
 }
@@ -380,7 +415,7 @@ GDNDAY_DEV static inline void gdn_item_core(const GdnCtx *c, const GdnCase *k, i
                                             int col) {
     const float *S = c->init_state + (long)h * GDN_D_K * GDN_D_V;
     const float *qd = c->qdec + ((long)h * GDN_C + i) * GDN_D_K;
-    float acc = gdn_dot_col(qd, S, GDN_D_K, col, GDN_D_V);
+    float acc = gdn_state_dot(qd, S, col);
     const float *iar = c->ia + (long)h * GDN_C * GDN_C + (long)i * GDN_C;
     const float *vn = c->vnew + (long)h * GDN_C * GDN_D_V;
     for (int j = 0; j < GDN_C; ++j) acc += iar[j] * vn[(long)j * GDN_D_V + col];
@@ -388,7 +423,11 @@ GDNDAY_DEV static inline void gdn_item_core(const GdnCtx *c, const GdnCase *k, i
 }
 
 /* ---- item H: §04b.5's state write for the chunk, one (head, k-row, v-column):
- * S_new[k,v] = S_old[k,v] * exp(cum_last) + sum_i k_decayed_i[k] * v_new_i[v]. */
+ * S_new[k,v] = S_old[k,v] * exp(cum_last) + sum_i k_decayed_i[k] * v_new_i[v]. This is the carry
+ * term. With a live incoming state it is the one place the incoming state is COPIED (row-major in,
+ * row-major out) rather than contracted, so it takes no `gdn_state_dot` and a transposed-contraction
+ * control does not touch it — which is why the read witness names the delta rule and the
+ * `q_decayed S` term and not this line. */
 GDNDAY_DEV static inline void gdn_item_state(const GdnCtx *c, int h, int row, int col) {
     const float *kd = c->kdec + (long)h * GDN_C * GDN_D_K;
     const float *vn = c->vnew + (long)h * GDN_C * GDN_D_V;

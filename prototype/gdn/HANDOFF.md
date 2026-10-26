@@ -2,7 +2,81 @@
 
 Written ~minute 38 of the lane. This file is updated as things execute; it is not a summary
 written at the end, because the previous lane at this slice died at the 90-minute deadline with
-three headers and no executable verdict. Checkpoint log is at the bottom.
+three headers and no executable verdict. Checkpoint log is at the bottom. The slice-2 lane continued
+this file on 2026-10-26 from ~minute 25 of its own deadline.
+
+## SLICE 2 — the state is live, and the state read is now a witnessed check
+
+**Why the slice exists.** Slice 1's `gdn_kernels.h` read the recurrent state as `S^T` (the oracle's
+own `state_stored_transposed` trap). The lane fixed it, but the fix was UNTESTABLE there: every state
+slice 1 ran was exactly zero, at which the honest read and the `S^T` read return the same number.
+`d_k == d_v == 128`, so a transposed read changes no shape, raises nothing, and cannot move a band
+that nothing moves it. Slice 2 makes the state non-zero by construction and proves the fix.
+
+**The material is pinned, not invented.** `checkpoints/dump-manifest-gdn-2026-10-26.json`
+§reading_rules.decode_rows: `decode{s}` is step s of the cached sequence, fed AFTER the pinned
+prefill produced `prefill.state`. So prefill → decode0 → decode1 → decode2 is a real state-carry
+chain, every incoming state in it is non-zero (509,952 and 498,944 of 524,288 words, per block), and
+every pass has a pinned `state` reference. Nothing in this slice synthesises a fixture.
+
+**What changed in the code.**
+* `gdn_state_dot()` is the ONE place the incoming state is contracted; §04b.4's delta rule and
+  §04b.5's `q_decayed S` term both go through it. The state WRITE (item H) copies row-major and
+  deliberately does not — which is why the witness names the two contractions and not the carry term.
+* `build.sh --broken` now also builds `build/host_probe_xpose` with `-DGDN_BROKEN_STATE_TRANSPOSE`,
+  the same source with the read put back to `S^T`. It is a control BUILD and not a scratch copy of
+  the headers, so it cannot drift from the shipped arithmetic; the honest build never defines it.
+* The plan is `v2` and gained `carry=<idx>`: that case's incoming state is the `state` stage the
+  named case emitted IN THIS RUN (a pointer into the arm's own out buffer — no copy, no second
+  buffer). The arm REFUSES a self or forward carry, a cross-block carry, and a case whose `T`
+  differs from the plan's `T`; `gate.py` witnesses all three refusals firing.
+* The zero-state REFUSAL is gone (that was slice 1's boundary). `GDN_ST_STATE_NONZERO` survives and is
+  now load-bearing: `gate.py` requires it to equal the non-zero count of the pinned tensor the state
+  came from (pinned-state plan), or of the state the previous case emitted, read back out of the
+  arm's own `out.bin` (carried plan). A counter that can only read 0 would be vacuous; this one is
+  witnessed at 498,944 and 509,952 in the same run.
+* New self-test checks (21 → 23): a non-zero hand-built `[d_k,d_v]` state with the expected value
+  spelled independently of `gdn_state_dot`, plus a clause requiring the transposed sum to DIFFER from
+  the honest one, so the fixture cannot pass vacuously. `host_probe_xpose --selftest` FAILS it.
+
+**What the checks say (full log: `evidence/gdn-slice2-gate-2026-10-26.log`).**
+* `carry`: 6 cases × 7 stages × 2 plans = **84 rows, 84 ACCEPTED, zero rejects**. Plan
+  `pinned_state` reads each pass's pinned predecessor state; plan `arm_carried` makes cases 1 and 2 of
+  each block read what the previous case emitted. The `state` stage sits at relL2 3.3e-08…7.0e-08
+  against the pinned bytes, `ndiff` 183,335…327,798 of 524,288. `maxabs`/`cos` are printed and
+  labelled `[reported_only]`; the verdict is `band_check_row`'s.
+* The compiled pair agrees on the carried plan at zero tolerance: `out.bin` 88,670,208 B and
+  `echo.bin` 299,520 B, `ndiff_bytes=0`.
+* **The transposition sabotage.** `host_probe_xpose` on the ZERO-state prefill plan: `ndiff_bytes=0`
+  over all 35,143,680 B of `out.bin` — indistinguishable from the honest arm, which is the measured
+  statement that slice 1 could not have caught this. On the live plans it moves 8,548,098 and
+  8,717,959 bytes; `SABOTAGE_BAND rows=60 rejected=60` on the derived must-catch set (the five stages
+  the oracle's own `downstream_closure` says the read reaches × 6 cases × 2 plans); `q_hat`/`k_hat`
+  — 24 rows — are byte-identical under it, asserted and not assumed. Per case the `state` row is
+  relL2 4e-08 honest against 0.056…0.137 transposed (ratio 1.1e6…2.3e6) and ndiff 190,952 against
+  488,539. The predicate is the ordering `relL2_honest < relL2_xpose AND ndiff_honest < ndiff_xpose`
+  on all 60 live-stage rows — an ordering, not a typed threshold, with the absolute verdict left to
+  the band.
+* `determinism` is a named section: it re-runs `gate.py --only band,carry` as two further processes
+  and requires their STAGE lines to match each other AND this run's (158 lines, `verdict=IDENTICAL`,
+  logs in `evidence/gdn-determinism-run{1,2}-2026-10-26.log`). Two FULL gate runs were also compared
+  outside the gate: 158 STAGE lines, sha256 `3951cdb1d97df92c…`, `diff` empty
+  (`evidence/gdn-slice2-gate-second-run-2026-10-26.log`, `gdn-slice2-stage-line.diff` 0 bytes).
+* `controls` is now 9: stub 14/14 red on the derived count, crossed 14/14, 2-arm refused, the
+  `--broken` bf16 control fires (self-test RED, 8 of 14 rows red), stub on the live-state cases 42/42
+  red, crossed on the live-state cases 42/42 (fields AND live state crossed together), and the three
+  bad-plan shapes refused.
+* Everything slice 1 had is still green: 12 of 14 prefill rows ACCEPTED, `q_hat` still the only two
+  reds at `max_abs=2.980e-08 > licensed 2.900e-08`, exact reads 16/16 BIT_IDENTICAL, the oracle CLI
+  arm `CROSS-FORM PASS` with digest `27a68c7e82c9aa05…`, the `norm_weight` ladder reproducing the
+  oracle's accepted case at k=2 with 190 of 131,072 elements moved. **The band was not touched.**
+
+One display change is worth knowing about: the prefill rows now print `perhead=…(h7/32)` where
+slice 1's log printed `(h84657/131072)`. Slice 1 flattened the pinned reference to 1-D before
+`aggregates`, so its "per-head maximum" was a per-element maximum wearing the name; the reference is
+now passed in its own orientation and the per-head maximum is per HEAD (32 of them). `per_head_max`
+equals `max_abs` for every row either way, so no verdict moved — checked line by line against the
+committed slice-1 log, whose judged fields are identical to the new prefill rows.
 
 ## Inventory of the dead lane's three headers (step 0)
 
@@ -33,14 +107,27 @@ The four fixes to `gdn_kernels.h`, each of which is a real defect and not cosmet
 ## What runs
 
     ./build.sh                                   g++ host twin + hipcc device TU (CPU work, no device touched)
-    ./build.sh --broken                          ALSO the bf16-truncation control build (the witness)
+    ./build.sh --broken                          ALSO the two control builds: the bf16-truncation one
+                                                 and build/host_probe_xpose, the S^T state-read sabotage
     ./gate.py                                    the whole gate; CPU only, no device, no lock, no timer
-    ./gate.py --only three-arm|band|exact|controls|witness|oracle
+    ./gate.py --only three-arm|band|carry|exact|controls|witness|oracle|determinism
     ./bf16_vectors.py                            derives the self-test's bf16 table from torch
 
-## What passes (executed 2026-10-26; full log in `evidence/gdn-slice1-gate-2026-10-26.log`)
+Build artefacts: objects and the two control binaries live in `prototype/gdn/build/`, the arms at
+`prototype/gdn/{gdn,host_probe}`, and the regenerable planes in `prototype/gdn/work/` (~1.8 GB of
+`.bin`, never committed; deleted at the end of this lane, which took it from 1.8 GB to 336 KB). The
+first three paths are gitignored by exact path (`git check-ignore -v` proves all four). NOTE: slice 1
+accidentally COMMITTED some of `work/` — `work/*.tsv`, `work/plan*.tsv`, `work/run-*.log` and
+`work/asan.echo` (a 3,163,136-byte binary) are tracked. This lane regenerated the tracked `.tsv`
+outputs (the plan and report grammar gained `carry=`) and restored `work/asan.echo` after cleaning,
+so the only tracked deletions here are none. Fixing that hygiene means editing `.gitignore`, which is
+outside this slice's boundary, so it is written down instead of done.
 
-* `SELFTEST PASS` on BOTH compiled arms, 21 checks each.
+## What passes (executed 2026-10-26; full logs in `evidence/gdn-slice2-gate-2026-10-26.log` and
+`evidence/gdn-slice1-gate-2026-10-26.log`)
+
+* `SELFTEST PASS` on BOTH compiled arms, 23 checks each (slice 1 had 21; the two new ones are the
+  state read and its non-vacuity clause). Both control builds FAIL their self-test, which is the point.
 * Compiled pair at zero tolerance: `out.bin` 35,143,680 B and `echo.bin` 3,163,136 B, `ndiff_bytes=0`.
   The hip arm announced `arm=hip_hostpath hip_calls=0`; gate refuses it otherwise.
 * Band verdicts, `band_check_row` only, against the pinned dump, `band_digest = 27a68c7e82c9aa05…`:
@@ -77,6 +164,33 @@ nested**: byte-exactness is strictly more sensitive on the read path (1 word of 
 the only thing that sees the arithmetic defect — and on the accepted case the exact check is
 GREEN, which is reported rather than hidden.
 
+## NOT ESTABLISHED by slice 2 — read this before trusting the carry
+
+* **The decode passes are cross-form.** The manifest's §dispatch says prefill is chunked and
+  **decode is recurrent**, so this slice's 84 accepted rows are a *chunked kernel at C=64 with 63
+  zero pad rows* agreeing with *pinned recurrent bytes*. The agreement is licensed by the band's
+  per-stage limits (`band_check_row`), which the floor probe derived over both forms — but the
+  oracle's per-pass licence (`band_licenses`) was NOT consulted, and `chunked|pinned` is not a
+  licensed row at a decode pass. The agreement measured here (relL2 ~4e-08 on `state`) is the
+  evidence; a per-pass licence would be the oracle's job, not this lane's.
+* **A multi-chunk PREFILL is still untested against pinned bytes.** The pinned prefill is 32 tokens =
+  one chunk, so a prefill→prefill carry has no pinned reference; the chain this slice proves is
+  prefill→decode→decode→decode. `prefill_2chunk_*` fixtures exist in the oracle's probe population,
+  but this lane does not generate fixtures, so a three-chunk prefill carry is a later slice.
+* **Carry error growth is bounded, not characterised.** The carried plan is judged against the pinned
+  bytes with the same band, so a diverging carry would show up as a rejection — but three steps is
+  three steps. No growth curve, no long-cache test, and nothing about a cache that is evicted, reused
+  or re-shaped.
+* **Nothing has run on the iGPU.** Both arms announce `hip_calls=0`; the state read has never been
+  issued as a device kernel, and there is no device codegen for it yet.
+* **Out of slice, unchanged:** batching (B>1), MTP, §04.2/§04.3 (the projections and the conv, whose
+  decode-side window carry this slice depends on but does not test), and every performance question.
+* **The `q_hat` ULP is still the user's call** (the three ways out are listed under "Open" below);
+  slice 2 neither fixes it nor hides it, and it does not touch `state`: the decode `q_hat` rows are
+  inside the band at 1.49e-08.
+* **The `norm_weight` side-by-side pair is still not found**, re-confirmed unchanged from slice 1
+  (`side_by_side_pair_found=NO`): every perturbation rung is red on both the exact check and the band.
+
 ## Open (the only thing standing between this lane and a green gate)
 
 `q_hat`'s `max_abs` is one f32 ULP over the licensed value. Suspected cause, measured not assumed:
@@ -93,7 +207,29 @@ widening a band from here:
   3. accept `q_hat` as a documented out-of-band stage for slice 1 and revisit it when the engine's
      real `l2norm` kernel exists.
 
-## Checkpoint log (continued)
+## Checkpoint log (slice 2, 2026-10-26)
+
+- min 5 — claimed `/tmp/pi_halogen.lock` (no live holder existed); wrote the lane name and pid into
+  `holder`. No device run was taken all lane, so `gpu_lock` was never needed and `gate.py` contains
+  zero `gpu_lock` references (`grep -c gpu_lock prototype/gdn/gate.py` = 0).
+- min 18 — read the oracle's `scan_chunked`/`scan_exact`/`SCAN_WIDTH_STAGES`, confirmed from the
+  manifest that decode0/1/2 are a cached chain off `prefill.state`, and that the band's own probe
+  population covers `layer{0,1}/pinned/decode{0,1,2}`.
+- min 20 — `gdn_state_dot` + the `--broken` xpose control + plan `v2 carry=` + the state-read
+  self-test check (23 checks; both honest arms PASS, both control builds FAIL). `--only band` still
+  reproduces slice 1's 12/14 rows, `q_hat` the only red, band untouched.
+- min 22 — `--only carry` first verdict: 84/84 live-state rows ACCEPTED, compiled pair identical on
+  the carried plan, sabotage invisible at zero state and visible on both live plans. One inverted
+  predicate found and fixed (a sabotage row was being reported as a failure for being REJECTED).
+- min 24 — controls extended to the live-state cases and to three bad-plan shapes; determinism
+  section added. `--only three-arm,band,carry,exact,controls,determinism` → findings = the two q_hat
+  rows and nothing else.
+- min 26 — full gate three times (the third from a cleaned `work/`): rc=1 with exactly the two q_hat
+  findings each time; the 158 STAGE lines carry sha256 `3951cdb1d97df92c…` in ALL FIVE sets — the
+  three whole-gate runs and the determinism section's two nested re-runs. Evidence copied to
+  `evidence/`; `work/*.bin` cleaned; `work/asan.echo` restored from HEAD; halogen lock released.
+
+## Checkpoint log (slice 1, continued)
 
 - min 68 — `gate.py` in progress.
 - min 78 — first verdict: 12/14 banded rows ACCEPTED, `q_hat` one ULP over. ASan build used to find
@@ -104,7 +240,7 @@ widening a band from here:
 - min 90 — evidence copied to `evidence/`, 1.2 GB of regenerable `work/*.bin` deleted, halogen
   stream lock released. Nothing staged; nothing outside `prototype/gdn/` touched.
 
-## Checkpoint log
+## Checkpoint log (slice 1, first entries)
 
 - min 38 — inventory done; band digest read through `load_band()` = `27a68c7e82c9aa05…`, matches
   the authoritative value; the seven banded stages confirmed present in the band file.

@@ -5,6 +5,15 @@
  * and print one `CASE` line plus a `RUN` and a `RESULT` line. `gate.py` parses those and asserts
  * parsed == printed == derived.
  *
+ * THE PLAN CARRIES STATE (slice 2). A case may name `carry=<idx>`: its incoming state is then the
+ * `state` stage that case <idx> produced IN THIS RUN, not the state block in inputs.bin. That is
+ * what a cached decode step is — chunk n reads the buffer chunk n-1 wrote — and it makes the carry
+ * chain the arm's own behaviour rather than something the driver arranges behind the arm's back.
+ * Rules the arm ENFORCES, because a wrong carry is a silently plausible number: the source case
+ * must exist, must precede this one, and must be the same block (a state is per-block, per-head;
+ * carrying one across blocks is a different head's history). Every case in a plan must also name
+ * the SAME `T` as the plan header, because one stride addresses every case.
+ *
  * TWO NAME SPACES, deliberately separated:
  *   ITEMS  are this file's work decomposition (enter, cum, pair, rowpost, solve, vnew, core,
  *          state, cast, norm, outproj). They exist so an item count can be derived and checked.
@@ -134,6 +143,7 @@ typedef struct {
     int T;
     int mode;                     /* GdnMode */
     int wslot;                    /* which weight block of weights.bin this case binds */
+    int carry;                    /* case whose emitted state is this case's incoming state; -1 = file */
     long in_off, out_off;         /* word offsets in the work files */
     char block[32];
     char name[64];
@@ -219,14 +229,17 @@ static inline void gdn_census(const GdnCtx *c, GdnFp *fp) {
     }
 }
 
-/* ---- one ordered pass over every item of one case. Returns 0, or 2 if the case asked for
- * something slice 1 does not implement (a non-zero initial state). */
-static inline int gdn_case_run(const GdnCtx *c, const GdnCase *k, long *st) {
+/* ---- one ordered pass over every item of one case.
+ * `GDN_ST_STATE_NONZERO` counts the live words in the incoming state. In slice 1 that count was a
+ * REFUSAL condition (a nonzero state was outside the slice); in slice 2 it is a MEASURED FACT about
+ * the case and `gate.py` requires it to equal the non-zero count of the pinned tensor the state was
+ * read from, so a case cannot claim a live state it did not receive, and cannot silently receive a
+ * zero one it was not meant to. */
+static inline void gdn_case_run(const GdnCtx *c, const GdnCase *k, long *st) {
     long nz = 0;
     long n_state = (long)GDN_H_V * GDN_D_K * GDN_D_V;
     for (long i = 0; i < n_state; ++i) if (c->init_state[i] != 0.0f) ++nz;
     st[GDN_ST_STATE_NONZERO] = nz;
-    if (nz) { st[GDN_ST_REFUSE] = 1; return 2; }
 
     if (k->mode == GDN_M_STUB) {
         for (int s = 0; s < GS_N; ++s) {
@@ -234,7 +247,7 @@ static inline int gdn_case_run(const GdnCtx *c, const GdnCase *k, long *st) {
             for (long i = 0; i < n; ++i) gdn_item_stub(c, k, s, i);
             st[GDN_ST_ITEMS] += n;
         }
-        return 0;
+        return;
     }
     for (int it = 0; it < IT_N; ++it) {
         long n = gdn_item_count(it, k->t);
@@ -286,7 +299,6 @@ static inline int gdn_case_run(const GdnCtx *c, const GdnCase *k, long *st) {
             for (int v = 0; v < GDN_D_V; ++v)
                 if (c->vnew[((long)h * GDN_C + i) * GDN_D_V + v] != 0.0f) ++pad;
     st[GDN_ST_PAD_NONZERO] = pad;
-    return 0;
 }
 
 #endif /* GDN_CASE_H_ */

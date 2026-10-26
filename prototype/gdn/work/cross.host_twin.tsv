@@ -1,2 +1,2 @@
-CASE idx=0 block=layer0 name=prefill_crossed T=32 items=1000480 out_hash=ae68f0b30e6aee7d
-CASE idx=1 block=layer1 name=prefill_crossed T=32 items=1000480 out_hash=ac336250a8d33d9a
+CASE idx=0 block=layer0 name=prefill_crossed T=32 carry=-1 items=1000480 out_hash=ae68f0b30e6aee7d
+CASE idx=1 block=layer1 name=prefill_crossed T=32 carry=-1 items=1000480 out_hash=ac336250a8d33d9a

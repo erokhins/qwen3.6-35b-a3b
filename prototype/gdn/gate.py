@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""gate.py — the GDN slice-1 gate: three arms, the derived band, the exact read checks, and the
-honesty controls, in one CPU-only driver.
+"""gate.py — the GDN slice-2 gate: three arms, the derived band, the exact read checks, the live
+state carry, the state-read sabotage witness, the determinism check and the honesty controls, in
+one CPU-only driver.
 
-    <venv>/bin/python prototype/gdn/gate.py [--only three-arm|band|exact|controls|witness|oracle]
+    <venv>/bin/python prototype/gdn/gate.py [--only three-arm|band|carry|exact|controls|witness|oracle|determinism]
     <venv>/bin/python prototype/gdn/gate.py --keep     (keep work/*.bin for inspection)
 
 WHAT THE THREE ARMS ARE
@@ -14,15 +15,32 @@ WHAT THE THREE ARMS ARE
   oracle_cli  `speccheck/gdn_ref.py` run through its existing CLI (`--cross-form`), so the oracle
               that derived the band also re-verifies it in this window. speccheck/ is not edited
               and not imported-and-called-as-a-library-for-numbers; `gdn_ref` is imported here only
-              for `load_band`, `band_check_row`, `aggregates` and the geometry — the comparators and
-              the band are the oracle's, the numbers being compared are the arms'.
+              for `load_band`, `band_check_row`, `aggregates`, `downstream_closure` and the geometry
+              — the comparators and the band are the oracle's, the numbers being compared are the
+              arms'.
   kernel      this lane's C, compiled twice: `host_probe` (g++) and `gdn` (hipcc, executed on the
               CPU, `hip_calls=0`). The pair is compared at ZERO tolerance to itself; a disagreement
               between two compilers on one source is a finding, never something to band.
 
+WHAT SLICE 2 ADDS, AND WHY IT IS NOT OPTIONAL
+  Slice 1 ran every case from a ZERO recurrent state, so it could never have caught a transposed
+  read of that state — at a zero state the honest read and the `S^T` read return the same number.
+  The pinned dump contains a real state-carry chain: prefill (32 tokens, one chunk) then decode0,
+  decode1, decode2, each a cached step whose incoming state is the state the previous pass wrote
+  (`checkpoints/dump-manifest-gdn-2026-10-26.json` §reading_rules.decode_rows). Every one of those
+  incoming states is non-zero and pinned, and every one has a pinned `state` reference, so the live
+  state needs no invented fixture. `carry` runs the three decode steps per block twice: once with
+  the pinned predecessor state in the input block, once with `carry=` so each case reads the state
+  the PREVIOUS CASE emitted (the arm's own per-head carry). `sabotage` (inside `carry`) then runs
+  `build/host_probe_xpose` — the same source with the state read flipped back to `S^T` — and requires
+  it to be INVISIBLE on the zero-state plan and RED on the live-state plans. `determinism` re-runs
+  the numerics sections twice in this process's name and refuses if a single STAGE line moves.
+
 METRICS, AND WHICH ONES DECIDE
-  relL2            PRIMARY for arm-to-arm agreement (scale-free)
-  ndiff            PRIMARY; load-bearing for the compiled pair and for every exactness check
+  relL2            PRIMARY for arm-to-arm agreement (scale-free); load-bearing as an ORDERING
+                   against the state-read sabotage on the same case (see CARRYORDER)
+  ndiff            PRIMARY; load-bearing for the compiled pair, for every exactness check, and as
+                   an ordering against the sabotage on the live-state stages
   band             PRIMARY against the dump, and ONLY through `gdn_ref.band_check_row()` over the
                    four keys the probe derived (max_abs, per_head_max, mean_rel, one_minus_cos)
   maxabs           REPORTED ONLY, never load-bearing
@@ -32,6 +50,11 @@ METRICS, AND WHICH ONES DECIDE
   metric than the honest one (maxabs 0.961426 vs 0.96875), and `cos` prints 1 to nine digits while
   1263 of 1884 `lm_head` words differ in their bit image. An absolute metric that cannot see what is
   being claimed is not conservative, it is blind.
+
+THE q_hat ROWS ARE RED AND STAY RED: they are one f32 ULP over a probe-derived band, and whether to
+  match torch's reduction order, re-probe with a non-torch arm, or document the stage out-of-band is
+  an OPEN USER DECISION (see HANDOFF.md §Open). Nothing here widens, re-derives or ignores a band:
+  every such row is reported as a finding and the gate exits non-zero because of them.
 
 DEVICE POLICY: this file touches no device, reads no timer, and holds no device lock of any kind —
 the wrapper is the sole acquirer and there is nothing here for it to wrap. Every printed counter is
@@ -65,6 +88,7 @@ EVID = HERE / "evidence"
 HOST = HERE / "host_probe"
 DEVI = HERE / "gdn"
 BROKEN = HERE / "build" / "host_probe_broken"
+XPOSE = HERE / "build" / "host_probe_xpose"
 
 # The authoritative band digest: `band_digest(load_band(BAND_PATH))` as measured 2026-10-26. It is
 # pinned here so a silently regenerated band cannot be judged against itself. If `load_band()`
@@ -73,13 +97,26 @@ BROKEN = HERE / "build" / "host_probe_broken"
 BAND_DIGEST = "27a68c7e82c9aa0507b9bcd677adc0d5d1b0bc865dd1e86bf495ed90f47392ee"
 
 STAGES = ["q_hat", "k_hat", "scan_out", "core_attn", "state", "normed", "y"]
+# The stages a change to the STATE READ can reach, derived from the oracle's own dataflow table and
+# not typed: the read enters at `scan_out` (both §04b.4's delta rule and §04b.5's `q_decayed S` term
+# feed it) and at `state` itself (the carry term), and everything downstream of those is reached by
+# dataflow. `q_hat`/`k_hat` are upstream of the scan and must be untouched by the sabotage; that is
+# asserted, not assumed. If the oracle's table ever changes, this assertion changes with it.
+STATE_AFFECTED = list(G.downstream_closure(("scan_out", "state")))
+# The pinned cached-decode chain: each pass's incoming state is the previous pass's OUTPUT state,
+# and the manifest names that dependency (§reading_rules.decode_rows). PRED[p] is the pass whose
+# pinned `state` is pass p's incoming state.
+DEC_PASSES = ["decode0", "decode1", "decode2"]
+PRED = {"decode0": "prefill", "decode1": "decode0", "decode2": "decode1"}
+STATE_WORDS = 32 * 128 * 128
 STAGE_IS_BF16 = {"q_hat": False, "k_hat": False, "scan_out": False, "core_attn": True,
                  "state": False, "normed": True, "y": True}
 # the eight loaded fields, in the arm's echo order, then the field it fingerprints instead
 FIELDS = ["q_pre", "k_pre", "v_pre", "beta", "g_decay", "z", "norm_weight", "out_weight"]
 ECHO_FIELDS = FIELDS[:7]
 FP_FIELD = "out_weight"
-SECTIONS = ["three-arm", "band", "exact", "controls", "witness", "oracle"]
+SECTIONS = ["three-arm", "band", "carry", "exact", "controls", "witness", "oracle",
+            "determinism"]
 
 
 class Refuse(Exception):
@@ -115,14 +152,37 @@ def load_dump():
         raise Refuse("no block in the manifest has a pinned prefill pass; nothing to compare")
     T = recs[(blocks[0], "prefill", "q_pre")]["shape"][1]
     if T > 64:
-        raise Refuse(f"pinned prefill T={T} exceeds one chunk of 64; slice 1 cannot express it")
-    print("DUMP %s T=%d records=%d blocks=%s n_chunks=1 pad=%d"
-          % (m["lane"], T, len(m["dumps"]), ",".join(blocks), 64 - T))
+        raise Refuse(f"pinned prefill T={T} exceeds one chunk of 64; this slice is one chunk "
+                     "per case")
+    for b in blocks:
+        for p in DEC_PASSES:
+            for key in ("q_pre", "state"):
+                if (b, p, key) not in recs:
+                    raise Refuse("%s/%s/%s is not in the dump manifest: the state-carry chain is "
+                                 "incomplete and slice 2 has no material" % (b, p, key))
+        if recs[(b, "decode0", "q_pre")]["shape"][1] != 1:
+            raise Refuse("%s/decode0/q_pre is not a single-token step; the arm's decode geometry "
+                         "assumes T=1" % b)
+    print("DUMP %s T=%d records=%d blocks=%s n_chunks=1 pad=%d dec_passes=%s dec_T=1"
+          % (m["lane"], T, len(m["dumps"]), ",".join(blocks), 64 - T, ",".join(DEC_PASSES)))
     return m, recs, blocks, T
 
 
 def dump_tensor(recs, block, mode, key):
     return DG.read_dump_tensor(recs[(block, mode, key)])
+
+
+def check_state_affected():
+    """The derived must-catch set must be 'everything the state read can reach', which in this
+    pipeline is every stage except the two the scan entry produces. Typed sets go stale; this one is
+    recomputed from `gdn_ref.STAGE_CONSUMERS` at every import and refused here."""
+    if set(STATE_AFFECTED) != set(STAGES) - {"q_hat", "k_hat"}:
+        raise Refuse("the state-affected stage set derived from gdn_ref.STAGE_CONSUMERS is %s, "
+                     "which is not 'every stage except q_hat and k_hat'; the sabotage's "
+                     "must-catch set would be a guess and not a derivation"
+                     % ",".join(STATE_AFFECTED))
+    print("STAGESET state_read_reaches=%s untouched=%s derived_from=gdn_ref.downstream_closure"
+          % (",".join(STATE_AFFECTED), ",".join(s for s in STAGES if s not in STATE_AFFECTED)))
 
 
 def weight_tensor(recs, block, role):
@@ -178,24 +238,40 @@ def field_n(field: str, T: int) -> int:
 
 
 def write_plan(path: Path, cases) -> int:
-    """cases: list of dicts(block, name, T, mode, wslot). Returns the declared case count."""
-    lines = ["#GDNPLAN v1 n_cases=%d T=%d" % (len(cases), cases[0]["T"])]
+    """cases: list of dicts(block, name, T, mode, wslot, carry). Returns the declared case count.
+    `carry` is the index of the case whose EMITTED state this case reads as its incoming state, or
+    -1 to take the state block out of inputs.bin. One plan declares one T, because one stride
+    addresses every case; the arm refuses a plan that breaks that rule."""
+    lines = ["#GDNPLAN v2 n_cases=%d T=%d" % (len(cases), cases[0]["T"])]
     for i, c in enumerate(cases):
-        lines.append("CASE idx=%d block=%s name=%s T=%d mode=%s wslot=%d"
-                     % (i, c["block"], c["name"], c["T"], c["mode"], c["wslot"]))
+        lines.append("CASE idx=%d block=%s name=%s T=%d mode=%s wslot=%d carry=%d"
+                     % (i, c["block"], c["name"], c["T"], c["mode"], c["wslot"],
+                        c.get("carry", -1)))
     path.write_text("\n".join(lines) + "\n")
     return len(cases)
 
 
-def write_inputs(path: Path, per_case_fields, T: int):
+def write_inputs(path: Path, per_case_fields, T: int, states=None):
     """inputs.bin = per case: the six fields (one u32 word per element), then the h_v*d_k*d_v
-    zero initial state. Slice 1 REFUSES a nonzero state, so the zeros are what makes 'the S term
-    contributed exactly zero' a checked fact of the case rather than an assumption."""
+    incoming state.
+
+    `states[i)` is the incoming state for case i, as f32 bit-image words. Slice 1 passed nothing and
+    got zeros, which is what made 'the S term contributed exactly zero' a checked fact of the case;
+    slice 2 passes the PINNED state the previous pass produced, so the live state is a dumped tensor
+    and not a fixture this file invented. A case whose slot is not filled is still zero, so the
+    zero-state plan needs no change here."""
     buf = []
-    for fields in per_case_fields:
+    for i, fields in enumerate(per_case_fields):
         for w in fields:
             buf.append(w.astype(np.uint32))
-        buf.append(np.zeros(32 * 128 * 128, dtype=np.uint32))
+        if states is None or states[i] is None:
+            buf.append(np.zeros(STATE_WORDS, dtype=np.uint32))
+        else:
+            s = states[i].astype(np.uint32)
+            if s.size != STATE_WORDS:
+                raise Refuse("case %d's incoming state is %d words, the arm lays out %d"
+                             % (i, s.size, STATE_WORDS))
+            buf.append(s)
     arr = np.concatenate(buf)
     path.write_bytes(arr.tobytes())
     return int(arr.size), T
@@ -247,12 +323,18 @@ def run_arm(binary: Path, arm_name: str, plan: Path, inputs: Path, weights: Path
 
 
 def parse_arm(res, n_declared: int, T: int):
-    """CASE and FP lines, with the parsed count required to equal the declared count. A run that
-    printed nothing can only ever have had nothing to say, so an empty parse refuses (`pitfalls/40`)."""
+    """CASE, FP and RUN lines, with the parsed count required to equal the declared count. A run that
+    printed nothing can only ever have had nothing to say, so an empty parse refuses (`pitfalls/40`).
+    Every CASE line must also carry `state_nonzero` and `carry`: the first is the counter that makes
+    a live state a measured fact, the second is what makes a carry plan checkable case by case, and a
+    driver that silently read a missing field would read a zero instead."""
     cases, fps, run = [], {}, None
     for ln in res["lines"]:
         if ln.startswith("CASE "):
             d = dict(kv.split("=", 1) for kv in ln.split()[1:] if "=" in kv)
+            for must in ("state_nonzero", "carry", "pad_nonzero", "out_hash"):
+                if must not in d:
+                    raise Refuse("arm CASE line is missing %s: %s" % (must, ln))
             cases.append(d)
         elif ln.startswith("FP "):
             d = dict(kv.split("=", 1) for kv in ln.split()[1:] if "=" in kv)
@@ -351,6 +433,34 @@ def fmt(m) -> str:
             % (m["n"], m["ndiff"], m["relL2"], m["maxabs"], m["cos"]))
 
 
+def band_row(band, tag, block, pass_, stage, mine, ref, stage_lines, fails, fail_msg=None):
+    """One arm's stage against one pinned stage: the metrics, the oracle's own verdict, one line.
+
+    Every banded comparison in the lane goes through here so that `band_check_row` is called the same
+    way for the prefill chunk, for the live-state decode steps and for the sabotage build, and so the
+    determinism check compares a grammar and not three hand-written formats. `maxabs`/`cos` are
+    labelled by `fmt`; the four band keys are the oracle's. Nothing here judges a number: the verdict
+    is `band_check_row`'s. An empty row set cannot pass, because the caller declares the derived
+    denominator and asserts it."""
+    if mine.numel() != ref.numel():
+        raise Refuse("%s/%s/%s: the arm emitted %d words, the dump holds %d elements"
+                     % (block, pass_, stage, mine.numel(), ref.numel()))
+    mine = mine.reshape(ref.shape)
+    m = metrics(mine, ref)
+    ag = G.aggregates(mine, ref, name="%s/pinned/%s|%s" % (block, pass_, stage), stage=stage)
+    ok, why = G.band_check_row(band, stage, ag)
+    line = ("STAGE arm=%s block=%s pass=%s stage=%s %s band=%s meanrel=%.3e 1-cos=%.3e "
+            "perhead=%.3e(h%d/%d) verdict=%s why=%s"
+            % (tag, block, pass_, stage, fmt(m), "ACCEPTED" if ok else "REJECTED", ag["mean_rel"],
+               ag["one_minus_cos"], ag["per_head_max"], ag["worst_head"], ag["n_heads"],
+               "PASS" if ok else "FAIL", why))
+    print(line)
+    stage_lines.append(line)
+    if not ok and fail_msg is not None:
+        fails.append(fail_msg(block, pass_, stage, why) if callable(fail_msg) else fail_msg)
+    return ok, m
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--only", default="")
@@ -368,7 +478,9 @@ def main() -> int:
     fails = []
     counts = {}
     ran = []
+    stage_lines = []          # every STAGE line this run prints; `determinism` compares it
     g = geom()
+    check_state_affected()
     man, recs, blocks, T = load_dump()
 
     band = G.load_band(G.BAND_PATH)
@@ -413,9 +525,9 @@ def main() -> int:
             if r["rc"] != 0:
                 fails.append("arm %s rc=%d: %s" % (name, r["rc"], r["lines"][-1] if r["lines"] else ""))
             cs, fps, run = parse_arm(r, len(blocks), T)
-            print("ARM arm=%s cases=%d compiler=%s hip_calls=%s refused=%s stage_words=%s"
+            print("ARM arm=%s cases=%d compiler=%s hip_calls=%s carried=%s stage_words=%s"
                   % (name, len(cs), run.get("compiler"), run.get("hip_calls"),
-                     run.get("refused"), run.get("case_words")))
+                     run.get("carried"), run.get("case_words")))
             if name == "hip_hostpath":
                 if run.get("arm") != "hip_hostpath":
                     fails.append("the device TU did not announce arm=hip_hostpath (said %r)"
@@ -424,8 +536,10 @@ def main() -> int:
                     fails.append("the device-compiled arm issued hip_calls=%s; the CPU arm must "
                                  "issue none, or it is not the arm this comparison claims"
                                  % run.get("hip_calls"))
-            if int(run.get("refused", "1")) != 0:
-                fails.append("a case refused to run (nonzero initial state)")
+            if int(run.get("carried", "1")) != 0:
+                fails.append("a zero-state plan reported carried=%s; no case in it may read a "
+                             "carried state, or the plan the band is judged on is not the plan "
+                             "this section says it ran" % run.get("carried"))
             arms[name + "_cases"], arms[name + "_fps"] = cs, fps
         if len(arms) < 4:
             raise Refuse("fewer than two compiled arms ran; a single-arm run cannot show anything")
@@ -458,28 +572,27 @@ def main() -> int:
         for i, block in enumerate(blocks):
             for st in STAGES:
                 mine = stage_tensor(armres, i, T, st)
-                ref = dump_tensor(recs, block, "prefill", st).reshape(-1)
-                if mine.numel() != ref.numel():
-                    raise Refuse("%s/%s: kernel emitted %d words, the dump holds %d elements"
-                                 % (block, st, mine.numel(), ref.numel()))
-                mine = mine.reshape(ref.shape)
-                m = metrics(mine, ref)
-                ag = G.aggregates(mine, ref, name="%s/pinned/prefill|%s" % (block, st), stage=st)
-                ok, why = G.band_check_row(band, st, ag)
+                ref = dump_tensor(recs, block, "prefill", st)
+                ok, m = band_row(band, "kernel_vs_dump", block, "prefill", st, mine, ref,
+                                 stage_lines, fails,
+                                 lambda b, p, s, w: "%s/%s outside the derived band: %s"
+                                                    % (b, s, w))
                 n_rows += 1
-                line = ("STAGE arm=kernel_vs_dump block=%s stage=%s %s band=%s meanrel=%.3e "
-                        "1-cos=%.3e perhead=%.3e(h%d/%d) verdict=%s why=%s"
-                        % (block, st, fmt(m), "ACCEPTED" if ok else "REJECTED", ag["mean_rel"],
-                           ag["one_minus_cos"], ag["per_head_max"], ag["worst_head"],
-                           ag["n_heads"], "PASS" if ok else "FAIL", why))
-                print(line)
-                if not ok:
-                    fails.append("%s/%s outside the derived band: %s" % (block, st, why))
+                if st == "q_hat":
+                    print("KNOWN stage=q_hat block=%s pass=prefill measured_maxabs=%.3e "
+                          "licensed_maxabs=%.3e open=user-decision note=band NOT touched NOT widened"
+                          % (block, m["maxabs"], band["q_hat"]["max_abs"]))
         counts["stage_rows"] = n_rows
         if n_rows != len(blocks) * len(STAGES):
             fails.append("stage rows %d != derived %d" % (n_rows, len(blocks) * len(STAGES)))
         if n_rows == 0:
             raise Refuse("no stage rows: a banded verdict over nothing is a constant predicate")
+
+    # ============================================================ the live-state carry (slice 2)
+    if want("carry"):
+        ran.append("carry")
+        carry_section(band, recs, blocks, T, wslots, plan, ins, wts, stage_lines,
+                      fails, counts)
 
     # ============================================================ the exact read/decode checks
     if want("exact"):
@@ -624,7 +737,113 @@ def main() -> int:
         else:
             print("CONTROL arm=broken_bf16_trunc verdict=NOT-BUILT run ./build.sh --broken")
             counts["broken_control"] = 0
-        counts["controls"] = 4 if BROKEN.exists() else 3
+
+        # (e) the two honesty controls again on the LIVE-STATE cases. A stub that survives only when
+        #     the state is zero would be a comparator that reads the state term and nothing else, and
+        #     a crossed case fed another block's live state is the sharpest version of "is the
+        #     pipeline reading the case it claims" — the state has to be crossed with the fields.
+        cse, sts, _ = carry_material(recs, blocks)
+        ins_state = WORK / "inputs_state.bin"
+        write_inputs(ins_state, [c["fields"] for c in cse], 1, states=sts)
+        n_c = len(cse)
+        stub2 = WORK / "plan_stub_state.tsv"
+        for c in cse:
+            c["mode"] = "stub"
+        write_plan(stub2, cse)
+        res = run_arm(HOST, "host_twin", stub2, ins_state, wts, "stub_state")
+        parse_arm(res, n_c, 1)
+        caught, rows = 0, 0
+        for i, c in enumerate(cse):
+            for st in STAGES:
+                ref = dump_tensor(recs, c["block"], c["name"], st)
+                mine = stage_tensor(res, i, 1, st).reshape(ref.shape)
+                m = metrics(mine, ref)
+                ag = G.aggregates(mine, ref, name="stub_state/%s/%s" % (c["block"], c["name"]),
+                                  stage=st)
+                ok, _ = G.band_check_row(band, st, ag)
+                rows += 1
+                caught += 0 if ok else 1
+                if ok or m["ndiff"] == 0:
+                    fails.append("STUB(live-state) %s/%s survived the band with ndiff=%d"
+                                 % (c["block"], c["name"], m["ndiff"]))
+        print("CONTROL arm=stub_live_state rows=%d caught=%d survivors=%d derived=%d verdict=%s"
+              % (rows, caught, rows - caught, n_c * len(STAGES),
+                 "RED_ON_DERIVED_COUNT" if rows == caught == n_c * len(STAGES) else "FAIL"))
+        if rows != n_c * len(STAGES):
+            fails.append("stub-live-state control ran %d rows, derived denominator is %d"
+                         % (rows, n_c * len(STAGES)))
+
+        order = list(reversed(range(len(blocks))))
+        cross_cases = []
+        cross_states = []
+        for bi, b in enumerate(blocks):
+            for p in DEC_PASSES:
+                src = blocks[order[bi]]
+                cross_cases.append(dict(block=b, name=p, T=1, mode="honest", wslot=order[bi],
+                                        carry=-1, fields=field_words(recs, src, 1, p)))
+                cross_states.append(words_of(
+                    dump_tensor(recs, src, PRED[p], "state").reshape(-1)))
+        cross2 = WORK / "plan_cross_state.tsv"
+        write_plan(cross2, cross_cases)
+        cins2 = WORK / "inputs_cross_state.bin"
+        write_inputs(cins2, [c["fields"] for c in cross_cases], 1, states=cross_states)
+        res = run_arm(HOST, "host_twin", cross2, cins2, wts, "cross_state")
+        parse_arm(res, n_c, 1)
+        caught, rows = 0, 0
+        for i, c in enumerate(cse):
+            for st in STAGES:
+                ref = dump_tensor(recs, c["block"], c["name"], st)
+                mine = stage_tensor(res, i, 1, st).reshape(ref.shape)
+                ag = G.aggregates(mine, ref, name="cross_state/%s/%s" % (c["block"], c["name"]),
+                                  stage=st)
+                ok, _ = G.band_check_row(band, st, ag)
+                rows += 1
+                caught += 0 if ok else 1
+                if ok:
+                    fails.append("CROSSED(live-state): %s/%s fed the other block's fields AND its "
+                                 "live state is still inside the band at %s" % (c["block"],
+                                                                               c["name"], st))
+        print("CONTROL arm=crossed_live_state rows=%d caught=%d survivors=%d derived=%d verdict=%s"
+              % (rows, caught, rows - caught, n_c * len(STAGES),
+                 "RED_ON_DERIVED_COUNT" if rows == caught == n_c * len(STAGES) else "FAIL"))
+        if rows != n_c * len(STAGES):
+            fails.append("crossed-live-state control ran %d rows, derived denominator is %d"
+                         % (rows, n_c * len(STAGES)))
+
+        # (f) the plan rules the carry depends on, each witnessed REFUSING. A self-carry or a
+        #     forward carry would read a state buffer that has not been written yet — calloc zeros,
+        #     which is precisely the zero a state test cannot see — and a cross-block carry reads
+        #     another block's head history. A case T that differs from the plan's T would bind the
+        #     case at a stride its own field sizes disagree with.
+        bads = [
+            ("self_carry", ["#GDNPLAN v2 n_cases=2 T=1",
+                            "CASE idx=0 block=layer0 name=decode0 T=1 mode=honest wslot=0 carry=-1",
+                            "CASE idx=1 block=layer0 name=decode1 T=1 mode=honest wslot=0 carry=1"]),
+            ("cross_block_carry", ["#GDNPLAN v2 n_cases=2 T=1",
+                                   "CASE idx=0 block=layer0 name=decode0 T=1 mode=honest wslot=0 carry=-1",
+                                   "CASE idx=1 block=layer1 name=decode0 T=1 mode=honest wslot=1 carry=0"]),
+            ("case_T_differs", ["#GDNPLAN v2 n_cases=1 T=1",
+                                "CASE idx=0 block=layer0 name=decode0 T=2 mode=honest wslot=0 carry=-1"]),
+        ]
+        refused, bad_rows = 0, 0
+        for label, lines in bads:
+            badp = WORK / ("plan_bad_%s.tsv" % label)
+            badp.write_text("\n".join(lines) + "\n")
+            pr = subprocess.run([str(HOST), "--plan", str(badp), "--inputs", str(ins_state),
+                                 "--weights", str(wts), "--out", str(WORK / "bad.out.bin"),
+                                 "--echo", str(WORK / "bad.echo.bin")],
+                                capture_output=True, text=True)
+            msg = ((pr.stdout + pr.stderr).strip().splitlines() or ["<silent>"])[-1]
+            bad_rows += 1
+            refused += 1 if pr.returncode != 0 else 0
+            if pr.returncode == 0:
+                fails.append("the arm ACCEPTED a %s plan, which the carry rules forbid: %s"
+                             % (label, msg))
+            print("CONTROL arm=bad_plan rule=%s rc=%d verdict=%s reason=%s"
+                  % (label, pr.returncode, "REFUSED" if pr.returncode else "ACCEPTED", msg[:100]))
+        if refused != len(bads):
+            fails.append("bad-plan refusals fired %d of %d" % (refused, len(bads)))
+        counts["controls"] = (4 if BROKEN.exists() else 3) + 2 + len(bads)
 
     # ============================================================ the norm_weight witness
     if want("witness"):
@@ -655,6 +874,11 @@ def main() -> int:
                          "re-verifiable in this window" % rc)
         counts["oracle_rows"] = len(txt.splitlines())
 
+    # ============================================================ determinism, as a named check
+    if want("determinism"):
+        ran.append("determinism")
+        determinism_section(stage_lines, fails, counts)
+
     # ------------------------------------------------------------------ verdict
     print("COUNTS %s" % " ".join("%s=%d" % kv for kv in sorted(counts.items())))
     print("METRICS primary=relL2+ndiff+band_check_row reported_only=maxabs,cos "
@@ -681,6 +905,311 @@ def _require_three_arms(arms):
     if len(arms) < 3:
         raise Refuse("three-arm agreement needs three arms; found %d (%s)"
                      % (len(arms), ",".join(arms)))
+
+
+def pair_bytes(a_res, b_res, key):
+    """Byte-difference count between two arm outputs, at zero tolerance."""
+    ba = np.fromfile(a_res[key], dtype=np.uint8)
+    bb = np.fromfile(b_res[key], dtype=np.uint8)
+    if ba.size != bb.size:
+        raise Refuse("%s sizes differ (%d vs %d)" % (key, ba.size, bb.size))
+    return int((ba != bb).sum()), int(ba.size)
+
+
+def carry_material(recs, blocks):
+    """The pinned state-carry chain, block-major: for each block, decode0, decode1, decode2 — each a
+    single cached step whose incoming state is the state the previous pass wrote. Both the step's
+    inputs and its predecessor state are pinned bytes, so the live state is a dumped tensor and not a
+    fixture this driver invented.
+
+    The premise is CHECKED, not assumed: a case whose predecessor state is all zero would be a
+    slice-1 case wearing a decode name, and the whole point of the section is a state that is live."""
+    cases, states, nz = [], [], []
+    for bi, b in enumerate(blocks):
+        for p in DEC_PASSES:
+            cases.append(dict(block=b, name=p, T=1, mode="honest", wslot=bi, carry=-1,
+                              fields=field_words(recs, b, 1, p)))
+            t = dump_tensor(recs, b, PRED[p], "state")
+            states.append(words_of(t.reshape(-1)))
+            nz.append(int((t.reshape(-1) != 0).sum()))
+    return cases, states, nz
+
+
+def carry_section(band, recs, blocks, T, wslots, plan, ins, wts, stage_lines, fails, counts):
+    """Slice 2's own question: does a LIVE state survive the boundary, and can anything here tell?
+
+    TWO plans over the same six cases, so the only difference between them is where a case's incoming
+    state comes from:
+      pinned_state — each case reads the PINNED state its predecessor pass produced;
+      arm_carried  — cases 1 and 2 of each block read the state the PREVIOUS CASE of the same block
+                     emitted in this same arm run (`carry=` in the plan), which is the recurrence
+                     rather than a re-read of the reference.
+    Then the sabotage: `build/host_probe_xpose` is the same source with `gdn_state_dot` reading the
+    state as `S^T` — the oracle's `state_stored_transposed`. It must be INVISIBLE on the zero-state
+    prefill plan (that is the proof slice 1 could not have caught it) and RED on both live plans.
+    """
+    if not XPOSE.exists():
+        raise Refuse("%s is not built; run ./build.sh --broken — the state-read sabotage is not a "
+                     "check this lane may claim without its witness" % XPOSE)
+    cases, states, nz = carry_material(recs, blocks)
+    n = len(cases)
+    DEC_T = 1
+    # ---- the premise: every case here has a non-zero incoming state, and the count is per case
+    for i, c in enumerate(cases):
+        if nz[i] == 0:
+            raise Refuse("%s/%s: the pinned incoming state (%s.state) is all zero, so this case "
+                         "would not test a live state" % (c["block"], c["name"], PRED[c["name"]]))
+    print("CARRY plan=pinned_state cases=%d blocks=%s dec_T=%d state_words=%d nonzero_per_case=%s "
+          "source=state_of_previous_pinned_pass"
+          % (n, ",".join(blocks), DEC_T, STATE_WORDS, ",".join(str(v) for v in nz)))
+
+    planA = WORK / "plan_state.tsv"
+    write_plan(planA, cases)
+    insA = WORK / "inputs_state.bin"
+    write_inputs(insA, [c["fields"] for c in cases], DEC_T, states=states)
+
+    # ---- plan B: the same cases, but the state comes from the previous case's own output
+    carry_idx = []
+    for bi in range(len(blocks)):
+        for j in range(len(DEC_PASSES)):
+            carry_idx.append(-1 if j == 0 else bi * len(DEC_PASSES) + j - 1)
+    casesB = [dict(c) for c in cases]
+    for i, c in enumerate(casesB):
+        c["carry"] = carry_idx[i]
+    planB = WORK / "plan_carry.tsv"
+    write_plan(planB, casesB)
+
+    # ---- the honest arms on both plans, and the compiled pair on the carried one
+    resA = run_arm(HOST, "host_twin", planA, insA, wts, "state")
+    csA, _, runA = parse_arm(resA, n, DEC_T)
+    resB = run_arm(HOST, "host_twin", planB, insA, wts, "carry")
+    csB, _, runB = parse_arm(resB, n, DEC_T)
+    resBh = run_arm(DEVI, "hip_hostpath", planB, insA, wts, "carry")
+    csh, _, runh = parse_arm(resBh, n, DEC_T)
+    if runh.get("arm") != "hip_hostpath" or runh.get("hip_calls") != "0":
+        fails.append("the carried-plan device arm announced arm=%s hip_calls=%s"
+                     % (runh.get("arm"), runh.get("hip_calls")))
+    if int(runB.get("carried", "0")) != sum(1 for v in carry_idx if v >= 0):
+        fails.append("the carried plan reported carried=%s, the plan declares %d carry cases"
+                     % (runB.get("carried"), sum(1 for v in carry_idx if v >= 0)))
+    for key, label in (("out", "out.bin"), ("echo", "echo.bin")):
+        nd, nb = pair_bytes(resB, resBh, key)
+        print("PAIR pair=host_twin_vs_hip_hostpath plan=arm_carried file=%s bytes=%d ndiff_bytes=%d "
+              "cases=%d zero_tolerance=1 verdict=%s"
+              % (label, nb, nd, n, "IDENTICAL" if nd == 0 else "DIFFERS"))
+        if nd:
+            fails.append("compiled pair differs on %d bytes of %s on the carried plan: one source, "
+                         "two compilers, so this is a codegen finding" % (nd, label))
+
+    # ---- the arm's own count of the live state it read, against the count the dump implies
+    bad = 0
+    for i, d in enumerate(csA):
+        if int(d["state_nonzero"]) != nz[i] or int(d["carry"]) != -1:
+            bad += 1
+    print("EXACT plan=pinned_state field=init_state checks=%d agree=%d derived=nonzero_count_of_%s"
+          % (n, n - bad, "pinned_predecessor_state"))
+    if bad:
+        fails.append("%d case(s) of the pinned_state plan read a state whose non-zero count is not "
+                     "the pinned tensor's: the state block was read at the wrong offset, or not read"
+                     % bad)
+    bad = 0
+    carried_nz = []
+    for i, d in enumerate(csB):
+        src = carry_idx[i]
+        want = nz[i] if src < 0 else int((stage_tensor(resB, src, DEC_T, "state") != 0).sum())
+        carried_nz.append(want)
+        if int(d["state_nonzero"]) != want or int(d["carry"]) != src:
+            bad += 1
+    if min(carried_nz) == 0:
+        fails.append("a carried case received an all-zero state: the carry produced nothing, so the "
+                     "section would be reporting zero-state numbers under a live-state name")
+    print("EXACT plan=arm_carried field=init_state checks=%d agree=%d carried=%d "
+          "carried_nonzero_min=%d note=carried counts are read back out of the arm's own out.bin"
+          % (n, n - bad, sum(1 for v in carry_idx if v >= 0), min(carried_nz)))
+    if bad:
+        fails.append("%d case(s) of the carried plan disagree about the state they received "
+                     "(count or carry index)" % bad)
+
+    # ---- the banded verdicts, both plans, all seven stages
+    def judge(res, tag):
+        rows, ok_rows, rejected = 0, 0, set()
+        for i, c in enumerate(cases):
+            for st in STAGES:
+                mine = stage_tensor(res, i, DEC_T, st)
+                ref = dump_tensor(recs, c["block"], c["name"], st)
+                ok, _ = band_row(band, tag, c["block"], c["name"], st, mine, ref, stage_lines,
+                                 fails, lambda b, p, s, w: "%s/%s/%s outside the derived band: %s"
+                                                        % (tag, b, p, w))
+                rows += 1
+                if ok:
+                    ok_rows += 1
+                else:
+                    rejected.add(st)
+        return rows, ok_rows, rejected
+
+    rowsA, okA, rejA = judge(resA, "kernel_vs_dump")
+    rowsB, okB, rejB = judge(resB, "kernel_carried_vs_dump")
+    for rows, ok_rows, rejected, label in ((rowsA, okA, rejA, "pinned_state"),
+                                           (rowsB, okB, rejB, "arm_carried")):
+        if rows != n * len(STAGES):
+            fails.append("%s plan produced %d stage rows, derived denominator is %d"
+                         % (label, rows, n * len(STAGES)))
+        print("CARRYVERDICT plan=%s rows=%d accepted=%d rejected=%d derived=%d rejected_stages=%s"
+              % (label, rows, ok_rows, rows - ok_rows, n * len(STAGES),
+                 ",".join(sorted(rejected)) or "none"))
+
+    # ---- the sabotage, witnessed on BOTH kinds of plan
+    st = subprocess.run([str(XPOSE), "--selftest"], capture_output=True, text=True)
+    xpose_selftest = st.returncode != 0
+    rx0 = run_arm(XPOSE, "host_twin", plan, ins, wts, "xpose_zero")
+    h0 = run_arm(HOST, "host_twin", plan, ins, wts, "xzero")
+    parse_arm(rx0, len(blocks), T)
+    parse_arm(h0, len(blocks), T)
+    nd0, nb0 = pair_bytes(h0, rx0, "out")
+    ndA, nbA = (None, 0)
+    rxA = run_arm(XPOSE, "host_twin", planA, insA, wts, "xpose_state")
+    parse_arm(rxA, n, DEC_T)
+    ndA, nbA = pair_bytes(resA, rxA, "out")
+    rxB = run_arm(XPOSE, "host_twin", planB, insA, wts, "xpose_carry")
+    parse_arm(rxB, n, DEC_T)
+    ndB, nbB = pair_bytes(resB, rxB, "out")
+    print("SABOTAGE build=host_probe_xpose define=GDN_BROKEN_STATE_TRANSPOSE selftest=%s"
+          % ("FIRE" if xpose_selftest else "SILENT"))
+    print("SABOTAGE plan=zero_state_prefill file=out.bin bytes=%d ndiff_bytes=%d "
+          "verdict=%s note=at a zero state the honest read and the S^T read are the SAME NUMBER, so "
+          "slice 1 had no way to see this defect"
+          % (nb0, nd0, "INVISIBLE_AT_ZERO_STATE" if nd0 == 0 else "UNEXPECTED"))
+    if nd0 != 0:
+        fails.append("the state-read sabotage moves %d bytes of a ZERO-state run: the control is "
+                     "not confined to the state read, so its reds would prove nothing" % nd0)
+    if not xpose_selftest:
+        fails.append("the state-read sabotage build passed the self-test: the state-read check in "
+                     "the self-test cannot fail")
+    for nd, nb, label in ((ndA, nbA, "pinned_state"), (ndB, nbB, "arm_carried")):
+        print("SABOTAGE plan=%s file=out.bin bytes=%d ndiff_bytes=%d verdict=%s"
+              % (label, nb, nd, "VISIBLE" if nd else "INVISIBLE"))
+        if nd == 0:
+            fails.append("the state-read sabotage is indistinguishable from the honest arm on the "
+                         "%s plan: the live-state case does not actually exercise the state read"
+                         % label)
+    counts["xpose_selftest_fired"] = 1 if xpose_selftest else 0
+
+    # ---- what the sabotage must move and must not move, per stage, on both live plans
+    must_red, x_rows, x_rejected = 0, 0, 0
+    for res_x, res_h, label in ((rxA, resA, "pinned_state"), (rxB, resB, "arm_carried")):
+        for i, c in enumerate(cases):
+            for st_ in STAGES:
+                mx = stage_tensor(res_x, i, DEC_T, st_)
+                mh = stage_tensor(res_h, i, DEC_T, st_)
+                moved = int((mx.reshape(-1) != mh.reshape(-1)).sum())
+                should = st_ in STATE_AFFECTED
+                if should and moved == 0:
+                    fails.append("%s/%s/%s did not move under the state-read sabotage, but the "
+                                 "oracle's dataflow closure says the state read reaches it"
+                                 % (label, c["block"], c["name"]))
+                if not should and moved != 0:
+                    fails.append("%s/%s/%s moved under the state-read sabotage although it is "
+                                 "upstream of the state read: the control is not confined"
+                                 % (label, c["block"], c["name"]))
+                must_red += 1 if should else 0
+                if should:
+                    # the polarity here is the OPPOSITE of an honest row: a row the sabotage leaves
+                    # INSIDE the band is the finding, not a row it throws out.
+                    ok_x, _ = band_row(band, "xpose_vs_dump", c["block"], c["name"], st_, mx,
+                                       dump_tensor(recs, c["block"], c["name"], st_),
+                                       stage_lines, fails)
+                    x_rows += 1
+                    x_rejected += 0 if ok_x else 1
+                    if ok_x:
+                        fails.append("state-read sabotage stayed INSIDE the band at %s/%s/%s: the "
+                                     "band does not see the state read at this stage"
+                                     % (label, c["block"], c["name"]))
+    print("SABOTAGE_BAND rows=%d rejected=%d accepted=%d derived=%d verdict=%s"
+          % (x_rows, x_rejected, x_rows - x_rejected, 2 * n * len(STATE_AFFECTED),
+             "RED_ON_DERIVED_COUNT" if x_rows == x_rejected == 2 * n * len(STATE_AFFECTED)
+             else "FAIL"))
+    print("SABOTAGE_SET moved_stage_rows=%d derived=%d untouched_rows=%d "
+          "note=q_hat and k_hat are byte-identical under the sabotage, by assertion"
+          % (must_red, 2 * n * len(STATE_AFFECTED),
+             2 * n * (len(STAGES) - len(STATE_AFFECTED))))
+    if must_red != 2 * n * len(STATE_AFFECTED):
+        fails.append("sabotage must-catch rows %d != derived %d" % (must_red,
+                                                                    2 * n * len(STATE_AFFECTED)))
+
+    # ---- relL2 and ndiff made load-bearing as an ORDERING against the sabotage, per live stage
+    order_fail, order_rows = 0, 0
+    for res_x, res_h, label in ((rxA, resA, "pinned_state"), (rxB, resB, "arm_carried")):
+        for i, c in enumerate(cases):
+            ref_st = {s: dump_tensor(recs, c["block"], c["name"], s) for s in STATE_AFFECTED}
+            for st_ in STATE_AFFECTED:
+                mh = metrics(stage_tensor(res_h, i, DEC_T, st_).reshape(ref_st[st_].shape),
+                             ref_st[st_])
+                mx = metrics(stage_tensor(res_x, i, DEC_T, st_).reshape(ref_st[st_].shape),
+                             ref_st[st_])
+                good = mh["relL2"] < mx["relL2"] and mh["ndiff"] < mx["ndiff"]
+                order_fail += 0 if good else 1
+                order_rows += 1
+                if not good:
+                    fails.append("%s/%s/%s: the honest arm is NOT closer to the pinned bytes than "
+                                 "the transposed-state arm (relL2 %.3e vs %.3e, ndiff %d vs %d) — "
+                                 "relL2 and ndiff are not seeing the state read"
+                                 % (label, c["block"], c["name"], mh["relL2"], mx["relL2"],
+                                    mh["ndiff"], mx["ndiff"]))
+                if st_ == "state":
+                    print("CARRYORDER plan=%s block=%s pass=%s stage=%s relL2_honest=%.6g "
+                          "relL2_xpose=%.6g ratio=%.4g ndiff_honest=%d ndiff_xpose=%d n=%d "
+                          "load_bearing=relL2,ndiff verdict=%s"
+                          % (label, c["block"], c["name"], st_, mh["relL2"], mx["relL2"],
+                             (mx["relL2"] / mh["relL2"]) if mh["relL2"] else float("inf"),
+                             mh["ndiff"], mx["ndiff"], mh["n"], "OK" if good else "FAIL"))
+    print("CARRYORDER rows=%d failures=%d derived=%d note=ordering, not a typed threshold; the "
+          "absolute verdict is band_check_row's"
+          % (order_rows, order_fail, 2 * n * len(STATE_AFFECTED)))
+    counts["carry_rows"] = rowsA + rowsB
+    counts["carry_xpose_rows"] = must_red
+    counts["carry_order_rows"] = order_rows
+
+
+def determinism_section(stage_lines, fails, counts):
+    """Determinism as a check, not a claim.
+
+    The lane's premise is that this pipeline is deterministic, so the same command must print the
+    same STAGE lines. This re-runs the numerics sections (`band,carry`) as two further gate processes
+    and compares their STAGE lines against each other AND against the ones this run already printed.
+    A single differing line is a finding: on f32 data with no device, no timer and no thread count
+    knob, a moving digit is a race or an uninitialised read, not rounding."""
+    cmd = [PY, str(HERE / "gate.py"), "--only", "band,carry"]
+    runs = []
+    for i in (1, 2):
+        p = subprocess.run(cmd, capture_output=True, text=True, cwd=str(REPO))
+        runs.append([l for l in (p.stdout + p.stderr).splitlines() if l.startswith("STAGE ")])
+        # the two runs' own lines go to disk so the comparison is an artefact and not a printed claim
+        (EVID / ("gdn-determinism-run%d-2026-10-26.log" % i)).write_text("\n".join(runs[-1]) + "\n")
+        if not runs[-1]:
+            fails.append("determinism run %d printed no STAGE lines (rc=%d): an empty parse cannot "
+                         "prove agreement" % (i, p.returncode))
+    here_set = list(stage_lines)
+    if not here_set:
+        raise Refuse("this run printed no STAGE lines; determinism over nothing is a constant "
+                     "predicate — run with --only including band or carry")
+    same12 = runs[0] == runs[1]
+    same_h = all(r == here_set for r in runs)
+    diff_at = next((k for k in range(min(len(runs[0]), len(runs[1])))
+                    if runs[0][k] != runs[1][k]), min(len(runs[0]), len(runs[1])))
+    print("DETERMINISM here=%d run1=%d run2=%d run1_eq_run2=%d both_eq_this_run=%d "
+          "first_differing_line=%s verdict=%s"
+          % (len(here_set), len(runs[0]), len(runs[1]), int(same12), int(same_h),
+             ("none" if (same12 and same_h) else str(diff_at)),
+             "IDENTICAL" if (same12 and same_h) else "DIFFERS"))
+    if not same12:
+        fails.append("two runs of `%s` printed different STAGE lines at line %d:\n    run1: %s\n"
+                     "    run2: %s" % (" ".join(cmd), diff_at, runs[0][diff_at][:200],
+                                       runs[1][diff_at][:200]))
+    if same12 and not same_h:
+        fails.append("the two re-runs agree with each other but not with this run's STAGE lines "
+                     "(%d vs %d lines): the driver, not the arm, is where the digit moved" %
+                     (len(here_set), len(runs[0])))
+    counts["determinism_lines"] = len(here_set)
 
 
 def ladder_depth(dtype) -> int:
