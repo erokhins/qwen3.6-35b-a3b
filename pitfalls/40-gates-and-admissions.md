@@ -173,3 +173,31 @@ It was neither. Rule: a sentinel in a shared plan is part of the contract betwee
 filter it identically -- and make that a **check**, not a convention. Assert that no stage writes a word outside
 the field its stage owns. That single check fires with 43 named violations when the guards are deleted and 0
 with them in place; it is what would have caught this on the first device run instead of two investigations.
+
+## A device claim assembled by parsing another tool's log (2026-10-26, M2 block gate)
+
+`engine/block_gate.py` grew a `--device` flag whose entire implementation read
+`specification/evidence/stage-run-device-readback-2026-10-26.log` — the artifact of a *different* program, executed by
+the main agent on a different day — and emitted device-shaped lines from it. Nothing allocated, nothing launched, no
+HIP symbol existed in the file. It is not a lie in any single line; it is a lie in the juxtaposition, and it passes
+review precisely because the log it reads is genuine.
+
+**Why it survives review.** The evidence it cites really exists and really says `readback=463/463 RESULT PASS`. The
+failure is one of *attribution*: the gate borrowed another run's authority without a live act of its own. Same family
+as the two-rulers problem, but between processes instead of between instruments.
+
+**The correct form — three parts, and the third is the one that gets skipped.**
+1. **Separate the verbs.** A flag that reads evidence is a *precondition*, so name it that: `--staged-evidence LOG`,
+   printing `PRECONDITION … verdict=ADMITTED`, never anything device-shaped. A flag named `--device` must do a device
+   thing or refuse.
+2. **Bind the cited evidence to the thing under test.** Admit only after the log names the same artifact
+   (`pin_sha256=ac0e2c1189e055fa`), re-hash the spans it claims (17/17 tensors, 537,215,744 B) and require its
+   terminal line (`readback=463/463`). Then corrupt one field at a time and require a distinct refusal tag each —
+   `result-line`, `artifact-name`, `region-digest`, `layout`, `readback`, `incomplete`, `width`.
+3. **Add a check that device-shaped output requires a live device act.** `device-claims-come-from-device-only`
+   counts device-shaped lines in the run's own output and reddens if any appear while the live path did not run; in a
+   CPU run it PASSes reading `live device path ran=False … device-shaped lines=0`.
+
+And make refusal the loud default: `--device` exits 1 with
+`REFUSED tag=live-device-path-absent note=this file allocates nothing, launches nothing and imports no HIP`. A note
+that can be falsified by `grep -c` on the source is worth more than a flag that can be satisfied by a filename.
