@@ -1,0 +1,1164 @@
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 97250c2..a8c0292 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -16,6 +16,7 @@ set(LLAMA_CORE_SOURCES
+     llama-chat.cpp
+     llama-context.cpp
+     llama-cparams.cpp
++    llama-dump.cpp
+     llama-grammar.cpp
+     llama-graph.cpp
+     llama-hparams.cpp
+diff --git a/src/llama-context.cpp b/src/llama-context.cpp
+index ca84fc4..70905c5 100644
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -2,6 +2,7 @@
+ 
+ #include "ggml.h"
+ #include "llama-arch.h"
++#include "llama-dump.h"
+ #include "llama-graph.h"
+ #include "llama-impl.h"
+ #include "llama-batch.h"
+@@ -1583,6 +1584,13 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+         //LLAMA_LOG_INFO("graph set inputs time: %.3f ms\n", (ggml_time_us() - t_start_us)/1000.0);
+     }
+ 
++    // tools/llama-instrument.patch: named-intermediate dump for the cross-check
++    // (tools/LLAMA_DUMP_NOTES.md). Inert unless LLAMA_DUMP_DIR is set; CPU-only reads, no timing.
++    // Armed before the compute and closed after it: the capture reads each node's output inside the
++    // scheduler's per-node callback, because ggml reuses compute-buffer memory within a graph.
++    llama_dump_before_graph(model, res->get_gf(), ubatch, sched.get(),
++                            cparams.cb_eval, cparams.cb_eval_user_data);
++
+     const auto status = graph_compute(res->get_gf(), ubatch.n_tokens > 1);
+     if (status != GGML_STATUS_SUCCESS) {
+         LLAMA_LOG_ERROR("%s: failed to compute graph, compute status: %d\n", __func__, status);
+@@ -1590,6 +1598,8 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+         return nullptr;
+     }
+ 
++    llama_dump_after_graph(model, res->get_gf(), sched.get());
++
+     ret = GGML_STATUS_SUCCESS;
+ 
+     return res;
+diff --git a/src/llama-dump.cpp b/src/llama-dump.cpp
+new file mode 100644
+index 0000000..4d4a366
+--- /dev/null
++++ b/src/llama-dump.cpp
+@@ -0,0 +1,1064 @@
++// llama-dump.cpp — dump named graph intermediates of the pinned llama.cpp cross-check to disk.
++//
++// Added by tools/llama-instrument.patch. Plan of record: tools/LLAMA_DUMP_NOTES.md. Why this
++// exists at all: DECISIONS.md §D-12 adopted llama.cpp as a cross-check (not the accuracy oracle),
++// and the user's proposal was to read a second implementation's per-layer activations out of the
++// shipping GGUF, because the bf16 safetensors for the blocks we want are not on this box.
++//
++// Design, and the two rules it is built to satisfy:
++//
++//   * Only graph *nodes* are dumped. A node's buffer was allocated and written by the compute that
++//     just ran; a tensor that is merely referenced by the graph is a *parameter* and reading it
++//     would put 22 GiB of quantized weights into the dump directory. Parameters are counted, by
++//     name, into the `weights_excluded` census column and never written.
++//   * The expected-name sets are not typed here. They are generated from the vendored sources by
++//     tools/llama_dump_expected_gen.py into llama-dump-expected.h (cb() names for activations, the
++//     src/llama-arch.cpp tensor-name table for weights), so a block that dumps nothing is a
++//     detectable event rather than an agreement between two copies of the same guess
++//     (AGENTS.md §A check that can produce no output cannot fail).
++//
++// No timing is taken anywhere in this file and no device code is referenced: this is a CPU-only
++// instrument (AGENTS.md §GPU execution is serialized and belongs to the main agent).
++
++#include "llama-dump.h"
++
++#include "llama-hparams.h"
++#include "llama-model.h"
++#include "llama-arch.h"
++#include "llama-batch.h"
++
++#include "ggml.h"
++#include "ggml-backend.h"   // ggml_backend_sched_t and the eval-callback type: the capture hooks in
++#include "ggml-backend.h"
++
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <cstdint>
++#include <string>
++#include <vector>
++#include <map>
++#include <set>
++#include <unordered_map>
++#include <unordered_set>
++#include <algorithm>
++
++#include <dirent.h>
++#include <sys/stat.h>
++#include <unistd.h>
++
++#include "llama-dump-expected.h"
++
++#define LD_PREFIX "LLAMA-DUMP "
++
++static void ld_fatal(const char * what) {
++    fprintf(stderr, LD_PREFIX "FATAL %s\n", what);
++    fflush(NULL);
++    // _exit, not exit: this runs inside llama.cpp's decode call on a thread that the CLI's own
++    // thread pool still considers live, and unwinding through that from an atexit handler aborts
++    // ("terminate called without an active exception") and buries the verdict in a core dump.
++    _exit(3);
++}
++
++// ------------------------------------------------------------------ sha256 (self-contained) --
++// LLAMA_OPENSSL=OFF in the pinned build recipe, so there is no OpenSSL to link against and the
++// manifest digests must not depend on one being present.
++
++struct ld_sha256 {
++    uint32_t h[8];
++    uint64_t len;
++    uint8_t  buf[64];
++    size_t   n;
++};
++
++static const uint32_t LD_K[64] = {
++    0x428a2f98u,0x71374491u,0xb5c0fbcfu,0xe9b5dba5u,0x3956c25bu,0x59f111f1u,0x923f82a4u,0xab1c5ed5u,
++    0xd807aa98u,0x12835b01u,0x243185beu,0x550c7dc3u,0x72be5d74u,0x80deb1feu,0x9bdc06a7u,0xc19bf174u,
++    0xe49b69c1u,0xefbe4786u,0x0fc19dc6u,0x240ca1ccu,0x2de92c6fu,0x4a7484aau,0x5cb0a9dcu,0x76f988dau,
++    0x983e5152u,0xa831c66du,0xb00327c8u,0xbf597fc7u,0xc6e00bf3u,0xd5a79147u,0x06ca6351u,0x14292967u,
++    0x27b70a85u,0x2e1b2138u,0x4d2c6dfcu,0x53380d13u,0x650a7354u,0x766a0abbu,0x81c2c92eu,0x92722c85u,
++    0xa2bfe8a1u,0xa81a664bu,0xc24b8b70u,0xc76c51a3u,0xd192e819u,0xd6990624u,0xf40e3585u,0x106aa070u,
++    0x19a4c116u,0x1e376c08u,0x2748774cu,0x34b0bcb5u,0x391c0cb3u,0x4ed8aa4au,0x5b9cca4fu,0x682e6ff3u,
++    0x748f82eeu,0x78a5636fu,0x84c87814u,0x8cc70208u,0x90befffau,0xa4506cebu,0xbef9a3f7u,0xc67178f2u
++};
++
++static uint32_t ld_rotr(uint32_t x, int n) { return (x >> n) | (x << (32 - n)); }
++
++static void ld_sha256_block(ld_sha256 & s, const uint8_t * p) {
++    uint32_t w[64];
++    for (int i = 0; i < 16; i++) {
++        w[i] = ((uint32_t) p[4*i] << 24) | ((uint32_t) p[4*i+1] << 16) |
++               ((uint32_t) p[4*i+2] << 8) | (uint32_t) p[4*i+3];
++    }
++    for (int i = 16; i < 64; i++) {
++        const uint32_t s0 = ld_rotr(w[i-15], 7) ^ ld_rotr(w[i-15], 18) ^ (w[i-15] >> 3);
++        const uint32_t s1 = ld_rotr(w[i-2], 17) ^ ld_rotr(w[i-2], 19) ^ (w[i-2] >> 10);
++        w[i] = w[i-16] + s0 + w[i-7] + s1;
++    }
++    uint32_t a=s.h[0],b=s.h[1],c=s.h[2],d=s.h[3],e=s.h[4],f=s.h[5],g=s.h[6],h=s.h[7];
++    for (int i = 0; i < 64; i++) {
++        const uint32_t S1 = ld_rotr(e, 6) ^ ld_rotr(e, 11) ^ ld_rotr(e, 25);
++        const uint32_t ch = (e & f) ^ ((~e) & g);
++        const uint32_t t1 = h + S1 + ch + LD_K[i] + w[i];
++        const uint32_t S0 = ld_rotr(a, 2) ^ ld_rotr(a, 13) ^ ld_rotr(a, 22);
++        const uint32_t mj = (a & b) ^ (a & c) ^ (b & c);
++        const uint32_t t2 = S0 + mj;
++        h=g; g=f; f=e; e=d+t1; d=c; c=b; b=a; a=t1+t2;
++    }
++    s.h[0]+=a; s.h[1]+=b; s.h[2]+=c; s.h[3]+=d; s.h[4]+=e; s.h[5]+=f; s.h[6]+=g; s.h[7]+=h;
++}
++
++static void ld_sha256_init(ld_sha256 & s) {
++    s.h[0]=0x6a09e667u; s.h[1]=0xbb67ae85u; s.h[2]=0x3c6ef372u; s.h[3]=0xa54ff53au;
++    s.h[4]=0x510e527fu; s.h[5]=0x9b05688cu; s.h[6]=0x1f83d9abu; s.h[7]=0x5be0cd19u;
++    s.len = 0; s.n = 0;
++}
++
++static void ld_put(ld_sha256 & s, const uint8_t * p, size_t n, bool count) {
++    if (count) { s.len += n; }
++    while (n) {
++        const size_t take = std::min<size_t>(64 - s.n, n);
++        memcpy(s.buf + s.n, p, take);
++        s.n += take; p += take; n -= take;
++        if (s.n == 64) { ld_sha256_block(s, s.buf); s.n = 0; }
++    }
++}
++
++static void ld_sha256_update(ld_sha256 & s, const uint8_t * p, size_t n) {
++    ld_put(s, p, n, true);
++}
++
++static void ld_sha256_final(ld_sha256 & s, char out[65]) {
++    const uint64_t bits = s.len * 8;
++    uint8_t pad = 0x80;
++    ld_put(s, &pad, 1, false);
++    pad = 0;
++    while (s.n != 56) { ld_put(s, &pad, 1, false); }
++    uint8_t lb[8];
++    for (int i = 0; i < 8; i++) { lb[i] = (uint8_t) (bits >> (8*(7-i))); }
++    ld_put(s, lb, 8, false);
++    for (int i = 0; i < 8; i++) { sprintf(out + 8*i, "%08x", s.h[i]); }
++    out[64] = 0;
++}
++
++static void ld_sha256_mem(const void * data, size_t n, char out[65]) {
++    ld_sha256 s; ld_sha256_init(s);
++    ld_sha256_update(s, (const uint8_t *) data, n);
++    ld_sha256_final(s, out);
++}
++
++static bool ld_sha256_file(const char * path, char out[65]) {
++    FILE * f = fopen(path, "rb");
++    if (!f) { return false; }
++    ld_sha256 s; ld_sha256_init(s);
++    std::vector<uint8_t> b(1u << 20);
++    size_t r;
++    while ((r = fread(b.data(), 1, b.size(), f)) > 0) { ld_sha256_update(s, b.data(), r); }
++    const bool ok = !ferror(f);
++    fclose(f);
++    ld_sha256_final(s, out);
++    return ok;
++}
++
++// ---------------------------------------------------------------------- configuration --------
++
++static const char * ld_env(const char * k, const char * dflt) {
++    const char * v = getenv(k);
++    return (v && *v) ? v : dflt;
++}
++
++static long ld_env_l(const char * k, long dflt) {
++    const char * v = getenv(k);
++    if (!v || !*v) { return dflt; }
++    char * end = nullptr;
++    const long r = strtol(v, &end, 10);
++    if (!end || *end) { ld_fatal("integer env var has a non-numeric tail"); }
++    return r;
++}
++
++struct ld_cfg {
++    bool         enabled    = false;
++    std::string  dir;
++    std::string  manifest;
++    std::string  tag;
++    std::string  prompt;
++    std::string  cmdline;
++    std::string  build_flags;
++    std::string  build_record;
++    std::string  pin_sha;
++    std::string  gguf_expected;
++    long         max_graphs = 1;
++    size_t       max_bytes  = 64u << 20;
++    bool         dump_unnamed      = false;
++    bool         dump_unexpected   = true;
++};
++
++static ld_cfg ld_c;
++static bool   ld_cfg_read = false;
++
++static bool ld_dir_empty_or_absent(const std::string & path) {
++    DIR * d = opendir(path.c_str());
++    if (!d) { return true; }
++    struct dirent * e;
++    bool empty = true;
++    while ((e = readdir(d))) {
++        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) { continue; }
++        empty = false;
++        break;
++    }
++    closedir(d);
++    return empty;
++}
++
++static void ld_mkdir_p(const std::string & path) {
++    std::string cur;
++    for (size_t i = 0; i < path.size(); i++) {
++        cur += path[i];
++        if (path[i] == '/' && cur.size() > 1) { mkdir(cur.c_str(), 0775); }
++    }
++    mkdir(path.c_str(), 0775);
++}
++
++static void ld_read_cfg() {
++    if (ld_cfg_read) { return; }
++    ld_cfg_read = true;
++
++    ld_c.enabled = getenv("LLAMA_DUMP_DIR") != nullptr;
++    if (!ld_c.enabled) { return; }
++
++    ld_c.dir           = ld_env("LLAMA_DUMP_DIR", "");
++    ld_c.manifest      = ld_env("LLAMA_DUMP_MANIFEST", "");
++    ld_c.tag           = ld_env("LLAMA_DUMP_TAG", "run");
++    ld_c.prompt        = ld_env("LLAMA_DUMP_PROMPT", "");
++    ld_c.cmdline       = ld_env("LLAMA_DUMP_CMDLINE", "");
++    ld_c.build_flags   = ld_env("LLAMA_DUMP_BUILD_FLAGS", "");
++    ld_c.build_record  = ld_env("LLAMA_DUMP_BUILD_RECORD", "");
++    ld_c.pin_sha       = ld_env("LLAMA_DUMP_GGUF_PIN_SHA256", "");
++    ld_c.gguf_expected = ld_env("LLAMA_DUMP_GGUF_EXPECTED_PATH", "");
++    ld_c.max_graphs    = ld_env_l("LLAMA_DUMP_MAX_GRAPHS", 1);
++    ld_c.max_bytes     = (size_t) ld_env_l("LLAMA_DUMP_MAX_BYTES", 64l << 20);
++    ld_c.dump_unnamed  = ld_env_l("LLAMA_DUMP_UNNAMED", 0) != 0;
++    ld_c.dump_unexpected = ld_env_l("LLAMA_DUMP_UNEXPECTED", 1) != 0;
++
++    if (ld_c.dir.empty() || ld_c.manifest.empty())      { ld_fatal("LLAMA_DUMP_DIR and LLAMA_DUMP_MANIFEST are both required"); }
++    if (ld_c.pin_sha.size() != 64)                      { ld_fatal("LLAMA_DUMP_GGUF_PIN_SHA256 must be 64 hex chars"); }
++    for (char c : ld_c.pin_sha) {
++        const bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
++        if (!hex) { ld_fatal("LLAMA_DUMP_GGUF_PIN_SHA256 is not hex"); }
++    }
++    if (ld_c.max_graphs < 1)                            { ld_fatal("LLAMA_DUMP_MAX_GRAPHS must be >= 1"); }
++
++    // Append-only, write-once: a dump directory that already holds files and a manifest that
++    // already exists are both refusals, not things to overwrite (AGENTS.md standing rules;
++    // same discipline as tools/dump_reference.py's append-only mode).
++    struct stat st;
++    if (stat(ld_c.manifest.c_str(), &st) == 0) {
++        fprintf(stderr, LD_PREFIX "FATAL refusing to overwrite existing manifest %s\n",
++                ld_c.manifest.c_str());
++        ld_fatal("write-once manifest");
++    }
++    if (!ld_dir_empty_or_absent(ld_c.dir)) {
++        fprintf(stderr, LD_PREFIX "FATAL refusing to write into non-empty dump dir %s\n",
++                ld_c.dir.c_str());
++        ld_fatal("append-only dump dir");
++    }
++    if (LLAMA_DUMP_EXPECTED_MAIN_N == 0 || LLAMA_DUMP_EXPECTED_ATTN_FULL_N == 0 ||
++        LLAMA_DUMP_EXPECTED_ATTN_LINEAR_N == 0 || LLAMA_DUMP_EXPECTED_FFN_N == 0 ||
++        LLAMA_DUMP_WEIGHT_FAMILIES_N == 0) {
++        ld_fatal("derived expected sets are empty — regenerate llama-dump-expected.h");
++    }
++    ld_mkdir_p(ld_c.dir);
++
++    fprintf(stderr, LD_PREFIX "CONFIG dir=%s manifest=%s tag=%s max_graphs=%ld header=%d\n",
++            ld_c.dir.c_str(), ld_c.manifest.c_str(), ld_c.tag.c_str(), ld_c.max_graphs,
++            LLAMA_DUMP_EXPECTED_HEADER_VERSION);
++}
++
++// ------------------------------------------------------------------------ small helpers --------
++
++static std::string ld_json_escape(const std::string & in) {
++    std::string o;
++    for (unsigned char c : in) {
++        switch (c) {
++            case '"':  o += "\\\""; break;
++            case '\\': o += "\\\\"; break;
++            case '\n': o += "\\n";  break;
++            case '\r': o += "\\r";  break;
++            case '\t': o += "\\t";  break;
++            default:
++                if (c < 0x20) { char b[8]; sprintf(b, "\\u%04x", c); o += b; }
++                else          { o += (char) c; }
++        }
++    }
++    return o;
++}
++
++static std::string ld_sanitize(const std::string & in) {
++    std::string o = in;
++    for (char & c : o) {
++        const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
++                        (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
++        if (!ok) { c = '_'; }
++    }
++    if (o.empty()) { o = "unnamed"; }
++    if (o.size() > 96) { o.resize(96); }
++    return o;
++}
++
++// llama_context::graph_get_cb() names every cb()'d tensor "<name>-<il>", and plain ggml_set_name()
++// for the model-level ones. Parse that back; return false for "no -il suffix".
++static bool ld_split_name(const std::string & name, std::string & base, int & il) {
++    const size_t dash = name.rfind('-');
++    if (dash == std::string::npos || dash + 1 >= name.size()) { base = name; il = -1; return false; }
++    for (size_t i = dash + 1; i < name.size(); i++) {
++        if (name[i] < '0' || name[i] > '9') { base = name; il = -1; return false; }
++    }
++    base = name.substr(0, dash);
++    il = atoi(name.c_str() + dash + 1);
++    return true;
++}
++
++static bool ld_in_set(const char * const * set, unsigned n, const std::string & name) {
++    for (unsigned i = 0; i < n; i++) {
++        if (name == set[i]) { return true; }
++    }
++    return false;
++}
++
++// Walk the view chain to the tensor the bytes actually live in, so a view of the recurrent cache
++// can be reported as "a slice of cache_s_l5" rather than as an anonymous node.
++static const char * ld_view_base_name(const ggml_tensor * t) {
++    const ggml_tensor * b = t;
++    while (b->view_src) { b = b->view_src; }
++    return b == t ? "" : ggml_get_name(b);
++}
++// --------------------------------------------------------------- census and records ------------
++
++struct ld_rec {
++    int      graph = 0;
++    int      il    = -1;
++    int      node  = -1;
++    int      seq   = 0;
++    std::string base;
++    std::string op;
++    std::string dtype;
++    std::string file;      // path as written, or empty when bytes were not written
++    std::string cls;       // expected | unexpected | state | unnamed | model
++    std::string view_of;   // base tensor name when this node is a view
++    int64_t    ne[4] = {0, 0, 0, 0};
++    int        nd    = 0;
++    size_t     bytes = 0;
++    bool       wrote = false;
++    bool       quantized = false;
++    char       sha[65] = {0};
++};
++
++struct ld_block {
++    long dumped           = 0;
++    long matched          = 0;
++    long unexpected       = 0;
++    long anonymous        = 0;
++    long state            = 0;   // slices of the recurrent/conv cache (cache_r_l*, cache_s_l*)
++    long weights_excluded = 0;
++    long weights_unknown  = 0;
++    long too_big          = 0;
++    long not_written      = 0;
++    long duplicates       = 0;
++    std::set<std::string> seen_expected;
++    std::set<std::string> seen_unexpected;
++    std::set<std::string> param_names;    // leaf srcs attributed to this block by name
++};
++
++struct ld_graph_info {
++    int  index = 0;
++    long n_tokens = 0, n_seqs = 0, n_seq_tokens = 0, n_pos = 0;
++    std::vector<int32_t> tokens;
++};
++
++// graph -> block -> census. Block -1 is the model-level pseudo-block (il < 0 tensors, unnamed
++// nodes and the state slices that belong to no single block name).
++static std::map<int, std::map<int, ld_block>> ld_all_blocks;
++static std::vector<ld_rec>                    ld_records;
++static std::vector<ld_graph_info>             ld_graph_infos;
++static std::map<std::string, int>             ld_name_count;   // graph|il|base -> occurrence
++static long                                   ld_total_written = 0;
++static long                                   ld_total_bytes   = 0;
++static std::string                            ld_gguf_path, ld_gguf_sha;
++static int                                    ld_graphs_done   = 0;
++static bool                                   ld_failed        = false;
++static bool                                   ld_done          = false;
++
++static void ld_finish(const llama_model & model, int last_graph);
++
++static std::map<int, std::set<std::string>>  ld_expected_cache;   // il -> derived expected names
++
++static const std::set<std::string> & ld_expected_for(const llama_model & model, int il) {
++    auto it = ld_expected_cache.find(il);
++    if (it != ld_expected_cache.end()) { return it->second; }
++    std::set<std::string> e;
++    for (unsigned i = 0; i < LLAMA_DUMP_EXPECTED_MAIN_N; i++) { e.insert(LLAMA_DUMP_EXPECTED_MAIN[i]); }
++    const bool rec = model.hparams.is_recr((uint32_t) il);
++    const char * const * a = rec ? LLAMA_DUMP_EXPECTED_ATTN_LINEAR : LLAMA_DUMP_EXPECTED_ATTN_FULL;
++    const unsigned       n = rec ? LLAMA_DUMP_EXPECTED_ATTN_LINEAR_N : LLAMA_DUMP_EXPECTED_ATTN_FULL_N;
++    for (unsigned i = 0; i < n; i++) { e.insert(a[i]); }
++    for (unsigned i = 0; i < LLAMA_DUMP_EXPECTED_FFN_N; i++) { e.insert(LLAMA_DUMP_EXPECTED_FFN[i]); }
++    return ld_expected_cache.emplace(il, std::move(e)).first->second;
++}
++
++static std::string ld_join(const std::set<std::string> & s) {
++    std::string o;
++    bool first = true;
++    for (const auto & nm : s) {
++        if (!first) { o += "|"; }
++        first = false;
++        o += nm;
++    }
++    return o;
++}
++
++// "blk.17.ffn_gate_inp.weight" -> (17, "ffn_gate_inp"); false when the name is not a blk-parameter
++// name. The family table is LLAMA_DUMP_WEIGHT_FAMILIES, generated from the src/llama-arch.cpp
++// tensor-name table by tools/llama_dump_expected_gen.py — typed nowhere.
++static bool ld_param_family(const char * name, int & il_out, std::string & family) {
++    if (strncmp(name, "blk.", 4) != 0) { return false; }
++    const char * p = name + 4;
++    if (*p < '0' || *p > '9') { return false; }
++    int il = 0;
++    while (*p >= '0' && *p <= '9') { il = il * 10 + (*p - '0'); p++; }
++    if (*p != '.') { return false; }
++    p++;
++    const char * last = strrchr(p, '.');
++    family = last ? std::string(p, last) : std::string(p);
++    il_out = il;
++    return true;
++}
++
++static std::string ld_shape_str(const ggml_tensor * t) {
++    char b[32];
++    std::string s;
++    for (int i = 0; i < 4; i++) {
++        snprintf(b, sizeof(b), "%s%lld", i ? "x" : "", (long long) t->ne[i]);
++        s += b;
++    }
++    return s;
++}
++
++static bool ld_is_state_cache(const ggml_tensor * t) {
++    const char * bn = ld_view_base_name(t);
++    return bn && strncmp(bn, "cache_", 6) == 0;
++}
++
++// ggml names whatever the graph builder left unnamed: "node_%d" for ops and "leaf_%d" for leaves
++// (engines/llama.cpp/ggml/src/ggml.c §ggml_graph_add_node). Those are the tensors the vendored
++// source has no name for, which is exactly the population the `anonymous` column is for — the
++// genuinely empty-name case is counted separately in `unnamed` and is expected to stay at zero.
++static bool ld_is_anonymous_name(const std::string & name) {
++    const char * p = nullptr;
++    if (name.compare(0, 5, "node_") == 0) { p = name.c_str() + 5; }
++    else if (name.compare(0, 5, "leaf_") == 0) { p = name.c_str() + 5; }
++    else { return false; }
++    if (!*p) { return false; }
++    for (const char * q = p; *q; q++) {
++        if (*q < '0' || *q > '9') { return false; }
++    }
++    return true;
++}
++
++static void ld_write_tensor(const ggml_tensor * t, int graph, int il, int node,
++                            const std::string & base, const char * cls, ld_block & blk,
++                            bool write_bytes = true) {
++    ld_rec r;
++    r.graph     = graph;
++    r.il        = il;
++    r.node      = node;
++    r.base      = base;
++    r.cls       = cls;
++    r.op        = ggml_op_name(t->op);
++    r.dtype     = ggml_type_name(t->type);
++    r.nd        = (int) ggml_n_dims(t);
++    for (int i = 0; i < 4; i++) { r.ne[i] = t->ne[i]; }
++    r.bytes     = ggml_nbytes(t);
++    r.quantized = ggml_is_quantized(t->type);
++    r.view_of   = ld_view_base_name(t);
++
++    char key[192];
++    snprintf(key, sizeof(key), "%d|%d|%s", graph, il, base.c_str());
++    const int seq = ++ld_name_count[key];
++    r.seq = seq;
++    if (seq > 1) { blk.duplicates++; }
++
++    if (!write_bytes || r.bytes == 0 || r.bytes > ld_c.max_bytes) {
++        r.wrote = false;
++        blk.not_written++;
++        // three distinct reasons, named distinctly: a zero-byte tensor is not a tensor that hit the
++        // size cap, and these six per linear block (the pre-state reads at position 0) are the
++        // common case. The cap itself is reported separately in too_big.
++        const char * why = !write_bytes ? "not-requested" : (r.bytes == 0 ? "zero-bytes" : "size-cap");
++        if (write_bytes && r.bytes > ld_c.max_bytes) { blk.too_big++; }
++        fprintf(stderr, LD_PREFIX "TENSOR graph=%d block=%d seq=%d name=%s class=%s op=%s dtype=%s "
++                "shape=%s bytes=%zu written=0 reason=%s\n",
++                graph, il, seq, base.c_str(), cls, r.op.c_str(), r.dtype.c_str(),
++                ld_shape_str(t).c_str(), r.bytes, why);
++        ld_records.push_back(r);
++        return;
++    }
++
++    std::vector<uint8_t> buf(r.bytes);
++    ggml_backend_tensor_get(t, buf.data(), 0, r.bytes);
++    ld_sha256_mem(buf.data(), r.bytes, r.sha);
++
++    char rel[256];
++    snprintf(rel, sizeof(rel), "g%d_%s_%03d_%s_%d.bin", graph, il >= 0 ? "blk" : "mdl", il,
++             ld_sanitize(base).c_str(), seq);
++    r.file = ld_c.dir + "/" + rel;
++
++    ld_mkdir_p(ld_c.dir);
++    FILE * f = fopen(r.file.c_str(), "wb");
++    if (!f) {
++        fprintf(stderr, LD_PREFIX "FATAL cannot open %s for writing\n", r.file.c_str());
++        ld_fatal("dump file not writable");
++    }
++    if (fwrite(buf.data(), 1, r.bytes, f) != r.bytes) {
++        fclose(f);
++        fprintf(stderr, LD_PREFIX "FATAL short write on %s\n", r.file.c_str());
++        ld_fatal("short write");
++    }
++    fclose(f);
++
++    r.wrote = true;
++    blk.dumped++;
++    if (strcmp(cls, "state") == 0) { blk.state++; }
++    ld_total_written++;
++    ld_total_bytes += (long) r.bytes;
++
++    fprintf(stderr, LD_PREFIX "TENSOR graph=%d block=%d seq=%d name=%s class=%s op=%s dtype=%s "
++            "shape=%s bytes=%zu written=1 sha256=%s%s%s\n",
++            graph, il, seq, base.c_str(), cls, r.op.c_str(), r.dtype.c_str(),
++            ld_shape_str(t).c_str(), r.bytes, r.sha,
++            r.view_of.empty() ? "" : " view_of=", r.view_of.empty() ? "" : r.view_of.c_str());
++
++    ld_records.push_back(r);
++}
++
++// ------------------------------------------------------- the per-graph capture ----------------
++//
++// The bytes must be read while each node's output is still live. ggml's scheduler reuses regions of
++// the compute buffer once a tensor's consumers have run — ggml-backend.cpp
++// §ggml_backend_sched_compute_splits says so out loud: "the allocator may have reused buffer regions
++// across splits" — so walking the graph after the compute returns reads recycled memory. Measured on
++// this build before the callback was introduced: 3590 written tensors in one prefill graph collapsed
++// to 128 distinct digests, every block's ffn_moe_out hashed the same, and ffn_moe_probs held
++// logits-range values. Tensors in persistent buffers (the KV and recurrent-state caches) were
++// unaffected, which is what localized it to the compute buffer.
++//
++// So the capture runs as the scheduler's per-node eval callback. ggml calls it with ask=false
++// immediately after computing a node and synchronizing the split (ggml-backend.cpp
++// §ggml_backend_sched_compute_splits, the callback_eval branch), which is the point at which that
++// node's output is certainly still live. Answering ask=true with true for every node means ggml
++// computes one node per range instead of a whole split — the same arithmetic, more launches.
++
++struct ld_capture {
++    bool active  = false;
++    int  graph   = -1;
++    int  n_nodes = 0;
++    int  visited = 0;
++    int  last_il = -1;
++    const llama_model * model = nullptr;
++    std::map<int, ld_block> * blocks = nullptr;
++    std::unordered_set<const ggml_tensor *> nodes;
++    std::unordered_map<const ggml_tensor *, int> index;
++    ggml_backend_sched_eval_callback prev_cb = nullptr;
++    void * prev_ud = nullptr;
++};
++
++static ld_capture ld_cap;
++
++static void ld_handle_node(ggml_tensor * t) {
++    const llama_model & model = *ld_cap.model;
++    std::map<int, ld_block> & blocks = *ld_cap.blocks;
++    const int graph = ld_cap.graph;
++    const auto & nodes = ld_cap.nodes;
++    int & last_il = ld_cap.last_il;
++    const auto it = ld_cap.index.find(t);
++    const int i = it == ld_cap.index.end() ? -1 : it->second;
++
++    static const std::set<std::string> model_level_set = [] {
++        std::set<std::string> s;
++        for (unsigned k = 0; k < LLAMA_DUMP_EXPECTED_MODEL_LEVEL_N; k++) {
++            s.insert(LLAMA_DUMP_EXPECTED_MODEL_LEVEL[k]);
++        }
++        return s;
++    }();
++
++    {
++        const char * nm = ggml_get_name(t);
++        const std::string name = (nm && *nm) ? std::string(nm) : std::string();
++
++        // parameters: leaf srcs of this node that are not nodes themselves. Counted by name, and
++        // their bytes are never written — this is the guard that keeps the weights out of the dump.
++        for (int s = 0; s < GGML_MAX_SRC; s++) {
++            ggml_tensor * src = t->src[s];
++            if (!src || nodes.count(src)) { continue; }
++            int pil = -1;
++            std::string fam;
++            if (!ld_param_family(ggml_get_name(src), pil, fam)) { continue; }
++            ld_block & pb = blocks[pil];
++            if (!pb.param_names.insert(ggml_get_name(src)).second) { continue; }
++            if (ld_in_set(LLAMA_DUMP_WEIGHT_FAMILIES, LLAMA_DUMP_WEIGHT_FAMILIES_N, fam)) {
++                pb.weights_excluded++;
++            } else {
++                pb.weights_unknown++;
++            }
++        }
++
++        // ggml auto-names whatever the builder left unnamed ("node_%d"/"leaf_%d", ggml.c
++        // §ggml_graph_add_node), so "no name the builder chose" is the anonymous population. A
++        // truly empty name is counted too — it cannot happen for a graph node, and if it ever did
++        // it would land here rather than in a column that is structurally always zero.
++        const bool anon = name.empty() || ld_is_anonymous_name(name);
++
++        std::string base;
++        int il = -1;
++        bool suffixed = ld_split_name(name, base, il);
++        if (suffixed && (uint32_t) il >= model.hparams.n_layer()) {
++            // a "<something>-<n>" name whose suffix is not a layer index: not a block tensor
++            base = name;
++            suffixed = false;
++        }
++        if (anon) {
++            base = name.empty() ? (std::string("node_") + std::to_string(i)) : name;
++            suffixed = false;
++        }
++
++        // Graph inputs and builder-anonymous tensors carry no layer index. The model-level ones are
++        // those the vendored source does name at il = -1; everything else belongs to the block it
++        // was built in, taken from the last block-named tensor in graph order.
++        const bool model_level = !suffixed && !anon && model_level_set.count(base) != 0;
++        const int bucket = suffixed ? il : (model_level ? -1 : last_il);
++        if (suffixed) { last_il = il; }
++
++        ld_block & blk = blocks[bucket];
++        const bool expected = suffixed
++            ? ld_expected_for(model, bucket).count(base) != 0
++            : (model_level && model_level_set.count(base) != 0);
++
++        if (expected) {
++            blk.seen_expected.insert(base);
++            blk.matched++;
++            const char * cls = ld_is_state_cache(t) ? "state" : (model_level ? "model" : "expected");
++            ld_write_tensor(t, graph, bucket, i, base, cls, blk);
++        } else if (anon) {
++            // what else is in the graph: counted, and its bytes written only when the driver asked
++            // for them (LLAMA_DUMP_UNNAMED=1) — a name, op, shape and byte count is the finding
++            if (ld_is_state_cache(t)) {
++                // an unnamed slice of the recurrent/conv cache. In the fused GDN path this is the
++                // only node that carries the post-update state into the cache, so it is named after
++                // the tensor it points into and its bytes are always written.
++                base = std::string("state_view_") + ggml_get_name(t->view_src ? t->view_src : t);
++                blk.anonymous++;
++                ld_write_tensor(t, graph, bucket, i, base, "state", blk);
++                return;
++            }
++            blk.anonymous++;
++            ld_write_tensor(t, graph, bucket, i, base, "anonymous", blk, ld_c.dump_unnamed);
++        } else {
++            blk.seen_unexpected.insert(base);
++            blk.unexpected++;
++            // a slice of the recurrent/conv cache reached the graph without a builder name that the
++            // derived sets know: still a state tensor, and the post-update GDN state is exactly what
++            // the cross-check needs, so name it after the cache it points into
++            const bool state = ld_is_state_cache(t);
++            if (ld_c.dump_unexpected) {
++                ld_write_tensor(t, graph, bucket, i, base, state ? "state" : "unexpected", blk);
++            }
++        }
++    }
++}
++
++static bool ld_eval_cb(ggml_tensor * t, bool ask, void * user_data) {
++    (void) user_data;
++    // chain, never swallow: llama.cpp's own cparams.cb_eval still gets every call
++    if (ld_cap.prev_cb && !ld_cap.prev_cb(t, ask, ld_cap.prev_ud)) { return false; }
++    if (!ld_cap.active) {
++        // ask=true: the node is needed. ask=false: keep going. Same as having no callback at all
++        return true;
++    }
++    if (ask) { return true; }   // we want every node, so ggml computes one node per range
++    ld_handle_node(t);
++    ld_cap.visited++;
++    return true;
++}
++
++void llama_dump_before_graph(const llama_model & model, ggml_cgraph * gf, const llama_ubatch & ubatch,
++                             ggml_backend_sched_t sched,
++                             ggml_backend_sched_eval_callback prev_cb, void * prev_user_data) {
++    ld_read_cfg();
++    if (!ld_c.enabled || ld_done || ld_graphs_done >= ld_c.max_graphs) {
++        ld_cap.active = false;
++        return;
++    }
++
++    if (model.arch != LLM_ARCH_QWEN35MOE) {
++        fprintf(stderr, LD_PREFIX "FATAL arch is not qwen35moe: the derived expected sets and this "
++                "graph are not the same model\n");
++        ld_fatal("arch mismatch");
++    }
++
++    const int n = ggml_graph_n_nodes(gf);
++    if (n <= 0) {
++        fprintf(stderr, LD_PREFIX "FATAL graph %d has %d nodes\n", ld_graphs_done, n);
++        ld_fatal("empty graph");
++    }
++
++    ld_cap = ld_capture{};
++    ld_cap.active  = true;
++    ld_cap.graph   = ld_graphs_done;
++    ld_cap.model   = &model;
++    ld_cap.blocks  = &ld_all_blocks[ld_cap.graph];
++    ld_cap.n_nodes = n;
++    ld_cap.prev_cb = prev_cb;
++    ld_cap.prev_ud = prev_user_data;
++    ld_cap.nodes.reserve((size_t) n * 2);
++    ld_cap.index.reserve((size_t) n * 2);
++    for (int i = 0; i < n; i++) {
++        ggml_tensor * t = ggml_graph_node(gf, i);
++        ld_cap.nodes.insert(t);
++        ld_cap.index[t] = i;
++    }
++
++    // graph input leaves (inp_tokens, inp_pos, embd) are not in nodes[] at this revision, so the
++    // token ids of this step come from the batch that produced the graph
++    ld_graph_info gi;
++    gi.index        = ld_cap.graph;
++    gi.n_tokens     = ubatch.n_tokens;
++    gi.n_seqs       = ubatch.n_seqs;
++    gi.n_seq_tokens = ubatch.n_seq_tokens;
++    gi.n_pos        = ubatch.n_pos;
++    if (ubatch.token) {
++        gi.tokens.assign(ubatch.token, ubatch.token + ubatch.n_tokens);
++    }
++    ld_graph_infos.push_back(gi);
++
++    ggml_backend_sched_set_eval_callback(sched, ld_eval_cb, nullptr);
++}
++
++void llama_dump_after_graph(const llama_model & model, ggml_cgraph * gf, ggml_backend_sched_t sched) {
++    if (!ld_cap.active) { return; }
++
++    // the witness that the capture saw the whole graph: a node the callback never reported would be
++    // missing from the census and from the dump with nothing to say so
++    if (ld_cap.visited != ld_cap.n_nodes) {
++        fprintf(stderr, LD_PREFIX "FATAL graph %d: the eval callback reported %d of %d nodes\n",
++                ld_cap.graph, ld_cap.visited, ld_cap.n_nodes);
++        ld_fatal("per-node capture incomplete");
++    }
++
++    ggml_backend_sched_set_eval_callback(sched, ld_cap.prev_cb, ld_cap.prev_ud);
++    ld_cap.active = false;
++    (void) gf;
++
++    ld_graphs_done++;
++    if (ld_graphs_done < ld_c.max_graphs) { return; }
++
++    ld_finish(model, ld_graphs_done - 1);
++}
++// ------------------------------------------------------------- gguf binding and manifest --------
++
++#ifndef LLAMA_DUMP_GIT_COMMIT
++#define LLAMA_DUMP_GIT_COMMIT "unknown"
++#endif
++
++// Which file did llama.cpp actually open? Answer it from the process, not from the command line:
++// a dump from a different artifact is a different claim, so the binding has to be a witness.
++static void ld_find_open_gguf(std::vector<std::string> & out) {
++    auto add = [&](const std::string & p) {
++        if (p.size() < 6 || p.compare(p.size() - 5, 5, ".gguf") != 0) { return; }
++        if (std::find(out.begin(), out.end(), p) == out.end()) { out.push_back(p); }
++    };
++
++    FILE * f = fopen("/proc/self/maps", "r");
++    if (f) {
++        char line[4096];
++        while (fgets(line, sizeof(line), f)) {
++            char * slash = strchr(line, '/');
++            if (!slash) { continue; }
++            size_t len = strlen(slash);
++            while (len && (slash[len-1] == '\n' || slash[len-1] == ' ')) { slash[--len] = 0; }
++            add(slash);
++        }
++        fclose(f);
++    }
++
++    DIR * d = opendir("/proc/self/fd");
++    if (d) {
++        struct dirent * e;
++        while ((e = readdir(d))) {
++            char link[320], buf[4096];
++            snprintf(link, sizeof(link), "/proc/self/fd/%s", e->d_name);
++            const ssize_t r = readlink(link, buf, sizeof(buf) - 1);
++            if (r > 0) { buf[r] = 0; add(buf); }
++        }
++        closedir(d);
++    }
++}
++
++static long ld_peak_rss_kb() {
++    FILE * f = fopen("/proc/self/status", "r");
++    if (!f) { return -1; }
++    char line[256];
++    long kb = -1;
++    while (fgets(line, sizeof(line), f)) {
++        if (strncmp(line, "VmHWM:", 6) == 0) { kb = atol(line + 6); break; }
++    }
++    fclose(f);
++    return kb;
++}
++
++static void ld_json_str(FILE * f, const char * key, const std::string & v) {
++    fprintf(f, " \"%s\": \"%s\",", key, ld_json_escape(v).c_str());
++}
++
++static void ld_finish(const llama_model & model, int last_graph) {
++    (void) last_graph;
++
++    // ---- the artifact binding -------------------------------------------------------------
++    std::vector<std::string> ggufs;
++    ld_find_open_gguf(ggufs);
++    if (ggufs.size() != 1) {
++        fprintf(stderr, LD_PREFIX "FATAL expected exactly one open .gguf, found %zu — the dump "
++                "cannot be bound to one artifact\n", ggufs.size());
++        for (auto & g : ggufs) { fprintf(stderr, LD_PREFIX "  candidate %s\n", g.c_str()); }
++        ld_fatal("gguf binding ambiguous");
++    }
++    ld_gguf_path = ggufs[0];
++    if (!ld_c.gguf_expected.empty() && ld_c.gguf_expected != ld_gguf_path) {
++        fprintf(stderr, LD_PREFIX "FATAL opened %s but the driver named %s\n",
++                ld_gguf_path.c_str(), ld_c.gguf_expected.c_str());
++        ld_fatal("gguf path disagreement");
++    }
++    char sha_buf[65] = {0};
++    if (!ld_sha256_file(ld_gguf_path.c_str(), sha_buf)) {
++        fprintf(stderr, LD_PREFIX "FATAL cannot hash %s\n", ld_gguf_path.c_str());
++        ld_fatal("gguf hash failed");
++    }
++    ld_gguf_sha = sha_buf;
++    const bool pinned = (ld_gguf_sha == ld_c.pin_sha);
++    fprintf(stderr, LD_PREFIX "GGUF path=%s sha256=%s pin=%s matches_pin=%d\n",
++            ld_gguf_path.c_str(), ld_gguf_sha.c_str(), ld_c.pin_sha.c_str(), (int) pinned);
++    if (!pinned) {
++        fprintf(stderr, LD_PREFIX "FATAL this dump is from a different artifact than the pinned "
++                "GGUF; refuse to emit it (checkpoints/Qwen3.6-35B-A3B.gguf-pin.json)\n");
++        ld_fatal("gguf sha256 != pin");
++    }
++
++    // ---- the census -----------------------------------------------------------------------
++    std::set<std::string> model_level_set;
++    for (unsigned i = 0; i < LLAMA_DUMP_EXPECTED_MODEL_LEVEL_N; i++) {
++        model_level_set.insert(LLAMA_DUMP_EXPECTED_MODEL_LEVEL[i]);
++    }
++
++    const uint32_t n_layer = model.hparams.n_layer();
++    long census_lines = 0;
++    for (auto & [graph, blocks] : ld_all_blocks) {
++        for (int il = -1; il < (int) n_layer; il++) {
++            ld_block & b = blocks[il];
++            const long expected_total = il < 0 ? (long) model_level_set.size()
++                                               : (long) ld_expected_for(model, il).size();
++            std::string missing;
++            long n_missing = 0;
++            {
++                const std::set<std::string> & e = (il < 0) ? model_level_set
++                                                           : ld_expected_for(model, il);
++                for (const auto & nm : e) {
++                    if (b.seen_expected.count(nm)) { continue; }
++                    if (n_missing) { missing += "|"; }
++                    missing += nm;
++                    n_missing++;
++                }
++            }
++            const char * kind = il < 0 ? "model" : (model.hparams.is_recr(il) ? "linear" : "full");
++            fprintf(stderr, LD_PREFIX "CENSUS graph=%d block=%d kind=%s dumped=%ld expected=%ld "
++                    "matched=%ld unexpected=%ld anonymous=%ld state=%ld weights_excluded=%ld "
++                    "weights_unknown=%ld duplicates=%ld not_written=%ld too_big=%ld missing=%ld\n",
++                    graph, il, kind, b.dumped,
++                    expected_total, b.matched, b.unexpected, b.anonymous, b.state, b.weights_excluded,
++                    b.weights_unknown, b.duplicates, b.not_written, b.too_big, n_missing);
++            fprintf(stderr, LD_PREFIX "CENSUS-NAMES graph=%d block=%d missing=%s\n",
++                    graph, il, missing.empty() ? "none" : missing.c_str());
++            fprintf(stderr, LD_PREFIX "CENSUS-NAMES graph=%d block=%d unexpected=%s\n",
++                    graph, il, b.seen_unexpected.empty() ? "none" : ld_join(b.seen_unexpected).c_str());
++            census_lines++;
++
++            if (il >= 0 && b.dumped == 0) {
++                fprintf(stderr, LD_PREFIX "BLOCK-EMPTY graph=%d block=%d — a block that produced no "
++                        "dumped tensor is a failure, not a skipped line\n", graph, il);
++                ld_failed = true;
++            }
++            if (il >= 0 && b.weights_excluded == 0) {
++                // the weight-exclusion guard witnessing itself: every block reads parameters, so a
++                // block that saw none means the census is not looking at the graph we think it is
++                fprintf(stderr, LD_PREFIX "NO-PARAMS graph=%d block=%d — the parameter guard never "
++                        "fired for this block, so it cannot be trusted to have excluded anything\n",
++                        graph, il);
++                ld_failed = true;
++            }
++        }
++    }
++    const long expected_lines = (long) ((n_layer + 1) * ld_all_blocks.size());
++    fprintf(stderr, LD_PREFIX "CHECKS census_lines=%ld expected=%ld ggufs=%zu\n",
++            census_lines, expected_lines, (size_t) 1);
++    if (census_lines != expected_lines) { ld_fatal("census line count != n_layer * graphs"); }
++
++    if (ld_total_written == 0) { ld_fatal("zero tensors written — the dump is vacuous"); }
++
++    // ---- the manifest ---------------------------------------------------------------------
++    std::string brec_sha = "absent";
++    if (!ld_c.build_record.empty()) {
++        char h[65];
++        if (ld_sha256_file(ld_c.build_record.c_str(), h)) { brec_sha = h; } else { brec_sha = "unreadable"; }
++    }
++
++    ld_mkdir_p(ld_c.manifest.substr(0, ld_c.manifest.rfind('/')));
++    FILE * f = fopen(ld_c.manifest.c_str(), "wx");
++    if (!f) {
++        fprintf(stderr, LD_PREFIX "FATAL cannot create manifest %s\n", ld_c.manifest.c_str());
++        ld_fatal("manifest not creatable");
++    }
++
++    fprintf(f, "{\n");
++    fprintf(f, " \"manifest_version\": 1,\n");
++    fprintf(f, " \"lane\": \"llama-cpp-named-intermediates\",\n");
++    fprintf(f, " \"date\": \"2026-10-27\",\n");
++    fprintf(f, " \"instrument\": {\n");
++    fprintf(f, "   \"patch\": \"tools/llama-instrument.patch\",\n");
++    ld_json_str(f, "llama_cpp_commit", LLAMA_DUMP_GIT_COMMIT);
++    fprintf(f, "\n   \"build_flags\": \"%s\",\n", ld_json_escape(ld_c.build_flags).c_str());
++    ld_json_str(f, "build_record_path", ld_c.build_record);
++    fprintf(f, "\n   \"build_record_sha256\": \"%s\",\n", brec_sha.c_str());
++    fprintf(f, "   \"expected_derivation\": \"tools/llama_dump_expected_gen.py\",\n");
++    fprintf(f, "   \"expected_set_sizes\": { \"main\": %u, \"attn_full\": %u, \"attn_linear\": %u,"
++              " \"ffn\": %u, \"model_level\": %u, \"weight_families\": %u }\n",
++            LLAMA_DUMP_EXPECTED_MAIN_N, LLAMA_DUMP_EXPECTED_ATTN_FULL_N,
++            LLAMA_DUMP_EXPECTED_ATTN_LINEAR_N, LLAMA_DUMP_EXPECTED_FFN_N,
++            LLAMA_DUMP_EXPECTED_MODEL_LEVEL_N, LLAMA_DUMP_WEIGHT_FAMILIES_N);
++    fprintf(f, " },\n");
++    fprintf(f, " \"gguf\": {\n");
++    ld_json_str(f, "path", ld_gguf_path);
++    fprintf(f, "\n");
++    ld_json_str(f, "sha256", ld_gguf_sha);
++    fprintf(f, " \"pinned_sha256\": \"%s\",\n", ld_c.pin_sha.c_str());
++    fprintf(f, "   \"matches_pin\": true,\n");
++    fprintf(f, "   \"discovered_via\": \"/proc/self/maps + /proc/self/fd\"\n");
++    fprintf(f, " },\n");
++    fprintf(f, " \"model\": {\n");
++    ld_json_str(f, "arch", llm_arch_name(model.arch));
++    fprintf(f, "\n   \"n_layer\": %u,\n   \"n_layer_all\": %u,\n   \"n_expert\": %u,\n"
++              "   \"n_expert_used\": %u,\n   \"n_embd\": %u,\n",
++            model.hparams.n_layer(), model.hparams.n_layer_all, model.hparams.n_expert,
++            model.hparams.n_expert_used(0), model.hparams.n_embd);
++    fprintf(f, "   \"linear_layers\": [");
++    // only the recurrent/linear blocks: this is the list a reader uses to pick a GDN block, so
++    // printing every layer here would be a field that lies. is_recr_by_layer below is the full
++    // per-layer form of the same fact.
++    bool first_lin = true;
++    for (uint32_t il = 0; il < model.hparams.n_layer(); il++) {
++        if (!model.hparams.is_recr(il)) { continue; }
++        fprintf(f, "%s%u", first_lin ? "" : ", ", il);
++        first_lin = false;
++    }
++    fprintf(f, "],\n   \"full_attention_layers\": [");
++    bool first_full = true;
++    for (uint32_t il = 0; il < model.hparams.n_layer(); il++) {
++        if (model.hparams.is_recr(il)) { continue; }
++        fprintf(f, "%s%u", first_full ? "" : ", ", il);
++        first_full = false;
++    }
++    fprintf(f, "],\n   \"is_recr_by_layer\": [");
++    for (uint32_t il = 0; il < model.hparams.n_layer(); il++) {
++        fprintf(f, "%s%d", il ? ", " : "", model.hparams.is_recr(il) ? 1 : 0);
++    }
++    fprintf(f, "]\n },\n");
++    fprintf(f, " \"input\": {\n");
++    ld_json_str(f, "prompt", ld_c.prompt);
++    fprintf(f, "\n");
++    ld_json_str(f, "producing_command", ld_c.cmdline);
++    fprintf(f, "\n   \"tag\": \"%s\",\n   \"graphs_dumped\": %d,\n"
++              "   \"token_ids_note\": \"per-graph token ids are in the top-level \\\"graphs\\\" list; "
++              "graph 0 is llama-cli's own init graph and is not the prompt\"\n },\n",
++            ld_json_escape(ld_c.tag).c_str(), ld_graphs_done);
++    fprintf(f, " \"counts\": {\n   \"records\": %zu,\n   \"files_written\": %ld,\n"
++              "   \"bytes_written\": %ld,\n   \"census_lines\": %ld,\n   \"peak_rss_kb\": %ld\n },\n",
++            ld_records.size(), ld_total_written, ld_total_bytes, census_lines, ld_peak_rss_kb());
++
++    fprintf(f, " \"graphs\": [\n");
++    for (size_t i = 0; i < ld_graph_infos.size(); i++) {
++        const ld_graph_info & gi = ld_graph_infos[i];
++        fprintf(f, "  { \"index\": %d, \"n_tokens\": %ld, \"n_seqs\": %ld, \"n_seq_tokens\": %ld,"
++                  " \"n_pos\": %ld, \"token_ids\": [",
++                gi.index, gi.n_tokens, gi.n_seqs, gi.n_seq_tokens, gi.n_pos);
++        for (size_t k = 0; k < gi.tokens.size(); k++) {
++            fprintf(f, "%s%d", k ? ", " : "", gi.tokens[k]);
++        }
++        fprintf(f, "] }%s\n", i + 1 == ld_graph_infos.size() ? "" : ",");
++    }
++    fprintf(f, " ],\n");
++
++    fprintf(f, " \"census\": [\n");
++    bool first_c = true;
++    for (auto & [graph, blocks] : ld_all_blocks) {
++        for (int il = -1; il < (int) n_layer; il++) {
++            ld_block & b = blocks[il];
++            if (!first_c) { fprintf(f, ",\n"); }
++            first_c = false;
++            fprintf(f, "  { \"graph\": %d, \"block\": %d, \"kind\": \"%s\", \"dumped\": %ld,"
++                      " \"expected\": %ld, \"matched\": %ld, \"unexpected\": %ld, \"anonymous\": %ld, \"state\": %ld,"
++                      " \"weights_excluded\": %ld, \"weights_unknown\": %ld, \"duplicates\": %ld,"
++                      " \"not_written\": %ld, \"too_big\": %ld,",
++                    graph, il, il < 0 ? "model" : (model.hparams.is_recr(il) ? "linear" : "full"),
++                    b.dumped,
++                    il < 0 ? (long) model_level_set.size()
++                           : (long) ld_expected_for(model, il).size(),
++                    b.matched, b.unexpected,
++                    b.anonymous, b.state, b.weights_excluded, b.weights_unknown, b.duplicates,
++                    b.not_written, b.too_big);
++            fprintf(f, " \"seen_expected\": [");
++            bool fs = true;
++            for (const auto & nm : b.seen_expected) { fprintf(f, "%s\"%s\"", fs ? "" : ", ", nm.c_str()); fs = false; }
++            fprintf(f, "], \"seen_unexpected\": [");
++            fs = true;
++            for (const auto & nm : b.seen_unexpected) { fprintf(f, "%s\"%s\"", fs ? "" : ", ", nm.c_str()); fs = false; }
++            fprintf(f, "], \"parameters\": [");
++            fs = true;
++            for (const auto & nm : b.param_names) { fprintf(f, "%s\"%s\"", fs ? "" : ", ", nm.c_str()); fs = false; }
++            fprintf(f, "] }");
++        }
++    }
++    fprintf(f, "\n ],\n");
++
++    fprintf(f, " \"dumps\": [\n");
++    for (size_t i = 0; i < ld_records.size(); i++) {
++        const ld_rec & r = ld_records[i];
++        fprintf(f, "  { \"graph\": %d, \"block\": %d, \"node\": %d, \"seq\": %d, \"name\": \"%s\","
++                  " \"class\": \"%s\", \"op\": \"%s\", \"dtype\": \"%s\", \"shape\": [%lld, %lld,"
++                  " %lld, %lld], \"bytes\": %zu, \"written\": %s, \"sha256\": \"%s\","
++                  " \"file\": \"%s\", \"view_of\": \"%s\" }%s\n",
++                r.graph, r.il, r.node, r.seq, ld_json_escape(r.base).c_str(), r.cls.c_str(),
++                r.op.c_str(), r.dtype.c_str(),
++                (long long) r.ne[0], (long long) r.ne[1], (long long) r.ne[2], (long long) r.ne[3],
++                r.bytes, r.wrote ? "true" : "false", r.wrote ? r.sha : "",
++                ld_json_escape(r.file).c_str(), ld_json_escape(r.view_of).c_str(),
++                i + 1 == ld_records.size() ? "" : ",");
++    }
++    fprintf(f, " ]\n}\n");
++    fclose(f);
++
++    fprintf(stderr, LD_PREFIX "DONE verdict=%s records=%zu files=%ld bytes=%ld graphs=%d "
++            "manifest=%s gguf_sha256=%s\n",
++            ld_failed ? "FAIL" : "PASS", ld_records.size(), ld_total_written, ld_total_bytes,
++            ld_graphs_done, ld_c.manifest.c_str(), ld_gguf_sha.c_str());
++    fflush(NULL);
++
++    // No exit() here: the manifest is written and flushed, and letting llama.cpp finish its own
++    // generation is what makes the process exit status mean what it says.
++    ld_done = true;
++}
+diff --git a/src/llama-dump.h b/src/llama-dump.h
+new file mode 100644
+index 0000000..188e8b2
+--- /dev/null
++++ b/src/llama-dump.h
+@@ -0,0 +1,41 @@
++// llama-dump.h — named-intermediate dumper for the pinned llama.cpp cross-check.
++//
++// Added by tools/llama-instrument.patch; the plan of record is tools/LLAMA_DUMP_NOTES.md and the
++// binding decisions are DECISIONS.md §D-12 (llama.cpp is a cross-check, never the oracle) and
++// §D-25. These two declarations are the whole surface llama-context.cpp needs. Everything else —
++// env configuration, the derived expected-name sets, the manifest — lives in llama-dump.cpp.
++//
++// The dumper is inert unless LLAMA_DUMP_DIR is set in the environment, so an instrumented binary
++// behaves like an uninstrumented one for every other use.
++
++#pragma once
++
++#include "ggml-backend.h"   // ggml_backend_sched_t, ggml_backend_sched_eval_callback
++
++struct llama_model;
++struct ggml_cgraph;
++struct llama_ubatch;
++
++// Arm the capture for one graph. Called from llama_context::process_ubatch() with the graph that is
++// about to compute and the scheduler that will compute it, immediately before graph_compute().
++//
++// The capture installs a per-node scheduler callback and reads each node's output there, NOT after
++// the compute returns: ggml's allocator reuses regions of the compute buffer once a tensor's
++// consumers have run (ggml-backend.cpp §ggml_backend_sched_compute_splits: "the allocator may have
++// reused buffer regions across splits"), so a post-compute walk of intermediate tensors reads bytes
++// that later nodes have already overwritten. Persistent-buffer tensors (KV, recurrent state) are
++// unaffected by that, which is how the difference was localized.
++//
++// The ubatch is carried because graph input leaves (inp_tokens, inp_pos, embd) are not in
++// ggml_cgraph::nodes[] at this revision — ggml keeps them in input_nodes[] and ggml.h exposes no
++// count accessor — so the token ids of the step are read from the batch that caused it rather than
++// from a tensor we cannot reach. prev_cb/prev_user_data are llama.cpp's own cparams.cb_eval pair, to
++// which our callback delegates rather than replacing.
++void llama_dump_before_graph(const llama_model & model, struct ggml_cgraph * gf,
++                             const llama_ubatch & ubatch, ggml_backend_sched_t sched,
++                             ggml_backend_sched_eval_callback prev_cb, void * prev_user_data);
++
++// Close the capture for the graph that just computed: checks that every node was reported, restores
++// the scheduler's previous callback, and at the graph cap writes the census and the manifest.
++void llama_dump_after_graph(const llama_model & model, struct ggml_cgraph * gf,
++                            ggml_backend_sched_t sched);
