@@ -1239,3 +1239,49 @@ vacuity class this repo bans. It is replaced by the real requirement in clause 2
 llama.cpp under identical conditions; D-25's chain fixture and its `contiguous: false` disclosure still stand, and
 nothing here makes the 4-block chain an authority for the other 36.
 
+### D-27 (user, 2026-10-27) — ship the published UD-Q4_K_M; self-produced policy-A weights deferred, reopenable only on a measured performance reason
+
+**The user's words:** *"do a) now, documented that we potentially would like to do b somewhere in the future if
+there will be a performance reason for that"*.
+
+**Decision.** The shipping artifact is the published, sha-pinned third-party quantization:
+`models/unsloth-q4km/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf`, `ac0e2c11…53e31a61` (audited in
+`quantization/evidence/audit-published-quant-2026-10-26.md`, width map in
+`quantization/evidence/q4km-published-width-map-2026-10-26.md`). No download and no `llama-quantize` step. The
+instrumented llama.cpp (D-26) reads **the same file** our engine reads, which is what makes the same-bytes
+comparison in D-26 clause 2 achievable today.
+
+**A premise I asserted and then falsified, second instance this session.** Writing the previous entry I stated
+that the published file's attention was "Q6_K-class" and that D-01a's Q8_0 therefore no longer described reality.
+**False** — checked against the file's own tensor-info header: routed experts gate/up **Q4_K** ✓, shared expert
+**Q8_0** ✓, full attention q/k/v/output **Q8_0** ✓, GDN `attn_qkv` / `attn_gate` / `ssm_out` **Q8_0** ✓,
+embeddings **Q8_0** ✓. Policy A and the artifact differ on **exactly two families**, both already handled:
+
+| family | published | policy A | effect |
+|---|---|---|---|
+| expert `down_proj` | **Q5_K** ×37, **Q6_K** ×3 | Q4_K | wider; ~1.3 GiB above our arithmetic. The loader's floor rule admits *wider* without a waiver |
+| `lm_head` (`output`) | **Q6_K** | Q8_0 | narrower; 6.5625 bpw, 1.0037 GiB stored vs 1.2960 modelled — the existing explicit waiver |
+
+So D-01/D-01a still describe what ships, everywhere except those two families, and `engine/loader.py` already
+carries both cases (`accepted=("Q6_K",)` for `lm_head`; the wider-`down_proj` floor rule). Nothing is re-labelled
+and no band moves.
+
+**The audit that D-26 clause 2 needs is therefore a conformance audit, not a production step.** It must parse the
+artifact's own tensor-info header, derive the per-family type map, and compare it to the width map above — with
+populations derived from the file, never typed, and a deliberately mis-typed record that must redden. It must also
+assert that the engine's loader agrees with the file per tensor, so a stale hard-coded width anywhere in the engine
+surfaces as a finding rather than as a silent numeric difference.
+
+**On (b) — deferred, with a trigger so deferral cannot become silence.** Producing policy-A weights ourselves
+(`llama-quantize --tensor-type-file`, per-tensor type control CONFIRMED in
+`quantization/evidence/llama-cpp-build-and-flags-2026-10-26.md` §Verdict 1) is **not** to be done for tidiness,
+bandwidth or principle. It is reopened **only** if a measured performance shortfall at M5 (below the ≥ 48 t/s bar
+of D-22) is attributed to a width choice — the plausible candidates being `down_proj` at Q5_K/Q6_K rather than
+Q4_K (≈1.3 GiB, hence ≈1.3 GiB/token of extra reads on a bandwidth-bound path) or `lm_head` at Q6_K. Attribution
+must be arithmetic against the per-token read budget, not vibes. Cost if ever taken: ~67 GiB of weights plus a
+quantize run, against 2.4 TB free. Reopening it is a user decision again, because it changes what ships.
+
+**Unchanged by this entry.** D-26's outranking clause (a quantized oracle may only add checks; never loosen a
+band), the `licence=llama-crosscheck(...)` spelling for layers 2–37, the four HF blocks as comparison instrument
+with disagreement escalated rather than absorbed, oracle determinism as a precondition, and the ≥ 48 t/s bar.
+
