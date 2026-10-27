@@ -1180,3 +1180,62 @@ which is the same class of defect this repo bans in gates and which is why verdi
 never cited when bytes can be re-hashed. The chain remains **non-contiguous** and is not the
 model's post-layer-37 activation; M3 still needs shards 3–24.
 
+### D-26 (user, 2026-10-27) — llama.cpp is the sole oracle; HF is retained as a comparison instrument on the four acquired blocks
+
+**The user's words:** *"sole oracle, but for first 4 block out of 40 that we downloaded, we should compare all that
+we can"* — following *"why you cannot use quantized gguf and llama.cpp on top of it?"* and *"I propose to use
+llama.cpp as oracle and inject the code that will deliver us the intermediate results"*.
+
+**Decision.** `engines/llama.cpp` (vendored `d327bf1f`, tag `b11869`), instrumented to dump named graph tensors
+(`tools/llama-instrument.patch` (planned), CPU-only build), is the **sole oracle** for engine acceptance across all 40 blocks.
+Installed `transformers` on the original safetensors is retained — on `layer0`, `layer1`, `layer38`, `layer39`, the
+four blocks whose shards are on this box — as a **comparison instrument**, and every stage that can be compared
+there must be (three-way: HF × llama.cpp × engine).
+
+**This clause outranks everything below it.** Adopting a quantized oracle may only ever **add** checks. No band,
+floor, factor or must-catch set changes because llama.cpp would tolerate more; where an HF-derived limit is tighter,
+the HF-derived limit stays. "Never loosen a gate to make it pass" is not rescoped by changing the oracle, and any
+band change is still a re-derivation with witnessed rejection (D-18/D-20). An agent quoting D-26 to justify a
+looser number has misread it.
+
+**A premise I asserted and then falsified, recorded so it cannot be re-imported.** I first wrote that our engine
+and llama.cpp share a common mode because *"the GGUF my own converter produced"* sits between them, and made a
+conversion audit mandatory on that basis. **False.** The artifact is a third-party published quantization:
+`models/unsloth-q4km/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf`, sha256 `ac0e2c11…53e31a61`, read twice identically and equal
+to the HF LFS etag (`quantization/evidence/audit-published-quant-2026-10-26.md`). We never converted it. There is
+no converter step to audit, and a check written against a step that does not exist cannot fail — which is the same
+vacuity class this repo bans. It is replaced by the real requirement in clause 2.
+
+**Named consequences, accepted knowingly.**
+
+1. **Cross-checked is not licensed.** For layers 2–37 there is no unquantized reference on this box, so a policy-A
+   row's limit there is a *cross-check* limit — divergence observed against another quantized implementation — and
+   must print as `licence=llama-crosscheck(...)`, never as `floor-probe(...)`. A quantized reference prices
+   disagreement, not quantization error. Rows already licensed from HF floor probes (`prototype/moe_router`,
+   `prototype/gdn`, the act-domain band) keep their stronger provenance.
+2. **The oracle must read the bytes we ship.** The published quant is unsloth **UD-Q4_K_M**, which is *not* policy A
+   (D-01/D-01a/D-08): llama.cpp reading that file would make it an oracle over a different quantization than we
+   ship, and every diff would then mix an implementation difference with a width difference. The fix is the one
+   already planned in `quantization/evidence/q4km-published-width-map-2026-10-26.md`: produce the policy-A GGUF with
+   **upstream** `llama-quantize --tensor-type-file` (per-tensor type control CONFIRMED in
+   `quantization/evidence/llama-cpp-build-and-flags-2026-10-26.md` §Verdict 1) and have llama.cpp read *that*, so
+   both sides consume identical bytes and the oracle's only remaining freedom is the forward pass. The audit that
+   replaces the fictitious one is therefore a **width audit**: every tensor in the produced GGUF must carry the
+   type policy A specifies, derived from the policy table, with a deliberate mis-typed tensor that must redden it.
+3. **The prediction-4 precedent is why clause 1 is worded that way.** HF casts renormalised top-k weights to the
+   logits dtype *before* the expert multiply; our engine carried them in f32 and was wrong. Had llama.cpp been the
+   oracle from the start and carried them in float, it would have **licensed the defect** — the pin that caught it
+   is `layer0.routed_sum` refusing the f32 carry (`ndiff 1326` vs `0`). So on the four HF blocks, whenever HF and
+   llama.cpp disagree, silently adopting llama.cpp's side is forbidden: the disagreement is a finding to report to
+   the user and the tighter limit ships.
+4. **Determinism is a precondition.** Two identical llama.cpp runs must be bit-identical or the instrumentation lane
+   must say they are not, in writing; a non-deterministic oracle changes what a diff means.
+5. **Unestablished implementation.** llama.cpp's correctness for this architecture is not established by anything we
+   control — it already *guesses* a reasoning template for this checkpoint (smoke doc) and its GDN state handling,
+   rope placement and MoE multiply order are its own. Sole-oracle status is a decision, not a finding, and clause 3
+   is the tripwire for it.
+
+**Unchanged.** D-12's separation of roles survives in substance; the ≥ 48 t/s bar (D-22) is still measured against
+llama.cpp under identical conditions; D-25's chain fixture and its `contiguous: false` disclosure still stand, and
+nothing here makes the 4-block chain an authority for the other 36.
+
