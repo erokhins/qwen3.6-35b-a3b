@@ -118,3 +118,58 @@ Both pairs account exactly (`sum_of_fields == ndiff_bytes`), which is what makes
 claim checkable rather than a total with a story attached. Nothing here is absorbed: no field
 leaves claimed-exactness, no band is authored, and the mechanism stays **unattributed** until an
 injection reproduces both the magnitude and the field split.
+
+## Window `i` — 2026-10-27 — both divergences attributed by whole-record byte identity
+
+Third window, two identical `--device` runs, zero workers, lock tag asserted, engine-down from
+`rocm-smi`. **No timing taken.**
+
+```
+GREPRO pair=g_policy_a_hip_device_vs_hip_hostpath probe=exp_ulp_table path=host_cpubody
+       sites_perturbed=58 explained_by_exp_within_4ulp=58 unexplained=0
+       min_steps_histogram=-1:42,+1:16 record_bytes=122,880 vs_device_record_ndiff_bytes=0
+       verdict=EXACT-REPRODUCTION
+DREPRO pair=d_hip_device_vs_d_hip_hostpath probe=decay_ulp_mask steps=-1 mask=0x80d200
+       heads=9,12,14,15,23 record_bytes=2,187,264 vs_device_record_ndiff_bytes=0
+       verdict=EXACT-REPRODUCTION
+DREPRO pair=d_hip_device_vs_d_hip_hostpath probe=decay_ulp_mask steps=+1 mask=0x80d200
+       heads=9,12,14,15,23 record_bytes=2,187,264 vs_device_record_ndiff_bytes=75,206
+       verdict=RESIDUAL-LEFT
+RUNG-1 constant across runs: ok     band_digest=27a68c7e82c9aa05
+```
+
+This is attribution, not a story. Perturbing 58 `exp()` sites on the **host** path by the device's
+own measured ULP table reproduces the device's gather record **byte for byte**; applying **−1 ULP**
+to `exp(g_decay)` on heads 9, 12, 14, 15, 23 reproduces the 2,187,264-byte GDN record exactly. The
+`+1` arm is what makes it a test rather than a fit: the opposite direction leaves **75,206 B** of
+residual, so the reproduction pins the *sign* and the *head subset*, and could not have been tuned
+to any 1-ULP perturbation. `unexplained=0` with `min_steps_histogram=-1:42,+1:16`.
+
+Conclusion: the device-vs-host difference is a last-bit library difference at `exp` sites
+(`ocml` on the device, `glibc` on the host), and nothing else — the bf16 reference gather, which
+touches no `exp`, is 0 on every field, and my width hypothesis was **refuted** (`width_misread`
+injects 73,475 B, 19.6x, and cannot reach field `s`, which the device shows differing by 58 B).
+
+## What is still wrong, stated before any celebration
+
+1. **The run still crashes before printing `RESULT`** — `rc=1`, both runs. Now at line 4206 in
+   `checks_d`: `r["run"]["launches"] > 0` → `TypeError: '>' not supported between 'str' and 'int'`.
+   Fourth instance of the same class, and structurally unavoidable in a CPU-only workflow:
+   `device=off` never executes these lines, so the lane's green `checks=54 findings=0` is *true and
+   blind*. The two device-only defects found today (`_bytes` KeyError, tuple-into-dict-helper at
+   2405, this `str`/`int` one) were all invisible to every gate the lane could run.
+2. **One control contradicts the headline in the same log.**
+   `CONTROL name=gdn-divergence-causes-priced fired=SILENT reason=no injected cause reproduces the
+   GDN device divergence …` while `DREPRO … steps=-1 … verdict=EXACT-REPRODUCTION` says one does.
+   A control whose cause table predates the probe that answered the question prints a confident
+   falsehood; it must be re-pointed at the cause that now reproduces, and it must redden if that
+   cause ever stops reproducing.
+3. **Two controls print `fired=SILENT` with no `reason=`** (`gather-divergence-causes-priced`, with
+   legs `host_cpubody:25,policy_a:13,ref_bf16:12`, and `gdn-state-read-is-the-arm-s-own-fingerprint`,
+   legs `device:1,host_cpubody:2`) even though a check named
+   `silent-control-names-its-reason` exists. So that check is not looking at controls, only at
+   checks — which is exactly the gap it was written to close.
+
+Until those three are closed the device arm is not "green": it is **attributed**, which is a
+different and weaker thing. `band_digest` unchanged; no field left claimed-exactness; no band
+authored; the `exp`-scope question this raises is a decision, not a tolerance to be slipped in.

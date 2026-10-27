@@ -1638,6 +1638,67 @@ def g_stages(fields, g):
                 routed_sum=torch.from_numpy(fields["routed"].copy()).reshape(1, g["MG_H"]))
 
 
+def print_gather_read_set_formats(ctx):
+    """`GFORMAT` — one line per tensor the policy-A gather reads, with its width read OUT of the file.
+
+    Why this exists as a printed table and not a sentence: D-27 records that the shipping artifact stores
+    expert `down_proj` at Q5_K (37 layers) / Q6_K (3 layers) where policy A declares Q4_K, and
+    `engine/loader.py::admit` admits a tensor that is wider than its family floor without a waiver — the
+    floor rule is arithmetic over the tensor's own type, so "wider than declared" is legal and silent.
+    Any hypothesis about the policy-A device divergence has to say which format each read actually used,
+    and the only answer worth having is the one derived from the file: the arm's `kind` word comes from
+    `Loader.expert_range`'s ggml type, `blocks` comes from rows×cols÷super-block, and the byte count the
+    plan declares is required to equal blocks × block-bytes of THAT kind. Every column below is one of
+    those derived quantities; none is typed.
+    """
+    paths = ctx.get("gpaths") or {}
+    if "policy_a" not in paths:
+        return []
+    p = paths["policy_a"]
+    g = p["g"]
+    loader = ctx["st"]["L"]
+    by_role = {}
+    for u in p["units"]:
+        by_role.setdefault(u["role"], []).append(u)
+    rows = []
+    for role in DA.G_ROLES:
+        units = by_role.get(role, [])
+        if not units:
+            continue
+        u0 = units[0]
+        rec = loader.by_name.get(u0["src_name"])
+        declared = LO.QS.POLICY_TYPE(LO.POLICY_A, rec.family) if rec else "UNKNOWN"
+        d_bpw = LO.policy_floor_bpw(rec.family) if rec else 0.0
+        a_bpw = LO.stored_bpw(u0["type_name"])
+        relation = ("same-as-declared" if abs(a_bpw - d_bpw) < 1e-9 else
+                    "WIDER-THAN-DECLARED" if a_bpw > d_bpw else "narrower-than-declared")
+        bb = g["BLOCK_BYTES"][u0["kind"]]
+        print("GFORMAT role=%s tensor=%s header_type=%s arm_kind=%s policy_a_declared=%s "
+              "stored_bpw=%.4f declared_bpw=%.4f relation=%s block_bytes=%d super_block=%d "
+              "rows=%d cols=%d blocks=%d blocks_derived=%d bytes=%d bytes_derived=%d units=%d "
+              "geometry=%s"
+              % (role, u0["src_name"], u0["type_name"], u0["kind"], declared, a_bpw, d_bpw, relation,
+                 bb, g["MG_QK_K"], u0["rows"], u0["cols"], u0["blocks"],
+                 (u0["rows"] * u0["cols"]) // g["MG_QK_K"], u0["bytes"], u0["blocks"] * bb,
+                 len(units),
+                 "ok" if (u0["bytes"] == u0["blocks"] * bb
+                          and u0["blocks"] == (u0["rows"] * u0["cols"]) // g["MG_QK_K"])
+                 else "MISMATCH"))
+        for u in units:
+            rows.append(dict(role=role, tensor=u["src_name"], header_type=u["type_name"],
+                             kind=u["kind"], block_bytes=bb, blocks=u["blocks"], bytes=u["bytes"],
+                             relation=relation, expert=u["expert"], slot=u["slot"]))
+    wider = sorted(set(r["relation"] for r in rows))
+    print("GFORMAT summary units=%d roles=%s relations=%s wider_than_declared_units=%d "
+          "note=the read set's formats are read from the artifact's ggml type per tensor, so an artifact "
+          "re-quantized to another width changes this table and the arm's refusal, not a string in a "
+          "control (engine/loader.py::admit, D-27)"
+          % (len(rows), ",".join(sorted(by_role)), ",".join(wider),
+             sum(1 for r in rows if r["relation"] == "WIDER-THAN-DECLARED")))
+    ctx["gformat"] = rows
+    return rows
+
+
 def run_gather_arms(v, ctx):
     """Run both width paths through the two compilers, print the census, and hand back the stages.
 
@@ -2325,6 +2386,7 @@ def control_gather_read_back(v, ctx):
               "the expectation machinery it uses is witnessed by "
               "gather-read-back-expectation-is-the-artifact")
         return
+    snap = (dict(PATH_LEGS), dict(G_LEGS))
     ok, lines = True, []
     for width in DA.G_PATHS:
         p = ctx["gpaths"][width]
@@ -2340,7 +2402,7 @@ def control_gather_read_back(v, ctx):
     v.control("gather-device-unit-read-back", ok,
               "first gathered span, first %d bytes, device vs slab vs artifact file: %s"
               % (READ_BACK_BYTES, "; ".join(lines)),
-              claims=("device",))
+              legs=g_legs_since(snap), claims=("device",))
 
 
 # ----------------------------------------------------------------------------------------------
@@ -2489,6 +2551,58 @@ def glibc_expf(x):
     return GLIBC_LIBM[0].expf(ctypes.c_float(x))
 
 
+def glibc_nextafterf(x, toward):
+    """glibc's `nextafterf`, reached the same way as `glibc_expf` — the function the two exp-ULP modes use.
+
+    Needed because the attribution asks "what ULP of exp would the device have had to return?", and the
+    only honest answer is in units of the same ULP the arm's own injection moves.
+    """
+    if GLIBC_LIBM[0] is None:
+        libm = ctypes.CDLL("libm.so.6")
+        libm.expf.restype = ctypes.c_float
+        libm.expf.argtypes = [ctypes.c_float]
+        GLIBC_LIBM[0] = libm
+    fn = GLIBC_LIBM[0].nextafterf
+    fn.restype = ctypes.c_float
+    fn.argtypes = [ctypes.c_float, ctypes.c_float]
+    return fn(ctypes.c_float(x), ctypes.c_float(toward))
+
+
+def silu_exp_step_table(gate, up, s_host, s_dev, limit=4):
+    """For each differing `s` word, the smallest signed ULP on `expf(-gate)` that reproduces the device's.
+
+    `m2g_item2` computes `s = silu(gate) * up` from the record's own gate and up words and touches no
+    weight, so with `gate` and `up` bit-identical the only input that can have moved is the `expf` inside
+    `mg_silu`. That makes the inverse question answerable: for each word the device moved, is there a
+    ULP step on the exp that produces exactly that word? Smallest-|step| first, because several steps
+    round to the same `s` and the claim worth making is about the least perturbation that fits.
+    """
+    tab = np.zeros(s_host.shape, dtype=np.int8)
+    hist, sites = {}, 0
+    idx = np.nonzero(s_dev.view(np.uint32) != s_host.view(np.uint32))[0]
+    for i in idx:
+        z, u = float(gate[i]), float(up[i])
+        e = glibc_expf(-z)
+        hit = 0
+        for step in [s for pair in ((1, -1), (2, -2), (3, -3), (4, -4)) for s in pair][: 2 * limit]:
+            e2 = e
+            for _ in range(abs(step)):
+                # `math.inf`/`-math.inf`, not `1.0`/`0.0`: `expf(-z)` exceeds 1 whenever the gate input is
+                # negative, and a `nextafter(e, 1.0)` on such a value moves DOWN while pretending to move up.
+                # The first version of this helper made that mistake and 11 of the 58 sites came back
+                # unexplained, which the byte-level reproduction caught immediately (residual 3,300 B).
+                e2 = glibc_nextafterf(float(e2), math.inf if step > 0 else -math.inf)
+            pred = np.float32(np.float32(z / np.float32(1.0 + e2)) * np.float32(u))
+            if pred.view(np.uint32) == s_dev[i].view(np.uint32):
+                hit = step
+                break
+        tab[i] = hit
+        hist[hit] = hist.get(hit, 0) + 1
+    explained = int((tab != 0).sum())
+    return dict(table=tab, sites=int(idx.size), explained=explained,
+                hist=",".join("%+d:%d" % (k, v) for k, v in sorted(hist.items())) or "none")
+
+
 def exp_route_disagreement(values, name, note=""):
     """How many of THESE transcendental sites disagree between two routes, and by how many steps.
 
@@ -2537,10 +2651,54 @@ G_CAUSES = (("silu_exp_ulp1", "transcendental last-bit: expf(-gate) one ULP up a
             ("cast_after", "combine weight form: the fp32 weight the reference threw away"),
             ("acc_bf16", "combine accumulator order: the other path's bf16 accumulator"),
             ("rank_accum", "combine walk order: the prototype's rank-order walk"),
-            ("byte_shift_1", "a one-byte span offset: the stride/offset read defect"))
+            ("byte_shift_1", "a one-byte span offset: the stride/offset read defect"),
+            # The three width-handling causes pass 8 adds, because D-27 (the artifact stores expert
+            # down_proj at Q5_K/Q6_K where policy A declares Q4_K, admitted by `engine/loader.py`'s floor
+            # rule without a waiver) makes a geometry disagreement a live suspect for the policy-A pair.
+            # `width_misread` keeps the true block stride and decodes with the other format; the other two
+            # take the STRIDE from the wrong kind too, which is the half a declared-vs-actual split would
+            # actually break. Each is measured against its own HDR reach claim by GREACH, so a claim of
+            # `raw`-only is tested, not assumed.
+            ("width_misread", "format-only width swap on the down family: Q5_K bytes decoded as Q6_K"),
+            ("q5k_as_q4k", "declared-narrower width read: the Q5_K down span read with Q4_K block stride "
+                           "and Q4_K decode — what 'policy A declares Q4_K' would mean if the arm obeyed"),
+            ("q4k_as_q5k", "declared-wider width read: the Q4_K gate/up spans read with Q5_K stride, which "
+                           "runs past each unit's extent and is refused element by element"),
+            ("scale_min_naive", "the K-quant sub-block scale/min decode read the naive way"),
+            ("q6k_d_byte_0", "the Q6_K block's fp16 delta read from byte 0 instead of 208"))
 D_CAUSES = (("decay_ulp1", "transcendental last-bit: exp(decay) one ULP up"),
             ("decay_head_off1", "wrong head's decay: the index defect"),
-            ("state_xpose", "carried state read transposed: the index-mapping defect"))
+            ("state_xpose", "carried state read transposed: the index-mapping defect"),
+            # The same transcendental at the two signs, through the per-head mask mode with every head set.
+            # The `+1` leg is also the equivalence check that the mask mode and the old all-heads mode are
+            # one cause and not two spellings, and the `-1` leg is the direction a device libm that rounds
+            # down lands in — the direction the device's five heads actually moved in.
+            ("decay_ulp_mask_up", "per-head mask mode, every head, +1 ULP (must equal decay_ulp1 exactly)"),
+            ("decay_ulp_mask_down", "per-head mask mode, every head, -1 ULP: the other rounding direction"))
+
+
+def d_cause_args(d, cause):
+    """The plan arguments a priced cause needs, derived from the geometry rather than typed.
+
+    A full mask is `(1 << GDN_H_V) - 1`: the population comes from the arm's header, so 26 heads or 64
+    heads, this is the set the geometry says exists and not a number copied into a control.
+    """
+    all_heads = (1 << d["GDN_H_V"]) - 1
+    if cause == "decay_ulp_mask_up":
+        return dict(mode="decay_ulp_mask", mask=all_heads, steps=1)
+    if cause == "decay_ulp_mask_down":
+        return dict(mode="decay_ulp_mask", mask=all_heads, steps=-1)
+    return dict(mode=cause)
+
+
+def window_command(extra="--device"):
+    """The exact command that would run a leg this witness cannot, rebuilt from this run's own argv.
+
+    A DVOID line that names no command is a suggestion. Rebuilding it from `sys.argv` means the next window
+    runs THIS command with the flag added, so a witness invoked with a non-default fixture or work dir
+    cannot print a command that quietly drops it.
+    """
+    return " ".join([sys.argv[0]] + sys.argv[1:] + [extra])
 
 
 def print_device_only_attribution_dvoids(vertical, pair_label):
@@ -2571,6 +2729,19 @@ def print_device_only_attribution_dvoids(vertical, pair_label):
           "bit images is rounding; a moving ndiff_bytes is uninitialised scratch or a race and must never "
           "be banded (pitfalls/00-measurement.md). Run the window's driver command twice and diff the "
           "GATTRIB/DATTRIB lines" % vertical)
+    print("DVOID control-leg=%s-exp-only-reproduction status=not-exercised reason=needs-a-device-window "
+          "required-print=%sREPRO ... verdict=EXACT-REPRODUCTION command=%s "
+          "note=the probe table is derived from the device's OWN words, so it cannot exist until a window "
+          "writes the device record; an exact byte-level reproduction is what retires the width and index "
+          "hypotheses without a tolerance, and a non-zero residual would name a second live mechanism"
+          % (vertical, "D" if vertical == "gdn" else "G", window_command()))
+    print("DVOID control-leg=%s-device-expf-bit-images status=not-exercised reason=needs-a-device-window "
+          "required-print=%sEXPIMAGE, one line per site with the device's image beside glibc's, differing "
+          "on exactly the sites whose words moved command=%s "
+          "note=no host run can print ocml's answer. What the host side can say is which inputs sit on the "
+          "knife-edge; the prediction that fails if the mechanism is something other than the last bit of "
+          "exp is that the device's images differ somewhere else"
+          % (vertical, "D" if vertical == "gdn" else "G", window_command()))
 
 
 def control_gather_divergence_causes(v, ctx):
@@ -2595,7 +2766,7 @@ def control_gather_divergence_causes(v, ctx):
         return
     g = ctx["gpaths"][DA.G_PATHS[0]]["g"]
     device_pair = ctx.get("g_device_pair_rows") or {}
-    accounted, injected_nonzero, lines, reach_offences = [], [], [], []
+    accounted, injected_nonzero, lines, reach_offences, equiv_offences = [], [], [], [], []
     snap = (dict(PATH_LEGS), dict(G_LEGS))
     ctx.setdefault("g_cause_match", {})
     for width in DA.G_PATHS:
@@ -2605,7 +2776,7 @@ def control_gather_divergence_causes(v, ctx):
         # cause plus a codegen difference. What a cause can only be priced against on the device itself is
         # listed as a not-exercised leg.
         honest_rec = p["dir"] / "out_hip.bin"
-        rows_by_cause = {}
+        rows_by_cause, cause_rec = {}, {}
         for cause, what in G_CAUSES:
             plan = g_plan_variant(p, p["plan"].read_text().replace("mode=correct", "mode=" + cause))
             rec = g_run_variant(ctx, width, plan, "out_cause_%s.bin" % cause,
@@ -2616,6 +2787,7 @@ def control_gather_divergence_causes(v, ctx):
                                        note="cause=%s (%s), host path of the hipcc arm"
                                             % (cause, what))
             rows_by_cause[cause] = attrib
+            cause_rec[cause] = rec["wrote"]["path"]
             # The arm publishes which record fields the mode it just ran can reach, and the measured set must
             # never exceed it: a mode that moves a field the driver did not name is a mode the driver is not
             # entitled to interpret. Moving LESS than claimed is not an offence per width — a width can
@@ -2635,6 +2807,30 @@ def control_gather_divergence_causes(v, ctx):
                 reach_offences.append("%s/%s beyond:%s" % (width, cause, "|".join(extra)))
             accounted.append(attrib)
             injected_nonzero.append((width, cause, total))
+        # The per-site table is the same cause as the all-sites mode at a finer granularity, and that is
+        # checked rather than asserted. An all-zero table must move NOTHING — a table the arm silently
+        # ignored would otherwise make a later reproduction pass for the wrong reason — and an all-+1 table
+        # must be byte-identical to `silu_exp_ulp1`'s record. Two spellings of one cause, held to one answer.
+        population = g["MG_K"] * g["MG_I"]
+        for word, step, expect in (("zero", 0, honest_rec), ("all_up", 1, cause_rec.get("silu_exp_ulp1"))):
+            if expect is None:
+                continue
+            tab = p["dir"] / ("exp_table_%s.bin" % word)
+            tab.write_bytes(bytes([step]) * population)
+            vplan = g_plan_variant(p, p["plan"].read_text().replace(
+                "mode=correct", "mode=exp_ulp_table exp_table=%s" % tab))
+            vrec = g_run_variant(ctx, width, vplan, "out_exp_%s.bin" % word,
+                                 "g_%s_exp_%s" % (width, word), device=False)
+            vbytes, vdiff = DA.pair_bytes(vrec["wrote"]["path"], expect)
+            print("GEXP path=%s table=%s steps=%+d population=%d vs=%s record_bytes=%d ndiff_bytes=%d "
+                  "verdict=%s"
+                  % (width, word, step, population, Path(expect).name, vbytes, vdiff,
+                     "SAME-CAUSE" if vdiff == 0 else "NOT-THE-SAME-CAUSE"))
+            if vdiff:
+                equiv_offences.append(
+                    "%s/exp_table_%s: %d bytes differ from %s, so the per-site table mode is not the "
+                    "cause it claims to be and no GREPRO reproduction built on it may be believed"
+                    % (width, word, vdiff, Path(expect).name))
         legs_so_far = g_legs_since(snap)
         print("GCAUSE path=%s injected_causes=%s device_pair=%s legs=%s"
               % (width, ";".join("%s total=%d fields=%s" % (c, a["total"],
@@ -2663,6 +2859,32 @@ def control_gather_divergence_causes(v, ctx):
                 if same_fields and within:
                     best.append(cause)
             ctx["g_cause_match"][width] = best if obs["total"] else ["byte-exact"]
+            # The reproduction leg, available only where a device record exists: derive the per-site exp
+            # steps the device's own `s` words imply, run the host path with that table, and ask whether the
+            # two records are now the SAME BYTES. This is the half that no ratio can give: if the whole
+            # record reproduces with only the silu's exp moved, then `raw` and `routed` — 16,384 and 2,048
+            # words computed from the arm's own decoded Q4_K/Q5_K weights — carry no residual for a second
+            # cause, which is what refutes a block-geometry disagreement rather than merely disliking it.
+            if obs["total"] and width == "policy_a":
+                f_dev, _ = DA.g_record(p["dir"] / "out_device.bin", g)
+                f_hip, _ = DA.g_record(p["dir"] / "out_hip.bin", g)
+                tab = silu_exp_step_table(f_hip["gate"], f_hip["up"], f_hip["s"], f_dev["s"])
+                tpath = p["dir"] / "exp_table_from_device.bin"
+                tpath.write_bytes(tab["table"].tobytes())
+                rplan = g_plan_variant(p, p["plan"].read_text().replace(
+                    "mode=correct", "mode=exp_ulp_table exp_table=%s" % tpath))
+                rrec = g_run_variant(ctx, width, rplan, "out_exp_repro.bin", "g_%s_exp_repro" % width,
+                                     device=False)
+                rbytes, rdiff = DA.pair_bytes(rrec["wrote"]["path"], p["dir"] / "out_device.bin")
+                ctx.setdefault("g_repro", {})[width] = rdiff
+                print("GREPRO pair=g_%s_hip_device_vs_hip_hostpath probe=exp_ulp_table path=host_cpubody "
+                      "sites_perturbed=%d explained_by_exp_within_4ulp=%d unexplained=%d "
+                      "min_steps_histogram=%s record_bytes=%d vs_device_record_ndiff_bytes=%d verdict=%s "
+                      "note=the exp table is host-path-only by construction (`exp-table-host-only`), so a "
+                      "clean reproduction here says the DEVICE's decoded weights equal the host's"
+                      % (width, tab["sites"], tab["explained"], tab["sites"] - tab["explained"],
+                         tab["hist"], rbytes, rdiff,
+                         "EXACT-REPRODUCTION" if rdiff == 0 else "RESIDUAL-LEFT"))
             lines.append("%s: device total=%d fields=%s candidates=%s"
                          % (width, obs["total"], ",".join(obs["fields_with_diff"]) or "none",
                             ",".join(best) or "NONE"))
@@ -2682,14 +2904,35 @@ def control_gather_divergence_causes(v, ctx):
     inert = [cause for cause, _ in G_CAUSES
              if not sum(ctx.get("g_causes", {}).get(w, {}).get(cause, {}).get("total", 0)
                         for w in DA.G_PATHS)]
-    reach_offences += ["%s inert-on-both-widths" % c for c in inert]
+    # A cause is only inert if the read set could have exercised it. `q6k_d_byte_0` needs a Q6_K unit, and
+    # the layer-0 read set is q4k/q5k only (GFORMAT), so its zero is a geometry fact about THIS layer and
+    # not a dead injection — the distinction has to be printed, because "inert" and "not-exercised" read
+    # the same in a summary line and only one of them is a defect. The population is counted from the
+    # units, never typed.
+    kinds = {}
+    for w in DA.G_PATHS:
+        for u in (ctx["gpaths"][w]["units"]):
+            kinds[u["kind"]] = kinds.get(u["kind"], 0) + 1
+    needs_kind = {"q6k_d_byte_0": "q6k", "q5k_as_q4k": "q5k", "width_misread": "q5k"}
+    unexercisable = [c for c in inert if c in needs_kind and kinds.get(needs_kind[c], 0) == 0]
+    for cause in unexercisable:
+        print("GCAUSE-VOID cause=%s status=not-exercised reason=no-%s-unit-in-this-read-set "
+              "units_by_kind=%s note=the cause needs a %s block and the layer under test has none; the "
+              "leg belongs to a window on a layer whose `down_proj` is %s (D-27: 3 of 40 layers). "
+              "command=%s"
+              % (cause, needs_kind[cause], ",".join("%s=%d" % kv for kv in sorted(kinds.items())),
+                 needs_kind[cause], needs_kind[cause], window_command()))
+    reach_offences += ["%s inert-on-both-widths" % c for c in inert if c not in unexercisable]
     ok = (all(a["moved"] == a["total"] for a in accounted)
           and any(t > 0 for w, c, t in injected_nonzero if w == "policy_a")
-          and gate_up_clean and ref_absorbed and not reach_offences)
+          and gate_up_clean and ref_absorbed and not reach_offences and not equiv_offences)
     reason = None
     if reach_offences:
         reason = ("an injected mode moved fields its own HDR reach claim does not name, or moved nothing on "
                   "either width (GREACH lines name which): %s" % ";".join(reach_offences))
+    elif equiv_offences:
+        reason = ("the per-site exp table is not equivalent to the all-sites exp cause it spells: %s"
+                  % ";".join(equiv_offences))
     elif not ok:
         reason = ("attribution did not account (sum_of_fields != ndiff_bytes) or the injected causes were "
                   "inert or the transcendental cause moved a field upstream of it: accounted=%s "
@@ -2705,12 +2948,22 @@ def control_gather_divergence_causes(v, ctx):
             reason = ("no injected cause reproduces the device divergence in field location AND magnitude "
                       "on %s; the mechanism is therefore UNATTRIBUTED and no scope may be claimed for it "
                       "(GMAGMATCH lines name what was ruled out and by how much)" % ",".join(unresolved))
+        residual = [w for w, nd in ctx.get("g_repro", {}).items() if nd]
+        if residual:
+            ok = False
+            reason = ("%s an exp-only probe left %s bytes of residual in the device record, so a second "
+                      "mechanism is live and none of the causes above accounts for it"
+                      % (",".join(residual), ",".join(str(ctx["g_repro"][w]) for w in residual)))
+        elif ctx.get("g_repro"):
+            reason = ("the exp-only probe reproduced the device record byte for byte (GREPRO); the ratio "
+                      "match above is UNATTRIBUTED by the factor-two rule and the exact reproduction, not "
+                      "a tolerance, is what retires the width and index hypotheses")
     v.control("gather-divergence-causes-priced", ok,
-              "five candidate causes injected on the arm's host path and counted per field; every "
+              "%d candidate causes injected on the arm's host path and counted per field; every "
               "attribution accounts to its pair total; the reference path absorbs the maximal exp "
               "injection completely (total=%s) while policy A moves %d bytes with gate/up untouched — the "
               "measured shape of the device's split verdict. %s"
-              % (ref_silu["total"] if ref_silu else "?",
+              % (len(G_CAUSES), ref_silu["total"] if ref_silu else "?",
                  policy_silu["total"] if policy_silu else 0, "; ".join(lines)),
               legs=legs, claims=("host_cpubody",),
               reason=reason)
@@ -2733,7 +2986,9 @@ def control_d_divergence_causes(v, ctx):
     obs = ctx.get("d_device_pair_rows")
     accounted, rows_by_cause, reach_offences = [], {}, []
     for cause, what in D_CAUSES:
-        r = d_variant(ctx, "d_cause_%s.bin" % cause, "d_cause_%s" % cause, mode=cause,
+        args = d_cause_args(d, cause)
+        r = d_variant(ctx, "d_cause_%s.bin" % cause, "d_cause_%s" % cause, mode=args["mode"],
+                      mask=args.get("mask"), steps=args.get("steps"),
                       binary=ctx["args"].d_arm_binary)
         rows, total = record_field_rows(r["rec"]["wrote"]["path"], honest, d["order"], d["fields"])
         rows_by_cause[cause] = print_field_attrib("DINJECT", "d_cause_%s_vs_honest" % cause,
@@ -2755,11 +3010,20 @@ def control_d_divergence_causes(v, ctx):
         if extra or unused:
             reach_offences.append("%s(%s%s)" % (cause, "beyond:" + "|".join(extra) if extra else "",
                                                 " unclaimed:" + "|".join(unused) if unused else ""))
-        if cause == "decay_ulp1":
-            # The ruler for the head-count question: this injection moves EVERY head's block, so the device
-            # run's `heads_with_diff` says directly how many of the 32 decays differ there.
+        if cause in ("decay_ulp1", "decay_ulp_mask_down"):
+            # The ruler for the head-count question, in both rounding directions: each of these injections
+            # moves every head that CAN move, so the device run's `heads_with_diff` is read against it.
             d_state_per_head("d_cause_%s_vs_honest" % cause, r["rec"]["wrote"]["path"], honest, d)
         accounted.append(rows_by_cause[cause])
+        # The mask mode must be the SAME cause as the all-heads mode it replaces, not a near relative: same
+        # mask population, same sign, byte-identical records. An equivalence this cheap to ask is worth
+        # asking before any number derived from either mode is believed.
+        if (rows_by_cause.get("decay_ulp1") and rows_by_cause.get("decay_ulp_mask_up")
+                and rows_by_cause["decay_ulp1"]["total"] != rows_by_cause["decay_ulp_mask_up"]["total"]):
+            reach_offences.append("decay_ulp_mask_up(+1 on every head) total=%d but decay_ulp1 total=%d; "
+                                  "one cause must not be two spellings"
+                                  % (rows_by_cause["decay_ulp_mask_up"]["total"],
+                                     rows_by_cause["decay_ulp1"]["total"]))
     print("DCAUSE injected_causes=%s device_pair=%s"
           % (";".join("%s total=%d fields=%s" % (c, a["total"], ",".join(a["fields_with_diff"]) or "none")
                       for c, a in rows_by_cause.items()),
@@ -2774,6 +3038,28 @@ def control_d_divergence_causes(v, ctx):
     elif not ok:
         reason = ("attribution did not account, or every injected cause was inert: %s"
                   % [(a["pair"], a["total"], a["moved"]) for a in accounted if a["moved"] != a["total"]])
+    if obs is not None:
+        # The device leg of the head question: take the heads the device's own `state` diff names, move each
+        # of those decays by one signed ULP on the host path, and ask whether the whole GDN record is now
+        # the device's bytes. Exact identity means the size of the device's difference is one ULP per named
+        # head and nothing else moved — which is the claim a band would otherwise be asked to swallow.
+        counts = ctx.get("d_device_head_counts") or []
+        moved = [h for h, c in enumerate(counts) if c]
+        if obs["total"] and moved:
+            mask = sum(1 << h for h in moved)
+            for steps in (-1, 1):
+                rr = d_variant(ctx, "d_repro_mask%+d.bin" % steps, "d_repro_mask%+d" % steps,
+                               mode="decay_ulp_mask", mask=mask, steps=steps,
+                               binary=ctx["args"].d_arm_binary, metrics_ok=False)
+                rbytes, rdiff = DA.pair_bytes(rr["rec"]["wrote"]["path"],
+                                              ctx["work"] / "d_out_device.bin")
+                print("DREPRO pair=d_hip_device_vs_d_hip_hostpath probe=decay_ulp_mask steps=%+d "
+                      "mask=0x%x heads=%s path=host_cpubody record_bytes=%d "
+                      "vs_device_record_ndiff_bytes=%d verdict=%s"
+                      % (steps, mask, ",".join(str(h) for h in moved), rbytes, rdiff,
+                         "EXACT-REPRODUCTION" if rdiff == 0 else "RESIDUAL-LEFT"))
+                if rdiff == 0:
+                    ctx.setdefault("d_repro", []).append(steps)
     if obs is not None:
         best = []
         for cause, attrib in rows_by_cause.items():
@@ -2797,6 +3083,11 @@ def control_d_divergence_causes(v, ctx):
             reason = ("no injected cause reproduces the GDN device divergence in field location AND "
                       "magnitude; the mechanism is UNATTRIBUTED and no scope may be claimed for it "
                       "(DMAGMATCH names what was ruled out and by how much)")
+        if obs["total"] and not ctx.get("d_repro"):
+            ok = False
+            reason = ("%s; and no single-sign ULP probe on the device's own head set reproduced the GDN "
+                      "record byte for byte (DREPRO), so the size of the device's difference is not one "
+                      "ULP on those heads" % (reason or "no cause matched"))
     else:
         print_device_only_attribution_dvoids("gdn", "d_hip_device_vs_d_hip_hostpath")
     v.control("gdn-divergence-causes-priced", ok,
@@ -2896,6 +3187,25 @@ def checks_g(v, ctx, g_runs, g_rows, g_tally, censuses):
             "cancel the other's difference" % ",".join("%s bytes=%d ndiff=%d"
                                                       % (w, p["pair"][0], p["pair"][1])
                                                       for w, p in sorted(ctx["gpaths"].items())))
+    fmt = ctx.get("gformat") or []
+    fmt_offences = ["%s slot%d %s: bytes=%d != blocks=%d x block_bytes=%d"
+                    % (r["role"], r["slot"], r["tensor"], r["bytes"], r["blocks"], r["block_bytes"])
+                    for r in fmt if r["bytes"] != r["blocks"] * r["block_bytes"]]
+    n_wider = sum(1 for r in fmt if r["relation"] == "WIDER-THAN-DECLARED")
+    v.check("gather-read-set-forms-come-from-the-file", bool(fmt) and not fmt_offences,
+            ("the policy-A gather reads %d expert units and every unit's arm `kind`, block count and byte "
+             "count are derived from the tensor's own ggml type in the artifact header (GFORMAT lines), with "
+             "each declared byte count equal to blocks x block-bytes-of-that-kind. The same table prints the "
+             "declared policy-A type beside the stored one because D-27's fact — expert down_proj stored at "
+             "Q5_K/Q6_K where policy A declares Q4_K, admitted by loader.py's floor rule with no waiver — is "
+             "why a width hypothesis had to be priced and not dismissed: %d of %d units are "
+             "wider-than-declared. offences: none"
+             % (len(fmt), n_wider, len(fmt)))
+            if (fmt and not fmt_offences) else
+            ("cannot claim anything about the width the gather read: %s"
+             % ("; ".join(fmt_offences) if fmt_offences else
+                "no GFORMAT table was printed, so the formats the policy-A gather actually read are "
+                "unknown and every width claim about this pair is unearned")))
     v.check("gather-unlicensed-counted-not-absorbed",
             g_tally["unlicensed"] == len([r for r in g_rows if r["arm"] == "policy_a"]),
             "the gather tally carries licensed=%d accepted=%d rejected=%d unlicensed=%d; the policy-A "
@@ -2903,7 +3213,7 @@ def checks_g(v, ctx, g_runs, g_rows, g_tally, censuses):
             "row is unlicensed" % (g_tally["licensed"], g_tally["accepted"], g_tally["rejected"],
                                    g_tally["unlicensed"]))
     v.check("gather-device-path-claims-executed-on-device",
-            (not ctx["device"]) or all(r["run"]["launches"] > 0 for k, r in g_runs.items()
+            (not ctx["device"]) or all(int(r["run"]["launches"]) > 0 for k, r in g_runs.items()
                                        if "device" in k),
             "in a device run every gather device arm reported launches>0 (%d device arms); in a CPU window "
             "the same --device ask on the g++ twin is refused with a named tag instead of a host run, and "
@@ -3113,7 +3423,8 @@ def d_arm(binary, plan, slab, out, device=False, fault=None, label=None):
 
 def d_variant(ctx, out_name, label, mode="correct", fault="none", binary=None,
               zero_state=False, flip_state_word=None, device=False, form=None, elt_override=None,
-              words_override=None, drop_field=None, subdir="dvariant", metrics_ok=True):
+              words_override=None, drop_field=None, subdir="dvariant", metrics_ok=True,
+              mask=None, steps=None):
     """Run the arm on a variant of the honest plan/slab, and return everything measured about it.
 
     One door for every control leg so no control can quietly run a different thing than it claims: the
@@ -3130,7 +3441,8 @@ def d_variant(ctx, out_name, label, mode="correct", fault="none", binary=None,
     plan = work / (out_name.replace(".bin", "_plan.txt"))
     DA.write_d_plan(plan, spans, slab["slab_bytes"], d, mode=mode, fault=fault, form=form,
                     read_off=slab["state_off"], read_len=D_STATE_READBACK,
-                    elt_override=elt_override, words_override=words_override, drop_field=drop_field)
+                    elt_override=elt_override, words_override=words_override, drop_field=drop_field,
+                    mask=mask, steps=steps)
     out = work / out_name
     rec = d_arm(binary or ctx["args"].d_host_binary, plan, slab["slab"], out, device=device,
                 label=label)
@@ -3261,8 +3573,9 @@ def run_d_arms(v, ctx):
                                d["fields"]),
             note="the unattributed divergence of window `g`, now counted per field; compared with the "
                  "injected causes by gdn-divergence-causes-priced")
-        d_state_per_head("d_hip_device_vs_d_hip_hostpath", work / "d_out_device.bin",
-                         work / "d_out_hip.bin", d)
+        ctx["d_device_head_counts"] = d_state_per_head("d_hip_device_vs_d_hip_hostpath",
+                                                       work / "d_out_device.bin",
+                                                       work / "d_out_hip.bin", d)
         record = work / "d_out_device.bin"
     fields, nan = DA.d_record(record, d)
     stages = DA.d_stage_tensors(fields, d)
@@ -3624,7 +3937,11 @@ def control_d_state_read_witness(v, ctx):
               "while no derived row gets closer, so the number is a witness of the read and not a constant "
               "the arm prints."
               % ("; ".join(rows), fp["live"], "; ".join(flip_rows)),
-              legs=legs_since(snap), claims=d_claims(ctx))
+              legs=legs_since(snap), claims=d_claims(ctx),
+              reason=("nothing: every honest arm's own modular fold of the state equalled the driver's fold "
+                      "of the same bytes on every leg this control could run on both paths, which IS the "
+                      "finding — the witness is not dead, because the flip legs moved it on both sides. If "
+                      "it ever goes quiet with fewer legs than this, the legs= count is what shows it"))
 
 
 def control_d_form_not_merged(v, ctx):
@@ -4097,6 +4414,7 @@ def run(out, args):
     rows, tally = emit_rows(dumps, band, limits, population, stages, provenance)
     # The routed-expert gather: both width paths, staged from the router arm's own selection.
     ctx["gpaths"] = gather_prepare(args, ctx)
+    print_gather_read_set_formats(ctx)
     g_runs, g_stages, g_censuses = run_gather_arms(v, ctx)
     g_rows, g_tally = emit_gather_rows(dumps, band, limits, g_stages, provenance)
     ctx["g_runs"], ctx["g_rows"], ctx["g_censuses"] = g_runs, g_rows, g_censuses
