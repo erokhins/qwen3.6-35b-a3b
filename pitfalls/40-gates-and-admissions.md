@@ -201,3 +201,42 @@ as the two-rulers problem, but between processes instead of between instruments.
 And make refusal the loud default: `--device` exits 1 with
 `REFUSED tag=live-device-path-absent note=this file allocates nothing, launches nothing and imports no HIP`. A note
 that can be falsified by `grep -c` on the source is worth more than a flag that can be satisfied by a filename.
+
+## An instrument that reads a buffer after its owner is done reading it
+
+A dump hook on llama.cpp's graph read every intermediate **after** `graph_compute()` returned.
+Every count looked fine: 3,590 tensors written, 164 census lines, digests present, per-block
+files named. And the data was recycled garbage, because ggml's allocator reuses compute-buffer
+regions across splits — `ggml/src/ggml-backend.cpp`, `ggml_backend_sched_compute_splits`: *"the
+allocator may have reused buffer regions across splits"*.
+
+The tell was not any single value. It was **digest collapse**: 3,590 written tensors produced
+**128 distinct digests** in one prefill graph. Every block's `ffn_moe_out` shared one digest, and
+`ffn_moe_probs` was byte-identical to `ffn_moe_logits` with values spanning `-8.13…41.60` —
+impossible for a softmax, and impossible to notice if you only look at files and counts. Fixed by
+capturing in the scheduler's per-node eval callback (`ggml_backend_sched_set_eval_callback`,
+installed before `graph_compute()` and restored after, delegating to the host's own `cb_eval`
+rather than replacing it); post-fix, `ffn_moe_out` is 159 files / **159 distinct** digests and
+`ffn_moe_probs` is `(0,1)` with each token's 256 entries summing to 1.0000.
+
+Two things make this trap worth its own section rather than a footnote:
+
+- **The census survived the bug.** The 164 census lines were byte-identical before and after the
+  fix. A count that counts *files* cannot see that the *bytes* are stale, so "expected == printed"
+  — necessary everywhere — is nowhere near sufficient for an instrument.
+- **A quantized oracle with stale intermediates is worse than no oracle**, because it produces
+  plausible numbers and real-looking digests, and the whole comparison plan rests on trusting it.
+
+**Rules for any instrumentation that reads memory it does not own:**
+
+1. Read at the last moment the data is provably live (per-node callback, or inside the producing
+   call), never after the owning call returns. Assert the callback fired for every node
+   (`visited == ggml_graph_n_nodes(gf)`).
+2. Carry a **digest-distinctness must-catch**: for each semantic class, distinct digests must equal
+   the number of distinct sites that class should vary over (per-block, per-head, per-expert as
+   appropriate). A collapse toward few digests is the signature of aliasing, and it must redden.
+3. Carry one **semantic sanity check per class** that the aliasing artifact cannot pass — softmax
+   in `(0,1)` and summing to 1; a norm that is never bit-equal to its own input logits. Not a
+   tolerance; a property the recycled-buffer version is impossible under.
+4. If the instrument changes what is measured, prove the delta: this fix moved bytes and left
+   counts untouched, which is precisely why no count-based gate could have caught it.
