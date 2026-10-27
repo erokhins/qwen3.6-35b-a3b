@@ -73,3 +73,48 @@ user. Until attribution, M2's device arm is **FAIL**, and the earlier statement 
 arm is green" applies only to the shared-expert and router pairs that were re-verified here.
 
 Log: `specification/evidence/blockdevice-device-2026-10-27-g.log`.
+
+## Window `h` — 2026-10-27 — the attribution legs, and RUNG-1 says it is deterministic
+
+Second main-agent window (zero workers, `gpu_lock` held with a declared tag, halogen down,
+engine-down read from `rocm-smi`, two identical `--device` runs so a race cannot hide).
+Correctness-only; **no timing taken**.
+
+```
+RUN1 rc=…  RUN2 rc=…   FIRED/SILENT per run recorded in the logs
+legs still unexercised: 0
+RUNG-1 constant across runs: ok
+band_digest=27a68c7e82c9aa05
+```
+
+**Deterministic.** The attribution is identical across two independent device runs, so the
+divergences are neither a race nor uninitialised scratch — they are a reproducible difference
+between the compiled device arm and the host twin. That retires the cheapest explanations and
+makes the remaining ones worth chasing.
+
+Field-level, device-vs-host:
+
+```
+g_policy_a_hip_device_vs_hip_hostpath  ndiff_bytes=3,744  sum_of_fields=3,744  accounting=ok
+  gate 0  up 0  s 58 (max_bit_step 2)  raw 2,846 (max_bit_step 24,576)  routed 840 (max_bit_step 768)
+
+d_hip_device_vs_d_hip_hostpath         ndiff_bytes=52,976  sum_of_fields=52,976  accounting=ok
+  q_hat 0  k_hat 0  core_attn 0  normed 0  y 0
+  scan_out 481 (max_bit_step 5,632)   state 52,495 (max_bit_step 4,096)
+  DHEAD heads=32 per_head_ndiff_bytes=0,0,0,0,0,0,0,0,0,10559,0,0,10906,0,10114,10080,…
+```
+
+What that rules in and out:
+
+- `g_ref_bf16_hip_device_vs_hip_hostpath` is **0 on every field** — the reference gather is
+  byte-exact, so the device toolchain is not broadly broken.
+- The policy-A gather diff is confined to the quantized expert path and `raw`'s
+  `max_bit_step=24,576` is **not ULP-scale**, so this is not rounding.
+- The GDN diff is confined to `scan_out` and `state`, with `q_hat`, `k_hat`, `core_attn`,
+  `normed` and `y` bit-identical, and `DHEAD` shows the state difference concentrated in a
+  **subset of heads** at ~10 KB each rather than spread uniformly.
+
+Both pairs account exactly (`sum_of_fields == ndiff_bytes`), which is what makes the per-field
+claim checkable rather than a total with a story attached. Nothing here is absorbed: no field
+leaves claimed-exactness, no band is authored, and the mechanism stays **unattributed** until an
+injection reproduces both the magnitude and the field split.
