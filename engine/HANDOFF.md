@@ -1692,3 +1692,87 @@ pinned fixture, or halogen. Each names the number or failure that forced it.
    leg.** DECIDED (agent, 2026-10-27), applying D-25 item 3 ("device claims require a device") to this
    vertical: transposition and read-witness add a `device=True` leg in a window and stop claiming `device`
    in a CPU run. A control whose legs are all host is host-only, in the printed claim as well as in fact.
+
+## D-27 conformance audit + D-26 cross-oracle: what landed, and the agent decisions
+
+Two tools, three evidence files, no gate moved:
+
+- `tools/gguf_conformance_audit.py` — D-27's conformance audit of the shipping artifact. First run:
+  `verdict=CONFORMS … findings=0 doc_column_deltas=2 controls=2 fired=2 legs=4/4 no timing taken`,
+  written up in `quantization/evidence/gguf-conformance-audit-2026-10-27.md` with the machine manifest
+  at `checkpoints/gguf-conformance-audit-2026-10-27.json`.
+- `engine/cross_oracle.py` — the engine × HF-chain × llama.cpp three-way report. First run:
+  `checks=78 findings=0 aligned=False no bands authored=no licence-issued=none
+  verdict=STRUCTURAL-OK no timing taken`, written up in
+  `specification/evidence/cross-oracle-three-way-2026-10-27.md`, with the stimulus-alignment evidence
+  in `quantization/evidence/llama-stimulus-alignment-2026-10-27.md`.
+
+Both are CPU-only and neither takes a device lock; both end their reports with `no timing taken`.
+`engine/block_gate.py` (`checks=17 findings=0 controls=11 fired=11`) and `engine/block_device.py`'s CPU
+witness (`checks=51 findings=0 controls=25 fired=25`) are unchanged and still print
+`band_digest=27a68c7e82c9aa05`; logs at `engine/work/blockgate-cpu-2026-10-27-crossoracle.log` and
+`engine/work/blockdevice-cpu-2026-10-27-crossoracle.log`. Nothing licensed here credits a row.
+
+### `DECIDED (agent, 2026-10-27)` — pass-7 drafts to transplant into `DECISIONS.md`
+
+(Recorded here because `DECISIONS.md` is outside this worker's write scope; the owner promotes them.)
+
+1. **The conformance audit derives, it does not restate.** DECIDED (agent, 2026-10-27): the family →
+   type map comes from the artifact's own tensor-info header (`gguf_header_types.Cur`), counts come
+   from `engine/artifact.py::expected_records()` (safetensors index × config shapes), bytes come from
+   `tools/ggml_block_geom.py`; the width map is *parsed out of*
+   `quantization/evidence/q4km-published-width-map-2026-10-26.md` at run time. Forced by D-27: a
+   hand-copied table would let a stale width pass as conformance. The one hand-written table in the
+   tool maps the document's row labels to family names and contains no types or counts, and an
+   unmapped row or unclaimed family is fatal, so the mapping cannot quietly stop covering something.
+2. **The engine leg parses through `loader.py`, not `Artifact()`.** DECIDED (agent, 2026-10-27),
+   forced by `artifact.py::_c_draft_block`: `Artifact` refuses any artifact whose draft extract is
+   empty, and this GGUF carries zero `mtp.*` tensors (width map §What else the file carries item 3;
+   `tools/mtp_shard_cost.py` prices the 19-tensor fix at ~5.2 GiB). So the audit uses
+   `loader.parse_records` + `loader.ruler_record`, prints the draft absence explicitly, and still
+   runs `loader.admit` per tensor so the `output.weight` Q6_K waiver is *exercised* rather than
+   assumed. This is not a verdict about whether MTP ships; it is the reason the audit cannot reuse the
+   staging object.
+3. **The width map's GiB column is reported, not asserted.** DECIDED (agent, 2026-10-27): types and
+   counts are asserted exactly (a mismatch reddens the audit and a control proves it), bytes are
+   asserted exactly against `quantization/evidence/audit-hash-2026-10-26.json` (`delta=+0`), and the
+   document's per-row GiB column is printed as `doc_column_deltas=2` because those figures were typed
+   from the hand-written bpw table that
+   `quantization/evidence/audit-block-geometry-2026-10-26.md` retired — Q5_K 5.5625 against the
+   struct's 5.5, 74 MiB over 37 `down_proj` tensors, which is exactly the 0.0718 GiB gap between the
+   document's 20.676 and the file's 20.6042. Asserting that column would assert a table this repo has
+   already overruled. **If a reviewer reads this as gate-loosening, the fix is to correct the
+   document's column, not to hide the delta.**
+4. **`ffn_out`, not `ffn_moe_out`, is HF's `moe_out`.** DECIDED (agent, 2026-10-27) from
+   `src/models/qwen35moe.cpp`: `cb(moe_out, "ffn_moe_out", il)` at :507 fires before the shared expert
+   is added at :518-:536, whose result is `cb(cur, "ffn_out", il)`. The name that reads like the
+   counterpart is the routed-only partial.
+5. **`attn_output` means different things per block kind.** DECIDED (agent, 2026-10-27): in a linear
+   block it is a GDN interior tensor (`[128, 32, 11, 1]`, block 0 node 53) and the §03.2 mixer output
+   is `linear_attn_out` (:483); in the full-attention block `attn_output` (:352, `[2048, 11, 1, 1]`)
+   *is* the mixer output. The mapping is keyed on block kind for that reason, not on name matching.
+6. **Llama's layer-39 post-mixer activations do not exist in a prefill graph.** DECIDED (agent,
+   2026-10-27), read off run-a: block 39's `attn_residual`, `attn_post_norm`, `ffn_out`, `l_out` are
+   `[2048, 0, 1, 1]` with `written=false` because of the last-layer `crop_before_nextn` gather
+   (`:194-:196`); the same names are written only in the chunk/decode graphs (`[2048, 4, 1, 1]`,
+   `[2048, 1, 1, 1]`). The cross-oracle prints these as `UNWRITTEN-BY-INSTRUMENT`, distinguished from
+   `UNMAPPED-BY-ABSENCE`, because a fixture absence and a wrong mapping are different failures.
+7. **Stimulus alignment is unattainable through the vendored front ends, so the cross-oracle is
+   structural-only.** DECIDED (agent, 2026-10-27), measured: the chain's ids were sampled
+   (`input.kind=embedding_slice`, `method=torch.randint …`), the instrument has no token-id input
+   (`tools/LLAMA_DUMP_NOTES.md` §CLI surface), and the detokenize→re-tokenize round trip returns 32
+   ids of which 30 match (first divergence index 3: chain 78392 vs 750) — and for a byte-level BPE the
+   detokenized byte string is the *only* candidate preimage. The template is proved not to be the
+   obstacle: tokenizing run-a's prompt text yields exactly the prefill graph's inner ids
+   `760 6511 314 9338 369`. `align` mode therefore returns non-zero and `numeric` mode refuses with
+   denominators rather than comparing unrelated tensors. Making it possible needs a front-end patch or
+   a re-dumped chain, and the second replaces pinned fixture material, which is the user's call.
+8. **Four HF-vs-llama divergences are named and refused, not adjudicated.** DECIDED (agent,
+   2026-10-27), under D-26 clause 3 (a quantized oracle may add checks, never loosen one): activation
+   width (bf16 vs f32), router renormalisation dtype/form (llama's f32 DIV vs HF's cast-then-multiply,
+   where our §11.6 must-catch set already sides with HF at `ndiff=1326`), softmax domain
+   (256-softmax-then-select vs top-k-then-softmax), and the chain gap at layers 38/39. The second one
+   in particular is a user decision, not an agent one: resolving it either moves a must-catch set or
+   declares the oracle wrong. No band was authored anywhere in this work; the tool prints
+   `licence-issued=none`, and any future llama-derived limit must print
+   `licence=llama-crosscheck(observation-only)`.

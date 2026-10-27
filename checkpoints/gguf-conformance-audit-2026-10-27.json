@@ -1,0 +1,119 @@
+{
+ "kind": "gguf-conformance-audit",
+ "date": "2026-10-27",
+ "verdict": "CONFORMS",
+ "artifact": "models/unsloth-q4km/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+ "sha256": "ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61",
+ "records": 733,
+ "records_expected_from_index": 733,
+ "families": {
+  "output (lm_head)": {
+   "Q6_K": 1
+  },
+  "norms": {
+   "F32": 101
+  },
+  "token_embd (embeddings)": {
+   "Q8_0": 1
+  },
+  "linear-attn z-gate (attn_gate)": {
+   "Q8_0": 30
+  },
+  "linear-attn in_proj (attn_qkv)": {
+   "Q8_0": 30
+  },
+  "routed experts down": {
+   "Q5_K": 37,
+   "Q6_K": 3
+  },
+  "shared expert": {
+   "Q8_0": 120
+  },
+  "routed experts gate/up": {
+   "Q4_K": 80
+  },
+  "router (ffn_gate_inp)": {
+   "F32": 80
+  },
+  "GDN other (a/b/gate/beta/A_log/dt_bias)": {
+   "F32": 150
+  },
+  "GDN conv1d": {
+   "F32": 30
+  },
+  "GDN out_proj": {
+   "Q8_0": 30
+  },
+  "full-attn k": {
+   "Q8_0": 10
+  },
+  "full-attn output": {
+   "Q8_0": 10
+  },
+  "full-attn q": {
+   "Q8_0": 10
+  },
+  "full-attn v": {
+   "Q8_0": 10
+  }
+ },
+ "family_bytes": {
+  "output (lm_head)": 417177600,
+  "norms": 684032,
+  "token_embd (embeddings)": 540344320,
+  "linear-attn z-gate (attn_gate)": 267386880,
+  "linear-attn in_proj (attn_qkv)": 534773760,
+  "routed experts down": 7488929792,
+  "shared expert": 133693440,
+  "routed experts gate/up": 12079595520,
+  "router (ffn_gate_inp)": 84213760,
+  "GDN other (a/b/gate/beta/A_log/dt_bias)": 15751680,
+  "GDN conv1d": 3932160,
+  "GDN out_proj": 267386880,
+  "full-attn k": 11141120,
+  "full-attn output": 89128960,
+  "full-attn q": 178257920,
+  "full-attn v": 11141120
+ },
+ "total_weight_bytes": 22123538944,
+ "data_start": 10990048,
+ "header_end": 10990035,
+ "families_count": 16,
+ "doc_column_deltas": [
+  "full attention q/k/v/output doc 0.269 repro 0.270",
+  "GDN control (`ssm_a/alpha/beta/dt`, `conv1d`, `ssm_norm`) doc 0.019 repro 0.018"
+ ],
+ "width_map": {
+  "path": "quantization/evidence/q4km-published-width-map-2026-10-26.md",
+  "rows": 12,
+  "doc_total_gib": 20.676,
+  "bpw_note": {
+   "Q4_K": 4.5,
+   "Q5_K": 5.5625,
+   "Q6_K": 6.5625,
+   "Q8_0": 8.5
+  }
+ },
+ "engine": {
+  "equal": 692,
+  "wider": 40,
+  "narrower": 1,
+  "total": 733,
+  "admit_notes": {
+   "waived": 1,
+   "exact": 361,
+   "at-or-above-floor": 371
+  },
+  "divergences": [
+   "policy-A|output.weight|Q8_0|Q6_K|narrower x1",
+   "policy-A|blk.N.ffn_down_exps.weight|Q4_K|Q5_K|wider x37",
+   "policy-A|blk.N.ffn_down_exps.weight|Q4_K|Q6_K|wider x3"
+  ]
+ },
+ "walks_compared": 733,
+ "walks_differing": 0,
+ "findings": [],
+ "controls_fired": 2,
+ "control_legs_fired": 4,
+ "control_legs_total": 4
+}
