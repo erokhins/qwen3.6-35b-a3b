@@ -2294,3 +2294,144 @@ tools/gpu_lock.sh release "$tag"
 If a second defect surfaces *after* the parse site, fix it in the same place the type or the population is
 derived, not at the consumer — that is the whole content of defect 1 and it is worth re-reading before
 patching a symptom. no timing taken.
+
+---
+
+## PASS 10 (2026-10-27, CPU-only) — the two window-`j` check-layer defects: the contradiction check reads the whole log, the terminal tally is reconciled
+
+Window `j` (`devices/evidence/device-window-2026-10-27-g.md` §"Two defects the window exposed",
+`specification/evidence/blockdevice-device-2026-10-27-j1.log`) reached a verdict for the first time —
+`RESULT mode=device checks=63 findings=4 controls=32 fired=30 counters_unparsed=0`, no traceback — and
+the four findings are the two attributed divergences plus the two controls that went quiet with named
+reasons. Those four are the honest state and were **not touched**. This pass fixes the two defects in the
+check layer that the same log exposed. No device act, no device number, host wall and RSS only; the CPU
+gate lines are at the bottom. no timing taken.
+
+**Done.**
+
+* **1 — the contradiction check reads the run's complete printed text, and a zero count is now itself a
+  finding.** The defect: `no-control-contradicts-an-exact-reproduction` printed
+  `verdict=PASS 0 reproduction legs` in a log containing three, because `engine/block_device.py`
+  parsed `ctx["text"]`, a snapshot captured at `parsed = BG.parse_printed(out.text())` **before** the
+  reproduction controls printed a single leg — `parsed=0 → PASS` reached through *ordering* instead of
+  through the parser. The fix, all in `engine/block_device.py`:
+  * `run()` hangs the live buffer on the ctx (`live_text=out.text`), and `run_text(ctx)` is the single
+    door: the check and its guard read every line printed at the moment of the check; a proof harness
+    that hands over a fixed `text` is complete by construction and falls back to it.
+  * `control_attribution_contradiction_guard` now runs **after** `control_gather_divergence_causes` and
+    `control_d_divergence_causes`, because its `this-run` leg reads the live text — before the move it
+    printed `exact_pairs=none` in a log that had printed three legs, the witness reading the wrong half
+    of its own log.
+  * `reproduction_leg_finding(device, text)` is the explicit anti-vacuity assertion: a **device run that
+    parses zero exact-reproduction legs reddens** (the repro controls print a `DREPRO`/`GREPRO` leg on
+    every device pass, so 0 means blind parse — the window-`j` shape, 0 parsed against 3 printed — or a
+    withdrawn attribution; both are findings, never a clean log). A CPU run prints no legs and passes
+    by a *named* exemption, not by vacuity. The check's own detail now prints the counts it actually
+    parsed, and in a device-shaped run those counts are non-zero.
+  * Non-vacuity, proven two ways, both printed, through the unmodified functions over window `j`'s own
+    device log (`specification/evidence/blockdevice-checkfix-proof-2026-10-27.py`, output in
+    `specification/evidence/blockdevice-checkfix-proof-2026-10-27.log`; the harness self-audits —
+    `HARNESS verdict=PASS … no device act occurred, no timing taken`):
+    (a) a fabricated SILENT control denying a pair the run reproduced → the real check line goes
+    `verdict=FAIL … Refutations found: … denies d_hip_device_vs_d_hip_hostpath, which this run
+    reproduced exactly`; the guard's `leg=fabricated-denial` prints the same reddening at predicate
+    level (`findings=2 expected=2`);
+    (b) window `j`'s own text with the `DREPRO`/`GREPRO` lines **removed** → the zero-count assertion
+    reddens (`verdict=FAIL 0 reproduction legs … device run parsed 0 exact reproduction legs`) instead
+    of the check passing; the guard's `leg=zero-leg-text` prints `finding=True`.
+    And the device-shaped green line with its non-zero count, verbatim from the harness (window-`j` text
+    through the real check):
+    `CHECK name=no-control-contradicts-an-exact-reproduction verdict=PASS 2 reproduction legs printed
+    `verdict=EXACT-REPRODUCTION` (pairs: d_hip_device_vs_d_hip_hostpath,g_policy_a_hip_device_vs_hip_hostpath)
+    and 1 printed a residual (pairs: d_hip_device_vs_d_hip_hostpath)` — with
+    `GWITNESS guard=attribution-contradiction leg=this-run lines=583 exact_pairs=d_hip_device_vs_d_hip_hostpath,g_policy_a_hip_device_vs_hip_hostpath
+    findings=none` from the moved guard. The guard control is now five legs (`legs=cpu_predicate:5`) and
+    still fires RED in both modes.
+* **2 — one finding tally, reconciled against the printed record before it is stated.** The defect:
+  `RESULT … findings=4` went out in a log that also printed a `findings=2` line — the attribution
+  guard's own stale-text detail, a *different denominator* (findings in its fabricated text, not in the
+  run) printed with nothing saying so — and three `verdict=FAIL` lines, the third of which is the
+  `BLOCKDEVICE` terminal verdict echoing its own `red=4`, not a third divergence. The two real
+  divergences are `gather-compiled-pair-byte-identical-per-path` (policy_a ndiff 3,744) and
+  `gdn-compiled-pair-byte-identical` (device-vs-host 52,976); the other two findings are the two SILENT
+  controls, which print `fired=SILENT` records and are counted — so 4 = 2 FAIL CHECK lines + 2 unfired
+  controls, and nothing was adjusted to make that true. Fixes:
+  * `reject_tally_findings(red, lines)` (`_REJECT_TALLY`) is one pure reconciliation over the printed
+    lines: every failed CHECK name has exactly one printed `verdict=FAIL` record; every registered
+    unfired control has its printed `fired=SILENT` record (finding ⇒ record — a printed line cannot
+    manufacture a finding); a printed FAIL with no entry in the list is named; and the totals agree.
+  * `check_terminal_tally` is the **last check the run prints** — after every CHECK/CONTROL line exists,
+    before `BLOCKDEVICE`/`RESULT` state the number — witnessed non-inert by three fabrications through
+    the same predicate, printed as `GWITNESS guard=tally-reconciliation … fabricated=missing-record
+    flagged=True fabricated=extra-print flagged=True fabricated=clean flagged=True`. Its detail names
+    every counted finding and states both denominators (the `2 findings` line's and the tally's) in the
+    log itself. `Verifier.red` is the single source: a failed CHECK under its name, an unfired control
+    under `control:<name>`; `BLOCKDEVICE red=` and `RESULT findings=` are the same `len(v.red)`.
+  * The `witness-counters-all-parsed-from-arm-reports` check moved *before* the `BLOCKDEVICE` line,
+    which also closes the `checks=62`-vs-`checks=63` drift between the two summary lines (the same
+    class of defect, one line earlier: a count that moved between two prints of "the same" total).
+
+**Not done / not claimed.**
+
+* The next device window must see the contradiction check **green with a non-zero leg count** (2 exact
+  legs, `exact_pairs=` naming both pairs) — on this CPU box the device-shaped rehearsal has no GDN or
+  gather device records to compare against (`REHEARSAL-DEVICE-BYTES status=present
+  sources=e2-device-records/rt_out_device.bin` cannot adjudicate them), so its honest verdict is
+  `no-control-contradicts-an-exact-reproduction verdict=FAIL 0 reproduction legs` and the rehearsal
+  RESULT reads `checks=64 findings=7` — the 7th finding **is** that expected red, disclosed by
+  `REHEARSAL arm=grepro-drepro status=not-claimed`. The parent still prints
+  `REHEARSAL verdict=PASS no device act occurred, no timing taken` (`engine/work/p10-rehearsal.log`,
+  filtered extract in `specification/evidence/blockdevice-device-shape-rehearsal-2026-10-27-p10.log`),
+  stays confined to `--work m2dev-rehearsal`, keeps the no-HIP-library guard
+  (`REHEARSAL-CHECK arm=no-hip-library stage=after-run maps_grep=0`), and its tally check reconciles the
+  mixed 7-finding log non-vacuously (2 FAIL lines + 5 unfired controls = 7). Supplying the window-`j`
+  gather records through the rehearsal's snapshot channel is NOT possible without editing the
+  rehearsal: its arm-shim keys saved records by basename, and both gather lanes' device records share
+  the basename `out_device.bin` under different subdirectories — flat snapshot entries would
+  cross-pollinate the two width paths. Recorded so nobody "fixes" the rehearsal by copying bytes flat.
+* No band, floor, must-catch set or licence authored or moved; `ulp_policy.py`, `gate.py`,
+  `block_gate.py`, `device_arm.py` untouched; `GREPRO`/`DREPRO`/`DREPRO-WIN` print sites untouched
+  (`unexplained=0`, `ndiff_bytes=0` at −1, `75,206` at +1, `DREPRO-WIN` present — window `j` values,
+  unchanged because the code that prints them is unchanged); `band_digest=27a68c7e82c9aa05`.
+* The two `exp`-scope DRAFT questions from PASS 9 are untouched and still the user's (D-17/D-18).
+
+**Gate lines (host wall only, no timing taken).** `python engine/block_device.py` →
+`RESULT mode=cpu checks=60 findings=0 controls=31 fired=31 rows=6 gdn_rows=7 arms=policy_a device=off
+staged=not-attempted hip_calls=0+0 launches=0 bytes_to_device=0 bytes_from_device=0 counters_unparsed=0
+band_digest=27a68c7e82c9aa05 no timing taken` (was 59/0/31/31: +1 check = the terminal tally
+reconciliation; `BLOCKDEVICE … checks=60 red=0` now equals the RESULT count;
+`specification/evidence/blockdevice-cpu-2026-10-27-p10.log`). `engine/block_gate.py` →
+`checks=17 red=0 controls=11 fired=11`, `RESULT mode=cpu checks=17 findings=0 controls=11 fired=11`.
+`engine/gate.py` → `RESULT PASS checks=27 findings=0 notes=41 arms=40 evidence=not-written`.
+`tools/doc_ref_check.py --strict` → `findings: 0`. Proof harness:
+`specification/evidence/blockdevice-checkfix-proof-2026-10-27.py` → all seven `PROOF name=…
+verdict=PASS`. Gate runs appended to `quantization/evidence/audit-ordering-2026-10-26.log` (append-only
+ledger, as before). `engine/work/m2dev` was **not** written to (mtimes still 20:20 = window `j`);
+scratch discipline held.
+
+**Next window (device, main agent only, `gpu_lock` held, halogen down, zero workers).**
+
+```bash
+tools/gpu_lock.sh acquire "$tag"
+python engine/block_device.py --device   # must print, in this order:
+    #  GREPRO … unexplained=0 … vs_device_record_ndiff_bytes=0 verdict=EXACT-REPRODUCTION   (unchanged)
+    #  DREPRO steps=-1 … ndiff_bytes=0 verdict=EXACT-REPRODUCTION / steps=+1 … 75206 RESIDUAL-LEFT
+    #  DREPRO-WIN … residual_bytes=0 verdict=EXACT                                       (unchanged)
+    #  GWITNESS guard=attribution-contradiction leg=this-run lines=… findings=none
+    #      exact_pairs=d_hip_device_vs_d_hip_hostpath,g_policy_a_hip_device_vs_hip_hostpath   ← non-empty now
+    #  GWITNESS guard=attribution-contradiction leg=fabricated-denial … findings=2 expected=2
+    #  GWITNESS guard=tally-reconciliation findings=4 fail-check-records=2 unfired-control-records=2 …
+    #  CHECK name=no-control-contradicts-an-exact-reproduction verdict=PASS 2 reproduction legs printed …
+    #  CHECK name=terminal-verdict-finding-count-matches-printed-records verdict=PASS …
+    #      2 CHECK verdict=FAIL lines (gather-compiled-pair-byte-identical-per-path,gdn-compiled-pair-byte-identical)
+    #      plus 2 registered unfired controls … the BLOCKDEVICE line's own verdict=FAIL is the echo
+    #  BLOCKDEVICE verdict=FAIL … checks=64 red=4 …  and  RESULT mode=device checks=64 findings=4 …
+    #      ← findings must be exactly the two divergences + whatever two controls go quiet WITH reasons
+python engine/block_device.py --device   # 2: determinism — GREPRO/DREPRO/DATTRIB/GATTRIB must repeat
+tools/doc_ref_check.py --strict          # findings: 0
+tools/gpu_lock.sh release "$tag"
+```
+
+Rule of the pass: a count that reaches a verdict must be parsed from the same lines it claims to count,
+and a count of zero must be able to say *why* zero is the honest answer — `parsed=0 → PASS` is banned
+whether it arrives through the parser or through the ordering. no timing taken.

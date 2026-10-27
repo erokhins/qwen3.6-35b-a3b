@@ -217,3 +217,35 @@ whose whole purpose is to make the guard redden.
    finding count, and one number reaching four while another reaches two means neither is checked.
 
 Nothing is licensed here, no field left claimed-exactness, and the `exp` scope remains a draft.
+
+## Window `k` — 2026-10-27 — the two check-layer defects closed on live device output
+
+Fifth window: scratch purged, arms rebuilt, two identical `--device` runs under tag
+`q36-main window-2026-10-27k pass9-device`, engine-down read from `rocm-smi`. **No timing taken.**
+
+```
+BLOCKDEVICE verdict=FAIL … checks=64 red=4 controls=32 fired=30
+RESULT     mode=device     checks=64 findings=4 controls=32 fired=30 device=on staged=admitted
+CHECK name=no-control-contradicts-an-exact-reproduction verdict=PASS 2 reproduction legs printed
+      `verdict=EXACT-REPRODUCTION` (pairs: d_hip_device_vs_d_hip_hostpath,
+      g_policy_a_hip_device_vs_hip_hostpath) and 1 printed a residual
+GWITNESS guard=attribution-contradiction leg=this-run lines=434 exact_pairs=d_hip…,g_policy_a… findings=none
+GWITNESS guard=tally-reconciliation findings=4 fail-check-records=2 unfired-control-records=2
+      fabricated=missing-record flagged=True fabricated=extra-print flagged=True
+RUNG-1 constant across runs: ok     band_digest=27a68c7e82c9aa05     Traceback count: 0
+```
+
+The ordering vacuity is gone: the check reads the complete printed buffer and reports **2 legs with
+their pair names**, and the zero-count-on-device case is now itself a finding rather than a pass.
+The two terminal lines agree with each other (`64/4` and `64/4`), and the reconciliation is stated
+rather than asserted: `findings=4` is 2 `verdict=FAIL` records plus 2 registered-but-unfired
+controls, with the guard's own fabrications flagged `True` so the equality cannot be vacuous. The
+only reason-less `fired=SILENT` is `quiet-no-reason`, which exists to make the guard redden.
+
+`findings=4` remains the honest RED of the two attributed divergences; nothing was licensed to
+clear it. **My own error, recorded:** the script for this window was derived from window `j` with
+`sed 's/2026-10-27j/2026-10-27k/g'`, which renamed the *tag* (so preconditions were correctly
+declared and asserted) but not the log filenames, because those read `…-2026-10-27-j1.log` and the
+pattern missed the hyphen. Window `k` therefore overwrote window `j`'s scratch logs; the committed
+copies under `specification/evidence/` were untouched and the files have since been renamed and the
+script corrected. A derived script has to be checked for what it did *not* substitute.

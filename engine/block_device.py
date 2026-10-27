@@ -211,6 +211,42 @@ def exact_reproductions(text):
     return exact, residual
 
 
+def run_text(ctx):
+    """Everything the run has printed at the moment of asking — or a harness ctx's whole world.
+
+    `ctx["text"]` is a mid-run snapshot taken before the reproduction legs and the controls print, and
+    window `j` proved what that is worth: the contradiction check read it, parsed 0 legs from a log that
+    had already printed three, and passed. A consumer whose rule is about printed lines must read the
+    live buffer the tee holds (`run()` hangs it on the ctx as `live_text`); a proof harness that hands
+    over a fixed `text` is complete by construction, so the fallback is that.
+    """
+    live = ctx.get("live_text")
+    return live() if live is not None else ctx.get("text", "")
+
+
+def reproduction_leg_finding(device, text):
+    """The explicit anti-vacuity assertion under the contradiction check: parse zero is a finding.
+
+    Window `j`: `no-control-contradicts-an-exact-reproduction verdict=PASS 0 reproduction legs` in a log
+    that contained three — `parsed=0 → PASS` again, reached through ordering instead of through the
+    parser. The count is now required, not assumed: a device run's reproduction controls print a
+    `DREPRO`/`GREPRO` leg on every pass, so a device run that parses zero exact legs either has a blind
+    parse (the window-`j` shape — a zero that is the absence of a match, not of legs) or has lost the
+    attribution this check adjudicates, and either way it reddens instead of passing over an empty list
+    (`pitfalls/40` §"A driver whose parser matches nothing prints PASS"). A CPU run prints no legs by
+    construction and is exempt — the exemption says so in the check's own detail.
+    """
+    if not device:
+        return None
+    exact, _ = exact_reproductions(text)
+    if sum(len(lines) for lines in exact.values()):
+        return None
+    return ("device run parsed 0 exact reproduction legs out of its own printed lines — the "
+            "reproduction controls print a DREPRO/GREPRO leg on every device pass, so zero means a "
+            "blind parse (window `j` parsed 0 against 3 printed) or an attribution that stopped "
+            "reproducing; a zero count here is a finding, never a clean log")
+
+
 def contradiction_findings(text):
     """Every (control, pair) where a SILENT control denies a reproduction this run printed.
 
@@ -237,6 +273,122 @@ def contradiction_findings(text):
                               exact[pair][0].split(" verdict=")[0][:120]))
                 break
     return out
+
+
+CONTROL_RED_PREFIX = "control:"
+REJECT_TALLY_CHECK = "terminal-verdict-finding-count-matches-printed-records"
+
+
+def reject_tally_findings(red, printed_lines):
+    """`_REJECT_TALLY`: reconcile the verdict's finding list against the finding records it printed.
+
+    Window `j` defect 2: `RESULT ... findings=4` went out in a log that also printed a CONTROL line
+    counting `2 findings` and three `verdict=FAIL` lines — two tallies, neither re-read against the
+    printed record. One source of truth is the Verifier's own `red` list (a failed check under its name,
+    an unfired control under `control:<name>`); this is the parse that holds the print to it:
+
+      * every failed CHECK name has exactly one printed `CHECK name=<n> verdict=FAIL` record;
+      * every unfired control counts via a printed `CONTROL name=<name> fired=SILENT` record — the
+        direction is finding ⇒ record, because the scratch-Verifier fabrications print SILENT lines too
+        and a printed line must not be able to manufacture a finding, only a missing one condemns;
+      * a printed FAIL line with no entry in the list is named (a finding that fell out of the tally);
+      * the totals agree: `len(red)` == printed FAIL CHECK records + one record per unfired control.
+
+    Returns the reconciliation findings; empty means the printed tally IS the parsed tally. Pure over
+    (list, lines) so a witness leg can fabricate a mismatch through the same predicate the check runs.
+    """
+    printed_fail = [m.group(1) for line in printed_lines
+                    for m in [re.match(r"CHECK name=(\S+) verdict=FAIL\b", line)] if m]
+    printed_silent = set(m.group(1) for line in printed_lines
+                         for m in [re.match(r"CONTROL name=(\S+) fired=SILENT\b", line)] if m)
+    red_checks = [n for n in red if not n.startswith(CONTROL_RED_PREFIX)]
+    red_controls = [n[len(CONTROL_RED_PREFIX):] for n in red if n.startswith(CONTROL_RED_PREFIX)]
+    out = []
+    for name in red_checks:
+        if printed_fail.count(name) != 1:
+            out.append("finding %s printed %d CHECK verdict=FAIL records, expected exactly 1"
+                       % (name, printed_fail.count(name)))
+    for name in printed_fail:
+        if name not in red_checks:
+            out.append("a printed CHECK verdict=FAIL for %s has no entry in the verdict's finding list"
+                       % name)
+    for name in red_controls:
+        if name not in printed_silent:
+            out.append("unfired control %s counts as a finding but printed no fired=SILENT record"
+                       % name)
+    records = len(printed_fail) + len(red_controls)
+    if records != len(red):
+        out.append("the verdict counts %d findings but %d printed finding-records back them (%d FAIL "
+                   "CHECK lines + %d unfired controls)" % (len(red), records, len(printed_fail),
+                                                           len(red_controls)))
+    return out
+
+
+def check_terminal_tally(v, ctx):
+    """The last check the run prints: the verdict's own count, held to the records it printed.
+
+    Window `j` defect 2 (`_REJECT_TALLY`): `RESULT ... findings=4` went out in a log that also printed a
+    CONTROL detail counting `2 findings` (the attribution guard's own fabricated stale text — a different
+    denominator, but printed in the same log with nothing saying so) and three `verdict=FAIL` lines; two
+    tallies disagreed and neither was re-read against the printed record. One source of truth is
+    `Verifier.red`; this parses the printed finding records against it BEFORE the `BLOCKDEVICE`/`RESULT`
+    lines state the number, so both terminal lines print a count that has just been reconciled. The third
+    `verdict=FAIL` line of a red log is the `BLOCKDEVICE` verdict line itself — the echo of the tally,
+    never a further divergence — and the detail names every counted finding so the population is
+    inspectable rather than a bare number. The predicate is witnessed non-inert by three fabrications
+    through the same pure function: a finding with no printed record reddens it, a printed FAIL with no
+    finding reddens it, an honest empty pair stays clean. A check cannot observe its own verdict line, so
+    when this one reddens its own record is absent from its own parse and present in the next reader's —
+    the count it reports is the count before itself, and the `red=` it hands to the summaries is the
+    count after.
+    """
+    lines = run_text(ctx).splitlines()
+    findings = reject_tally_findings(v.red, lines)
+    fab_missing = reject_tally_findings(["fabricated-finding-without-a-printed-record"], [])
+    fab_extra = reject_tally_findings([], ["CHECK name=fabricated-printed-failure verdict=FAIL "
+                                           "a FAIL line no verdict list carries (witness only)"])
+    fab_clean = reject_tally_findings([], [])
+    print("GWITNESS guard=tally-reconciliation findings=%d fail-check-records=%d "
+          "unfired-control-records=%d fabricated=missing-record flagged=%s fabricated=extra-print "
+          "flagged=%s fabricated=clean flagged=%s note=the reconciliation predicate is not inert: a "
+          "finding with no printed record and a printed FAIL with no finding both redden it on "
+          "fabrication, and a consistent empty pair stays clean"
+          % (len(v.red),
+             sum(1 for ln in lines if re.match(r"CHECK name=\S+ verdict=FAIL\b", ln)),
+             sum(1 for n in v.red if n.startswith(CONTROL_RED_PREFIX)),
+             bool(fab_missing), bool(fab_extra), not fab_clean))
+    fail_names = [n for n in v.red if not n.startswith(CONTROL_RED_PREFIX)]
+    silent_names = [n[len(CONTROL_RED_PREFIX):] for n in v.red if n.startswith(CONTROL_RED_PREFIX)]
+    v.check(REJECT_TALLY_CHECK,
+            not findings and bool(fab_missing) and bool(fab_extra) and not fab_clean,
+            "the terminal verdict's finding count is one source — `Verifier.red`, %d entries — and the "
+            "printed records reconcile to it: %d CHECK verdict=FAIL lines (%s) plus %d registered unfired "
+            "controls, each printed as `fired=SILENT` and counted as a finding (%s). Reconciliation "
+            "findings: %s. The BLOCKDEVICE `red=` and RESULT `findings=` printed next state this same "
+            "number, and the BLOCKDEVICE line's own `verdict=FAIL` in a red run is the echo of this tally, "
+            "not a separate finding; the attribution guard's `%d findings` detail counts its OWN fabricated "
+            "stale text, a different denominator, and is not this tally. Witness: the predicate reddened "
+            "on both fabrications (%s, %s) and stayed clean on the honest empty pair"
+            % (len(v.red), len(fail_names), ",".join(fail_names) or "none", len(silent_names),
+               ",".join(silent_names) or "none", "; ".join(findings) or "none",
+               found_stale_population(),
+               "missing-record" if fab_missing else "MISSED",
+               "extra-print" if fab_extra else "MISSED"))
+
+
+def found_stale_population():
+    """The attribution guard's own fabricated-stale finding count, for the detail's cross-reference.
+
+    Read off the guard control's registered legs is not possible after the fact, so the detail quotes the
+    count the guard itself required — one finding per reproduced pair in its stale text — which is the
+    number that appeared as `2 findings` in the window-`j` log beside `findings=4`. Derived, not typed:
+    it is the count of window-`i` evidence lines the guard builds its stale text from.
+    """
+    evidence = ROOT / "specification" / "evidence" / "blockdevice-device-2026-10-27-i1.log"
+    if not evidence.exists():
+        return 0
+    return sum(1 for ln in evidence.read_text().splitlines()
+               if ln.startswith(REPRO_HEADS) and "verdict=EXACT-REPRODUCTION" in ln)
 
 
 class Verifier:
@@ -1694,19 +1846,29 @@ def check_control_paths(v, ctx):
             "legs to lose). %d of %d controls fired; the ones that went quiet without naming a reason are %s. "
             "`silent-reason-guard-can-redden` is the leg that shows this predicate can still redden"
             % (v.fired, len(v.controls), ",".join(v.unreasoned) or "none"))
-    contradictions = contradiction_findings(ctx.get("text", ""))
-    exact_pairs, residual_pairs = exact_reproductions(ctx.get("text", ""))
-    v.check("no-control-contradicts-an-exact-reproduction", not contradictions,
-            "%d reproduction legs printed `verdict=EXACT-REPRODUCTION` (pairs: %s) and %d printed a residual "
-            "(pairs: %s); no SILENT control in this log denies any of them. Window `i` printed "
-            "`DREPRO … verdict=EXACT-REPRODUCTION` and, nine lines later, a control whose reason said "
-            "`no injected cause reproduces the GDN device divergence` — the cause table predated the probe "
-            "that answered the question and printed a confident falsehood in a gate log. The rule is read off "
-            "this run's own printed lines, not off a flag, and NO_CAUSE_PHRASES names the phrasings it "
-            "watches for. Refutations found: %s"
-            % (sum(len(v) for v in exact_pairs.values()), ",".join(sorted(exact_pairs)) or "none",
-               sum(len(v) for v in residual_pairs.values()),
+    text = run_text(ctx)
+    contradictions = contradiction_findings(text)
+    exact_pairs, residual_pairs = exact_reproductions(text)
+    n_exact = sum(len(lines) for lines in exact_pairs.values())
+    n_residual = sum(len(lines) for lines in residual_pairs.values())
+    zero_legs = reproduction_leg_finding(ctx.get("device"), text)
+    v.check("no-control-contradicts-an-exact-reproduction", not contradictions and not zero_legs,
+            "%d reproduction legs printed `verdict=EXACT-REPRODUCTION` (pairs: %s) and %d printed a "
+            "residual (pairs: %s) — counts parsed from the COMPLETE printed text after every leg had "
+            "printed, read off the live buffer rather than a mid-run snapshot (window `j`: a snapshot "
+            "taken before the legs printed parsed 0 against 3 printed and passed; that ordering is what "
+            "this line now reads the whole log to forbid). No SILENT control in this log denies any of "
+            "them. Window `i` printed `DREPRO … verdict=EXACT-REPRODUCTION` and, nine lines later, a "
+            "control whose reason said `no injected cause reproduces the GDN device divergence` — the "
+            "cause table predated the probe that answered the question and printed a confident falsehood "
+            "in a gate log. The rule is read off this run's own printed lines, not off a flag, and "
+            "NO_CAUSE_PHRASES names the phrasings it watches for. Zero-count assertion: %s. Refutations "
+            "found: %s"
+            % (n_exact, ",".join(sorted(exact_pairs)) or "none", n_residual,
                ",".join(sorted(residual_pairs)) or "none",
+               zero_legs or ("a device run must and does see a non-zero leg count here"
+                             if ctx.get("device") else
+                             "exempt in a CPU run, which prints no DREPRO/GREPRO leg by construction"),
                "; ".join(contradictions) or "none"))
     bad_attrib = [a for a in ATTRIBS if a["moved"] != a["total"]]
     v.check("field-attribution-accounts-to-the-pair", bool(ATTRIBS) and not bad_attrib,
@@ -2438,15 +2600,22 @@ def control_silent_reason_guard(v, ctx):
 def control_attribution_contradiction_guard(v, ctx):
     """The contradiction check must be able to fire, so the stale sentence is fed to it verbatim.
 
-    The check reads the run's own text, which in a CPU witness contains no `DREPRO` line at all — a check that
-    can only fire in one mode is a check that is blind in the other, and window `h`/`i` are exactly where it
-    was needed. So this leg hands the predicate three texts: the real one from this run; a stale text built by
-    taking this run's own `DREPRO`/`GREPRO` exact-reproduction line (from the window-`i` evidence, whose pair
-    labels are cited below) and putting back the sentence the control used to print; and the same text with
-    the stale sentence about a DIFFERENT pair, which must not fire — the narrowness half, because a "
-    contradiction detector that fires on any negation is a lint rule, not a check.
+    The check reads the run's own text, which in a CPU witness contains no `DREPRO` line at all — a check
+    that can only fire in one mode is a check that is blind in the other, and window `h`/`i` are exactly
+    where it was needed. So this leg hands the predicate five texts: the real one from this run's LIVE
+    buffer (window `j`: moved to run after the reproduction controls, because reading the mid-run
+    snapshot made its `this-run` leg report `exact_pairs=none` beside three printed legs — a witness
+    reading the wrong half of its own log is the defect it guards); a stale text built by taking a real
+    exact-reproduction line (window-`i` evidence, whose pair labels are cited below) and putting back
+    the sentence the control used to print; the same text with the stale sentence about a DIFFERENT pair,
+    which must not fire — the narrowness half, because a "contradiction detector that fires on any
+    negation is a lint rule, not a check"; a fabricated SILENT denial naming a pair THIS run reproduced,
+    which must redden with exactly one finding per denied pair (non-vacuity proof (a)); and this run's
+    own text with its reproduction lines removed, evaluated as a device run, where the zero-count
+    assertion must redden rather than the check passing over an empty list (non-vacuity proof (b), the
+    exact window-`j` shape of `parsed=0 → PASS`).
     """
-    text = ctx.get("text", "")
+    text = run_text(ctx)
     exact, _ = exact_reproductions(text)
     # Pair labels and a real reproduction line, copied from this repo's window-`i` evidence so the stale text
     # is assembled from printed material rather than typed from memory (see the STALE legs in the pass-9 log).
@@ -2475,21 +2644,52 @@ def control_attribution_contradiction_guard(v, ctx):
           % (found_other or "none"))
     for ln in stale:
         print("GWITNESS-STALE %s" % ln[:400])
+    # Non-vacuity proof (a), printed: a fabricated SILENT control that denies a pair THIS run reproduced.
+    # In a device-shaped text the denied pairs are the run's own reproduced ones; the CPU witness has no
+    # pair of its own, so it denies the window-`i` basis pairs the stale leg already cites.
+    deny_pairs = sorted(exact) or [re.search(r" pair=(\S+)", ln).group(1) for ln in basis]
+    deny_base = text if exact else "\n".join(basis)
+    deny_lines = ["CONTROL name=fabricated-denial-%d fired=SILENT reason=no injected cause reproduces "
+                  "the device divergence of %s" % (i, p) for i, p in enumerate(deny_pairs, 1)]
+    found_deny = contradiction_findings("\n".join([deny_base] + deny_lines))
+    # Non-vacuity proof (b), printed: this run's text with the reproduction lines REMOVED, evaluated as
+    # a device run — the zero-count assertion reddens instead of the check passing over an empty list.
+    stripped_text = "\n".join(ln for ln in text.splitlines() if not ln.startswith(REPRO_HEADS))
+    zero_finding = reproduction_leg_finding(True, stripped_text)
+    print("GWITNESS guard=attribution-contradiction leg=fabricated-denial pairs=%s findings=%d "
+          "expected=%d note=a fabricated denial of a reproduced pair reddens the check with exactly one "
+          "finding per denied pair"
+          % (",".join(deny_pairs) or "none", len(found_deny), len(found_real) + len(deny_pairs)))
+    for ln in deny_lines:
+        print("GWITNESS-DENY %s" % ln[:400])
+    print("GWITNESS guard=attribution-contradiction leg=zero-leg-text lines=%d exact_legs_parsed=0 "
+          "finding=%s note=this run's own text with its reproduction lines removed, evaluated as a "
+          "device run: the zero-count assertion reddens instead of the check passing"
+          % (len(stripped_text.splitlines()), bool(zero_finding)))
     fired = (not found_real and not found_other and bool(basis)
-             and len(found_stale) == len(basis))
+             and len(found_stale) == len(basis)
+             and len(found_deny) == len(found_real) + len(deny_pairs) and bool(zero_finding))
     v.control("attribution-contradiction-guard-can-redden", fired,
-              "the contradiction predicate run over three texts: this run's own output (%d lines, findings "
-              "%s); a stale text that keeps the window-`h`/`i` sentence `no injected cause reproduces` beside "
-              "the exact-reproduction line for the SAME pair (%d legs, %d findings — one per pair is the "
-              "requirement); and a text where the denial is about a pair nobody reproduced (must be, and is, "
-              "clean). The stale lines are printed verbatim above so the wording that reddens is inspectable"
-              % (len(text.splitlines()), found_real or "none", len(basis), len(found_stale)),
-              legs={"cpu_predicate": 3},
+              "the contradiction predicate run over five texts: this run's own output (%d lines, findings "
+              "%s, exact pairs %s); a stale text that keeps the window-`h`/`i` sentence `no injected cause "
+              "reproduces` beside the exact-reproduction line for the SAME pair (%d legs, %d findings — one "
+              "per pair is the requirement); a text where the denial is about a pair nobody reproduced (must "
+              "be, and is, clean); a fabricated SILENT denial of a pair this run reproduced (%d pairs, %d "
+              "findings — one per denied pair is the requirement); and this run's text with its reproduction "
+              "lines removed, device-evaluated, where the zero-count assertion must and does fire (%s). The "
+              "stale and deny lines are printed verbatim above so the wording that reddens is inspectable"
+              % (len(text.splitlines()), found_real or "none", ",".join(sorted(exact)) or "none",
+                 len(basis), len(found_stale), len(deny_pairs), len(found_deny),
+                 "fired" if zero_finding else "STAYED SILENT — the anti-vacuity assertion is broken"),
+              legs={"cpu_predicate": 5},
               reason=(None if fired else
                       "the contradiction predicate did not behave: this-run findings=%s, stale-text findings="
-                      "%d of %d expected, other-pair findings=%s (in a CPU run no DREPRO line exists, so the "
+                      "%d of %d expected, other-pair findings=%s, fabricated-denial findings=%d of %d "
+                      "expected, zero-leg-text finding=%s (in a CPU run no DREPRO line exists, so the "
                       "stale leg has no real reproduction line to stand beside and is not claimed)"
-                      % (found_real or "none", len(found_stale), len(basis), found_other or "none")))
+                      % (found_real or "none", len(found_stale), len(basis), found_other or "none",
+                         len(found_deny), len(found_real) + len(deny_pairs),
+                         bool(zero_finding))))
 
 
 def control_gather_census(v, ctx):
@@ -5066,7 +5266,11 @@ def run(out, args):
     ctx = dict(args=args, layout=layout, rt=rt, cfg=cfg, dumps=dumps, band=band, digest=digest,
                limits=limits, limits_raw=raw_probes, population=population, st=st, slab=slab,
                rt_slab=rt_slab, work=work, device=device, x_bytes=x_bytes, pair=(n_bytes, n_diff),
-               rt_pairs=rt_pairs)
+               rt_pairs=rt_pairs,
+               # The live printed text, not a snapshot: the contradiction check and its guard read printed
+               # lines that later controls produce, and window `j` proved a mid-run snapshot is a parser
+               # reading the run's own log before the log exists.
+               live_text=out.text)
     host_f, _ = DA.rt_record(work / "rt_out_host.bin", rt)
     hip_f, _ = DA.rt_record(work / "rt_out_hip.bin", rt)
     # `rt_fields` is the honest record the licensed router rows are read from — the device arm's in a
@@ -5207,7 +5411,6 @@ def run(out, args):
     control_gather_census(v, ctx)
     control_no_device_act_guard(v, ctx)
     control_silent_reason_guard(v, ctx)
-    control_attribution_contradiction_guard(v, ctx)
     control_gather_poison(v, ctx)
     control_gather_order_and_form(v, ctx)
     control_gather_width_substitution(v, ctx)
@@ -5216,6 +5419,10 @@ def run(out, args):
     control_gather_read_back(v, ctx)
     control_gather_divergence_causes(v, ctx)
     control_d_divergence_causes(v, ctx)
+    # Runs AFTER the two controls that print the reproduction legs: its `this-run` leg reads the live
+    # text, and window `j` showed why — before the move it reported `exact_pairs=none` in a log that had
+    # printed three legs, because the buffer it read was snapshotted before any of them existed.
+    control_attribution_contradiction_guard(v, ctx)
     control_attribution_probe_is_dialable(v, ctx)
     control_d_state_transposition(v, ctx)
     control_d_carry_index(v, ctx)
@@ -5253,6 +5460,20 @@ def run(out, args):
     if st["hip"] is not None:
         st["hip"].free_all()
         WITNESS["hip_calls_python"] += st["hip"].tally["frees"]
+    v.check("witness-counters-all-parsed-from-arm-reports", not WITNESS["unparsable_counters"],
+            "every one of the %d arm records this run registered folded an integer into the witness totals "
+            "(hip_calls, launches, allocs, bytes_to_device, bytes_from_device); the fields arrive typed from "
+            "`device_arm.parse_arm_report`, which is derived from each arm's own printf format, so "
+            "`register()` adds them instead of casting them. Unparsable: %s. Window `i` printed no RESULT line "
+            "because this line's `int()` raised; a counter the driver cannot read is a finding, not an "
+            "exception"
+            % (len(ctx["all_runs"]), ",".join(WITNESS["unparsable_counters"]) or "none"))
+    # The last check the run prints, after every other CHECK/CONTROL line exists: the verdict's own
+    # finding count reconciled against the printed records (`_REJECT_TALLY`, window `j` defect 2). It
+    # sits BEFORE the BLOCKDEVICE/RESULT lines so both of those print a number that has just been
+    # parsed-and-agreed; this also closes the `checks=62` vs `checks=63` drift, which was this very
+    # check printing between the two summaries.
+    check_terminal_tally(v, ctx)
     red = len(v.red)
     verdict = "FAIL" if red else ("QUALIFIED" if tally["unlicensed"] else "PASS")
     print("STAGETALLY arms=1 licensed=%d accepted=%d rejected=%d unlicensed=%d"
@@ -5264,14 +5485,6 @@ def run(out, args):
           % (verdict, len(rows), len(ctx.get("d_rows", [])), len(parsed), tally["licensed"],
              tally["accepted"], tally["rejected"], tally["unlicensed"], len(v.names), red,
              len(v.controls), v.fired, digest[:16]))
-    v.check("witness-counters-all-parsed-from-arm-reports", not WITNESS["unparsable_counters"],
-            "every one of the %d arm records this run registered folded an integer into the witness totals "
-            "(hip_calls, launches, allocs, bytes_to_device, bytes_from_device); the fields arrive typed from "
-            "`device_arm.parse_arm_report`, which is derived from each arm's own printf format, so "
-            "`register()` adds them instead of casting them. Unparsable: %s. Window `i` printed no RESULT line "
-            "because this line's `int()` raised; a counter the driver cannot read is a finding, not an "
-            "exception"
-            % (len(ctx["all_runs"]), ",".join(WITNESS["unparsable_counters"]) or "none"))
     print("RESULT mode=%s checks=%d findings=%d controls=%d fired=%d rows=%d gdn_rows=%d arms=policy_a "
           "device=%s staged=%s hip_calls=%d+%d launches=%d bytes_to_device=%d bytes_from_device=%d "
           "counters_unparsed=%d band_digest=%s no timing taken"
