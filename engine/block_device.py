@@ -55,13 +55,16 @@ silently (`pitfalls/50`) — and reads no clock. A check enforces that no rate t
 output. Ask for `--device` and, if this process cannot prove it performed the act, it refuses by name.
 """
 
+import ctypes
 import os
 import subprocess
 import argparse
 import hashlib
 import math
 import re
+import struct
 import sys
+from decimal import Decimal, localcontext
 from pathlib import Path
 
 import numpy as np
@@ -109,6 +112,20 @@ class Refused(DA.Refused):
     """One refusal type in the lane: `engine/device_arm.py` raises it and this driver catches it."""
 
 
+def silent_control_finding(fired, reason):
+    """The rule a SILENT control has to obey: if it did not fire, it says why, in words.
+
+    Window `g` printed `CONTROL name=control-witness-guard-can-redden fired=SILENT` on the device path
+    with nothing after it. A silent guard is not a neutral state — it is the state in which a guard is not
+    guarding — and a bare SILENT is how a control that lost its legs on the path under claim reads the same
+    as one that ran and found nothing. `silent-control-names-its-reason` is the check; this function is the
+    single rule so the check and the witness cannot disagree about what counts as a named reason.
+    """
+    if fired:
+        return None
+    return None if (reason or "").strip() else "silent-without-named-reason"
+
+
 class Verifier:
     """Named checks and witnessed controls (`engine/stage_run.py`::Verifier is the house shape).
 
@@ -121,6 +138,7 @@ class Verifier:
     def __init__(self):
         self.names, self.red, self.controls = [], [], []
         self.control_paths = {}
+        self.unreasoned = []
         self.fired = 0
 
     def check(self, name, predicate, detail):
@@ -131,20 +149,24 @@ class Verifier:
         print("CHECK name=%s verdict=%s %s" % (name, "PASS" if ok else "FAIL", detail))
         return ok
 
-    def control(self, name, fired, detail, legs=None, claims=None):
+    def control(self, name, fired, detail, legs=None, claims=None, reason=None):
         self.controls.append(name)
         if fired:
             self.fired += 1
         else:
             self.red.append("control:" + name)
+        finding = silent_control_finding(fired, reason)
+        if finding:
+            self.unreasoned.append(name)
         self.control_paths[name] = dict(legs=dict(legs or {}), claims=tuple(claims or ()))
         pathnote = ""
         if legs or claims:
             pathnote = " legs=%s claims=%s" % (
                 ",".join("%s:%d" % (p, n) for p, n in sorted((legs or {}).items())) or "none",
                 ",".join(claims or ()) or "none")
-        print("CONTROL name=%s fired=%s%s %s" % (name, "RED" if fired else "SILENT", pathnote,
-                                                 detail))
+        notecount = "" if not reason else " reason=%s" % reason
+        print("CONTROL name=%s fired=%s%s%s %s" % (name, "RED" if fired else "SILENT", pathnote,
+                                                  notecount, detail))
         return bool(fired)
 
 
@@ -1314,6 +1336,22 @@ def check_control_paths(v, ctx):
             "and bound legs on the arm they license). In a CPU run this check is vacuous by "
             "construction and says so, because there is no device path to claim"
             % sum(d["legs"].get("device", 0) for d in claiming.values()))
+    v.check("silent-control-names-its-reason", not v.unreasoned,
+            "every control that did not fire also printed a `reason=` naming what it could not do: %d of %d "
+            "controls fired, and the ones that went quiet are %s. Window `g` is why this is a check and not a "
+            "style rule: `control-witness-guard-can-redden` printed a quiet line with no reason on the device "
+            "path, which reads exactly like a guard that ran and found nothing. A control that cannot run a "
+            "leg prints that leg as not-exercised instead; a control that goes quiet names the finding"
+            % (v.fired, len(v.controls), ",".join(v.unreasoned) or "none"))
+    bad_attrib = [a for a in ATTRIBS if a["moved"] != a["total"]]
+    v.check("field-attribution-accounts-to-the-pair", bool(ATTRIBS) and not bad_attrib,
+            "%d per-field attribution tables were printed (paired totals: %s) and in every one the field "
+            "counts add up to the ndiff_bytes of the pair they belong to. A per-field table that did not "
+            "account would be measuring a different population than the PAIR line it explains, and a run "
+            "that printed no attribution at all would satisfy this check trivially, which is why the count "
+            "is required non-zero here rather than assumed"
+            % (len(ATTRIBS), ";".join("%s=%d/%d" % (a["pair"], a["moved"], a["total"])
+                                      for a in ATTRIBS[:6])))
 
 
 def want_reads(layout, which):
@@ -1550,6 +1588,10 @@ def gather_prepare(args, ctx):
         }
         for width in DA.G_PATHS:
             p = paths[width]
+            # Stamp the file origin of every unit's bytes while the units still speak file coordinates;
+            # `g_slab` rewrites `off`/`span_off` to slab coordinates two lines later, and the read-back
+            # control needs the pre-remap address (`g_stamp_units`).
+            g_stamp_units(p["units"], L.art.path)
             # Read off the units BEFORE the slab remaps them to slab coordinates: the span count a scheduler
             # needs is the count of distinct ranges in the artifact, not in this driver's scratch file.
             want_bytes, want_spans = g_stage_bytes(g, p["units"])
@@ -1618,6 +1660,20 @@ def run_gather_arms(v, ctx):
         print("PAIR pair=g_%s_host_twin_vs_hip_hostpath file=gather_record.f32 bytes=%d "
               "ndiff_bytes=%d cases=1 zero_tolerance=1 verdict=%s"
               % (width, nbytes, ndiff, "IDENTICAL" if ndiff == 0 else "DIFFERS"))
+        # Per-field split printed beside the total, every run: an attribution that only exists as one byte
+        # count cannot be checked against a mechanism, and this is the half of `wpre`'s story that was
+        # measured before any scope was named.
+        print_field_attrib("GATTRIB", "g_%s_host_twin_vs_hip_hostpath" % width,
+                           "gather_record.f32",
+                           *record_field_rows(p["dir"] / "out_host.bin", p["dir"] / "out_hip.bin",
+                                              g["order"], g["fields"]),
+                           note="per-field split of the PAIR line above; totals must account")
+        g_h_fields, _ = DA.g_record(p["dir"] / "out_hip.bin", g)
+        exp_route_disagreement(-g_h_fields["gate"], "GEXP",
+                               note="path=%s sites=the silu inputs this row actually uses (the body "
+                                    "computes expf(-gate)); prices how far the HOST route is from a "
+                                    "correctly-rounded exp, which is what a libdevice difference has to "
+                                    "be measured against" % width)
         p["pair"] = (nbytes, ndiff)
         rec_hip, nan_hip = DA.g_record(p["dir"] / "out_hip.bin", g)
         rec_twin, _ = DA.g_record(p["dir"] / "out_host.bin", g)
@@ -1647,6 +1703,12 @@ def run_gather_arms(v, ctx):
             print("PAIR pair=g_%s_hip_device_vs_hip_hostpath file=gather_record.f32 bytes=%d "
                   "ndiff_bytes=%d cases=1 zero_tolerance=1 verdict=%s"
                   % (width, d_bytes, d_diff, "IDENTICAL" if d_diff == 0 else "DIFFERS"))
+            ctx.setdefault("g_device_pair_rows", {})[width] = print_field_attrib(
+                "GATTRIB", "g_%s_hip_device_vs_hip_hostpath" % width, "gather_record.f32",
+                *record_field_rows(p["dir"] / "out_device.bin", p["dir"] / "out_hip.bin",
+                                   g["order"], g["fields"]),
+                note="the unattributed divergence of window `g`, now counted per field; compared with the "
+                     "injected causes by gather-divergence-causes-priced")
             print("GATHERCENSUS path=%s slot=device distinct_experts=%d arm_units=%d arm_total=%d "
                   "whole_reads=%d disagree=%s arm_census=\"%s\""
                   % (width, d_cen["distinct_experts"], d_cen["unit_reads"], d_cen["total"],
@@ -1760,6 +1822,33 @@ def control_gather_swap(v, ctx):
               legs=g_legs_since(snap), claims=g_claims(ctx))
 
 
+def device_act_absences(runs):
+    """Offences among the records that ran ON the device: a `path=device` act that reports none.
+
+    The mirror image of `no_device_act_offences`, and needed for the same reason. In a device window the
+    predicate that guards "no device act" is supposed to read CLEAN on the host bodies and DIRTY on the
+    device runs; if it read clean on those too, the check would be certifying that nothing ran while five
+    arms were launching. `launches=0`, `bytes_from_device=0` or a missing counter on a `path=device` record
+    is the silent fallback this lane exists to refuse, so it is an offence of its own and
+    `control-witness-guard-can-redden` shows the predicate can see it (window `g`: that control printed
+    `fired=SILENT` on the device path because its honest half demanded an act-free set that a device run
+    cannot honestly produce).
+    """
+    bad = []
+    for label in sorted(runs):
+        run = run_facts(runs[label])
+        if run.get("path") != "device":
+            continue
+        for k in ("launches", "bytes_from_device"):
+            v = run.get(k)
+            try:
+                if v is None or not int(v):
+                    bad.append("%s.%s=%s" % (label, k, "absent" if v is None else v))
+            except (TypeError, ValueError):
+                bad.append("%s.%s=%s" % (label, k, v))
+    return bad
+
+
 def control_no_device_act_guard(v, ctx):
     """The `no device acts` predicate has to be capable of failing, and this shows it with a fabricated act.
 
@@ -1770,26 +1859,63 @@ def control_no_device_act_guard(v, ctx):
     to the device, and one whose `RUN` line does not report `launches` at all. All three must be read as
     offences, and the honest set must read clean, or the check is decoration.
 
-    No arm runs here; the legs are driver-side, so the control declares no path claims.
+    THE HONEST HALF IS PER PATH, because "honest" means different things in the two modes. In a CPU witness
+    every record must be act-free. In a device window the act-free requirement binds the `path=host_cpubody`
+    records — a host body that reached a device is the same defect the CPU witness looks for — and the
+    `path=device` records must be seen to HAVE acts, which is `device_act_absences`. Demanding an act-free
+    device run is what made this control print `fired=SILENT` in window `g`, on the one path its witness was
+    supposed to cover; a guard that can only be satisfied by the mode it is not guarding is not a guard.
+
+    No arm runs here; the legs are driver-side predicate evaluations over records the arms already produced,
+    so the control declares no path claims (a claim with no counted arm act is what
+    `control-legs-cover-the-path-under-claim` reddens).
     """
     honest = dict((k, dict(run_facts(r))) for k, r in ctx["all_runs"].items())
     victim = sorted(honest)[0]
+    host_runs = dict((k, r) for k, r in ctx["all_runs"].items()
+                     if run_facts(r).get("path") != "device")
+    dev_runs = dict((k, r) for k, r in ctx["all_runs"].items()
+                    if run_facts(r).get("path") == "device")
     fabricated = {
         "launches=1": dict(honest[victim], launches=1),
         "bytes_to_device=1GiB": dict(honest[victim], bytes_to_device=1073741824),
         "launches-absent": dict((k, x) for k, x in honest[victim].items() if k != "launches"),
     }
     bad = dict((name, no_device_act_offences({victim: rec})) for name, rec in fabricated.items())
-    clean = no_device_act_offences(ctx["all_runs"])
+    clean = no_device_act_offences(host_runs)
+    absent = device_act_absences(dev_runs)
     for name in sorted(fabricated):
         print("GWITNESS guard=no-device-acts fabricated=%s offences=%s" % (name, bad[name] or "NONE"))
-    fired = (not clean and all(bad[n] for n in bad))
+    print("GWITNESS guard=no-device-acts leg=host-records-clean records=%d offences=%s"
+          % (len(host_runs), clean or "clean"))
+    if dev_runs:
+        print("GWITNESS guard=no-device-acts leg=device-records-have-acts records=%d offences=%s"
+              % (len(dev_runs), absent or "clean"))
+    else:
+        print("GWITNESS guard=no-device-acts leg=device-records-have-acts status=not-exercised "
+              "reason=no-device-act-in-this-run note=no record reported path=device, so this half of the "
+              "predicate has nothing to read here; it is reported unexercised, not counted as passed, and "
+              "the fabrication below is what shows it can fire")
+    fake_dev = {"fabricated/device-run-with-no-act": dict(honest[victim], path="device",
+                                                        launches=0, bytes_from_device=0)}
+    fake_absent = device_act_absences(fake_dev)
+    print("GWITNESS guard=no-device-acts fabricated=device-run-with-no-act offences=%s"
+          % (fake_absent or "NONE — the predicate is blind to a device run that launched nothing"))
+    fired = bool(not clean and not absent and all(bad[n] for n in bad) and fake_absent)
+    nlegs = len(fabricated) + 1 + (1 if dev_runs else 0) + 1
     v.control("control-witness-guard-can-redden", fired,
-              "the same predicate the check runs, over the honest set and three fabrications: honest=%s; "
-              "%s. Every fabrication is read as an offence, including the record that simply omits the "
-              "counter — a RUN line that does not report a number cannot certify that the number was zero"
-              % (clean or "clean",
-                 "; ".join("%s -> %s" % (n, ",".join(bad[n])) for n in sorted(bad))))
+              "the same predicate the check runs, over the honest set split by the path the arm reported "
+              "(executed=device:%d,host_cpubody:%d predicate legs, no arm act) and three fabrications: "
+              "host-clean=%s; device-acts=%s; %s. Every fabrication is read as an offence, including the "
+              "record that simply omits the counter — a RUN line that does not report a number cannot "
+              "certify that the number was zero"
+              % (len(dev_runs), len(host_runs), clean or "clean", absent or "clean",
+                 "; ".join("%s -> %s" % (n, ",".join(bad[n])) for n in sorted(bad))),
+              legs={"cpu_predicate": nlegs},
+              reason=(None if fired else
+                      "honest set disagreed with the predicate the way the path forbids: host records "
+                      "offending=%s, device records missing acts=%s (see the GWITNESS legs above)" %
+                      (clean or "clean", absent or "clean")))
 
 
 def control_gather_census(v, ctx):
@@ -2031,37 +2157,655 @@ def control_gather_width_substitution(v, ctx):
               legs=g_legs_since(snap), claims=())
 
 
+def g_stamp_units(units, art_path):
+    """Record, on every unit, where its bytes came from — BEFORE `g_slab` rewrites the offsets.
+
+    `g_slab` turns `off`/`span_off` into slab coordinates, so after it runs no unit can say which *file*
+    byte its first element was read from. That is the address the read-back control needs: the only
+    expectation worth having for "the device holds the file's bytes" is the file itself. Both paths can
+    name one — a reference unit's bytes come out of an HF shard (`src`), a policy-A unit's out of the
+    artifact GGUF (`file_off`, from `Loader.expert_range`, read through the audit door) — and neither
+    needs the dict key one code path happens to keep. Stamping here, before the remap, is what lets
+    `gather-read-back-expectation-is-the-artifact` run on both paths instead of one.
+    """
+    for u in units:
+        u["file_off"] = u["off"]
+        if u.get("src"):
+            u["file_kind"], u["file_src"] = "shard", u["src"]
+        else:
+            u["file_kind"], u["file_src"] = "artifact", art_path
+
+
+READ_BACK_BYTES = 16
+
+
+def g_unit_expectation(ctx, u, n=READ_BACK_BYTES):
+    """The bytes the ARTIFACT holds at the unit's own file coordinate, or None if the unit cannot name one.
+
+    The first version of `gather-device-unit-read-back` compared the device's read-back with `u["_bytes"]`,
+    the copy the CPU host twin happens to keep, and died with `KeyError: '_bytes'` on the first device run
+    (window `g`): the reference path never carries `_bytes` — `g_slab` reads a fused [2I,H] span itself —
+    so the control understood one of the two paths and crashed on the other, and a crash inside a control
+    reads as "the gate ran" exactly as much as a pass does.
+
+    Returning None for a unit that cannot name its source is deliberate and is NOT the forbidden skip: the
+    caller turns a None into a named failure of the leg (`gather-read-back-leg`), and
+    `gather-read-back-expectation-is-the-artifact` runs that failure on a fabricated unit every run so the
+    leg is known to redden. A read that *should* work and does not raises — an I/O error is a finding, not
+    a reason to compare nothing.
+    """
+    kind, src, off = u.get("file_kind"), u.get("file_src"), u.get("file_off")
+    if kind not in ("shard", "artifact") or not src or off is None:
+        return None
+    why = "M2 gather unit read-back expectation"
+    try:
+        if kind == "shard":
+            data, sha, got = DA.g_read_file_span(src, off, n, why)
+        else:
+            source = SR.ByteSource(ctx["st"]["L"], why=why)
+            try:
+                data, sha, got = DA.read_span(source, src, off, n, why)
+            finally:
+                source.close()
+    except OSError as exc:
+        raise Refused("read-back-expectation-unreadable",
+                      "%s: cannot read %d B at %d of %s for the read-back expectation (%s); a control "
+                      "that cannot read its expectation fails here instead of comparing nothing"
+                      % (why, n, off, src, exc))
+    if got != n:
+        raise Refused("read-back-expectation-short",
+                      "%s: asked %d B at %d of %s, got %d B" % (why, n, off, src, got))
+    return data
+
+
+def g_read_back_leg(ctx, u, got_hex, slab_head):
+    """One read-back leg's whole predicate: (ok, note). The control and the witness run THIS, not copies.
+
+    Three hops, and every one of them can fail by name: the artifact's bytes at the unit's file coordinate,
+    the driver's slab bytes at the unit's slab coordinate (the bytes handed to the H2D copy), and what the
+    device copied back. A leg that cannot see one of them fails — it does not skip, and it does not default
+    to agreement.
+    """
+    want = g_unit_expectation(ctx, u)
+    if want is None:
+        return False, ("NO-EXPECTATION unit names no file_kind/file_src/file_off (got %s/%r/%r), so "
+                       "there is nothing to compare the device's bytes against"
+                       % (u.get("file_kind"), u.get("file_src"), u.get("file_off")))
+    want_hex = want[:READ_BACK_BYTES].hex()
+    if slab_head is None:
+        return False, "NO-SLAB the driver cannot read its own slab bytes at the unit's offset"
+    if slab_head != want_hex:
+        return False, ("SLAB-DIVERGES driver slab=%s but artifact=%s: the bytes handed to the copy are "
+                       "not the bytes the artifact holds, so a device read-back of them would certify "
+                       "nothing"
+                       % (slab_head[:READ_BACK_BYTES * 2], want_hex))
+    if got_hex is None:
+        return False, "NO-DEVICE-READBACK the arm ran on a path that printed no read-back"
+    if got_hex != want_hex:
+        return False, "MISMATCH device=%s artifact=%s" % (got_hex[:READ_BACK_BYTES * 2], want_hex)
+    return True, "match device==slab==artifact (%d B, artifact=%s)" % (len(want), want_hex)
+
+
+def g_slab_head(p, u, n=READ_BACK_BYTES):
+    """The slab bytes at the unit's slab coordinate — the bytes the H2D copy is supposed to have moved."""
+    with open(str(p["slab"]), "rb") as fh:
+        fh.seek(u["off"])
+        data = fh.read(n)
+    return data.hex() if len(data) == n else None
+
+
+def control_gather_read_back_expectation(v, ctx):
+    """The read-back control's expectation must be derivable on BOTH width paths, and its legs must be
+    capable of reddening. Both halves are witnessed here, in a CPU witness.
+
+    Window `g` found the first half the hard way, on a device run: `want = u["_bytes"][:16].hex()` was a
+    `KeyError` because the reference path's units never carry `_bytes`. A window must never be the first
+    time a control's plumbing runs, so every unit path is exercised here: the artifact expectation is
+    derived for each width path and required to equal the slab bytes the arm is handed (that is the
+    driver-side hop of the chain, and it is a real comparison — a mismatch means the slab is not the
+    artifact). The second half is the one `pitfalls/40` §a-check-that-can-print-nothing-cannot-fail asks
+    for: three fabrications, each of which must redden a leg — the unit with no source (`_bytes`-less, the
+    shape that crashed), a device answer with one bit changed, and a slab taken from the wrong offset. The
+    honest leg must pass, or the predicate proves nothing either way.
+    """
+    lines, ok = [], True
+    for width in DA.G_PATHS:
+        p = ctx["gpaths"][width]
+        u = p["units"][0]
+        head = g_slab_head(p, u)
+        good, note = g_read_back_leg(ctx, u, head, head)
+        ok = ok and good
+        lines.append("%s leg[%s] %s" % (width, "pass" if good else "FAIL", note))
+    honest_u = ctx["gpaths"][DA.G_PATHS[0]]["units"][0]
+    honest_hex = g_unit_expectation(ctx, honest_u)
+    bad_u = dict((k, x) for k, x in honest_u.items() if k not in ("file_kind", "file_src", "file_off"))
+    fabrications = [
+        ("unit-without-bytes", g_read_back_leg(ctx, bad_u, honest_hex.hex(), honest_hex.hex())),
+        ("device-one-bit-off",
+         g_read_back_leg(ctx, honest_u,
+                         "%02x" % (honest_hex[0] ^ 0x01) + honest_hex[1:].hex(),
+                         honest_hex.hex())),
+        ("slab-from-wrong-offset",
+         g_read_back_leg(ctx, honest_u, honest_hex.hex(),
+                         g_slab_head(ctx["gpaths"][DA.G_PATHS[0]],
+                                     dict(honest_u, off=honest_u["off"] + 4)))),
+    ]
+    for name, (fired_leg, note) in fabrications:
+        reddened = not fired_leg
+        ok = ok and reddened
+        print("GWITNESS guard=gather-read-back fabricated=%s leg_fired=%s %s"
+              % (name, "yes" if reddened else "NO-LEG", note))
+    v.control("gather-read-back-expectation-is-the-artifact", ok,
+              "expectations derived from the artifact on %s (the path that crashed in window `g` is the "
+              "reference one, and it derives here), each equal to the slab bytes the arm is handed, and all "
+              "three fabrications reddened their leg: %s. No leg defaults to agreement: a unit that cannot "
+              "name its file is a NAMED failure, not a skip, which is the difference between this control "
+              "and the `try/except: pass` that would have hidden the original crash"
+              % (",".join("%s=%s" % (w, "derived") for w in DA.G_PATHS), "; ".join(lines)),
+              # These legs compare driver-side bytes, not arm acts, so they are named for what they are
+              # instead of borrowing a path name no arm reported (`arm_leg` counts only the latter).
+              legs={"cpu_predicate": len(DA.G_PATHS) + len(fabrications)})
+
+
 def control_gather_read_back(v, ctx):
     """In a device window: the bytes the device holds for one expert span are the bytes the file holds.
 
     Same purpose as `stage_run.device_read_back` for the shared expert: bind the kernel's input to the
-    artifact, 16 bytes at the first gathered span, before any row is believed.
+    artifact, the first 16 bytes of the first gathered span, before any row is believed. The leg is
+    `g_read_back_leg`, the same predicate `gather-read-back-expectation-is-the-artifact` reddens on a
+    fabricated unit in a CPU window, so the code path that crashed in window `g` is known to be able to
+    fail before a window is spent on it.
 
-    In a CPU witness this control is reported VOID and not registered, because a read-back that read host
+    In a CPU witness the device leg is reported VOID and not registered, because a read-back that read host
     memory and were called a device read-back is the substitution this lane exists to refuse.
     """
     if not ctx["device"]:
         print("GVOID control=gather-device-unit-read-back reason=no-device-act-in-this-run "
-              "note=not registered as a control here: a host read of host bytes is not a device read-back")
+              "note=not registered as a control here: a host read of host bytes is not a device read-back; "
+              "the expectation machinery it uses is witnessed by "
+              "gather-read-back-expectation-is-the-artifact")
         return
-    snap = (dict(PATH_LEGS), dict(G_LEGS))
     ok, lines = True, []
     for width in DA.G_PATHS:
         p = ctx["gpaths"][width]
         u = p["units"][0]
         plan = g_plan_variant(p, p["plan"].read_text().replace(
-            "read_off=-1 read_len=0", "read_off=%d read_len=16" % u["off"]))
+            "read_off=-1 read_len=0", "read_off=%d read_len=%d" % (u["off"], READ_BACK_BYTES)))
         rec = g_run_variant(ctx, width, plan, "out_readback.bin", "g_%s_readback" % width, device=True)
-        want = u["_bytes"][:16].hex()
-        got = re.search(r"UNITREADBACK path=device off=%d bytes=16 hex=([0-9a-f]+)" % u["off"],
-                        rec["stdout"])
-        match = bool(got) and got.group(1) == want
-        ok = ok and match
-        lines.append("%s %s=%s" % (width, "match" if match else "MISMATCH",
-                                    (got.group(1) if got else "ABSENT")[:16]))
+        got = re.search(r"UNITREADBACK path=device off=%d bytes=%d hex=([0-9a-f]+)"
+                        % (u["off"], READ_BACK_BYTES), rec["stdout"])
+        good, note = g_read_back_leg(ctx, u, got.group(1) if got else None, g_slab_head(p, u))
+        ok = ok and good
+        lines.append("%s %s" % (width, note))
     v.control("gather-device-unit-read-back", ok,
-              "first gathered span, first 16 bytes, device vs file: %s" % "; ".join(lines),
-              legs=g_legs_since(snap), claims=g_claims(ctx))
+              "first gathered span, first %d bytes, device vs slab vs artifact file: %s"
+              % (READ_BACK_BYTES, "; ".join(lines)),
+              claims=("device",))
+
+
+# ----------------------------------------------------------------------------------------------
+# PER-FIELD ATTRIBUTION: WHERE A COMPILED-PAIR DIFFERENCE ACTUALLY LIVES.
+#
+# WHY A TOTAL BYTE COUNT IS NOT AN ATTRIBUTION. Window `g` printed `ndiff_bytes=3,744` for the policy-A
+# gather pair and `52,976` for the GDN pair and nothing else, and a total cannot be checked against a
+# mechanism: the reference-path gather pair is byte-exact on the same device, so "the device arms differ"
+# is already falsified, and what is left is a question about specific fields. This is the `wpre` shape from
+# window `e2` (total moved → per-field/per-slot measurement → attribution to a documented scope → a bound
+# taken from documentation with a rejection control), and it starts the same way: count per field, print
+# the bit-image step, and make the per-field counts account to the printed total so an attribution cannot
+# quietly be about a different population than the pair line is (`RTATTRIB`/`WPRESCOPE` are the precedent).
+#
+# NOTHING HERE IS A BAND. The pair checks keep claiming whole-record byte-identity at zero tolerance
+# (`gather-compiled-pair-byte-identical-per-path`, `gdn-compiled-pair-byte-identical`), and no field is
+# moved out of claimed exactness by anything in this section — that is a relaxation D-18 reserves to the
+# user. The injected causes below price candidate mechanisms; they do not license one.
+# ----------------------------------------------------------------------------------------------
+
+# Every attribution line printed, so the accounting rule can be checked over ALL of them and not over the
+# one a control happens to look at: an attribution whose field counts do not add up to the pair total it
+# is explaining is an attribution of a different file.
+ATTRIBS = []
+
+
+def ordered_f32_steps(a, b):
+    """Ordered-bit-image step per element, the same width rule `block_gate.ulp_diff` uses (f32 image).
+
+    Reuses the repo's comparator rule rather than a private differ: `pitfalls/30` §the-ULP-comparator-dead-branch
+    is what a second, subtly-wrong differ bought once already. Records store every field as an f32 word —
+    a bf16-carrying field is stored widened (`engine/device/m2_g_kernels.h` §the record) — so the ordered
+    int32 step is the right ruler for both, and a bf16 step reads as 2^15 in these units.
+    """
+    ai = a.view(np.int32).astype(np.int64)
+    bi = b.view(np.int32).astype(np.int64)
+    ai = np.where(ai < 0, 0x7FFFFFFF - ai, ai)
+    bi = np.where(bi < 0, 0x7FFFFFFF - bi, bi)
+    return np.abs(ai - bi)
+
+
+def record_field_rows(path_a, path_b, order, fields):
+    """Per-field (differing bytes, differing words, largest bit-image step) between two record files.
+
+    The byte counts are taken on the raw file bytes in each field's range, so they must sum to the whole-file
+    `pair_bytes` number the PAIR line prints — that equality is `field-attribution-accounts-to-the-pair`,
+    and it is what stops a per-field table from being about a different thing than the total it explains.
+    Fields come from the arm's own header layout (`device_arm.parse_g_layout` / `parse_d_layout`), which is
+    already required to tile the record exactly.
+    """
+    a_bytes = np.frombuffer(Path(path_a).read_bytes(), dtype=np.uint8)
+    b_bytes = np.frombuffer(Path(path_b).read_bytes(), dtype=np.uint8)
+    if a_bytes.shape != b_bytes.shape:
+        raise Refused("attrib-record-shape", "%s (%d B) and %s (%d B) are different sizes; a per-field "
+                                            "diff of two records of different size is not a comparison"
+                      % (Path(path_a).name, a_bytes.size, Path(path_b).name, b_bytes.size))
+    a, b = a_bytes.view("<f4"), b_bytes.view("<f4")
+    rows, total = [], int(np.count_nonzero(a_bytes != b_bytes))
+    for name in order:
+        spec = fields[name]
+        off, ln = spec[0], spec[1]
+        lo, hi = 4 * off, 4 * (off + ln)
+        ndiff_bytes = int(np.count_nonzero(a_bytes[lo:hi] != b_bytes[lo:hi]))
+        x, y = a[off:off + ln], b[off:off + ln]
+        steps = ordered_f32_steps(x, y)
+        differing = steps[steps > 0]
+        rows.append(dict(field=name, words=int(ln), ndiff_words=int(np.count_nonzero(
+            x.view(np.uint32) != y.view(np.uint32))), ndiff_bytes=ndiff_bytes,
+            max_step=int(differing.max()) if differing.size else 0,
+            median_step=int(np.median(differing)) if differing.size else 0))
+    return rows, total
+
+
+def d_state_per_head(pair, path_a, path_b, d):
+    """The GDN `state` field split by head — the only way the window can distinguish 'a subset of the 32
+    decay values differ' from 'every word moved a little'.
+
+    §04.6 step 1 multiplies head h's whole 16,384-word block by `exp(g[h])`, one transcendental per head,
+    so a last-bit difference in k of the 32 decay values moves k whole head-blocks and nothing else. The
+    total byte count cannot say that (13,244 words is 0.8 of a head or 2.5% of the state, and both read the
+    same in aggregate); the per-head split can, and it also separates a scattered pattern from a contiguous
+    one, which is the difference between a transcendental and an index or stride defect. The 32 counts must
+    add up to the `state` line of the attribution above, and `field-attribution-accounts-to-the-pair` holds
+    them to it.
+    """
+    a = np.frombuffer(Path(path_a).read_bytes(), dtype=np.uint8)
+    b = np.frombuffer(Path(path_b).read_bytes(), dtype=np.uint8)
+    off, ln, _ = d["fields"]["state"]
+    per_head = d["GDN_D_K"] * d["GDN_D_V"]
+    heads = d["GDN_H_V"]
+    counts = []
+    for h in range(heads):
+        lo = 4 * (off + h * per_head)
+        hi = 4 * (off + (h + 1) * per_head)
+        counts.append(int(np.count_nonzero(a[lo:hi] != b[lo:hi])))
+    total = int(np.count_nonzero(a[4 * off:4 * (off + ln)] != b[4 * off:4 * (off + ln)]))
+    moved = sum(counts)
+    print("DHEAD pair=%s file=gdn_record.f32 heads=%d words_per_head=%d per_head_ndiff_bytes=%s "
+          "state_ndiff_bytes=%d sum_of_heads=%d accounting=%s heads_with_diff=%d"
+          % (pair, heads, per_head, ",".join(str(c) for c in counts), total, moved,
+             "ok" if moved == total else "MISMATCH",
+             sum(1 for c in counts if c)))
+    ATTRIBS.append(dict(tag="DHEAD", pair=pair, total=total, moved=moved, fields_with_diff=["state"]))
+    return counts
+
+
+def print_field_attrib(tag, pair, file_word, rows, total, note=""):
+    """One line per field, then the accounting line. Returns the rows so a control can compare them.
+
+    The accounting line is the load-bearing one: `sum_of_fields` has to equal the pair's own
+    `ndiff_bytes`, and `fields_with_diff` names where the difference lives without anyone re-reading the
+    totals. A table whose counts did not add up to the number the PAIR line printed would be an attribution
+    of a different file, and that is a finding, printed as one.
+    """
+    for r in rows:
+        print("%s pair=%s file=%s field=%s words=%d ndiff_words=%d ndiff_bytes=%d max_bit_step=%d "
+              "median_bit_step=%d"
+              % (tag, pair, file_word, r["field"], r["words"], r["ndiff_words"], r["ndiff_bytes"],
+                 r["max_step"], r["median_step"]))
+    moved = sum(r["ndiff_bytes"] for r in rows)
+    print("%s pair=%s file=%s ndiff_bytes=%d sum_of_fields=%d accounting=%s fields_with_diff=%s %s"
+          % (tag, pair, file_word, total, moved,
+             "ok" if moved == total else "MISMATCH",
+             ",".join(r["field"] for r in rows if r["ndiff_bytes"]) or "none", note))
+    ATTRIBS.append(dict(tag=tag, pair=pair, total=total, moved=moved,
+                        fields_with_diff=[r["field"] for r in rows if r["ndiff_bytes"]]))
+    return dict(pair=pair, total=total, moved=moved,
+                fields_with_diff=[r["field"] for r in rows if r["ndiff_bytes"]], rows=rows)
+
+
+GLIBC_LIBM = [None]
+
+
+def glibc_expf(x):
+    """glibc's `expf` — the very function the host body links against, reached through ctypes.
+
+    Called one value at a time on purpose: the point is to compare the host route's answer with an
+    independent correctly-rounded one on the inputs this row actually uses, not to sample numpy's own
+    vectorised exp, which is a third implementation nobody claims.
+    """
+    if GLIBC_LIBM[0] is None:
+        libm = ctypes.CDLL("libm.so.6")
+        libm.expf.restype = ctypes.c_float
+        libm.expf.argtypes = [ctypes.c_float]
+        GLIBC_LIBM[0] = libm
+    return GLIBC_LIBM[0].expf(ctypes.c_float(x))
+
+
+def exp_route_disagreement(values, name, note=""):
+    """How many of THESE transcendental sites disagree between two routes, and by how many steps.
+
+    Route one is glibc's `expf` (what the host body computes). Route two is `Decimal.exp()` at 60 digits
+    rounded once to f32 — the same second route `DECISIONS.md` D-14 used to decide what "correctly rounded"
+    means for `ssm_a`. The count is not a measurement of the device's libm, and it must not be read as one:
+    no CPU run can touch ocml. What it prices is how faithful the HOST side of the pair is to a correct
+    answer, which is what makes "the device's difference is a last-bit transcendental" cheap or expensive:
+    if glibc already agrees with correct on 4,095 of 4,096 sites, the hypothesis needs the device's libm to
+    be ~two orders of magnitude less faithful, and says so out loud.
+    """
+    vals = np.asarray(values, dtype=np.float32)
+    with localcontext() as c:
+        c.prec = 60
+        # Decimal.exp() at 60 digits, then one rounding into the f32 image — D-14's second route.
+        # `struct.unpack` returns a TUPLE: taking the element, not the tuple, is what keeps `correct` a
+        # 1-D array. A list of 1-tuples would make it (n,1), broadcast against `host`'s (n,) into (n,n), and
+        # print a disagreement count of n² — which is exactly the bug this comment now guards.
+        correct = np.array([struct.unpack("<f", struct.pack("<f", float(Decimal(float(v)).exp())))[0]
+                            for v in vals], dtype=np.float32)
+    host = np.array([glibc_expf(float(v)) for v in vals], dtype=np.float32)
+    if correct.shape != vals.shape or host.shape != vals.shape:
+        raise Refused("exp-route-shape", "the two routes came back %s and %s against a population of %s; "
+                                        "a disagreement count between differently-shaped arrays would be a "
+                                        "broadcast artefact, not a measurement"
+                      % (correct.shape, host.shape, vals.shape))
+    steps = ordered_f32_steps(host, correct)
+    disagree = int(np.count_nonzero(steps))
+    # A count larger than the population is the signature of a broadcast, and a count that cannot exceed its
+    # denominator cannot be silently wrong: the denominator is printed with it.
+    if disagree > vals.size:
+        raise Refused("exp-route-count-exceeds-population",
+                      "%s: %d disagreements over %d sites is not a count of sites" % (name, disagree,
+                                                                                      vals.size))
+    print("%s sites=%d host_route=glibc-expf reference_route=decimal60-rounded-to-f32 disagree=%d "
+          "fraction=%.6f max_bit_step=%d %s"
+          % (name + "SCOPE", vals.size, disagree, disagree / float(max(vals.size, 1)),
+             int(steps.max()) if steps.size else 0, note))
+    return dict(sites=int(vals.size), disagree=disagree,
+                max_step=int(steps.max()) if steps.size else 0)
+
+
+# The candidate causes, each one an arm mode (no second implementation in Python that could drift from the
+# arm). For each: what it is, and which of the task's suspect classes it stands for.
+G_CAUSES = (("silu_exp_ulp1", "transcendental last-bit: expf(-gate) one ULP up at every silu site"),
+            ("cast_after", "combine weight form: the fp32 weight the reference threw away"),
+            ("acc_bf16", "combine accumulator order: the other path's bf16 accumulator"),
+            ("rank_accum", "combine walk order: the prototype's rank-order walk"),
+            ("byte_shift_1", "a one-byte span offset: the stride/offset read defect"))
+D_CAUSES = (("decay_ulp1", "transcendental last-bit: exp(decay) one ULP up"),
+            ("decay_head_off1", "wrong head's decay: the index defect"),
+            ("state_xpose", "carried state read transposed: the index-mapping defect"))
+
+
+def print_device_only_attribution_dvoids(vertical, pair_label):
+    """The legs of the attribution that only a device window can execute, printed as such.
+
+    Two of them are not about this vertical at all and are the same for every one:
+      * injecting the cause on the DEVICE path. Every injected magnitude printed here is a host-path number,
+        so a cause that exists only in device codegen — a fused multiply-add the device allows and the host
+        body does not, a denormal policy, a different reduction tree in the `__global__` body — would show
+        up as a device divergence no host injection reproduces. That is a finding, not a zero.
+      * the first rung of `pitfalls/00-measurement.md` §a-divergence-count-that-changes-between-identical-runs
+        is a race, not rounding: constant count + adjacent bit images + an attributed third side is rounding;
+        a MOVING count is uninitialised memory or a race and may never be banded. Constancy is a property of
+        two identical device runs, so no CPU witness can establish it, and `max_bit_step` in the attribution
+        lines is the adjacency half once a window supplies it twice.
+    """
+    print("%sVOID control-leg=%s status=not-exercised reason=needs-a-device-window "
+          "note=the per-field split of %s is what the injected magnitudes compare against; window `g` "
+          "printed only the total, and a total cannot be checked against a mechanism"
+          % ("D" if vertical == "gdn" else "G", "%s-device-divergence-attributed" % vertical, pair_label))
+    print("DVOID control-leg=%s-cause-injected-on-device-path status=not-exercised "
+          "reason=needs-a-device-window note=every cause was injected on the arm's host path, so a cause "
+          "that only exists in device codegen (contraction the device allows, a denormal policy, a "
+          "reduction tree inside the __global__ body) prices as zero here and would show as a device "
+          "divergence no injection reproduces" % vertical)
+    print("DVOID control-leg=%s-divergence-constant-across-identical-runs status=not-exercised "
+          "reason=needs-a-device-window note=constant ndiff_bytes across two identical runs plus adjacent "
+          "bit images is rounding; a moving ndiff_bytes is uninitialised scratch or a race and must never "
+          "be banded (pitfalls/00-measurement.md). Run the window's driver command twice and diff the "
+          "GATTRIB/DATTRIB lines" % vertical)
+
+
+def control_gather_divergence_causes(v, ctx):
+    """Attribute the device-vs-host policy-A gather divergence by magnitude, or report that no cause does.
+
+    For each candidate cause the arm can execute, run it on the host path of the hipcc arm and count, per
+    field, how many bytes that cause moves against the honest record. Then, when a device window supplies
+    the observed divergence, compare: same fields non-zero, and total within a factor of two. A cause that
+    moves the wrong fields is dead however well its total matches; a cause whose total is off by 4x has not
+    been shown anything. What the CPU witness can already say, and prints:
+
+      * `gate`/`up` are upstream of every transcendental in the body, so the `silu_exp_ulp1` leg MOVES THEM
+        ZERO and moves `s`, `raw`, `routed` — the reference path, which rounds each of those to bf16, moves
+        ZERO in every field for the same injection. That is the measured shape of "the reference-path pair
+        is byte-exact on the device and the policy-A pair is not", and it is the falsifiable prediction: if
+        the device's `gate`/`up` differ at all, this cause is dead and the defect is in the read.
+      * how much the maximal form of the transcendental cause is worth: one ULP at every site is a hard
+        upper bound on what a libm difference can move, and the host's own expf is checked against a
+        correctly-rounded route on the same sites, so the bound is priced and not asserted.
+    """
+    if not ctx.get("gpaths"):
+        return
+    g = ctx["gpaths"][DA.G_PATHS[0]]["g"]
+    device_pair = ctx.get("g_device_pair_rows") or {}
+    accounted, injected_nonzero, lines, reach_offences = [], [], [], []
+    snap = (dict(PATH_LEGS), dict(G_LEGS))
+    ctx.setdefault("g_cause_match", {})
+    for width in DA.G_PATHS:
+        p = ctx["gpaths"][width]
+        # The honest side is the hipcc arm's HOST path in both modes, on purpose: an injected cause is
+        # measured inside one compiler, so the number it produces is the price of the cause and not of the
+        # cause plus a codegen difference. What a cause can only be priced against on the device itself is
+        # listed as a not-exercised leg.
+        honest_rec = p["dir"] / "out_hip.bin"
+        rows_by_cause = {}
+        for cause, what in G_CAUSES:
+            plan = g_plan_variant(p, p["plan"].read_text().replace("mode=correct", "mode=" + cause))
+            rec = g_run_variant(ctx, width, plan, "out_cause_%s.bin" % cause,
+                               "g_%s_cause_%s" % (width, cause), device=False)
+            rows, total = record_field_rows(rec["wrote"]["path"], honest_rec, g["order"], g["fields"])
+            attrib = print_field_attrib("GINJECT", "g_%s_cause_%s_vs_honest" % (width, cause),
+                                       "gather_record.f32", rows, total,
+                                       note="cause=%s (%s), host path of the hipcc arm"
+                                            % (cause, what))
+            rows_by_cause[cause] = attrib
+            # The arm publishes which record fields the mode it just ran can reach, and the measured set must
+            # never exceed it: a mode that moves a field the driver did not name is a mode the driver is not
+            # entitled to interpret. Moving LESS than claimed is not an offence per width — a width can
+            # legitimately absorb a cause (the reference path rounds `s` to bf16 and swallows a last-bit exp
+            # whole, which is a finding this control prints on purpose) — so it is printed here and adjudicated
+            # once below, per cause across both widths: a cause that moves nothing anywhere is an inert
+            # injection, and every magnitude printed beside it would be a lie about the cause it prices.
+            claim_s = (rec.get("hdr", {}) or {}).get("mode_fields") or ""
+            claim = set(w for w in claim_s.split(",") if w)
+            moved_fields = set(attrib["fields_with_diff"])
+            extra, unused = sorted(moved_fields - claim), sorted(claim - moved_fields)
+            print("GREACH path=%s cause=%s arm_claimed=%s measured_moved=%s beyond_claim=%s "
+                  "claimed_but_unmoved=%s"
+                  % (width, cause, claim_s or "ABSENT", ",".join(sorted(moved_fields)) or "none",
+                     ",".join(extra) or "none", ",".join(unused) or "none"))
+            if extra:
+                reach_offences.append("%s/%s beyond:%s" % (width, cause, "|".join(extra)))
+            accounted.append(attrib)
+            injected_nonzero.append((width, cause, total))
+        legs_so_far = g_legs_since(snap)
+        print("GCAUSE path=%s injected_causes=%s device_pair=%s legs=%s"
+              % (width, ";".join("%s total=%d fields=%s" % (c, a["total"],
+                                                           ",".join(a["fields_with_diff"]) or "none")
+                                   for c, a in rows_by_cause.items()),
+                 ("total=%d fields=%s" % (device_pair[width]["total"],
+                                          ",".join(device_pair[width]["fields_with_diff"]) or "none")
+                  if width in device_pair else "not-exercised"),
+                 ",".join("%s:%d" % (k, n) for k, n in sorted(legs_so_far.items()))))
+        if width in device_pair:
+            obs = device_pair[width]
+            best = []
+            for cause, attrib in rows_by_cause.items():
+                same_fields = attrib["fields_with_diff"] == obs["fields_with_diff"]
+                ratio = (obs["total"] / float(attrib["total"])) if attrib["total"] else 0.0
+                within = 0.5 <= ratio <= 2.0
+                if obs["total"] == 0:
+                    print("GMAGMATCH pair=g_%s_hip_device_vs_hip_hostpath cause=%s device_bytes=0 "
+                          "injected_bytes=%d verdict=NOTHING-TO-ATTRIBUTE device pair is byte-exact"
+                          % (width, cause, attrib["total"]))
+                    continue
+                print("GMAGMATCH pair=g_%s_hip_device_vs_hip_hostpath cause=%s device_bytes=%d "
+                      "injected_bytes=%d ratio=%.3f same_fields=%s within_factor_two=%s verdict=%s"
+                      % (width, cause, obs["total"], attrib["total"], ratio, same_fields, within,
+                         "CANDIDATE" if (same_fields and within) else "RULED-OUT"))
+                if same_fields and within:
+                    best.append(cause)
+            ctx["g_cause_match"][width] = best if obs["total"] else ["byte-exact"]
+            lines.append("%s: device total=%d fields=%s candidates=%s"
+                         % (width, obs["total"], ",".join(obs["fields_with_diff"]) or "none",
+                            ",".join(best) or "NONE"))
+        else:
+            lines.append("%s: device divergence not-exercised (no device pair in this run); injected "
+                         "magnitudes above are the ruler a window compares against" % width)
+        ctx.setdefault("g_causes", {})[width] = rows_by_cause
+    if not ctx["device"]:
+        print_device_only_attribution_dvoids("gather", "g_policy_a_hip_device_vs_hip_hostpath")
+    legs = g_legs_since(snap)
+    silu = [ctx["g_causes"][w]["silu_exp_ulp1"] for w in DA.G_PATHS if w in ctx.get("g_causes", {})]
+    policy_silu = ctx.get("g_causes", {}).get("policy_a", {}).get("silu_exp_ulp1")
+    ref_silu = ctx.get("g_causes", {}).get("ref_bf16", {}).get("silu_exp_ulp1")
+    gate_up_clean = bool(policy_silu) and not [f for f in policy_silu["fields_with_diff"]
+                                               if f in ("gate", "up")]
+    ref_absorbed = bool(ref_silu) and ref_silu["total"] == 0
+    inert = [cause for cause, _ in G_CAUSES
+             if not sum(ctx.get("g_causes", {}).get(w, {}).get(cause, {}).get("total", 0)
+                        for w in DA.G_PATHS)]
+    reach_offences += ["%s inert-on-both-widths" % c for c in inert]
+    ok = (all(a["moved"] == a["total"] for a in accounted)
+          and any(t > 0 for w, c, t in injected_nonzero if w == "policy_a")
+          and gate_up_clean and ref_absorbed and not reach_offences)
+    reason = None
+    if reach_offences:
+        reason = ("an injected mode moved fields its own HDR reach claim does not name, or moved nothing on "
+                  "either width (GREACH lines name which): %s" % ";".join(reach_offences))
+    elif not ok:
+        reason = ("attribution did not account (sum_of_fields != ndiff_bytes) or the injected causes were "
+                  "inert or the transcendental cause moved a field upstream of it: accounted=%s "
+                  "policy_a_injections_nonzero=%s gate_up_clean=%s ref_bf16_absorbs_exp=%s"
+                  % ([ (a["pair"], a["total"], a["moved"]) for a in accounted if a["moved"] != a["total"]],
+                     any(t > 0 for w, c, t in injected_nonzero if w == "policy_a"),
+                     gate_up_clean, ref_absorbed))
+    if ctx["device"]:
+        unresolved = [w for w in DA.G_PATHS if w in ctx.get("g_device_pair_rows", {})
+                      and not ctx.get("g_cause_match", {}).get(w)]
+        if unresolved:
+            ok = False
+            reason = ("no injected cause reproduces the device divergence in field location AND magnitude "
+                      "on %s; the mechanism is therefore UNATTRIBUTED and no scope may be claimed for it "
+                      "(GMAGMATCH lines name what was ruled out and by how much)" % ",".join(unresolved))
+    v.control("gather-divergence-causes-priced", ok,
+              "five candidate causes injected on the arm's host path and counted per field; every "
+              "attribution accounts to its pair total; the reference path absorbs the maximal exp "
+              "injection completely (total=%s) while policy A moves %d bytes with gate/up untouched — the "
+              "measured shape of the device's split verdict. %s"
+              % (ref_silu["total"] if ref_silu else "?",
+                 policy_silu["total"] if policy_silu else 0, "; ".join(lines)),
+              legs=legs, claims=("host_cpubody",),
+              reason=reason)
+
+
+def control_d_divergence_causes(v, ctx):
+    """The GDN pair's candidate causes, priced the same way, plus the third rung of the rounding test.
+
+    Three causes the arm can execute, counted per field against the honest record: the decay one-ULP-up
+    injection (the transcendental hypothesis), the wrong-head decay (an index defect), and the transposed
+    state read (an index-mapping defect). `q_hat`/`k_hat` are the discriminator the arm's own reach table
+    supplies — neither reads the decay or the state — so any cause that moves them is not a decay rounding,
+    and the injected numbers show whether that half of the prediction even survives: the decay injection
+    moves them zero.
+    """
+    if not ctx.get("d"):
+        return
+    d = ctx["d"]["d"]
+    honest = ctx["work"] / "d_out_hip.bin"
+    obs = ctx.get("d_device_pair_rows")
+    accounted, rows_by_cause, reach_offences = [], {}, []
+    for cause, what in D_CAUSES:
+        r = d_variant(ctx, "d_cause_%s.bin" % cause, "d_cause_%s" % cause, mode=cause,
+                      binary=ctx["args"].d_arm_binary)
+        rows, total = record_field_rows(r["rec"]["wrote"]["path"], honest, d["order"], d["fields"])
+        rows_by_cause[cause] = print_field_attrib("DINJECT", "d_cause_%s_vs_honest" % cause,
+                                                 "gdn_record.f32", rows, total,
+                                                 note="cause=%s (%s), hipcc arm's host path"
+                                                      % (cause, what))
+        # The arm publishes, in its own HDR line, which record fields the mode it just ran is able to move.
+        # The measured set must equal that claim, in both directions: a mode that moves a field it did not
+        # name is a mode the driver is not entitled to interpret, and a mode that moves LESS than it names is
+        # an injection that is partly inert — which would make every magnitude printed here a lie about the
+        # cause it claims to price. There is one GDN width, so claimed-but-unmoved can only mean inert here;
+        # the gather lane has two widths and adjudicates that case per cause across both (`GREACH`).
+        claim = set(w for w in (r.get("mode_fields") or "").split(",") if w)
+        moved_fields = set(rows_by_cause[cause]["fields_with_diff"])
+        extra, unused = sorted(moved_fields - claim), sorted(claim - moved_fields)
+        print("DREACH cause=%s arm_claimed=%s measured_moved=%s beyond_claim=%s claimed_but_unmoved=%s"
+              % (cause, r.get("mode_fields"), ",".join(sorted(moved_fields)) or "none",
+                 ",".join(extra) or "none", ",".join(unused) or "none"))
+        if extra or unused:
+            reach_offences.append("%s(%s%s)" % (cause, "beyond:" + "|".join(extra) if extra else "",
+                                                " unclaimed:" + "|".join(unused) if unused else ""))
+        if cause == "decay_ulp1":
+            # The ruler for the head-count question: this injection moves EVERY head's block, so the device
+            # run's `heads_with_diff` says directly how many of the 32 decays differ there.
+            d_state_per_head("d_cause_%s_vs_honest" % cause, r["rec"]["wrote"]["path"], honest, d)
+        accounted.append(rows_by_cause[cause])
+    print("DCAUSE injected_causes=%s device_pair=%s"
+          % (";".join("%s total=%d fields=%s" % (c, a["total"], ",".join(a["fields_with_diff"]) or "none")
+                      for c, a in rows_by_cause.items()),
+             ("total=%d fields=%s" % (obs["total"], ",".join(obs["fields_with_diff"]) or "none")
+              if obs else "not-exercised")))
+    ok = (all(a["moved"] == a["total"] for a in accounted)
+          and any(a["total"] > 0 for a in rows_by_cause.values()) and not reach_offences)
+    reason = None
+    if reach_offences:
+        reason = ("an injected mode moved fields other than the ones its own HDR reach claim names, or fewer "
+                  "(DREACH lines name which): %s" % ";".join(reach_offences))
+    elif not ok:
+        reason = ("attribution did not account, or every injected cause was inert: %s"
+                  % [(a["pair"], a["total"], a["moved"]) for a in accounted if a["moved"] != a["total"]])
+    if obs is not None:
+        best = []
+        for cause, attrib in rows_by_cause.items():
+            same_fields = attrib["fields_with_diff"] == obs["fields_with_diff"]
+            ratio = (obs["total"] / float(attrib["total"])) if attrib["total"] else 0.0
+            within = 0.5 <= ratio <= 2.0
+            if obs["total"] == 0:
+                print("DMAGMATCH pair=d_hip_device_vs_d_hip_hostpath cause=%s device_bytes=0 "
+                      "injected_bytes=%d verdict=NOTHING-TO-ATTRIBUTE device pair is byte-exact"
+                      % (cause, attrib["total"]))
+                continue
+            print("DMAGMATCH pair=d_hip_device_vs_d_hip_hostpath cause=%s device_bytes=%d "
+                  "injected_bytes=%d ratio=%.3f same_fields=%s within_factor_two=%s verdict=%s"
+                  % (cause, obs["total"], attrib["total"], ratio, same_fields, within,
+                     "CANDIDATE" if (same_fields and within) else "RULED-OUT"))
+            if same_fields and within:
+                best.append(cause)
+        ctx["d_cause_match"] = best if obs["total"] else ["byte-exact"]
+        if not best and obs["total"]:
+            ok = False
+            reason = ("no injected cause reproduces the GDN device divergence in field location AND "
+                      "magnitude; the mechanism is UNATTRIBUTED and no scope may be claimed for it "
+                      "(DMAGMATCH names what was ruled out and by how much)")
+    else:
+        print_device_only_attribution_dvoids("gdn", "d_hip_device_vs_d_hip_hostpath")
+    v.control("gdn-divergence-causes-priced", ok,
+              "three candidate causes injected and counted per field; every attribution accounts to its "
+              "pair total; every cause moved exactly the fields the arm's own HDR reach claim names "
+              "(DREACH); q_hat/k_hat untouched by all three, which is what the reach table promises and "
+              "this leg measures. %s" % (
+                  ";".join("%s=%d" % (c, a["total"]) for c, a in rows_by_cause.items())),
+              reason=reason)
 
 
 def control_gather_device_refusal(v, ctx):
@@ -2490,6 +3234,17 @@ def run_d_arms(v, ctx):
     print("PAIR pair=d_host_twin_vs_d_hip_hostpath file=gdn_record.f32 bytes=%d ndiff_bytes=%d "
           "cases=1 zero_tolerance=1 verdict=%s"
           % (nbytes, ndiff, "IDENTICAL" if ndiff == 0 else "DIFFERS"))
+    print_field_attrib("DATTRIB", "d_host_twin_vs_d_hip_hostpath", "gdn_record.f32",
+                       *record_field_rows(work / "d_out_host.bin", work / "d_out_hip.bin",
+                                          d["order"], d["fields"]),
+                       note="per-field split of the PAIR line above; totals must account")
+    d_state_per_head("d_host_twin_vs_d_hip_hostpath", work / "d_out_host.bin",
+                     work / "d_out_hip.bin", d)
+    g_decay = [s for s in ctx["d"]["spans"] if s["name"] == "g_decay"][0]
+    exp_route_disagreement(np.frombuffer(g_decay["data"], dtype="<f4"), "DEXP",
+                           note="sites=the 32 g_decay values in the slab; §04.6 step 1 is "
+                                "S = S * exp(g), so this is the only transcendental the recurrent body "
+                                "evaluates and these are its real inputs")
     record, device_pair = work / "d_out_hip.bin", None
     if ctx["device"]:
         dev = d_arm(args.d_arm_binary, ctx["d"]["plan"], ctx["d"]["slab"]["slab"],
@@ -2500,6 +3255,14 @@ def run_d_arms(v, ctx):
               "cases=1 zero_tolerance=1 verdict=%s"
               % (device_pair[0], device_pair[1],
                  "IDENTICAL" if device_pair[1] == 0 else "DIFFERS"))
+        ctx["d_device_pair_rows"] = print_field_attrib(
+            "DATTRIB", "d_hip_device_vs_d_hip_hostpath", "gdn_record.f32",
+            *record_field_rows(work / "d_out_device.bin", work / "d_out_hip.bin", d["order"],
+                               d["fields"]),
+            note="the unattributed divergence of window `g`, now counted per field; compared with the "
+                 "injected causes by gdn-divergence-causes-priced")
+        d_state_per_head("d_hip_device_vs_d_hip_hostpath", work / "d_out_device.bin",
+                         work / "d_out_hip.bin", d)
         record = work / "d_out_device.bin"
     fields, nan = DA.d_record(record, d)
     stages = DA.d_stage_tensors(fields, d)
@@ -3389,7 +4152,10 @@ def run(out, args):
     control_gather_order_and_form(v, ctx)
     control_gather_width_substitution(v, ctx)
     control_gather_device_refusal(v, ctx)
+    control_gather_read_back_expectation(v, ctx)
     control_gather_read_back(v, ctx)
+    control_gather_divergence_causes(v, ctx)
+    control_d_divergence_causes(v, ctx)
     control_d_state_transposition(v, ctx)
     control_d_carry_index(v, ctx)
     control_d_non_carried_state(v, ctx)

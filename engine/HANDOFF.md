@@ -1570,10 +1570,16 @@ missing=0
 while read -r pat; do
   grep -q -- "$pat" "$log" || { printf 'MUST-BE-TRUE missing: %s\n' "$pat"; missing=1; }
 done <<'PAT'
-RESULT mode=device checks=55 findings=0 controls=26 fired=26
+# The three lines below were rewritten by PASS 7 (2026-10-27) because the build moved under them: the
+# RESULT counts changed (+2 checks, +3 controls), and the GDN device pair DIVERGED from its host path
+# (52,976 B of 2,187,264), so a pattern demanding `ndiff_bytes=0 ... verdict=IDENTICAL` would have reddened
+# the window for the wrong reason. Counts are matched as PREFIXES now, and findings are named in PASS 7
+# rather than counted, because a finding count is exactly the number that changes when a band changes.
+RESULT mode=device checks=57
+controls=29
 band_digest=27a68c7e82c9aa05
 DCENSUS arm=d_hip_device path=device form=recurrent items_total=18496/18496 reads_state=524288/524288 writes_state=524288/524288 state_nonzero=509952 state_sum=2525565901 state_sumidx=3508630800 out_elems=4096/4096 outproj_reads=8388608/8388608 disagree=none
-PAIR pair=d_hip_device_vs_d_hip_hostpath file=gdn_record.f32 bytes=2187264 ndiff_bytes=0 cases=1 zero_tolerance=1 verdict=IDENTICAL
+PAIR pair=d_hip_device_vs_d_hip_hostpath file=gdn_record.f32 bytes=2187264
 DREADBACK path=device off=16802240 bytes=32 hex=
 DREADBACK control-leg=gdn-device-readback ran=yes
 DCONTROL control=transposition leg=gdn-device ran=yes
@@ -1776,3 +1782,229 @@ witness (`checks=51 findings=0 controls=25 fired=25`) are unchanged and still pr
    declares the oracle wrong. No band was authored anywhere in this work; the tool prints
    `licence-issued=none`, and any future llama-derived limit must print
    `licence=llama-crosscheck(observation-only)`.
+
+## PASS 7 (2026-10-27, CPU-only) — window `g`'s crash, the control that printed SILENT, and the two device divergences turned into per-field questions
+
+**Done:** the crash (`control_gather_read_back`), the silent guard (`control-witness-can-redden`'s honest
+half), and the CPU half of the attribution. **Not done:** every leg that needs the iGPU — they are the
+`DVOID`/`GVOID` list in §5 with the command that clears them. No device act in this pass:
+`RESULT mode=cpu checks=53 findings=0 controls=28 fired=28 rows=6 gdn_rows=7 arms=policy_a device=off
+staged=not-attempted hip_calls=0+0 launches=0 bytes_to_device=0 bytes_from_device=0
+band_digest=27a68c7e82c9aa05 no timing taken`; host wall 8.0 s, RSS 544 MB; `grep -c gpu_lock` is 0 in
+`block_device.py`, `device_arm.py`, `device/m2_g_*`, `device/m2_d_*`, `device/build.sh`. Full log:
+`specification/evidence/blockdevice-cpu-2026-10-27-p7.log`; the numbers below are in
+`specification/evidence/blockdevice-device-attribution-2026-10-27.md`.
+
+### 1. The crash — `KeyError: '_bytes'` — fixed by deleting the assumption, not the control
+
+The control asked a unit for `u["_bytes"]`, which only the CPU host-twin path ever attaches (the driver
+keeps the bytes it wrote). A `--device` unit comes from the D2H read-back and has no such key, so the
+comparison crashed on the first unit of the reference width — before the policy-A leg, before the GDN
+vertical, and before any `RESULT` line. The fix is that the control no longer depends on a copy the driver
+happens to keep. `g_unit_expectation(ctx, u)` derives the expected bytes from the **same source the pair
+check trusts** — the artifact file, addressed by the unit's own `file_kind`/`file_src`/`file_off` — and
+`g_read_back_leg(ctx, u, got_hex, slab_head)` returns a named verdict for every way the leg can fail:
+
+| failure mode | what it means | can it be silently true? |
+|---|---|---|
+| `NO-EXPECTATION` | the unit names no file coordinate, so nothing is being compared | no — it is a fail |
+| `SLAB-DIVERGES` | the driver's own slab bytes ≠ the artifact bytes, so a device read-back of them would certify nothing | no |
+| `NO-DEVICE-READBACK` | the arm ran on a path that printed no read-back line | no |
+| `MISMATCH` | device ≠ slab, or slab ≠ artifact | no |
+
+Witness that it reddens rather than crashing or passing (printed by the CPU witness every run, so it is not
+a one-off claim in this file):
+
+```text
+GWITNESS guard=gather-read-back fabricated=unit-without-bytes leg_fired=yes NO-EXPECTATION unit names no file_kind/file_src/file_off (got None/None/None), so there is nothing to compare the device's bytes against
+GWITNESS guard=gather-read-back fabricated=device-one-bit-off leg_fired=yes MISMATCH device=783c543b253ab6bb283b843b37bc303c artifact=793c543b253ab6bb283b843b37bc303c
+GWITNESS guard=gather-read-back fabricated=slab-from-wrong-offset leg_fired=yes SLAB-DIVERGES driver slab=253ab6bb283b843b37bc303c1fbc5c3c but artifact=793c543b253ab6bb283b843b37bc303c: the bytes handed to the copy are not the bytes the artifact holds, so a device read-back of them would certify nothing
+```
+
+The control that owns those legs is `gather-read-back-expectation-is-the-artifact` — in a CPU witness it
+prints `CONTROL name=gather-read-back-expectation-is-the-artifact fired=RED legs=cpu_predicate:5`, five
+comparisons executed (two honest width comparisons against the real plan, three fabrications). No
+`try/except: pass`, no "skip when `_bytes` is absent", no default-true predicate anywhere in it: the absence
+of an expectation is itself a failure, which is the only form that would have caught the window-`g` state as
+a finding instead of a traceback. The CPU witness still reports the device leg itself as
+`GVOID control=gather-device-unit-read-back reason=no-device-act-in-this-run` and does not register it —
+a host read of host bytes is not a device read-back.
+
+### 2. The guard that printed `fired=SILENT` on the device path — now per path, and silent costs a reason
+
+`control-witness-guard-can-redden` was honest-half + fabrications, where the honest half demanded "no
+record has a device act". In a device window that demand is false by construction — five arms are
+launching — so the conjunction could not hold and the control went quiet on the one path its fabrication was
+supposed to cover. It now splits the honest set by the path the arm itself reported:
+
+- records with `path != device` must be act-free (`no_device_act_offences`, unchanged);
+- records with `path == device` must be seen to **have** acts (`device_act_absences`: `launches=0`,
+  `bytes_from_device=0` or a missing counter is an offence — a `RUN`/`ARM` line that omits a number cannot
+  certify the number was zero);
+- a leg with nothing to read prints `status=not-exercised` **with a reason** instead of being counted:
+  `GWITNESS guard=no-device-acts leg=device-records-have-acts status=not-exercised reason=no-device-act-in-this-run note=… it is reported unexercised, not counted as passed, and the fabrication below is what shows it can fire`;
+- and a fourth fabrication proves the device half can bite without a device:
+  `GWITNESS guard=no-device-acts fabricated=device-run-with-no-act offences=['fabricated/device-run-with-no-act.launches=0', 'fabricated/device-run-with-no-act.bytes_from_device=0']`.
+
+Two rules now make a quiet control expensive, and both are checks, not conventions:
+
+- `silent-control-names-its-reason` — a control that did not fire must print a non-empty `reason=`
+  (`silent_control_finding` is the single rule so the check and the witness agree). Witnessed non-zero:
+  `silent_control_finding(False, None) → 'silent-without-named-reason'`,
+  `silent_control_finding(False, 'needs-a-device-window') → None`, `silent_control_finding(True, …) → None`.
+- `control-legs-cover-the-path-under-claim` (pre-existing, PASS 4) — a control that claims a path with zero
+  counted legs on it is a finding. Together with the above, `fired=SILENT` with no named reason is now
+  unreachable: it reddens as a check instead of reading like a clean guard.
+
+In a device window the device records do report acts (`window g`: `ARM arm=hip_device path=device
+hip_calls=12 launches=4 allocs=3 bytes_to_device=3354624 bytes_from_device=22556`), so the control's
+honest half is satisfiable there and it fires `fired=RED` in both modes. Its own legs are predicate
+evaluations over records the arms already produced, so they are named `cpu_predicate` (6 of them in a device
+window, 5 in a CPU run where the device half prints `not-exercised`); it claims no arm path, which is what
+`control-legs-cover-the-path-under-claim` holds a claiming control to.
+
+### 3. The two unattributed device divergences — per-field counts, injected causes, and what is ruled out
+
+The rule this pass worked under: **nothing was deleted, no field was moved out of a claimed exactness, no
+band/floor/factor was authored, and `band_digest=27a68c7e82c9aa05` is unchanged.** Both pair checks
+(`gather-compiled-pair-byte-identical-per-path`, `gdn-compiled-pair-byte-identical`) still claim whole-record
+byte-identity at zero tolerance and still redden on a device window. Full write-up with all cells:
+`specification/evidence/blockdevice-device-attribution-2026-10-27.md`. Short form:
+
+New output: `GATTRIB`/`DATTRIB` (per-field `ndiff_words`, `ndiff_bytes`, `max_bit_step`, `median_bit_step`,
+then an accounting line whose `sum_of_fields` must equal the pair's `ndiff_bytes` — held by the new check
+`field-attribution-accounts-to-the-pair`, witnessed non-zero when an early `(start,end)`-vs-`(start,length)`
+misread printed `accounting=MISMATCH` on 9 tables); `DHEAD` (the GDN `state` field split per head, because
+one `exp()` per head moves a whole 16,384-word head-block); `GINJECT`/`DINJECT` (the same tables with a
+cause injected **inside the arm**, as an arm mode — `silu_exp_ulp1`, `cast_after`, `acc_bf16`, `rank_accum`,
+`byte_shift_1` for the gather; `decay_ulp1`, `decay_head_off1`, `state_xpose` for the GDN); `GEXPSCOPE`/
+`DEXPSCOPE` (how faithful the **host** side is at those transcendental sites, glibc `expf` vs
+`Decimal.exp()` at 60 digits rounded once to f32, D-14's second route). That counter got two guards of its
+own, because an earlier revision of it built the reference route from `struct.unpack(...)` — a tuple — so the
+array came back `(n,1)`, broadcast against the host route's `(n,)`, and printed a "disagreement rate" 3,231×
+larger than its own population. `exp-route-shape` requires both routes' shapes to equal the population's and
+`exp-route-count-exceeds-population` refuses any count outside its printed denominator; the wrong line is kept
+as the witness in `specification/evidence/blockdevice-device-attribution-2026-10-27.md` §2c, and the corrected
+numbers are `1 of 4,096` (policy A), `2 of 4,096` (ref), `0 of 32` (GDN decay), every disagreement exactly one
+bit-image step.
+
+| pair (device) | observed | best-fitting injected cause (host path of the hipcc arm) | verdict of the magnitude test |
+|---|---|---|---|
+| `g_policy_a_hip_device_vs_hip_hostpath` | 3,744 B | `silu_exp_ulp1` 15,426 B in `s,raw,routed`, `gate=up=0` | **not reproduced** — 4.1× too large |
+| ″ | ″ | `cast_after` 4,982 B / `acc_bf16` 5,402 B / `rank_accum` 1,254 B, all `routed`-only | within 0.69–2.99×, so live **and separable** from the row above by field |
+| `g_ref_bf16_hip_device_vs_hip_hostpath` | 0 B | `silu_exp_ulp1` 0 B (every `proj_out` weight is exactly 0 at ref width) | reproduced exactly, and it is why "the device arms differ" is already dead |
+| `d_hip_device_vs_d_hip_hostpath` | 52,976 B | `decay_ulp1` 264,704 B, fields `scan_out,state` only, 26/32 heads moved | **not reproduced** — 5.0× too large; ≈5 head-blocks fit, so ~5 of 32 decays, not 26 |
+| ″ | ″ | `decay_head_off1` 1,533,482 B, `state_xpose` 1,308,457 B (both move `core_attn`,`normed`,`y` too) | **ruled out**: 25–29× too large and they move fields the device pair does not |
+
+Also measured and load-bearing for the "transcendental" story: on the inputs these rows actually use, glibc
+`expf` disagrees with a correctly-rounded route on **1 of 4,096** silu sites (policy A), 2 of 4,096 (ref),
+and **0 of 32** GDN decay sites — so `ocml` would have to be ~5× less faithful on these inputs than glibc is,
+which must be said rather than assumed. And the cheapest device-only index defect (`byte_shift_1`, a
+one-byte `rank_off`) moves **110,212 B = 29× the observed 3,744** across all five fields, which is why an
+offset/stride defect is not the gather's story.
+
+Pricing a cause is worth nothing if the arm's own reach claim is wrong, so `GINJECT`/`DINJECT` now compare
+what a mode moved with the fields its `HDR mode_fields=` names (`GREACH`, `DREACH`): moving an unclaimed
+field is always a finding, and claiming a field the mode never moves is a finding when the cause is inert on
+every width (at ref width `s`/`raw` are bf16-rounded and swallow a last-bit `exp` whole, which is the
+asymmetry, not an inert mode — printed as `claimed_but_unmoved=raw,routed,s`). Two published claims turned
+out to be wrong and are corrected against the measurements: `m2g_mode_field(MG_MODE_BYTE_SHIFT_1)` omitted
+`routed` (the witness printed `GREACH path=ref_bf16 cause=byte_shift_1 … beyond_claim=routed` and went
+`findings=1` before the fix), and `m2d_mode_fields` claimed all five state fields for the decay mode, which
+measures exactly `scan_out,state`. Both are tightenings; neither touches a band.
+
+**Mechanism claim, stated as far as the evidence goes:** *unattributed.* No injected cause reproduces both
+the size and the field split of either device divergence, and no document declares a scope for this
+pair-and-field: D-16 records the prototype `moe_gather` `s`/`raw` glibc-vs-libdevice disagreement as
+"counted and never banded", D-14's 1-ULP acceptance is scoped to one `ssm_a` case, and
+`prototype/gdn/gdn_kernels.h:61` is a note about not using `__expf`. Relaxing an exactness claim is D-18
+reserved to the user, so the checks stay red and the user gets the choice with numbers. The two families
+make **different** predictions (`s,raw,routed` with small bit steps vs `routed` only), which is what makes
+one window decisive rather than another round of guessing.
+
+### 4. What a CPU run can never clear — printed as `DVOID`, not assumed
+
+```text
+GVOID control-leg=gather-device-divergence-attributed status=not-exercised reason=needs-a-device-window
+DVOID control-leg=gather-cause-injected-on-device-path status=not-exercised reason=needs-a-device-window
+DVOID control-leg=gather-divergence-constant-across-identical-runs status=not-exercised reason=needs-a-device-window
+DVOID control-leg=gdn-device-divergence-attributed status=not-exercised reason=needs-a-device-window
+DVOID control-leg=gdn-cause-injected-on-device-path status=not-exercised reason=needs-a-device-window
+DVOID control-leg=gdn-divergence-constant-across-identical-runs status=not-exercised reason=needs-a-device-window
+GVOID control=gather-device-unit-read-back reason=no-device-act-in-this-run
+DVOID control-leg=gdn-state-transposition-on-device status=not-exercised reason=needs-a-device-window
+DVOID control-leg=gdn-device-readback status=not-exercised reason=needs-a-device-window
+DVOID control-leg=gdn-alloc-oversize-actually-fails reason=needs-a-device-window
+GVOID control-leg=gather-alloc-oversize-actually-fails reason=needs-a-device-window
+```
+
+The three `…-constant-across-identical-runs` legs are the first rung of `pitfalls/00-measurement.md`
+§"a divergence count that changes between identical runs is a race": **constant count + adjacent bit images
++ an attributed third side is rounding; a moving count is uninitialised scratch or a race and may never be
+banded.** Constancy is a property of two identical *device* runs, so no CPU witness can establish it and the
+leg says so.
+
+### 5. Exact next-window device command (main agent only: zero workers active, halogen down, lock held, foreground, blocking)
+
+PASS 6 §7's preconditions are unchanged and still required (halogen worker lock absent, `PI_PROVIDER` nothalogen, `gpu_lock` free then held as `$tag`, engine read down off `--showpids` + `mem_info_gtt_used`, eight
+`BUILD ok`). Then, with the same `$V`, `$wd`, `$log`, `$D_ARM`, `$D_HOST`:
+
+```bash
+# one window, both verticals, both attribution halves. Run it TWICE into two logs.
+"$V" engine/block_device.py --device --work "$wd" \
+    --d-arm-binary "$D_ARM" --d-host-binary "$D_HOST" > "$log" 2>&1; rc=$?
+printf 'driver exit=%d log=%s\n' "$rc" "$log"
+[ "$rc" = 0 ] || die "exited $rc; the refusal is in $log"
+
+missing=0
+while read -r pat; do
+  grep -q -- "$pat" "$log" || { printf 'MUST-BE-TRUE missing: %s\n' "$pat"; missing=1; }
+done <<'PAT'
+RESULT mode=device checks=57
+controls=29
+band_digest=27a68c7e82c9aa05
+CONTROL name=gather-read-back-expectation-is-the-artifact fired=RED
+CONTROL name=gather-device-unit-read-back fired=RED
+CONTROL name=control-witness-guard-can-redden fired=RED
+GWITNESS guard=no-device-acts leg=device-records-have-acts records=
+GWITNESS guard=gather-read-back fabricated=device-one-bit-off leg_fired=yes MISMATCH
+GATTRIB pair=g_policy_a_hip_device_vs_hip_hostpath file=gather_record.f32 ndiff_bytes=3744 sum_of_fields=3744 accounting=ok
+DATTRIB pair=d_hip_device_vs_d_hip_hostpath file=gdn_record.f32 ndiff_bytes=52976 sum_of_fields=52976 accounting=ok
+DHEAD pair=d_hip_device_vs_d_hip_hostpath file=gdn_record.f32 heads=32 words_per_head=16384
+DHEAD pair=d_cause_decay_ulp1_vs_honest file=gdn_record.f32 heads=32 words_per_head=16384
+GREACH path=policy_a cause=silu_exp_ulp1 arm_claimed=s,raw,routed beyond_claim=none
+GREACH path=policy_a cause=byte_shift_1 arm_claimed=gate,up,s,raw,routed beyond_claim=none
+DREACH cause=decay_ulp1 arm_claimed=scan_out,state beyond_claim=none
+GMAGMATCH pair=g_policy_a_hip_device_vs_hip_hostpath cause=
+DMAGMATCH pair=d_hip_device_vs_d_hip_hostpath cause=
+GCAUSE path=policy_a injected_causes=silu_exp_ulp1
+DCAUSE injected_causes=decay_ulp1
+CONTROL name=gather-divergence-causes-priced fired=
+CONTROL name=gdn-divergence-causes-priced fired=
+PAT
+[ "$missing" = 0 ] || die "exited 0 without printing what a device run must print; treat the window as NOT taken"
+
+# the determinism rung: same work dir is fine, the arms are deterministic given the same certified bytes
+diff <(grep '^GATTRIB\|^DATTRIB\|^DHEAD' "$log") \
+     <(grep '^GATTRIB\|^DATTRIB\|^DHEAD' "$log2") \
+  && printf 'RUNG-1 constant across runs: ok\n'   || printf 'RUNG-1 DIVERGES between identical runs: race or uninitialised scratch, band NOTHING\n'
+```
+
+`checks=57` is the CPU witness's 53 (51 before this pass, +`field-attribution-accounts-to-the-pair`,
++`silent-control-names-its-reason`) plus the four device-only `rt-device-*` checks; `controls=29` is 28
+(+`gather-read-back-expectation-is-the-artifact`, +`gather-divergence-causes-priced`,
++`gdn-divergence-causes-priced`) plus `gather-device-unit-read-back`, registered only in a window.
+**Findings are deliberately not pinned in that pattern**: while both divergences are unattributed the window
+is expected to print `CHECK name=gather-compiled-pair-byte-identical-per-path verdict=FAIL` and
+`CHECK name=gdn-compiled-pair-byte-identical verdict=FAIL`, and the two `…-causes-priced` controls may print
+`fired=SILENT reason=…` naming the unattributed pair. Those are the findings the user is being handed, not a
+pattern to relax (PASS 4 §5's rule: a disagreement is a finding to read, not a pattern to edit).
+
+That window clears every leg in §4 except the two hand-run `alloc-oversize` refusals, which stay manual:
+PASS 6 §7's `$D_ARM … --fault alloc-oversize` block, and the same leg for the gather arm (the plan and slab
+the driver itself wrote, so the refusal is about the real spans):
+
+```bash
+engine/device/build/m2_g_arm --plan "$wd/gather_policy_a/plan.txt" --slab "$wd/gather_policy_a/slab.bin" \
+    --out "$wd/g_over.bin" --device --fault alloc-oversize   # must FAIL and print `alloc-oversize refused`
+```

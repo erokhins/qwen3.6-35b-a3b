@@ -52,6 +52,7 @@
 #ifndef M2G_KERNELS_H
 #define M2G_KERNELS_H
 
+#include <math.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -76,10 +77,19 @@
  * prototype's enum so a renumbered prototype enum cannot collide with it. */
 #define M2G_MODE_ACC_BF16 100
 #define M2G_MODE_ACC_F32  101
+/* The rounding injection. `mg_silu` is one `expf`, and a transcendental is the one part of this body that
+ * two libms are entitled to answer differently: `DECISIONS.md` D-16 records exactly that for this lane
+ * (`expf` glibc on the host, ROCm libdevice on the device, declared for `s`/`raw` and counted, never
+ * banded), and `pitfalls/00-measurement.md` §"A divergence count that changes between identical runs is a
+ * race, not rounding" says the test is whether the differing bit images are ADJACENT. `silu_exp_ulp1`
+ * makes that difference explicit and measurable on the CPU: one ULP up on the exp() result, with nothing
+ * else changed, so the byte count and the field locations a libdevice difference implies can be compared
+ * with what a device window actually observes. */
+#define M2G_MODE_EXP_ULP1 102
 
 static inline int m2g_mode_known(int m) {
     if (m >= MG_MODE_CORRECT && m < MG_MODE_COUNT) return 1;
-    return m == M2G_MODE_ACC_BF16 || m == M2G_MODE_ACC_F32;
+    return m == M2G_MODE_ACC_BF16 || m == M2G_MODE_ACC_F32 || m == M2G_MODE_EXP_ULP1;
 }
 
 /* Which record fields a mode can move, in the prototype's reach-table sense. The driver uses it to
@@ -87,6 +97,10 @@ static inline int m2g_mode_known(int m) {
  * control is the exact failure this lane exists to refuse (window e2's tie control). */
 static inline const char *m2g_mode_field(int m) {
     if (m == MG_MODE_POISON_NAN) return "gate,up,s,raw,routed";
+    /* `s` is the first field the exp() result can reach, `raw` is the dot over it, `routed` the combine
+     * over that; gate and up are computed before any transcendental, so a difference in them CANNOT be
+     * this cause and the reach table is what makes that a refusal instead of an opinion. */
+    if (m == M2G_MODE_EXP_ULP1) return "s,raw,routed";
     if (m == M2G_MODE_ACC_BF16 || m == M2G_MODE_ACC_F32) return "routed";
     switch (m) {
         case MG_MODE_W_BY_EXPERT_ID:
@@ -95,7 +109,14 @@ static inline const char *m2g_mode_field(int m) {
         case MG_MODE_F32_COMBINE:   return "routed";
         case MG_MODE_WIDTH_MISREAD:
         case MG_MODE_Q6K_D_BYTE_0:  return "raw";
-        default:                    return "gate,up,s,raw";
+        /* `byte_shift_1` shifts the span the operands are read from, so it reaches `routed` through `raw`
+         * like nothing else in this branch does. Measured on the host path of the hipcc arm, both widths:
+         * policy_a gate 12,444 up 12,475 s 11,817 raw 65,331 routed 8,145 B; ref_bf16 7,642/7,637/6,302/
+         * 29,641/3,702 B. The default claim omitted `routed`, and an under-claimed reach is how a control
+         * starts believing a mode moved less than it did — `gather-divergence-causes-priced`'s GREACH leg
+         * holds every cause it runs to its own claim now, in both directions. */
+        case MG_MODE_BYTE_SHIFT_1:   return "gate,up,s,raw,routed";
+        default:                     return "gate,up,s,raw";
     }
 }
 
@@ -377,6 +398,18 @@ MG_DEV static inline void m2g_item1(const struct M2GPlan *p, const char *slab, f
     *dst = ref ? mg_bf16_to_f32(mg_bf16_of(acc)) : acc;
 }
 
+/* The exp() injection, spelled as the arithmetic it models: same expf, one ULP up on its result. Every
+ * other operation is `mg_silu` verbatim, so a control that runs this mode is measuring the size of a
+ * last-bit transcendental difference and nothing else. `nextafterf` is the standard one on both sides
+ * (C99 on the host, the libdevice route on the device), so "one ULP" means the same thing in both. */
+MG_DEV static inline float m2g_silu_ulp1(float z) {
+    return z / (1.0f + nextafterf(expf(-z), INFINITY));
+}
+
+MG_DEV static inline float m2g_silu_mode(float z, int mode) {
+    return mode == M2G_MODE_EXP_ULP1 ? m2g_silu_ulp1(z) : mg_silu(z);
+}
+
 /* s = silu(gate) * up, in the reference path's two further roundings (the silu, then the product).
  * Both positions are pinned by the dump; `gather-rounding-forms-redden-s` is the leg that drops one at a
  * time and watches the row redden. */
@@ -385,7 +418,8 @@ MG_DEV static inline void m2g_item2(const struct M2GPlan *p, const float *rec, f
     const int ref = (p->path == M2G_PATH_REF_BF16);
     const float g = rec[M2G_OFF_GATE + (long)slot * MG_I + i];
     const float u = rec[M2G_OFF_UP + (long)slot * MG_I + i];
-    const float sl = ref ? mg_bf16_to_f32(mg_bf16_of(mg_silu(g))) : mg_silu(g);
+    const float sl = ref ? mg_bf16_to_f32(mg_bf16_of(m2g_silu_mode(g, p->mode)))
+                         : m2g_silu_mode(g, p->mode);
     const float prod = sl * u;
     out[M2G_OFF_S + (long)slot * MG_I + i] = ref ? mg_bf16_to_f32(mg_bf16_of(prod)) : prod;
 }

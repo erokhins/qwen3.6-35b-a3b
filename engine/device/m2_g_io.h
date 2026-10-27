@@ -100,6 +100,7 @@ static inline int m2g_mode_of(const char *w) {
     if (!strcmp(w, "poison_nan"))      return MG_MODE_POISON_NAN;
     if (!strcmp(w, "acc_bf16"))        return M2G_MODE_ACC_BF16;
     if (!strcmp(w, "acc_f32"))         return M2G_MODE_ACC_F32;
+    if (!strcmp(w, "silu_exp_ulp1"))   return M2G_MODE_EXP_ULP1;
     return -1;
 }
 

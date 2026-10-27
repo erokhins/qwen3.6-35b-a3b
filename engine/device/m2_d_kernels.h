@@ -57,6 +57,7 @@
 #ifndef M2_D_KERNELS_H
 #define M2_D_KERNELS_H
 
+#include <math.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -75,6 +76,14 @@
 #define M2D_MODE_CORRECT         0
 #define M2D_MODE_STATE_XPOSE     1
 #define M2D_MODE_DECAY_HEAD_OFF1 2
+/* The rounding injection, the gather's `silu_exp_ulp1` turned on the one transcendental this body has:
+ * §04.6 step 1 is `S = S * exp(g_t[h])`, so the decay multiplier is computed here on every path, host and
+ * device, and two libms may answer it in adjacent bit images rather than identical ones. One ULP up on
+ * `expf`'s result, nothing else changed, is the size of that difference — see
+ * `pitfalls/00-measurement.md` §"A divergence count that changes between identical runs is a race, not
+ * rounding" for the three-rung test this makes measurable on the CPU.
+ * It cannot move `q_hat`/`k_hat`: `m2d_mode_fields` says so and the io refuses a leg that asks for it. */
+#define M2D_MODE_DECAY_ULP1      3
 
 #define M2D_FAULT_NONE        0
 #define M2D_FAULT_SKIP_CARRY  1     /* the carry stage forbidden: the state field stays poison    */
@@ -343,7 +352,8 @@ GDNDAY_DEV static inline void m2d_item_carry(const struct M2DPlan *p, const uint
                                              struct M2DCounters *ct) {
     const long sbase = (long)h * GDN_D_K * GDN_D_V + (long)row * GDN_D_V;
     const int dh = (p->mode == M2D_MODE_DECAY_HEAD_OFF1) ? (h + 1) % GDN_H_V : h;
-    const float e = expf(m2d_in_f32(slab, p->off_in[M2D_F_G_DECAY], dh));
+    const float e0 = expf(m2d_in_f32(slab, p->off_in[M2D_F_G_DECAY], dh));
+    const float e = (p->mode == M2D_MODE_DECAY_ULP1) ? nextafterf(e0, INFINITY) : e0;
     int v;
     for (v = 0; v < GDN_D_V; ++v) {
         const long g = sbase + v;
@@ -523,6 +533,7 @@ GDNDAY_DEV static inline int m2d_mode_of(const char *w) {
     if (!strcmp(w, "correct")) return M2D_MODE_CORRECT;
     if (!strcmp(w, "state_xpose")) return M2D_MODE_STATE_XPOSE;
     if (!strcmp(w, "decay_head_off1")) return M2D_MODE_DECAY_HEAD_OFF1;
+    if (!strcmp(w, "decay_ulp1")) return M2D_MODE_DECAY_ULP1;
     return -1;
 }
 GDNDAY_DEV static inline int m2d_fault_of(const char *w) {
@@ -538,7 +549,14 @@ GDNDAY_DEV static inline int m2d_fault_of(const char *w) {
  * reported as a fired control. `q_hat`/`k_hat` read no state, so a state mode CANNOT move them, and
  * that is what makes "q_hat stayed bit-identical" a structural fact rather than a lucky result. */
 GDNDAY_DEV static inline const char *m2d_mode_fields(int mode) {
-    return mode == M2D_MODE_CORRECT ? "none" : "scan_out,core_attn,state,normed,y";
+    if (mode == M2D_MODE_CORRECT) return "none";
+    /* The decay multiplier is read by the carry and by nothing upstream: q_hat/k_hat are L2-normalised
+     * inputs, core_attn/normed/y are downstream of a decay the injection does not touch, and on the host
+     * path the measured difference is exactly these two fields (264,704 B, scan_out+state). Claiming the
+     * five for this mode would let a partly-inert injection pass as a priced cause, which is the failure
+     * `gdn-divergence-causes-priced`'s DREACH leg exists to catch. */
+    if (mode == M2D_MODE_DECAY_ULP1) return "scan_out,state";
+    return "scan_out,core_attn,state,normed,y";
 }
 GDNDAY_DEV static inline const char *m2d_fault_fields(int fault) {
     if (fault == M2D_FAULT_SKIP_CARRY) return "state,scan_out,core_attn,normed,y";

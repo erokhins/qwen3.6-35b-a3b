@@ -1,0 +1,10 @@
+REPLAY source=engine/work/e2-device-records pair=rt_hip_device_vs_rt_hip_hostpath band_digest_inputs=5 limits=['expert_raw', 'routed_sum', 'router_logits', 'topk_ids', 'topk_weights'] missing=none
+WPRESCOPE field=wpre pair=rt_hip_device_vs_rt_hip_hostpath n=8 ndiff=5/8 ulp_per_slot=1,1,1,0,0,0,2,1 measured_max_ulp=2 scope_ulp=9 binding=documented §R5 'to single-digit ULP' -> at most 9 ULP; prior=10 triangle(2 x licensed weights_vs_pinned_f32_ulp=5, prototype/moe_router/evidence/moe-router-host-2026-10-26.json §bands); prior=9 documented §R5 'to single-digit ULP' -> at most 9 ULP; prior=22 propagated §mr_exp 'differ by an ULP or two' (2 ULP/call) through R2 then R4 -> 1.311e-06 relative verdict=WITHIN-SCOPE note=the limit comes from three independent priors (one licensor floor probe, two documents) and the strictest of them binds; measured_max_ulp is the witness that none of them is contradicted, never the source of the limit
+REPLAY-PREMISE to_pin={'device': 4, 'host_twin': 2} band=5 inside=True
+REPLAY-FIELDS logits ndiff=0/256 max_ulp=0, probs ndiff=232/256 max_ulp=3, wpre ndiff=5/8 max_ulp=2, wcast ndiff=0/8 max_ulp=0, ids ndiff=0/8 max_ulp=0, logits_f32 ndiff=0/256 max_ulp=0, wleak ndiff=0/8 max_ulp=0, ids_alt ndiff=0/8 max_ulp=0
+REPLAY-ATTRIB r1_bit_identical=True wcast_bit_identical=True causal=True moved_outside=none licensed_zero_tolerance=ids=0/8,ids_alt=0/8,wcast=0/8 verdict=CONSISTENT-WITH-R5-EXP-SCOPE
+REPLAY-CLAIM whole_record_ndiff_bytes=237 of 3232; licensed all-zero=True; wpre within 9 ULP=True
+REPLAY-BOUND at-limit moved=9ULP ndiff=8/8 max_ulp=9 limit=9 -> INSIDE expected=INSIDE match=True
+REPLAY-BOUND one-past-limit moved=10ULP ndiff=8/8 max_ulp=10 limit=9 -> OUTSIDE expected=OUTSIDE match=True
+REPLAY-BOUND far-past-limit moved=64ULP ndiff=8/8 max_ulp=64 limit=9 -> OUTSIDE expected=OUTSIDE match=True
+REPLAY done no timing taken
