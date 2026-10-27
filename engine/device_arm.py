@@ -248,6 +248,172 @@ def write_plan(path, off, rows, cols, layout, slab_bytes, fault="none"):
     return len(lines) - 2
 
 
+RECORD_HEADS = ("HDR", "PLAN", "RUN", "WROTE", "RESULT")
+
+# Which `key=` fields of an arm report line are INTEGERS, read off the arms' own printf format strings
+# rather than typed here. Window `i` crashed on `r["run"]["launches"] > 0` because the parser below built
+# every field as a string and every consumer then remembered, or forgot, to cast: a field typed by luck is
+# a field that crashes on the first consumer who forgets (`pitfalls/40` §a-check-that-can-print-nothing
+# cannot-fail's cousin: a check whose operand has the wrong type does not fail, it raises, and a check that
+# raises has not run). The type of `launches` is a fact the arm already published — `%d` in its own printf —
+# so this file reads that fact out of `engine/device/m2_*_main.inc` (the translation unit BOTH the hipcc
+# arm and the g++ twin include, so one format governs both compiled bodies) and coerces at the parse site.
+_INT_CONVERSIONS = "diux"
+_C_INT_MODIFIERS = r"(?:hh|h|ll|l|z|j|t)?"
+_PRINTF_FMT_GROUP = r"printf\(\s*((?:\"(?:[^\"\\]|\\.)*\"\s*)+)"
+_FIELD_TOKEN = re.compile(r'^([a-z_][a-z0-9_]*)=([^=]*)$')
+_INT_TOKEN = re.compile(r"^-?\d+$")
+
+
+def _c_format_of(text, head):
+    """Every `printf("<head> ...")` format string in one arm translation unit, concatenated literals."""
+    out = []
+    for m in re.finditer(_PRINTF_FMT_GROUP, text):
+        fmt = "".join(re.findall(r'"((?:[^"\\]|\\.)*)"', m.group(1)))
+        if fmt.split(" ", 1)[0] == head:
+            out.append(fmt)
+    return out
+
+
+def _field_class(token):
+    """`int`, `hexint`, `intlist`, `text` or `literal` for one `key=<spec…>` token of a printf format."""
+    m = _FIELD_TOKEN.match(token.strip('"'))
+    if not m:
+        return None
+    spec = m.group(2)
+    specs = re.findall(r"%[-+ #0]*[0-9*]*" + _C_INT_MODIFIERS + r"([a-z])", spec)
+    if not specs:
+        return "literal"
+    if not all(s in _INT_CONVERSIONS for s in specs):
+        return "text"
+    if any(s in "xX" for s in specs):
+        return "hexint"
+    return "intlist" if "/" in spec else "int"
+
+
+_HEX_TOKEN = re.compile(r"^(?:0[xX][0-9a-fA-F]+|-?\d+)$")
+
+
+def lane_record_field_types():
+    """`{binary_stem: {head: {field: class}}}`, one map per compiled body, read off the include graph.
+
+    The four arms are four translation units and their reports are not the same shape — the router's HDR
+    spells `want_items=%d/%d` where the GDN's spells `want_items=%d` — so the type map is scoped per binary
+    instead of unioned, and the binary→translation-unit map is read out of each body's own `#include "…"`
+    line rather than guessed from a name pattern. A binary with no entry is a Refused at parse time: an arm
+    this file cannot look up is an arm whose field types it would have to guess.
+    """
+    maps = {}
+    for src in sorted((HERE / "device").glob("m2_*_*.*")):
+        if src.suffix not in (".cpp", ".hip"):
+            continue
+        inc = re.search(r'#include\s+"(m2_[a-z]+_main\.inc)"', src.read_text())
+        if not inc:
+            raise Refused("arm-report-source-unfound",
+                          "%s includes no `m2_*_main.inc`, so the printf formats that type its report "
+                          "cannot be read from anywhere this file can see" % src.name)
+        path = HERE / "device" / inc.group(1)
+        if src.stem in maps:
+            continue
+        types = dict((h, {}) for h in RECORD_HEADS)
+        text = path.read_text()
+        for head in RECORD_HEADS:
+            for fmt in _c_format_of(text, head):
+                for token in fmt.split():
+                    cls = _field_class(token)
+                    if cls is None or cls == "literal":
+                        continue
+                    field = _FIELD_TOKEN.match(token.strip('"')).group(1)
+                    seen = types[head].get(field)
+                    if seen is not None and seen != cls:
+                        raise Refused("arm-report-field-ambiguous",
+                                      "%s (report source of %s) types `%s` in a %s line as %s but also as "
+                                      "%s; a field one report spells two ways is a field this file must "
+                                      "not compare" % (path.name, src.name, field, head, cls, seen))
+                    types[head][field] = cls
+        if not types["RUN"].get("launches", "").startswith("int"):
+            raise Refused("arm-report-field-unparsed",
+                          "%s (report source of %s) does not print `launches` with an integer conversion in "
+                          "its RUN line; the launch count is the evidence that a device run launched, and a "
+                          "type this file cannot read is a type it cannot guarantee" % (path.name, src.name))
+        maps[src.stem] = types
+    if not maps:
+        raise Refused("arm-report-source-absent",
+                      "no `m2_*_*.{cpp,hip}` body was found under %s, so no arm report has a type map at all"
+                      % (HERE / "device"))
+    return maps
+
+
+RECORD_FIELD_TYPES = lane_record_field_types()
+
+
+def typed_field(types, head, key, value, line, where="arm"):
+    """One `key=value` token of a report line, in the type that arm's own printf says it has.
+
+    Integers are accepted only in the strict decimal spelling `^-?\\d+$`, so `launches=abc` is a named
+    refusal at the parse site instead of a string that detonates three files away. A field the derived
+    table does not know stays text: the arm is allowed to add a note, and `verdict=OK` must not be typed.
+    """
+    cls = types.get(head, {}).get(key)
+    v = value.strip('"')
+    if cls == "int":
+        if not _INT_TOKEN.match(v):
+            raise Refused("arm-report-field-not-integer",
+                          "%s printed `%s` where its own HDR/RUN format says `%s` is an integer "
+                          "(line: %s); the count is read as an int here or not at all, because a consumer "
+                          "that casts is a consumer that can crash instead of failing"
+                          % (where, value, key, line))
+        return int(v)
+    if cls == "hexint":
+        # `%x` is still an integer; it is only printed in a radix. The D arm's HDR spells the decay mask that
+        # way (`mode_mask=0x80d200`), and the control that needs to *assert* the mask reached the arm needs an
+        # int to compare, not a string that happens to look right.
+        if not _HEX_TOKEN.match(v):
+            raise Refused("arm-report-field-not-integer",
+                          "%s printed `%s` where its own format says `%s` is a hex integer (line: %s)"
+                          % (where, value, key, line))
+        return int(v, 0)
+    if cls == "intlist":
+        parts = v.split("/")
+        if not all(_INT_TOKEN.match(p) for p in parts):
+            raise Refused("arm-report-field-not-integer",
+                          "%s printed `%s` where its own format says `%s` is a `/`-joined integer list "
+                          "(line: %s)" % (where, value, key, line))
+        return tuple(int(p) for p in parts)
+    return v
+
+
+def parse_arm_report(stdout, binary):
+    """The arm's stdout as `{head: [record, …]}`, with every integer field typed at the parse site.
+
+    Field types come from `RECORD_FIELD_TYPES`, which came from the printing body's own printf format
+    strings — `%d` means the field arrives an `int`, and nothing downstream may re-cast or forget. Two more
+    rules ride on it: the value pattern must cover the whole value domain (a numeric-only pattern silently
+    drops `census=` and `nan_fields=` — `pitfalls/40` §a-driver-whose-parser-matches-nothing), and a token
+    with no `=` is a prose word of a note, not a field.
+    """
+    stem = Path(binary).stem
+    types = RECORD_FIELD_TYPES.get(stem)
+    if types is None:
+        raise Refused("arm-report-source-unmapped",
+                      "%s has no entry in the report type map (known: %s); parsing a report whose field "
+                      "types are unknown is how `launches` arrived as a string in window `i"
+                      % (stem, ",".join(sorted(RECORD_FIELD_TYPES))))
+    recs = {}
+    for line in stdout.splitlines():
+        head = line.split(" ", 1)[0]
+        if head not in RECORD_HEADS:
+            continue
+        fields = {}
+        for token in line.split()[1:]:
+            if "=" not in token:
+                continue
+            key, value = token.split("=", 1)
+            fields[key] = typed_field(types, head, key, value, line.strip(), stem)
+        recs.setdefault(head, []).append(fields)
+    return recs
+
+
 def run_arm(binary, plan, slab, out, device=False, fault=None, label=None):
     """Run one compiled arm and parse its report. Any gap in the report is a Refused.
 
@@ -255,7 +421,8 @@ def run_arm(binary, plan, slab, out, device=False, fault=None, label=None):
     is accepted only when all five appeared, the arm exited 0, the `RESULT` verdict is `OK`, and —
     for a device run — the launch and call counts are non-zero. A device run whose counts are zero is
     the exact shape of "answered --device with a host run", which is why the count, not the flag, is
-    the evidence.
+    the evidence. The counts arrive already typed (`parse_arm_report`), so `run["launches"]` is an `int`
+    here and every consumer downstream can compare it instead of casting and hoping.
     """
     if not Path(binary).exists():
         raise Refused("arm-binary-absent",
@@ -266,12 +433,7 @@ def run_arm(binary, plan, slab, out, device=False, fault=None, label=None):
     if fault:
         argv += ["--fault", fault]
     proc = subprocess.run(argv, capture_output=True, text=True)
-    recs = {}
-    for line in proc.stdout.splitlines():
-        head = line.split(" ", 1)[0]
-        if head in ("HDR", "PLAN", "RUN", "WROTE", "RESULT"):
-            recs.setdefault(head, []).append(dict(f.split("=", 1) for f in line.split()[1:]
-                                                 if "=" in f))
+    recs = parse_arm_report(proc.stdout, binary)
     missing = [k for k in ("HDR", "PLAN", "RUN", "WROTE", "RESULT") if not recs.get(k)]
     if proc.returncode != 0 or missing:
         tag = "arm-fault-%s" % (missing[0].lower() if missing else "exit-%d" % proc.returncode)
@@ -286,7 +448,7 @@ def run_arm(binary, plan, slab, out, device=False, fault=None, label=None):
                       "%s exited 0 but its RESULT line says verdict=%s; an arm that reports failure "
                       "while exiting clean is a report bug and gets treated as one"
                       % (Path(binary).name, verdict or "missing"))
-    if device and (int(run.get("launches", 0)) == 0 or int(run.get("hip_calls", 0)) == 0):
+    if device and (run.get("launches", 0) == 0 or run.get("hip_calls", 0) == 0):
         raise Refused("arm-device-claim-uncounted",
                       "%s answered --device with hip_calls=%s launches=%s; a device run that cannot "
                       "count a launch did not launch"
@@ -809,7 +971,7 @@ def g_slab(g, units, x_bytes, ids, wcast, wpre, elt_x):
 
 
 def write_g_plan(path, path_word, g, units, slab_bytes, off, elt_x, mode="correct", fault="none",
-                 corrupt_off=-1, read_off=-1, read_len=0, whole_bytes=None):
+                 corrupt_off=-1, read_off=-1, read_len=0, whole_bytes=None, exp_table=None):
     """The gather plan: one M2GPLAN line, the activation and the router arm's selection, one UNIT line
     per (slot, role), and the FORM line. Nothing else, because nothing else is the arm's to know.
 
@@ -840,8 +1002,9 @@ def write_g_plan(path, path_word, g, units, slab_bytes, off, elt_x, mode="correc
                         u["kind"], u["elt"], u["blocks"],
                         0 if whole_bytes else u["fused"], 1 if whole_bytes else 0,
                         u["span_off"], span_bytes))
-    lines.append("FORM mode=%s fault=%s corrupt_off=%d read_off=%d read_len=%d"
-                 % (mode, fault, corrupt_off, read_off, read_len))
+    lines.append("FORM mode=%s fault=%s corrupt_off=%d read_off=%d read_len=%d%s"
+                 % (mode, fault, corrupt_off, read_off, read_len,
+                    " exp_table=%s" % exp_table if exp_table else ""))
     Path(path).write_text("\n".join(lines) + "\n")
     return len(units)
 
@@ -1199,7 +1362,7 @@ def d_fingerprint(data, elt=4):
 
 def write_d_plan(path, spans, slab_bytes, d, mode="correct", fault="none", form=None,
                  read_off=-1, read_len=0, elt_override=None, words_override=None,
-                 drop_field=None):
+                 drop_field=None, mask=None, steps=None):
     """The GDN arm's plan: `M2DPLAN` + nine `FIELD` lines + `FORM`.
 
     `elt_override`, `words_override` and `drop_field` exist for the controls that have to show a refusal
@@ -1220,8 +1383,10 @@ def write_d_plan(path, spans, slab_bytes, d, mode="correct", fault="none", form=
         words = words_override.get(name, s["words"]) if words_override else s["words"]
         lines.append("FIELD name=%s span_off=%d bytes=%d elt=%d words=%d"
                      % (name, s["off"], words * elt, elt, words))
-    lines.append("FORM form=%s mode=%s fault=%s read_off=%d read_len=%d"
-                 % (form, mode, fault, read_off, read_len))
+    lines.append("FORM form=%s mode=%s fault=%s read_off=%d read_len=%d%s%s"
+                 % (form, mode, fault, read_off, read_len,
+                    " mask=0x%x" % mask if mask is not None else "",
+                    " steps=%d" % steps if steps is not None else ""))
     Path(path).write_text("\n".join(lines) + "\n")
     return len(lines)
 

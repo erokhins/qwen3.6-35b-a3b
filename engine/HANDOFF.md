@@ -2008,3 +2008,289 @@ the driver itself wrote, so the refusal is about the real spans):
 engine/device/build/m2_g_arm --plan "$wd/gather_policy_a/plan.txt" --slab "$wd/gather_policy_a/slab.bin" \
     --out "$wd/g_over.bin" --device --fault alloc-oversize   # must FAIL and print `alloc-oversize refused`
 ```
+
+## PASS 8 (2026-10-27, CPU-only) — the two device divergences attributed by byte-level reproduction; the width hypothesis refuted, the head subset reproduced
+
+The two deterministic divergences PASS 7 turned into per-field questions (`g_policy_a` device-vs-host
+3,744 B in `s/raw/routed`; `d_hip_device` 52,976 B in `scan_out/state`, five heads) were attributed on the
+saved device bytes, without a device act. Write-up with every number:
+`specification/evidence/m2-device-pair-attribution-2026-10-27.md`; the script that produced it:
+`specification/evidence/m2_device_pair_attribution.py`; its log: `engine/work/p8-attrib.log`.
+
+**Done.**
+
+* **Hypothesis 1 (width handling on the policy-A gather): refuted.** The read set's formats are now printed
+  from the artifact (`GFORMAT`): layer 0 reads `gate`/`up` at Q4_K — same as policy A declares — and
+  `down_proj` at **Q5_K where policy A declares Q4_K**, which is D-27's fact stated in bytes (block_bytes
+  176, 720,896 B per expert unit, `relation=WIDER-THAN-DECLARED` on 8 of 24 units). Four width causes are
+  now priced as arm modes: `q5k_as_q4k` 73,464 B and `width_misread` 73,475 B (both `raw,routed` only — a
+  down read cannot reach `s`), `q4k_as_q5k` 113,285 B and `scale_min_naive` 97,085 B (both also move
+  `gate`, which the device left bit-identical). All are 19.6x-30.3x the observed total and none matches the
+  field split. The positive half: a per-site signed-ULP table on the silu's `expf` — derived from the
+  device's own 58 differing `s` words, all explained by **±1 ULP** (42 down, 16 up) — reproduces the
+  entire 122,880-byte record with **zero** residual (`GREPRO … verdict=EXACT-REPRODUCTION`). Zero residual
+  is what refutes: there is no room left in the record for a width or geometry mechanism. `q6k_d_byte_0` is
+  `not-exercised` (layer 0 has no Q6_K unit), not silently inert.
+* **Hypothesis 2 (the GDN head subset): mechanism reproduced; the identity of the five heads is a device
+  fact.** The full 32-head table is in the note. {9,12,14,15,23} is not contiguous, not an index range, not
+  the span-end head, not separated by carried/non-carried state; six heads (3,11,18,19,22,29) are provably
+  immovable because their `exp(g_decay)` underflows to 1e-12…1e-40 (the uniform +1 ruler moves exactly the
+  other 26). Each of the five is reproduced by **exactly one ULP down** on its own decay and the whole GDN
+  record reproduces byte for byte (`DREPRO steps=-1 mask=0x80d200 … ndiff_bytes=0`). No host-computable
+  route predicts the set: glibc's `expf` agrees with `Decimal.exp()` at 60 digits on all 32 decays, and the
+  naive `exp2(f32(x)*log2e)` spelling differs on 14 heads but lands **+1** where the device landed **-1**.
+  Which inputs ocml rounds differently is leg 3 of §6 of the note, with its prediction written down.
+* **Gate work.** New: `GFORMAT` + `gather-read-set-forms-come-from-the-file`; the width causes in
+  `G_CAUSES` with a derived `GCAUSE-VOID` for geometry-unexercisable causes; `GREPRO`/`DREPRO` device
+  reproduction legs that redden on any residual; `decay_ulp_mask_up/down` causes with a mask-vs-all-heads
+  equivalence; two `GEXP` equivalence legs per width (zero table moves nothing, all-+1 table ≡
+  `silu_exp_ulp1`); `DHEAD`-style per-head ruler now in both signs. New arm modes: `q5k_as_q4k`,
+  `q4k_as_q5k`, `exp_ulp_table` (host-path-only by construction), `decay_ulp_mask` with `mask=`/`steps=`.
+* **Defects found and fixed, all in the attribution machinery.** `block_device.py:2906` compared a string
+  launch count with `> 0` — the crash that killed window `h`; the fingerprint control went SILENT without a
+  named finding; `gather-device-unit-read-back` claimed `device` while attributing no legs. In the kernel:
+  `m2g_mode_field` under-claimed reach (a mode reaching `raw` reaches `routed`, same record) — the new
+  `GREACH` enforcement caught it. In my own helper: `nextafter(e, 1.0)` for a +1 ULP step moves *down* when
+  `e > 1`; it left an 11-site, 3,300-byte residual, which the byte-level reproduction caught on the spot.
+  The step search now lives once, in `block_device.py::silu_exp_step_table`, and the evidence script calls
+  it instead of carrying a second ruler.
+* **Gate lines.** CPU witness `checks=54 findings=0 controls=28 fired=28` (`engine/work/p8-after-cpu.log`;
+  baseline 53/0/28/28 — the 54th check is the new format check), `engine/block_gate.py`
+  `checks=17 findings=0 controls=11 fired=11` (untouched), `band_digest=27a68c7e82c9aa05` unchanged. No
+  band, floor, must-catch set or licence was touched; nothing was relaxed to pass, and the `GMAGMATCH`
+  factor-two screen still reads the device pairs UNATTRIBUTED — the reproduction legs are additive.
+
+**Not done / not claimed.**
+
+* Nothing here is a device measurement. The two reproductions were run on the arms' **host** paths against
+  device records saved from window `h`; `GREPRO`/`DREPRO` inside the driver only fire in a window.
+* The Q6_K read path is untouched: layer 0 reads no Q6_K block.
+* No band is proposed for either divergence, and neither should be: both are now *attributed*, which is not
+  the same question as what to do about them. Whether a last-bit `expf` difference between ocml and glibc
+  gets a band, or the device path gets matched by computing the transcendental differently, is a D-17-shaped
+  decision for the user once the window confirms the mechanism.
+
+**Next window (device, main agent only, `gpu_lock` held, halogen down, zero workers).** One window, in this
+order — the count expectation moves to `checks=58` (54 CPU + the four `rt-device-*`), `controls=29`:
+
+```bash
+tools/gpu_lock.sh acquire "$tag"
+python engine/block_device.py --device   # 1: GFORMAT, GATTRIB/DATTRIB/DHEAD, then
+                                         #    GREPRO ... vs_device_record_ndiff_bytes=0 verdict=EXACT-REPRODUCTION
+                                         #    DREPRO steps=-1 mask=0x80d200 ... verdict=EXACT-REPRODUCTION
+                                         #    watch control-legs-cover-the-path-under-claim and
+                                         #    silent-control-names-its-reason: both were FAIL or unseen in
+                                         #    `g`/`h`; their driver-side causes are fixed here, but only a
+                                         #    window can show the legs actually ran
+python engine/block_device.py --device   # 2: RUNG-1 — diff the GATTRIB/DATTRIB/DHEAD lines against run 1;
+                                         #    3,744 and 52,976 must be identical, or band NOTHING
+tools/gpu_lock.sh release "$tag"
+```
+
+Then the two legs this pass could not execute anywhere: the device's own `expf` bit images
+(`DEXPIMAGE`/`GEXPIMAGE`; prediction: 1 ULP down on heads 9,12,14,15,23, ±1 at exactly 58 silu sites,
+identical at the other 27 decays and 4,038 silu sites), and a window on a layer whose `down_proj` is Q6_K
+(3 of 40, D-27) to replace `GCAUSE-VOID cause=q6k_d_byte_0` with a priced number. no timing taken.
+
+## PASS 9 (2026-10-27, CPU-only) — the four device-arm defects: the launch count typed at its source, the contradiction retired, the SILENT rule moved onto controls
+
+PASS 8's window `i` (`specification/evidence/blockdevice-device-2026-10-27-i1.log`) died at
+`block_device.py`'s GDN attribution with `TypeError: '>' not supported between instances of 'str' and
+'int'` — no `RESULT` line, rc=1 — and window `h`'s log carried a control that flatly denied what a
+reproduction line nine lines above it had just proved. This pass fixes the four device-path-only defects
+that made those two logs what they were. Nothing here is a device act and nothing here is a number from
+one; host wall and RSS only, and the CPU gate lines are at the bottom. no timing taken.
+
+**Done.**
+
+* **1 — `launches` is typed where it is parsed, not where it is compared.** The parse site is
+  `engine/device_arm.py::parse_arm_report`, and it now reads its types out of the printing body's own
+  `printf` format strings: `lane_record_field_types()` walks `engine/device/m2_*_*.{cpp,hip}`, follows each
+  body's `#include "m2_<lane>_main.inc"`, and classifies every `key=<conversion>` token it finds in the five
+  report heads (`RUN`/`HDR`/`PLAN`/`WROTE`/`RESULT`). `%d`/`%u`/`%ld` → `int`, `%x` → `hexint` (the GDN's
+  `mode_mask=0x%llx` arrives an `int`, so a control can *assert* the mask the arm acknowledged instead of
+  string-matching it), `%d/%d` → `intlist`, anything else → `text`. An unknown binary or a field one report
+  spells two ways is a named `Refused`, never a guess. Before, every field was a `str` and three consumers
+  hand-cast it:
+
+  ```python
+  # before — device_arm.run_arm: every value a str; block_device:2906 etc. cast at the comparison
+  if device and (int(run.get("launches", 0)) == 0 or int(run.get("hip_calls", 0)) == 0):
+  # after — device_arm.run_arm: the value is already an int or the parse refused
+  if device and (run.get("launches", 0) == 0 or run.get("hip_calls", 0) == 0):
+  ```
+
+  The comparison-side casts are gone from every site, and the fold that adds the counters to the witness is now
+  one function (`witness_fold`) shared by all four verticals — the rehearsal found a second, worse copy of the
+  bug there: `g_arm`/`d_arm`/`register` each had their own `int(run["launches"])`, so a fabricated value still
+  killed the run before any check could speak. `device-run-counters-are-typed-at-the-parse-site` now scans the
+  whole file and requires **zero** casts of a quoted counter *and* zero inline comparisons of one; the second
+  half is what would have caught window `i`'s actual crash site, which was a bare `> 0` on a `str`. Fabrications
+  are labelled as fabrications and redden the *check predicate*, never the driver:
+  `launches="abc"` → `device-launch-counts-are-ints-and-positive FAIL`, `launches=0` on `path=device` → same,
+  a missing counter → same, and `device/launches=1` stays clean. The rehearsal's `--mutate launches-abc` leg
+  proves the end-to-end version: `MUTATION arm=launches-abc-red target-red=True result-reached=True
+  crash=False named-on-result-line=True`.
+* **3 — the contradiction is retired and the guard that lets it come back is in the gate.**
+  `CONTROL gdn-divergence-causes-priced … reason=no injected cause reproduces the GDN device divergence`
+  coexisted with `DREPRO steps=-1 mask=0x80d200 … verdict=EXACT-REPRODUCTION` because its cause table
+  predated PASS 8's byte-level probe. The control is now re-pointed at the cause that reproduces: it takes
+  the head subset from the device's own `state` diff (`DHEAD`), prices `steps=-1` and `steps=+1` against the
+  device record, and its verdict is the byte test — `fired=RED legs=host_cpubody:N` with
+  `reproduction=EXACT steps=-1 heads=9,12,14,15,23 mask=0x80d200 withdrawal=steps+1 residual=75206 B`. It
+  reddens by name in three withdrawals: no head named by the ruler, `steps=-1` leaving a residual (the cause
+  is gone), or `steps=+1` also reproducing (the sign was never pinned, so the −1 match was a fit). The
+  factor-two `DMAGMATCH` screen is still printed — it is what rules `decay_head_off1` and `state_xpose` out
+  by 29x and 25x — but it no longer gets to state the verdict once a byte-level reproduction exists. New
+  control `attribution-probe-is-dialable` proves the probe is not a tautology: withdrawing the mode moves 0
+  B and the arm echoes `mode_mask=0x0 mode_steps=0`, an empty mask is refused by name
+  (`m2_d_io.h::mode-mask-empty`), the full mask moves 264,684 B across the 24 heads the ruler can move,
+  every single-head mask moves strictly between 0 and that, and +1 ULP moves a different byte count from −1.
+  In a device window it also freezes the winning combination (`DREPRO-WIN … verdict=EXACT|WITHDRAWN`) and
+  requires each single device head to leave a positive residual. General rule, new check
+  `no-control-contradicts-an-exact-reproduction`: no SILENT control may deny a pair that some `DREPRO` or
+  `GREPRO` line in the same log reproduced exactly, read off this run's own printed lines, and
+  `attribution-contradiction-guard-can-redden` demonstrates red by feeding the predicate the stale sentence
+  beside the real reproduction line (printed verbatim as `GWITNESS-STALE`, two findings) while a denial
+  about a pair nobody reproduced must stay — and does stay — clean.
+* **4 — the SILENT rule binds controls, not checks.** `silent-control-names-its-reason` was reading
+  `v.checks`; checks have no legs to lose, which is why window `h` printed two quiet `fired=SILENT` control
+  lines with no `reason=` past a passing check. The rule now lives in `silent_control_finding`, which
+  `Verifier.control` runs on *every* registration, so a control cannot be registered without passing it, and
+  the check reads `v.unreasoned`. `silent-reason-guard-can-redden` demonstrates it: four fabricated control
+  registrations through the real `Verifier` — quiet-with-reason clean, quiet-no-reason red,
+  whitespace-only-reason red, fired-without-reason clean (a reason is owed by a control that could not run,
+  not by one that ran). The two controls window `h` saw go quiet are given real legs or a derived reason:
+  `gather-divergence-causes-priced`'s device half now distinguishes residual / unresolved-no-exact /
+  unresolved-with-exact and prints `reproduced=…` instead of denying; `control_d_state_read_witness` builds
+  its refusal per leg (`honest_fails`/`flip_fails`/`back_fails`) and names which sub-condition failed
+  instead of printing the canned `nothing: …`. Zero `fired=SILENT` lines remain in the real registry
+  (`controls=31 fired=31`); the SILENT lines still in the log are the scratch-Verifier fabrications and the
+  quoted stale text, both of which are the point of their control.
+
+**Not done / not claimed.**
+
+* **2 — the device arm reaching `RESULT` is now demonstrated as far as a CPU-only session can go, and no
+  further.** `specification/evidence/blockdevice-device-shape-2026-10-27.py` runs the real driver under
+  labelled substitutes — a counted host-byte `StubHip` for the six `engine.device.cuda` primitives, an arm shim
+  that re-spells the host report's `path=` field as `device` and stamps `REHEARSAL-FABRICATION` on the line that
+  says so, and `REHEARSAL-DEVICE-BYTES status=present|absent sources=…` which refuses to let a host stand-in
+  adjudicate a device-vs-host pair. It reaches
+  `RESULT mode=device checks=63 findings=6 controls=32 fired=27 … hip_calls=19+336 launches=111
+  bytes_to_device=98123776 bytes_from_device=11507624 counters_unparsed=0 band_digest=27a68c7e82c9aa05`, and a
+  `sys.settrace` line census reports which device-only statements actually ran:
+  `DEVONLY census statements=106 exercised=103 not-exercised=3 traced=2759`. The three unexercised legs are
+  named with reasons, not counted as passed: `device_path_census:1607` and `check_control_paths:1668` carry
+  `reason=guard-held-but-enclosing-condition-false(…)` and `main:5321` (the `--device` refusal banner for a
+  missing `hipcc`) the same. Its own audit is `REHEARSAL verdict=PASS no device act occurred, no timing taken`,
+  and the six findings it prints are five device-only controls going quiet **with** named reasons plus the
+  rehearsal's own expected red — a real window should print fewer. What a rehearsal cannot do is produce device
+  numbers: the `GREPRO`/`DREPRO` reproduction legs are therefore `status=not-claimed` here and belong to the
+  next window.
+* The ±1-ULP `exp` scoping question is drafted below and is **not** in `DECISIONS.md`; it is agent-decidable
+  in form but touches the ±1-ULP acceptance policy, which D-17/D-18 reserve to the user.
+* No band, floor, must-catch set or licence was authored or moved; `ulp_policy.py` untouched; the three
+  pinned verdicts this pass had to leave alone are untouched (`GREPRO … unexplained=0 … ndiff_bytes=0`,
+  `DREPRO steps=-1 … ndiff_bytes=0`, `DREPRO steps=+1 … ndiff_bytes=75,206`), `band_digest=27a68c7e82c9aa05`.
+
+**Gate lines (host wall only, no timing taken).** `python engine/block_device.py` →
+`RESULT mode=cpu checks=59 findings=0 controls=31 fired=31 rows=6 gdn_rows=7 arms=policy_a device=off
+staged=not-attempted hip_calls=0+0 launches=0 bytes_to_device=0 bytes_from_device=0 counters_unparsed=0
+band_digest=27a68c7e82c9aa05 no timing taken` (baseline was 54/0/28/28: +5 checks = the launch-count predicate,
+the contradiction rule, the device-only census, the parse-site typing rule, the witness-fold rule; +3 controls =
+the dial probe, the contradiction guard, the silent-reason guard; `engine/work/p9-cpu-20.log`, host wall 126 s,
+RSS 269 MB). `engine/block_gate.py` → `BLOCKGATE verdict=QUALIFIED … checks=17 red=0 controls=11 fired=11
+band_digest=27a68c7e82c9aa05` and `RESULT mode=cpu checks=17 findings=0 controls=11 fired=11 … no timing taken`.
+`engine/gate.py` → `RESULT PASS checks=27 findings=0 notes=41 arms=40 evidence=not-written`. Both baselines are
+unchanged; running any of these appends `stage_run`'s E2 selftest-marker lines to
+`quantization/evidence/audit-ordering-2026-10-26.log`, which is an append-only ledger and grew as a consequence
+of running the gates, not of a scope change.
+
+**Disclosure — a scratch artifact was destroyed, and it is not restorable from this repo.** The first rehearsal
+child ran with the default `--work`, so it wrote into `engine/work/m2dev/` and overwrote the window-`i` scratch
+device records there (`out_device.bin`, `d_out_device.bin`, `rt_out_device.bin`, `gather_ref_bf16/out_device.bin`,
+`gather_policy_a/out_device.bin`). They are gitignored `*.bin` scratch, not pinned fixtures — nothing under
+`specification/` or the cross-check dumps is touched — and every number derived from them survives in
+`specification/evidence/blockdevice-device-2026-10-27-i1.log` and
+`specification/evidence/m2-device-pair-attribution-2026-10-27.md`. The rehearsal now runs in its own
+`engine/work/m2dev-rehearsal`, reads a records snapshot only from a directory it names, and refuses self-copy and
+size mismatch; the raw records are regenerable by the next device window, which regenerates them anyway.
+
+### DRAFT (agent, 2026-10-27) — the 1-ULP `exp` difference at host-twin sites: scoped, with a documented bound
+
+Not a decision the agent may finalize: D-17/D-18 make the ±1-ULP acceptance *policy* the user's. What is
+agent-decidable is the **scope and shape of the witness**, and that is what is drafted here for promotion.
+
+The question: at the sites where the device's `expf` and glibc's differ by one ULP — the 32 `exp(g_decay)`
+evaluations of §04.6 step 1, of which the device moved {9,12,14,15,23}, and the 58 `expf` sites inside
+`silu` that `GREPRO` names — is the difference *scoped* by a documented bound, or does the host twin stop
+being a byte-identity witness at those sites?
+
+The bound must come from a document, never from the measurement (that is the trap `pitfalls/30`
+§cancellation-bands records: a band read off the current build can only ever ratify the current build).
+Three documents, all in this repo, all read at run time:
+
+1. `prototype/moe_router/moe_router_kernels.h::mr_exp` — the prior documented allowance, "allowed to differ
+   by an ULP or two", i.e. **2 ULP per transcendental call**; this is the third term of the `min(10, 9, 22)`
+   in `specification/evidence/blockdevice-wpre-scope-2026-10-26.md`, which is a scope taken from documents
+   read at run time and is the only precedent in-tree for scoping a transcendental at all.
+2. D-14 — a recomputed transcendental is not a bit-exactness obligation, and a documented-route bound is
+   admissible *provided the must-catch set grows with it*.
+3. The arms' own reach claims: `m2d_mode_fields`/`m2g_mode_field` now refuse a mode that claims a field it
+   cannot reach (`GREACH`), so the site population is an arm assertion, not a driver opinion.
+
+llama.cpp, per D-19 ("every time look at llama.cpp first"): the gated-delta-net decay there is `ggml_exp`
+over the same recurrence (`src/models/delta-net-base.cpp:106,135,174,209,216,336`, reached from
+`src/models/qwen3next.cpp`), and on every backend it is the platform's own exponential —
+`ggml/src/ggml-cuda/unary.cu:60` (`op_exp` → `expf(x)`), `ggml/src/ggml-sycl/gated_delta_net.cpp:79,114,128`
+(`sycl::native::exp`), `ggml/src/ggml-cpu/vec.h:955` (`ggml_vec_exp_f32` → `expf`). It never asks a device
+backend for byte identity against the CPU reference: `tests/test-backend-ops.cpp` judges with
+`mean_abs_asymm` against `max_maa_err()`, default `1e-4` (line 1250, per-op overrides at 3592 and 6064)
+plus `nmse` (line 301). **Adopted:** the structure — keep the device `expf`, and let the witness at those
+sites be a bounded-agreement one rather than a byte-identity one. **Refused:** the `1e-4` budget. llama.cpp
+earns it because *everything* in its reference path is banded; here the GDN and gather records are
+claimed-exact everywhere else, and importing `1e-4` would trade a 1-ULP question for a 2⁻⁸ input
+perturbation — D-17 territory, and the same reason PASS 8 refused to import its Q8_0 activation quantization.
+
+**The draft.** The host twin stays a byte-identity witness over the whole record, and the transcendental
+sites are the only places a difference is admissible at all: the admissible step is **1 ULP per evaluation
+site** (inside the 2-ULP-per-call document in (1), and the observed device step is 1, never 2 — the observed
+value is never the reason the bound is 1); the population of sites is the arm's own reach claim plus the
+`DHEAD`/`GEXP` rulers; the must-catch set that (2) demands is present and non-inert — `±1` signed step
+tables in both signs, the per-head mask dial with `mode-mask-empty` refused, `at-limit`/`one-past-limit`/
+`far-past-limit` legs on the router's `wpre` scope, and the whole-record residual required to be **exactly
+zero**. Zero residual is what makes this a scoping and not a tolerance: at `steps=-1` the device record is
+reproduced with 0 of 2,187,264 bytes left over, and if that residual ever becomes non-zero the divergence is
+UNATTRIBUTED again and both controls redden by name (`DREPRO-WIN verdict=WITHDRAWN`,
+`gdn-divergence-causes-priced fired=SILENT reason=the cause that used to reproduce this pair is withdrawn`).
+No factor, ratio or aggregate error measure is admitted, and nothing leaves claimed-exactness except the
+single-ULP step at a named transcendental site.
+
+**Next window (device, main agent only, `gpu_lock` held, halogen down, zero workers).** Expect
+`checks=60`-ish (56 CPU + the four `*-device-*` device-mode checks) and `controls=33`; findings must be 0.
+
+```bash
+tools/gpu_lock.sh acquire "$tag"
+python engine/block_device.py --device   # must print, in this order:
+    #  ARM arm=hip_device path=device hip_calls=… launches=…   (×4 honest lanes)
+    #  DEVICESTAGED / DEVALLOC / DEVWITNESS counters non-zero
+    #  GREPRO pair=g_policy_a… probe=exp_ulp_table … unexplained=0 … vs_device_record_ndiff_bytes=0 verdict=EXACT-REPRODUCTION
+    #  DREPRO steps=-1 mask=0x80d200 heads=9,12,14,15,23 … ndiff_bytes=0 verdict=EXACT-REPRODUCTION
+    #  DREPRO steps=+1 … ndiff_bytes=75206 verdict=RESIDUAL-LEFT
+    #  DDIAL probe=device_heads … / DREPRO-WIN probe=decay_ulp_mask steps=-1 mask=0x80d200 residual_bytes=0 verdict=EXACT
+    #  CONTROL name=gdn-divergence-causes-priced fired=RED legs=…  (NOT fired=SILENT)
+    #  CONTROL name=gdn-state-read-is-the-arm-s-own-fingerprint — if SILENT, it must carry reason= naming
+    #      which of honest/flip/back failed; window `i`'s leg numbers show the state did move (120259→120260),
+    #      so the likely residual cause is a sub-condition of the flip leg, now named instead of `nothing: …`
+    #  CHECK name=device-launch-counts-are-ints-and-positive verdict=PASS
+    #  CHECK name=no-control-contradicts-an-exact-reproduction verdict=PASS
+    #  CONTROL name=attribution-probe-is-dialable fired=RED legs=…
+    #  RESULT mode=device … findings=0 … band_digest=27a68c7e82c9aa05   ← the line window `i` never printed
+python engine/block_device.py --device   # 2: determinism — diff GREPRO/DREPRO/DATTRIB/GATTRIB against run 1
+                                          #    (3,744 / 52,976 / 0 / 75,206 must repeat, or band NOTHING)
+tools/gpu_lock.sh release "$tag"
+```
+
+If a second defect surfaces *after* the parse site, fix it in the same place the type or the population is
+derived, not at the consumer — that is the whole content of defect 1 and it is worth re-reading before
+patching a symptom. no timing taken.

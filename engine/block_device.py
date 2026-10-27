@@ -59,6 +59,7 @@ import ctypes
 import os
 import subprocess
 import argparse
+import ast
 import hashlib
 import math
 import re
@@ -88,7 +89,40 @@ ARM_STAGES = ("shared_raw", "shared_gate_prob", "shared_out")
 RT_STAGES = ("router_logits", "topk_ids", "topk_weights")
 WITNESS = {"hip_calls_python": 0, "hip_calls_arm": 0, "launches": 0, "allocs": 0,
            "bytes_to_device": 0, "bytes_from_device": 0, "staged_runs": 0, "slabs": 0,
-           "rows_emitted": 0}
+           "rows_emitted": 0, "unparsable_counters": []}
+
+
+def counter_positive(value):
+    """True only for a positive `int`. A string, a float or a bool is not a device act.
+
+    Comparing an unparsed counter with `0` is what made window `i` raise `TypeError` inside a check instead of
+    printing a FAIL line, and a FAIL line is the only thing a bad counter can be reported through: the driver
+    has to survive long enough to print its summary. The type comes from `device_arm.parse_arm_report`; this is
+    the one place a consumer may ask the question, and `device-run-counters-are-typed-at-the-parse-site`
+    requires that no quoted-counter comparison survives anywhere else in this file.
+    """
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def witness_fold(run, label):
+    """Fold one arm report's five counters into the witness totals, refusing to fold what it cannot read.
+
+    The fields arrive TYPED — `device_arm.parse_arm_report` refuses a `RUN` field whose own printf conversion
+    says integer and whose value is not one — so every consumer adds the value instead of casting it, and a
+    value that still arrives unreadable is recorded as a named offence on the RESULT line instead of raised:
+    window `i` printed no RESULT line because one of these folds did `int("abc")`, and a device window that
+    dies before its summary throws away the good half of itself. One fold, in one function, so
+    `device-run-counters-are-typed-at-the-parse-site` can require that no cast of these five names survives
+    anywhere in this file.
+    """
+    for key, field in (("hip_calls_arm", "hip_calls"), ("launches", "launches"),
+                       ("allocs", "allocs"), ("bytes_to_device", "bytes_to_device"),
+                       ("bytes_from_device", "bytes_from_device")):
+        value = run.get(field, 0)
+        if isinstance(value, int) and not isinstance(value, bool):
+            WITNESS[key] += value
+        else:
+            WITNESS["unparsable_counters"].append("%s.%s=%r" % (label, field, value))
 # Arm acts, counted under the path the ARM reported (`RUN path=`), not under the path the caller
 # meant. A control's leg count is read off the arm's own report, which is what makes
 # `control-legs-cover-the-path-under-claim` able to catch a control that claims a path it never ran.
@@ -120,10 +154,89 @@ def silent_control_finding(fired, reason):
     guarding — and a bare SILENT is how a control that lost its legs on the path under claim reads the same
     as one that ran and found nothing. `silent-control-names-its-reason` is the check; this function is the
     single rule so the check and the witness cannot disagree about what counts as a named reason.
+
+    It binds CONTROL lines, not CHECK lines: a check has no legs to lose, a control does, and the window-`h`
+    pair that motivated the check (`gather-divergence-causes-priced`, `gdn-state-read-is-the-arm-s-own-
+    fingerprint`, both `fired=SILENT` with no `reason=`) are controls. `Verifier.control` is the only place
+    a control is registered, and it routes every one of them through here, so a control cannot be registered
+    without passing this rule; `silent-reason-guard-can-redden` is the leg that shows the rule still bites.
     """
     if fired:
         return None
     return None if (reason or "").strip() else "silent-without-named-reason"
+
+
+# ---------------------------------------------------------------------------------------------
+# A control may not deny what this run's own reproduction legs proved.
+#
+# Window `i` printed, in the same log, `DREPRO pair=d_hip_device_vs_d_hip_hostpath probe=decay_ulp_mask
+# steps=-1 mask=0x80d200 heads=9,12,14,15,23 … vs_device_record_ndiff_bytes=0 verdict=EXACT-REPRODUCTION`
+# and `CONTROL name=gdn-divergence-causes-priced fired=SILENT reason=no injected cause reproduces the GDN
+# device divergence …`. Both sentences are about the same pair and one of them is false. The cause table
+# predates the probe that answered the question: the factor-two magnitude screen in `DMAGMATCH`/`GMAGMATCH`
+# is a *ratio* test, and a 1-ULP-per-head cause that reproduces the record byte for byte is a 5x ratio, so
+# the ratio screen went on printing "nothing reproduces it" after the byte-level test had already said
+# otherwise. A confident falsehood in a gate log is worse than a gap, because the gap gets investigated.
+#
+# The rule is written over the run's own printed lines, not over an internal flag, for the same reason the
+# row parser is: what is checked must be what was printed (`pitfalls/40` §a-device-claim-assembled-by-parsing
+# -another-tools-log, inverted — here the two halves of one log must be allowed to disagree with each other).
+# ---------------------------------------------------------------------------------------------
+
+REPRO_HEADS = ("DREPRO", "GREPRO")
+# The phrasings by which a control asserts that nothing reproduced a pair. Derived list, checked against
+# itself by `control_attribution_contradiction_guard_can_redden`: a phrase list that cannot fire is a comment.
+NO_CAUSE_PHRASES = ("no injected cause reproduces", "no cause matched", "no single-sign ulp probe",
+                    "unattributed and no scope", "nothing-to-attribute")
+
+
+def exact_reproductions(text):
+    """`{pair_label: [line, …]}` for every reproduction leg this run printed that came out exact.
+
+    Only lines beginning `DREPRO `/`GREPRO ` count, and only ones whose `verdict=` is exactly
+    `EXACT-REPRODUCTION`; a `RESIDUAL-LEFT` line is evidence of the opposite and is returned separately so a
+    pair cannot be reported as both by sloppiness of this parser.
+    """
+    exact, residual = {}, {}
+    for line in text.splitlines():
+        head = line.split(" ", 1)[0]
+        if head not in REPRO_HEADS or " pair=" not in line:
+            continue
+        pair = re.search(r" pair=(\S+)", line)
+        verdict = re.search(r" verdict=(\S+)", line)
+        if not pair or not verdict:
+            continue
+        (exact if verdict.group(1) == "EXACT-REPRODUCTION" else residual).setdefault(
+            pair.group(1), []).append(line)
+    return exact, residual
+
+
+def contradiction_findings(text):
+    """Every (control, pair) where a SILENT control denies a reproduction this run printed.
+
+    A control line contradicts the headline when it (a) did not fire, (b) carries a `reason=` or detail
+    naming one of `NO_CAUSE_PHRASES`, and (c) names a pair that some `DREPRO`/`GREPRO` line in the same run
+    reported `verdict=EXACT-REPRODUCTION`. (c) is what keeps the check narrow: a control may still say "no
+    cause reproduces" about a *different* pair.
+    """
+    exact, _ = exact_reproductions(text)
+    out = []
+    if not exact:
+        return out
+    for line in text.splitlines():
+        if not line.startswith("CONTROL ") or "fired=SILENT" not in line:
+            continue
+        low = line.lower()
+        if not any(p in low for p in NO_CAUSE_PHRASES):
+            continue
+        name = re.match(r"CONTROL name=(\S+)", line)
+        for pair in sorted(exact):
+            if pair in line:
+                out.append("%s denies %s, which this run reproduced exactly (%s)"
+                           % (name.group(1) if name else "?", pair,
+                              exact[pair][0].split(" verdict=")[0][:120]))
+                break
+    return out
 
 
 class Verifier:
@@ -1180,9 +1293,9 @@ def checks_rt(v, ctx, rt_runs):
         for key, want in (("reads_w", rt["MR_E"] * rt["MR_H"]), ("reads_x", rt["MR_E"] * rt["MR_H"])):
             if int(r.get(key, -1)) != want:
                 census_bad.append("%s.%s=%s/%d" % (label, key, r.get(key), want))
-        if r.get("items") != "%d/1" % rt["MR_E"]:
+        if r.get("items") != (rt["MR_E"], 1):
             census_bad.append("%s.items=%s/%d/1" % (label, r.get("items"), rt["MR_E"]))
-        if r.get("bad_index", "0") != "0":
+        if r.get("bad_index", 0) != 0:
             census_bad.append("%s.bad_index=%s" % (label, r.get("bad_index")))
         detail.append("%s[%s]" % (label, " ".join("%s=%s" % (k, r.get(k)) for k in
                                                   ("reads_w", "reads_x", "items", "path"))))
@@ -1259,12 +1372,18 @@ def checks_rt(v, ctx, rt_runs):
             "fails and this reddens, rather than letting a bound derived from two licensed legs "
             "license a third number nobody licensed"
             % (",".join("%s=%d" % (k, u) for k, u in sorted(wp["to_pin"].items())), wp["band"]))
+    rt_launch_offences = launch_count_offences(dict(
+        (k, a["rec"]) for k, a in rt_runs.items() if "device" in k))
     if device:
         v.check("rt-device-launch-counted",
-                any(int(a["rec"]["run"]["launches"]) > 0 and int(a["rec"]["run"]["hip_calls"]) > 0
-                    for a in rt_runs.values() if a["rec"]["run"]["path"] == "device"),
-                "the device arm counted at least one launch and one HIP call; the flag is not the "
-                "evidence, the counter is")
+                any(counter_positive(a["rec"]["run"]["launches"])
+                    and counter_positive(a["rec"]["run"]["hip_calls"])
+                    for a in rt_runs.values() if a["rec"]["run"]["path"] == "device")
+                and not rt_launch_offences,
+                "the device arm counted at least one launch and one HIP call, and every router record that "
+                "reported `path=device` reported `launches` as an int > 0 (offences: %s); the flag is not "
+                "the evidence, the counter is, and the counter has a type"
+                % (",".join(rt_launch_offences) or "none"))
         cl, dd = ctx["rt_wpre"], ctx["rt_devdiff"]
         v.check("rt-device-host-licensed-fields-identical",
                 len(dd["licensed"]) == len(RT_ZERO_TOLERANCE_FIELDS)
@@ -1304,6 +1423,236 @@ def checks_rt(v, ctx, rt_runs):
                 % (att["r1_clean"], att["cast_clean"], att["causal"],
                    att["moved_outside"] or "none"))
     check_control_paths(v, ctx)
+    device_path_census(v, ctx)
+
+
+def _guard_reads_device(node):
+    """`(mentions, positive)` for a branch guard: does it read the device flag, and does its truth need it.
+
+    Three spellings count, because the file uses all three: the local `device`, `ctx["device"]` and
+    `args.device`. A negated guard (`if not ctx["device"]:`) marks its ELSE arm as the device-only one, which
+    is the half that a naive "lines mentioning device" grep gets backwards. Callers pass the TEST, not the If
+    node: negation is a property of the expression, and asking an `ast.If` whether it is a `not` is always no.
+    """
+    names = [n.id for n in ast.walk(node) if isinstance(n, ast.Name) and n.id == "device"]
+    subs = [n for n in ast.walk(node) if isinstance(n, ast.Subscript)
+            and isinstance(n.slice, ast.Constant) and n.slice.value == "device"]
+    attrs = [n for n in ast.walk(node) if isinstance(n, ast.Attribute) and n.attr == "device"]
+    negated = isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not)
+    return bool(names or subs or attrs), (not negated)
+
+
+DEV_RUN_FIELDS = ("launches", "hip_calls", "allocs", "bytes_to_device", "bytes_from_device")
+DEV_CENSUS = {}
+
+
+def _callee_parts(func):
+    """The `a.b.c` parts of a callee, outermost first, so a call site can be named in the log."""
+    parts = []
+    while isinstance(func, (ast.Attribute, ast.Name)):
+        parts.append(func.attr if isinstance(func, ast.Attribute) else func.id)
+        func = func.value if isinstance(func, ast.Attribute) else None
+    return parts
+
+
+def device_census_derive():
+    """Derive, from this file's own AST, the statements it runs only on a device run.
+
+    The population has to be derived because the alternative is a hand-typed list, and a hand-typed list of
+    device-only paths is exactly what window `h`'s control text was: true when written, false by the next
+    commit, and quiet about being false. `DEV_CENSUS["statements"]` maps the first line of each
+    device-guarded branch statement to its source, its guard and the function it sits in; a compound statement
+    carries its whole body in `text`, so a field read nested two `if`s deep is still visible in the entry that
+    gates it.
+    """
+    if DEV_CENSUS:
+        return DEV_CENSUS
+    src = Path(__file__).read_text()
+    tree = ast.parse(src)
+    lines = src.splitlines()
+    parents = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parents[id(child)] = node
+    func_of = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for inner in ast.walk(node):
+                func_of.setdefault(id(inner), node.name)
+    statements = {}
+    early_guard = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.If, ast.IfExp)):
+            continue
+        mentions, positive = _guard_reads_device(node.test)
+        if not mentions:
+            continue
+        guard = ast.get_source_segment(src, node.test) or "?"
+        if isinstance(node, ast.If):
+            arm = (node.body if positive else node.orelse) or []
+        else:
+            # `X if device else Y`: an IfExp's arms are single expression nodes, not statement lists.
+            one = node.body if positive else node.orelse
+            arm = [one] if one is not None else []
+        for st in arm:
+            statements[st.lineno] = dict(
+                lineno=st.lineno, kind=type(st).__name__, guard=guard,
+                func=func_of.get(id(st), "<module>"),
+                text="\n".join(lines[st.lineno - 1:st.end_lineno]))
+        # The other idiom this file uses is a guard that EXITS: `if not ctx["device"]: print GVOID…; return`.
+        # Everything after it in that function body is device-only, and no branch nesting shows it, so the
+        # early exit is recorded and used below to decide whether a `device=True` call site is guarded.
+        if isinstance(node, ast.If) and not positive:
+            exits = [n for st in node.body for n in ast.walk(st)
+                     if isinstance(n, (ast.Return, ast.Raise))]
+            if exits:
+                fn = func_of.get(id(node))
+                early_guard.setdefault(fn, []).append(node.lineno)
+    # A device-only control is a function that returns early on the flag AND registers a control; that pair is
+    # what a CPU witness cannot exercise, and it is derived here so the census is non-empty in either mode.
+    guarded_fns = set(fn for fn in early_guard if fn)
+    control_guards = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) or node.name not in guarded_fns:
+            continue
+        if "v.control(" in (ast.get_source_segment(src, node) or ""):
+            control_guards.append(node.name)
+    DEV_CENSUS["control_guards"] = sorted(set(control_guards))
+    # A `device=True` keyword is a claim that an arm act is about to happen. Unguarded, it would ask a device
+    # act from a run whose RESULT line says `device=off` — the shape of a false claim, so it is enumerated.
+    # The exemption is derived from the first argument's name: `*_host_binary` means the call is asking the g++
+    # twin to PROVE it refuses `--device` (a refusal leg, which runs in both modes by design);
+    # `*_arm_binary` means a real act, which must sit under a device guard.
+    claims = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not any(k.arg == "device" and isinstance(k.value, ast.Constant) and k.value.value is True
+                   for k in node.keywords):
+            continue
+        guarded, walk = False, parents.get(id(node))
+        while walk is not None:
+            if isinstance(walk, (ast.If, ast.IfExp)) and _guard_reads_device(walk.test)[0]:
+                guarded = True
+                break
+            walk = parents.get(id(walk))
+        fn = func_of.get(id(node), "<module>")
+        if not guarded:
+            guarded = any(ln < node.lineno for ln in early_guard.get(fn, []))
+        first = ast.get_source_segment(src, node) if node.args else "?"
+        kind = ("host-refusal-leg" if "host" in first else
+                "arm-act" if "arm" in first else "unknown-binary")
+        claims.append(dict(lineno=node.lineno, guarded=guarded or kind == "host-refusal-leg", kind=kind,
+                           binary=",".join(sorted(set(re.findall(r"\b(\w*(?:host|arm)_binary)\b", first))))
+                           or "?",
+                           func=fn, name=".".join(reversed(_callee_parts(node.func)))
+                           if node.func is not None else "?"))
+    DEV_CENSUS["statements"] = statements
+    DEV_CENSUS["claims"] = claims
+    DEV_CENSUS["field_sites"] = dict((f, [ln for ln, d in sorted(statements.items())
+                                          if re.search(r"[\[.'\"]%s[\"'\]]" % f, d["text"])
+                                          or re.search(r"\b%s\b" % f, d["text"])])
+                                     for f in DEV_RUN_FIELDS)
+    # The cast scan covers the WHOLE file, not just the device-only population: the witness fold that kept
+    # window `i` from printing a RESULT line lived in a shared helper, so limiting the scan to device-gated
+    # branches would have missed it. The shape asked for is a cast applied to a quoted counter name, which is
+    # what the code below looks for; a comment that merely describes that shape is skipped, because a comment
+    # cannot execute and refusing to write about the defect would make the check worse, not better.
+    DEV_CENSUS["cast_sites"] = [i for i, text in enumerate(lines, 1)
+                                if not text.lstrip().startswith("#")
+                                and re.search(r"\b(?:int|float)\s*\([^)]*[\"'](?:%s)[\"']"
+                                             % "|".join(DEV_RUN_FIELDS), text)]
+    # …and so does the other half of the same defect: a direct comparison of a quoted counter, which is what
+    # actually raised in window `i`. The sanctioned forms are `counter_positive(x["launches"])` and
+    # `launch_count_offences`, neither of which compares a quoted key inline.
+    DEV_CENSUS["compare_sites"] = [i for i, text in enumerate(lines, 1)
+                                   if not text.lstrip().startswith("#")
+                                   and re.search(r"(?<!WITNESS)\[\s*[\"'](?:%s)[\"']\s*\]\s*[<>]"
+                                                 % "|".join(DEV_RUN_FIELDS), text)]
+    return DEV_CENSUS
+
+
+def device_path_census(v, ctx):
+    """Every device-only path and every device-claiming control, printed and then held to its own account.
+
+    Two claims, both read off derived populations rather than typed:
+
+      * **Enumeration.** The device-only statements of this file (AST-derived) and the controls that claim the
+        device path are each printed with a status. In a CPU run every one of them prints
+        `status=not-exercised` with a named reason — which is the honest statement of what a CPU session can
+        know, and is witnessed non-zero rather than vacuous. In a device window a control that still claims the
+        path with zero legs prints its own `reason=`, which is what `silent_control_finding` now requires of
+        every quiet control anyway; a claim with no exercised leg therefore cannot be printed silently.
+      * **Type safety at the only door.** The five counters a device check reads off an arm report
+        (`launches`, `hip_calls`, `allocs`, `bytes_to_device`, `bytes_from_device`) must be integer-typed in
+        every compiled lane's own printf format, and no consumer anywhere in this file may cast one. Window `i`
+        crashed at `str > int` because the parse site handed out strings and each consumer cast or did not, so
+        the guarantee lives in `device_arm.RECORD_FIELD_TYPES` and this check is what keeps it there: a cast
+        reappearing in the device-only population, or a lane whose format stops spelling the count with an
+        integer conversion, reddens this check instead of reddening a window 40 minutes in.
+    """
+    census = device_census_derive()
+    statements, claims = census["statements"], census["claims"]
+    dev_legs = sum(d["legs"].get("device", 0) for d in v.control_paths.values() if d["claims"])
+    claiming = dict((n, d) for n, d in v.control_paths.items() if "device" in d["claims"])
+    printed = 0
+    for name, d in sorted(claiming.items()):
+        legs = d["legs"].get("device", 0)
+        if legs:
+            print("DEVONLY control=%s status=exercised legs=device:%d note=arm acts reported `path=device` by "
+                  "the arm's own RUN line" % (name, legs))
+        else:
+            print("DEVONLY control=%s status=not-exercised reason=%s note=%s"
+                  % (name, ("device-flag-off-in-this-run" if not ctx["device"]
+                            else "claimed-device-and-executed-zero-device-legs"),
+                     "a CPU witness: the guard that gates this control's legs was false, so nothing on the "
+                     "device path ran; this line is a claim being declared unmet, not a pass"))
+        printed += 1
+    unguarded = ["%s:%d(%s)" % (c["func"], c["lineno"], c["name"]) for c in claims if not c["guarded"]]
+    for fn in census["control_guards"]:
+        print("DEVONLY control-function=%s status=%s reason=device-guard-returns-early-in-a-cpu-run "
+              "note=the control it registers is unreachable without `--device`; this is the population that "
+              "the CPU witness cannot exercise, derived from the AST, not typed"
+              % (fn, "exercised" if ctx["device"] else "not-exercised"))
+    for c in sorted(claims, key=lambda c: c["lineno"]):
+        print("DEVONLY claim=%s:%d call=%s binary=%s kind=%s status=%s"
+              % (c["func"], c["lineno"], c["name"], c["binary"], c["kind"],
+                 "guarded" if c["guarded"] else "UNGUARDED"))
+    print("DEVONLY census statements=%d control-functions=%d device-true-call-sites=%d unguarded=%s "
+          "field-read-sites=%s cast-sites=%s compare-sites=%s control-claims-printed=%d/%d"
+          % (len(statements), len(census["control_guards"]), len(claims),
+             ",".join(unguarded) or "none",
+             ",".join("%s:%d" % (f, len(census["field_sites"][f])) for f in DEV_RUN_FIELDS),
+             ",".join(str(x) for x in census["cast_sites"]) or "none",
+             ",".join(str(x) for x in census["compare_sites"]) or "none", printed, len(claiming)))
+    lane_types = dict((stem, dict((f, DA.RECORD_FIELD_TYPES[stem]["RUN"].get(f)) for f in DEV_RUN_FIELDS))
+                      for stem in sorted(DA.RECORD_FIELD_TYPES))
+    untyped = ["%s.%s=%s" % (stem, f, t) for stem, row in sorted(lane_types.items())
+               for f, t in sorted(row.items()) if t not in ("int",)]
+    v.check("device-only-paths-are-enumerated-not-assumed",
+            bool(statements) and bool(census["control_guards"]) and printed == len(claiming)
+            and not unguarded,
+            "%d device-only statements, %d device-only control functions and %d `device=True` call sites were "
+            "read out of this file's own AST (%s cast sites on the five run counters, field reads %s) and "
+            "%d/%d controls claiming the device path printed a DEVONLY status line — one per claim, so a claim "
+            "cannot go unprinted. %d device legs were actually executed by arm acts in this run. Unguarded "
+            "device claims: %s. Window `i`'s crash lived inside this population, which is why the population is "
+            "derived"
+            % (len(statements), len(census["control_guards"]), len(claims), len(census["cast_sites"]),
+               ",".join("%s=%d" % (f, len(census["field_sites"][f])) for f in DEV_RUN_FIELDS),
+               printed, len(claiming), dev_legs, ",".join(unguarded) or "none"))
+    v.check("device-run-counters-are-typed-at-the-parse-site",
+            not untyped and not census["cast_sites"] and not census["compare_sites"],
+            "the five counters every device check reads are printed with an integer conversion by every "
+            "compiled lane and are converted to `int` at the parse site and nowhere else: %s. Across the whole "
+            "file there are %d casts of a quoted counter and %d inline comparisons of one — both must be zero, "
+            "because a consumer that casts or compares is a consumer that raises `TypeError` in a window "
+            "instead of printing a FAIL line, which is what window `i` did at the GDN attribution and at "
+            "`rt-device-launch-counted`, and why it printed no RESULT line"
+            % ("; ".join("%s[%s]" % (stem, ",".join("%s:%s" % (f, lane_types[stem][f])
+                                                    for f in DEV_RUN_FIELDS))
+                         for stem in sorted(lane_types)) or "no lanes",
+               len(census["cast_sites"]), len(census["compare_sites"])))
 
 
 def check_control_paths(v, ctx):
@@ -1337,12 +1686,28 @@ def check_control_paths(v, ctx):
             "construction and says so, because there is no device path to claim"
             % sum(d["legs"].get("device", 0) for d in claiming.values()))
     v.check("silent-control-names-its-reason", not v.unreasoned,
-            "every control that did not fire also printed a `reason=` naming what it could not do: %d of %d "
-            "controls fired, and the ones that went quiet are %s. Window `g` is why this is a check and not a "
-            "style rule: `control-witness-guard-can-redden` printed a quiet line with no reason on the device "
-            "path, which reads exactly like a guard that ran and found nothing. A control that cannot run a "
-            "leg prints that leg as not-exercised instead; a control that goes quiet names the finding"
+            "every CONTROL line that did not fire also printed a `reason=` naming what it could not do — the "
+            "rule lives in `silent_control_finding`, which `Verifier.control` runs on every control "
+            "registration, so a control cannot be registered without passing it (window `h`: "
+            "`gather-divergence-causes-priced` and `gdn-state-read-is-the-arm-s-own-fingerprint` both printed "
+            "a quiet SILENT, and the check that was supposed to catch that was reading checks, which have no "
+            "legs to lose). %d of %d controls fired; the ones that went quiet without naming a reason are %s. "
+            "`silent-reason-guard-can-redden` is the leg that shows this predicate can still redden"
             % (v.fired, len(v.controls), ",".join(v.unreasoned) or "none"))
+    contradictions = contradiction_findings(ctx.get("text", ""))
+    exact_pairs, residual_pairs = exact_reproductions(ctx.get("text", ""))
+    v.check("no-control-contradicts-an-exact-reproduction", not contradictions,
+            "%d reproduction legs printed `verdict=EXACT-REPRODUCTION` (pairs: %s) and %d printed a residual "
+            "(pairs: %s); no SILENT control in this log denies any of them. Window `i` printed "
+            "`DREPRO … verdict=EXACT-REPRODUCTION` and, nine lines later, a control whose reason said "
+            "`no injected cause reproduces the GDN device divergence` — the cause table predated the probe "
+            "that answered the question and printed a confident falsehood in a gate log. The rule is read off "
+            "this run's own printed lines, not off a flag, and NO_CAUSE_PHRASES names the phrasings it "
+            "watches for. Refutations found: %s"
+            % (sum(len(v) for v in exact_pairs.values()), ",".join(sorted(exact_pairs)) or "none",
+               sum(len(v) for v in residual_pairs.values()),
+               ",".join(sorted(residual_pairs)) or "none",
+               "; ".join(contradictions) or "none"))
     bad_attrib = [a for a in ATTRIBS if a["moved"] != a["total"]]
     v.check("field-attribution-accounts-to-the-pair", bool(ATTRIBS) and not bad_attrib,
             "%d per-field attribution tables were printed (paired totals: %s) and in every one the field "
@@ -1499,12 +1864,7 @@ def g_arm(width, binary, plan, slab, out, device=False, fault=None, label=None):
     """
     rec = arm_leg(binary, plan, slab, out, device=device, fault=fault, label=label)
     G_LEGS[width] = G_LEGS.get(width, 0) + 1
-    run = rec["run"]
-    WITNESS["hip_calls_arm"] += int(run["hip_calls"])
-    WITNESS["launches"] += int(run["launches"])
-    WITNESS["allocs"] += int(run["allocs"])
-    WITNESS["bytes_to_device"] += int(run["bytes_to_device"])
-    WITNESS["bytes_from_device"] += int(run["bytes_from_device"])
+    witness_fold(rec["run"], label or "g_arm")
     return rec
 
 
@@ -1883,6 +2243,34 @@ def control_gather_swap(v, ctx):
               legs=g_legs_since(snap), claims=g_claims(ctx))
 
 
+def launch_count_offences(runs, paths=("device",)):
+    """Every arm record that cannot support the claim "this run launched kernels", with the reason named.
+
+    ONE spelling of the rule, because four checks used to cast and compare by hand — two of them `int(...) > 0`,
+    two of them a bare `... > 0` — and window `i` died inside one of the bare ones when the parse handed back
+    a string: `TypeError: '>' not supported between instances of 'str' and 'int'`, `rc=1`, no `RESULT` line.
+    A check that raises has not run, and a run that cannot print its RESULT cannot print its findings either,
+    so the crash was worse than a red. The type is now guaranteed upstream at the parse site
+    (`engine/device_arm.py::parse_arm_report`, which reads the `%d` off the arm's own printf), and this is
+    the belt: three offences are named rather than raised — the counter absent, the counter not an `int`, the
+    counter an `int` that is not positive. `control-witness-guard-can-redden` is the leg that shows each of
+    the three is a finding, including `launches="abc"`, which is a *red check*, not a crashed driver.
+    """
+    bad = []
+    for label in sorted(runs):
+        run = run_facts(runs[label])
+        if paths is not None and run.get("path") not in paths:
+            continue
+        v = run.get("launches")
+        if v is None:
+            bad.append("%s.launches=absent" % label)
+        elif isinstance(v, bool) or not isinstance(v, int):
+            bad.append("%s.launches=%r(not-an-int)" % (label, v))
+        elif v <= 0:
+            bad.append("%s.launches=%d(not-positive)" % (label, v))
+    return bad
+
+
 def device_act_absences(runs):
     """Offences among the records that ran ON the device: a `path=device` act that reports none.
 
@@ -1893,20 +2281,21 @@ def device_act_absences(runs):
     is the silent fallback this lane exists to refuse, so it is an offence of its own and
     `control-witness-guard-can-redden` shows the predicate can see it (window `g`: that control printed
     `fired=SILENT` on the device path because its honest half demanded an act-free set that a device run
-    cannot honestly produce).
+    cannot honestly produce). The launch half is `launch_count_offences`, so there is one rule for what a
+    counted launch means.
     """
-    bad = []
+    bad = launch_count_offences(runs)
     for label in sorted(runs):
         run = run_facts(runs[label])
         if run.get("path") != "device":
             continue
-        for k in ("launches", "bytes_from_device"):
-            v = run.get(k)
-            try:
-                if v is None or not int(v):
-                    bad.append("%s.%s=%s" % (label, k, "absent" if v is None else v))
-            except (TypeError, ValueError):
-                bad.append("%s.%s=%s" % (label, k, v))
+        v = run.get("bytes_from_device")
+        try:
+            if v is None or not int(v):
+                bad.append("%s.bytes_from_device=%s"
+                           % (label, "absent" if v is None else v))
+        except (TypeError, ValueError):
+            bad.append("%s.bytes_from_device=%s" % (label, v))
     return bad
 
 
@@ -1943,10 +2332,25 @@ def control_no_device_act_guard(v, ctx):
         "launches-absent": dict((k, x) for k, x in honest[victim].items() if k != "launches"),
     }
     bad = dict((name, no_device_act_offences({victim: rec})) for name, rec in fabricated.items())
+    # The same three shapes, replayed against the launch-count predicate that the four
+    # `*-device-path-claims-executed-on-device` checks read, plus the two shapes only that predicate judges:
+    # a device run reporting `launches=0`, and one reporting `launches="abc"` — the last is window `i`'s
+    # crash, and the requirement is a RED check, not a `TypeError` from the driver.
+    launch_fabricated = dict(("device/" + n, dict(rec, path="device")) for n, rec in fabricated.items())
+    launch_fabricated["device/launches=0"] = dict(honest[victim], path="device", launches=0)
+    launch_fabricated['device/launches="abc"'] = dict(honest[victim], path="device", launches="abc")
+    launch_bad = dict((name, launch_count_offences({victim: rec}, paths=None))
+                      for name, rec in launch_fabricated.items())
+    launch_clean = launch_count_offences(dev_runs)
     clean = no_device_act_offences(host_runs)
     absent = device_act_absences(dev_runs)
     for name in sorted(fabricated):
         print("GWITNESS guard=no-device-acts fabricated=%s offences=%s" % (name, bad[name] or "NONE"))
+    for name in sorted(launch_fabricated):
+        print("GWITNESS guard=launch-count fabricated=%s offences=%s"
+              % (name, launch_bad[name] or "NONE — the launch predicate is blind to this shape"))
+    print("GWITNESS guard=launch-count leg=device-records-clean records=%d offences=%s"
+          % (len(dev_runs), launch_clean or "clean"))
     print("GWITNESS guard=no-device-acts leg=host-records-clean records=%d offences=%s"
           % (len(host_runs), clean or "clean"))
     if dev_runs:
@@ -1962,21 +2366,130 @@ def control_no_device_act_guard(v, ctx):
     fake_absent = device_act_absences(fake_dev)
     print("GWITNESS guard=no-device-acts fabricated=device-run-with-no-act offences=%s"
           % (fake_absent or "NONE — the predicate is blind to a device run that launched nothing"))
-    fired = bool(not clean and not absent and all(bad[n] for n in bad) and fake_absent)
-    nlegs = len(fabricated) + 1 + (1 if dev_runs else 0) + 1
+    must_be_clean = ["device/launches=1"]
+    must_catch = [n for n in launch_fabricated if n not in must_be_clean]
+    fired = (not clean and not absent and not launch_clean
+             and all(bad[n] for n in bad) and fake_absent
+             and all(launch_bad[n] for n in must_catch)
+             and not any(launch_bad[n] for n in must_be_clean))
+    nlegs = len(fabricated) + len(launch_fabricated) + 1 + (1 if dev_runs else 0) + 1
     v.control("control-witness-guard-can-redden", fired,
               "the same predicate the check runs, over the honest set split by the path the arm reported "
-              "(executed=device:%d,host_cpubody:%d predicate legs, no arm act) and three fabrications: "
-              "host-clean=%s; device-acts=%s; %s. Every fabrication is read as an offence, including the "
-              "record that simply omits the counter — a RUN line that does not report a number cannot "
-              "certify that the number was zero"
-              % (len(dev_runs), len(host_runs), clean or "clean", absent or "clean",
-                 "; ".join("%s -> %s" % (n, ",".join(bad[n])) for n in sorted(bad))),
+              "(executed=device:%d,host_cpubody:%d predicate legs, no arm act) and %d fabrications: "
+              "host-clean=%s; device-acts=%s; %s; launch-count: %s. Every fabrication is read as an offence, "
+              "including the record that simply omits the counter — a RUN line that does not report a number "
+              "cannot certify that the number was zero — and including `launches=\"abc\"`, which reddens the "
+              "check instead of raising inside it; the one fabrication that must stay clean "
+              "(`device/launches=1`, a device run reporting one launch) does"
+              % (len(dev_runs), len(host_runs), len(fabricated) + len(launch_fabricated),
+                 clean or "clean", absent or "clean",
+                 "; ".join("%s -> %s" % (n, ",".join(bad[n])) for n in sorted(bad)),
+                 "; ".join("%s -> %s" % (n, ",".join(launch_bad[n])) for n in sorted(launch_bad))),
               legs={"cpu_predicate": nlegs},
               reason=(None if fired else
-                      "honest set disagreed with the predicate the way the path forbids: host records "
-                      "offending=%s, device records missing acts=%s (see the GWITNESS legs above)" %
-                      (clean or "clean", absent or "clean")))
+                      "an honest half disagreed with a predicate the way the path forbids, or a fabrication "
+                      "went unseen: host records offending=%s, device records missing acts=%s, device launch "
+                      "records with offences=%s, uncaught=%s, wrongly-caught=%s (see the GWITNESS legs above)"
+                      % (clean or "clean", absent or "clean", launch_clean or "clean",
+                         [n for n in must_catch if not launch_bad[n]] or "none",
+                         [n for n in must_be_clean if launch_bad[n]] or "none")))
+
+
+def control_silent_reason_guard(v, ctx):
+    """The SILENT-control rule has to be capable of reddening, and it has to bind controls.
+
+    `silent-control-names-its-reason` was written after window `g`, and window `h` still printed two quiet
+    `fired=SILENT` control lines with no `reason=` — because the check was reading the wrong population.
+    Checks have no legs to lose; controls do. So this leg builds a scratch `Verifier`, registers four
+    controls whose only difference is the reason field, and requires exactly the two quiet-without-a-reason
+    ones to be findings: quiet+reason and fired+no-reason must read clean (a reason is required of a control
+    that could not run, not of one that ran), and whitespace must not count as a reason. Both denominators are
+    non-zero by construction, so the predicate cannot satisfy itself by an empty list.
+    """
+    probe = Verifier()
+    legs = [("quiet-with-reason", False, dict(reason="needs-a-device-window")),
+            ("quiet-no-reason", False, {}),
+            ("quiet-whitespace-reason", False, dict(reason="   ")),
+            ("fired-no-reason", True, {})]
+    for name, fired, kw in legs:
+        probe.control(name, fired, "fabricated leg (no arm act, nothing computed)", **kw)
+    seen = dict((n, n in probe.unreasoned) for n, _, _ in legs)
+    want = {"quiet-no-reason": True, "quiet-whitespace-reason": True,
+            "quiet-with-reason": False, "fired-no-reason": False}
+    for name, _, _ in legs:
+        print("GWITNESS guard=silent-reason fabricated=%s flagged=%s expected=%s"
+              % (name, seen[name], want[name]))
+    fired = (seen == want and len(probe.controls) == len(legs)
+             and sorted(probe.unreasoned) == sorted(n for n, _, _ in legs if want[n]))
+    v.control("silent-reason-guard-can-redden", fired,
+              "%d fabricated control registrations through the real `Verifier.control`: the two quiet ones "
+              "without a reason (including the whitespace-only one) are findings, the quiet one with a reason "
+              "and the one that fired are not, and `silent-control-names-its-reason` reads the same "
+              "`Verifier.unreasoned` list this leg filled. If the guard is ever made to read checks again, or "
+              "the rule is loosened to accept an empty reason, this control goes SILENT and names which leg "
+              "stopped being a finding (flags: %s)"
+              % (len(legs), ",".join("%s=%s" % (n, seen[n]) for n, _, _ in legs)),
+              legs={"cpu_predicate": len(legs)},
+              reason=(None if fired else
+                      "the silent-reason rule no longer distinguishes the four legs: flagged=%s (see the "
+                      "GWITNESS guard=silent-reason lines)" % seen))
+
+
+def control_attribution_contradiction_guard(v, ctx):
+    """The contradiction check must be able to fire, so the stale sentence is fed to it verbatim.
+
+    The check reads the run's own text, which in a CPU witness contains no `DREPRO` line at all — a check that
+    can only fire in one mode is a check that is blind in the other, and window `h`/`i` are exactly where it
+    was needed. So this leg hands the predicate three texts: the real one from this run; a stale text built by
+    taking this run's own `DREPRO`/`GREPRO` exact-reproduction line (from the window-`i` evidence, whose pair
+    labels are cited below) and putting back the sentence the control used to print; and the same text with
+    the stale sentence about a DIFFERENT pair, which must not fire — the narrowness half, because a "
+    contradiction detector that fires on any negation is a lint rule, not a check.
+    """
+    text = ctx.get("text", "")
+    exact, _ = exact_reproductions(text)
+    # Pair labels and a real reproduction line, copied from this repo's window-`i` evidence so the stale text
+    # is assembled from printed material rather than typed from memory (see the STALE legs in the pass-9 log).
+    evidence = ROOT / "specification" / "evidence" / "blockdevice-device-2026-10-27-i1.log"
+    repro_lines = [ln for ln in (evidence.read_text().splitlines() if evidence.exists() else [])
+                   if ln.startswith(REPRO_HEADS) and "verdict=EXACT-REPRODUCTION" in ln]
+    basis = repro_lines or [ln for ln in text.splitlines()
+                            if ln.startswith(REPRO_HEADS) and "verdict=EXACT-REPRODUCTION" in ln]
+    stale, other_ok = [], True
+    for line in basis:
+        pair = re.search(r" pair=(\S+)", line).group(1)
+        stale.append("CONTROL name=fabricated-stale-control fired=SILENT reason=no injected cause "
+                     "reproduces the device divergence of %s" % pair)
+    stale_text = "\n".join(basis + stale)
+    stale_off = ("CONTROL name=fabricated-other-control fired=SILENT reason=no injected cause reproduces "
+                 "the divergence of a.pair.that.is.not.in.this.run")
+    found_real = contradiction_findings(text)
+    found_stale = contradiction_findings(stale_text)
+    found_other = contradiction_findings(stale_off)
+    print("GWITNESS guard=attribution-contradiction leg=this-run lines=%d exact_pairs=%s findings=%s"
+          % (len(text.splitlines()), ",".join(sorted(exact)) or "none", found_real or "none"))
+    print("GWITNESS guard=attribution-contradiction leg=stale-text lines=%d findings=%d first=%s"
+          % (len(stale_text.splitlines()), len(found_stale), (found_stale or ["NONE"])[0][:160]))
+    print("GWITNESS guard=attribution-contradiction leg=other-pair-text findings=%s note=a denial about a "
+          "pair this run did not reproduce is not a contradiction and must not fire"
+          % (found_other or "none"))
+    for ln in stale:
+        print("GWITNESS-STALE %s" % ln[:400])
+    fired = (not found_real and not found_other and bool(basis)
+             and len(found_stale) == len(basis))
+    v.control("attribution-contradiction-guard-can-redden", fired,
+              "the contradiction predicate run over three texts: this run's own output (%d lines, findings "
+              "%s); a stale text that keeps the window-`h`/`i` sentence `no injected cause reproduces` beside "
+              "the exact-reproduction line for the SAME pair (%d legs, %d findings — one per pair is the "
+              "requirement); and a text where the denial is about a pair nobody reproduced (must be, and is, "
+              "clean). The stale lines are printed verbatim above so the wording that reddens is inspectable"
+              % (len(text.splitlines()), found_real or "none", len(basis), len(found_stale)),
+              legs={"cpu_predicate": 3},
+              reason=(None if fired else
+                      "the contradiction predicate did not behave: this-run findings=%s, stale-text findings="
+                      "%d of %d expected, other-pair findings=%s (in a CPU run no DREPRO line exists, so the "
+                      "stale leg has no real reproduction line to stand beside and is not claimed)"
+                      % (found_real or "none", len(found_stale), len(basis), found_other or "none")))
 
 
 def control_gather_census(v, ctx):
@@ -2941,23 +3454,33 @@ def control_gather_divergence_causes(v, ctx):
                      any(t > 0 for w, c, t in injected_nonzero if w == "policy_a"),
                      gate_up_clean, ref_absorbed))
     if ctx["device"]:
+        residual = [w for w, nd in ctx.get("g_repro", {}).items() if nd]
         unresolved = [w for w in DA.G_PATHS if w in ctx.get("g_device_pair_rows", {})
                       and not ctx.get("g_cause_match", {}).get(w)]
-        if unresolved:
-            ok = False
-            reason = ("no injected cause reproduces the device divergence in field location AND magnitude "
-                      "on %s; the mechanism is therefore UNATTRIBUTED and no scope may be claimed for it "
-                      "(GMAGMATCH lines name what was ruled out and by how much)" % ",".join(unresolved))
-        residual = [w for w, nd in ctx.get("g_repro", {}).items() if nd]
+        exact_repro = [w for w, nd in ctx.get("g_repro", {}).items() if nd == 0]
         if residual:
             ok = False
             reason = ("%s an exp-only probe left %s bytes of residual in the device record, so a second "
                       "mechanism is live and none of the causes above accounts for it"
                       % (",".join(residual), ",".join(str(ctx["g_repro"][w]) for w in residual)))
-        elif ctx.get("g_repro"):
-            reason = ("the exp-only probe reproduced the device record byte for byte (GREPRO); the ratio "
-                      "match above is UNATTRIBUTED by the factor-two rule and the exact reproduction, not "
-                      "a tolerance, is what retires the width and index hypotheses")
+        elif unresolved and not exact_repro:
+            ok = False
+            reason = ("no injected cause reproduces the device divergence in field location AND magnitude "
+                      "on %s, and no byte-level probe reproduced it either; the mechanism is therefore "
+                      "UNATTRIBUTED and no scope may be claimed for it (GMAGMATCH lines name what was ruled "
+                      "out and by how much)" % ",".join(unresolved))
+        elif unresolved and exact_repro:
+            # The sentence this branch used to print — "no injected cause reproduces the device divergence" —
+            # is what contradicted `GREPRO … verdict=EXACT-REPRODUCTION` nine lines higher in the same log.
+            # The factor-two screen is a RATIO test and a 1-ULP-per-site cause is a 4-5x ratio by construction,
+            # so it can never call the cause the byte-level test just proved. The ratio screen stays printed
+            # (it is what rules the width hypotheses OUT by 19.6x), but it no longer gets to state the verdict
+            # after an exact reproduction exists: exact bytes beat a ratio, and a log that says both is a log
+            # nobody can act on.
+            lines.append("reproduced=%s: the per-site exp table derived from the device's own `s` words "
+                         "reproduced the record byte for byte, so the ratio screen's %s "
+                         "`candidates=NONE` is a statement about ratios, not about the mechanism"
+                         % (",".join(exact_repro), ",".join(unresolved)))
     v.control("gather-divergence-causes-priced", ok,
               "%d candidate causes injected on the arm's host path and counted per field; every "
               "attribution accounts to its pair total; the reference path absorbs the maximal exp "
@@ -2982,6 +3505,7 @@ def control_d_divergence_causes(v, ctx):
     if not ctx.get("d"):
         return
     d = ctx["d"]["d"]
+    snap = dict(PATH_LEGS)
     honest = ctx["work"] / "d_out_hip.bin"
     obs = ctx.get("d_device_pair_rows")
     accounted, rows_by_cause, reach_offences = [], {}, []
@@ -3038,6 +3562,7 @@ def control_d_divergence_causes(v, ctx):
     elif not ok:
         reason = ("attribution did not account, or every injected cause was inert: %s"
                   % [(a["pair"], a["total"], a["moved"]) for a in accounted if a["moved"] != a["total"]])
+    d_repro, repro_note = {}, ""
     if obs is not None:
         # The device leg of the head question: take the heads the device's own `state` diff names, move each
         # of those decays by one signed ULP on the host path, and ask whether the whole GDN record is now
@@ -3058,8 +3583,8 @@ def control_d_divergence_causes(v, ctx):
                       "vs_device_record_ndiff_bytes=%d verdict=%s"
                       % (steps, mask, ",".join(str(h) for h in moved), rbytes, rdiff,
                          "EXACT-REPRODUCTION" if rdiff == 0 else "RESIDUAL-LEFT"))
-                if rdiff == 0:
-                    ctx.setdefault("d_repro", []).append(steps)
+                d_repro[steps] = rdiff
+            ctx["d_repro"] = d_repro
     if obs is not None:
         best = []
         for cause, attrib in rows_by_cause.items():
@@ -3078,25 +3603,192 @@ def control_d_divergence_causes(v, ctx):
             if same_fields and within:
                 best.append(cause)
         ctx["d_cause_match"] = best if obs["total"] else ["byte-exact"]
-        if not best and obs["total"]:
-            ok = False
-            reason = ("no injected cause reproduces the GDN device divergence in field location AND "
-                      "magnitude; the mechanism is UNATTRIBUTED and no scope may be claimed for it "
-                      "(DMAGMATCH names what was ruled out and by how much)")
-        if obs["total"] and not ctx.get("d_repro"):
-            ok = False
-            reason = ("%s; and no single-sign ULP probe on the device's own head set reproduced the GDN "
-                      "record byte for byte (DREPRO), so the size of the device's difference is not one "
-                      "ULP on those heads" % (reason or "no cause matched"))
+        # THE VERDICT IS THE BYTE-LEVEL TEST, NOT THE RATIO. The factor-two screen is a ratio test: the cause
+        # that reproduces this pair byte for byte (−1 ULP on `exp(g_decay)` for the device's own head subset)
+        # is a 5x ratio by construction and the screen can only ever call it RULED-OUT. Window `i` therefore
+        # printed `verdict=EXACT-REPRODUCTION` and, below it, `no injected cause reproduces the GDN device
+        # divergence` — a control whose cause table predated the probe that answered the question. The ratio
+        # lines stay printed (they are what rules `decay_head_off1` and `state_xpose` out by 29x and 25x, and
+        # withdrawing *those* is what makes the −1 match a test), but the screen no longer gets to state the
+        # verdict once a byte-level reproduction exists, and if that reproduction is ever withdrawn the
+        # control reddens by name instead of quietly falling back to the ratio.
+        if obs["total"]:
+            exact = d_repro.get(-1) == 0
+            plus_residual = d_repro.get(1)
+            if not d_repro:
+                ok = False
+                reason = ("no per-head ULP probe ran: the device's own `state` diff named no head "
+                          "(DHEAD lines above), so there is no per-head decay cause to price and the "
+                          "divergence is UNATTRIBUTED")
+            elif not exact:
+                ok = False
+                reason = ("the cause that used to reproduce this pair is withdrawn: −1 ULP on "
+                          "exp(g_decay) for the device's own head set left %s B of residual in the "
+                          "2,187,264-byte record (DREPRO steps=-1), so either the mechanism changed or the "
+                          "head subset is no longer what the device moved; the ratio screen above cannot "
+                          "substitute for the byte test")
+                repro_note = "reproduction=WITHDRAWN residual=%s" % d_repro.get(-1)
+            elif not plus_residual:
+                ok = False
+                reason = ("the withdrawal arm agrees: +1 ULP on the same head set also reproduced the "
+                          "device record (residual %s B), so the sign of the step is not pinned and the −1 "
+                          "match is a fit rather than a test" % plus_residual)
+                repro_note = "reproduction=NOT-SIGN-PINNED plus_residual=%s" % plus_residual
+            else:
+                repro_note = ("reproduction=EXACT steps=-1 heads=%s mask=0x%x withdrawal=steps+1 "
+                              "residual=%d B: the sign of the step and the head subset are both pinned by "
+                              "a probe that could have failed" % (",".join(str(h) for h in moved),
+                                                                  mask, plus_residual))
     else:
         print_device_only_attribution_dvoids("gdn", "d_hip_device_vs_d_hip_hostpath")
     v.control("gdn-divergence-causes-priced", ok,
-              "three candidate causes injected and counted per field; every attribution accounts to its "
-              "pair total; every cause moved exactly the fields the arm's own HDR reach claim names "
-              "(DREACH); q_hat/k_hat untouched by all three, which is what the reach table promises and "
-              "this leg measures. %s" % (
-                  ";".join("%s=%d" % (c, a["total"]) for c, a in rows_by_cause.items())),
+              "three candidate causes injected and counted per field, plus the two signed per-head ULP "
+              "probe legs against the device record; every attribution accounts to its pair total; every "
+              "cause moved exactly the fields the arm's own HDR reach claim names (DREACH); q_hat/k_hat "
+              "untouched by all three, which is what the reach table promises and this leg measures. %s %s"
+              % (";".join("%s=%d" % (c, a["total"]) for c, a in rows_by_cause.items()), repro_note),
+              legs=legs_since(snap), claims=("host_cpubody",),
               reason=reason)
+
+
+def control_attribution_probe_is_dialable(v, ctx):
+    """The mask probe that carries the GDN attribution obeys its dial, head by head.
+
+    `DREPRO … probe=decay_ulp_mask steps=-1 mask=0x80d200 … verdict=EXACT-REPRODUCTION` is a claim about ONE
+    mode of ONE arm, and if that mode silently ignored its `mask=` or `steps=` argument the reproduction would
+    still print 0 and the attribution would be a tautology — the arm compared with itself under a label. So
+    every leg here asks the arm to dial the cause to a different size and requires a different answer:
+
+      * `mask=0` withdraws the cause from every head: the record must be the honest bytes, byte for byte, and
+        the arm's own HDR must echo `mode_mask=0x0` — an injection the arm did not accept cannot be priced.
+      * the full mask must move a non-zero, non-empty set of per-head state rows (the DHEAD ruler).
+      * each single head named by that ruler must move fewer bytes than the full mask and more than zero: a
+        mask that moves the same amount whatever it names is not a mask.
+      * both signs must be accepted by the arm and must differ from each other, or "1 ULP" is a label for one
+        fixed perturbation rather than a signed step.
+      * in a device window, the winning combination specifically: steps=-1 with the device's own head mask
+        must reproduce the device record with ZERO residual, and every single-head subset must leave a
+        strictly positive one. If the −1 ULP cause is ever withdrawn — a kernel change, a new device build,
+        a different head subset — this reddens by name instead of letting the EXACT-REPRODUCTION line stand.
+
+    The population of heads is derived from the arm's own per-head ruler (or, in a device window, from the
+    device's own `state` diff), never typed: `0x80d200` appears in the log because it is what the device
+    moved, not because anyone wrote it down.
+    """
+    if not ctx.get("d"):
+        return
+    d = ctx["d"]["d"]
+    honest = ctx["work"] / "d_out_hip.bin"
+    device_rec = ctx["work"] / "d_out_device.bin"
+    snap = dict(PATH_LEGS)
+    full = (1 << d["GDN_H_V"]) - 1
+
+    def probe(tag, mask, steps):
+        r = d_variant(ctx, "d_dial_%s.bin" % tag, "d_dial_%s" % tag, mode="decay_ulp_mask",
+                      mask=mask, steps=steps, binary=ctx["args"].d_arm_binary, metrics_ok=False)
+        _rows, total = record_field_rows(r["rec"]["wrote"]["path"], honest, d["order"], d["fields"])
+        hdr = r["rec"].get("hdr", {})
+        echo = (hdr.get("mode_mask"), hdr.get("mode_steps"))
+        return r, total, echo
+
+    reasons = []
+
+    def probe(tag, mode, mask=None, steps=None):
+        r = d_variant(ctx, "d_dial_%s.bin" % tag, "d_dial_%s" % tag, mode=mode, mask=mask, steps=steps,
+                      binary=ctx["args"].d_arm_binary, metrics_ok=False)
+        _rows, total = record_field_rows(r["rec"]["wrote"]["path"], honest, d["order"], d["fields"])
+        hdr = r["rec"].get("hdr", {})
+        print("DDIAL probe=%s mode=%s mask=%s steps=%s arm_echo=mask:%s steps:%s bytes_vs_honest=%d"
+              % (tag, mode, "none" if mask is None else "0x%x" % mask,
+                 "none" if steps is None else steps, hdr.get("mode_mask"), hdr.get("mode_steps"), total))
+        return r, total, (hdr.get("mode_mask"), hdr.get("mode_steps"))
+
+    _r, t_plain, echo_plain = probe("mode_correct", "correct")
+    if t_plain:
+        reasons.append("re-running the plan with the mask mode withdrawn moved %d B against the honest "
+                       "record; the mode word alone must change no arithmetic, or the DREPRO legs are being "
+                       "compared against a baseline that moves under them" % t_plain)
+    if echo_plain != (0, 0):
+        reasons.append("with no mask in the plan the arm still echoed mask=%r steps=%r; the HDR line is the "
+                       "arm's own admission of what it was told to perturb" % (echo_plain,))
+    try:
+        d_variant(ctx, "d_dial_empty_mask.bin", "d_dial_empty_mask", mode="decay_ulp_mask", mask=0,
+                  steps=-1, binary=ctx["args"].d_arm_binary, metrics_ok=False)
+        reasons.append("the arm accepted a decay_ulp_mask plan whose mask names no head: an inert mask mode "
+                       "is a probe that cannot fail, which is the whole failure mode of a tautological "
+                       "reproduction (m2_d_io.h::mode-mask-empty did not fire)")
+    except DA.Refused as exc:
+        print("DDIAL probe=empty_mask verdict=%s tag=%s note=the arm refuses an empty mask by name, so the "
+              "dial cannot be silently set to inert"
+              % ("REFUSED" if "mode-mask-empty" in str(exc) else "WRONG-REFUSAL", exc.tag))
+        if "mode-mask-empty" not in str(exc):
+            reasons.append("the empty-mask probe was refused for the wrong reason (%s); the refusal this leg "
+                           "names is the one m2_d_io.h::mode-mask-empty prints" % exc.tag)
+    r_full, t_full, echo_full = probe("full", "decay_ulp_mask", full, -1)
+    if not t_full:
+        reasons.append("the full-head mask moved nothing at all: the probe is inert and every number printed "
+                       "beside it is a lie about the cause it claims to price")
+    if echo_full != (full, -1):
+        reasons.append("the arm echoed mask=%r steps=%r for the full mask 0x%x/-1; the plan said 0x%x/-1, so "
+                       "the arm is not reading its own dial" % (echo_full[0], echo_full[1], full, full))
+    counts = d_state_per_head("d_dial_full_vs_honest", r_full["rec"]["wrote"]["path"], honest, d)
+    heads = [h for h, c in enumerate(counts) if c]
+    if not heads:
+        reasons.append("the per-head ruler found no head that the full mask moves, so there is no population "
+                       "for the subset legs and the mask claim cannot be tested here")
+    single, single_totals = [], []
+    for h in heads:
+        _r, t, _e = probe("head%d" % h, "decay_ulp_mask", 1 << h, -1)
+        single.append("%d:%d" % (h, t))
+        single_totals.append(t)
+        if not 0 < t < t_full:
+            reasons.append("head %d alone moved %d B, outside (0, %d) — a mask naming one head must move "
+                           "strictly less than a mask naming all of them and strictly more than nothing"
+                           % (h, t, t_full))
+    r_up, t_up, _e = probe("full_plus", "decay_ulp_mask", full, 1)
+    if t_up == t_full or not t_up:
+        reasons.append("+1 ULP and -1 ULP on the same mask moved the same bytes (%d vs %d): the arm is not "
+                       "applying a SIGNED step, so `1 ULP` is a label for one fixed perturbation" % (t_up,
+                                                                                                    t_full))
+    if ctx["device"] and device_rec.exists():
+        device_counts = ctx.get("d_device_head_counts") or []
+        dev_heads = [h for h, c in enumerate(device_counts) if c]
+        if not dev_heads:
+            reasons.append("the device's own state diff named no head, so the mask that carried the "
+                           "attribution has no derivation here")
+        else:
+            win_mask = sum(1 << h for h in dev_heads)
+            _r, _t, _e = probe("device_heads", "decay_ulp_mask", win_mask, -1)
+            win_res = DA.pair_bytes(ctx["work"] / "dvariant" / "d_dial_device_heads.bin",
+                                    device_rec)[1]
+            print("DREPRO-WIN probe=decay_ulp_mask steps=-1 mask=0x%x heads=%s residual_bytes=%d "
+                  "verdict=%s note=frozen winning combination: this leg reddens if the cause is withdrawn"
+                  % (win_mask, ",".join(str(h) for h in dev_heads), win_res,
+                     "EXACT" if win_res == 0 else "WITHDRAWN"))
+            if win_res:
+                reasons.append("the cause is WITHDRAWN: −1 ULP on exp(g_decay) for the device's own heads "
+                               "(mask 0x%x) leaves %d B of residual, so the EXACT-REPRODUCTION claim no "
+                               "longer holds and the divergence is unattributed again" % (win_mask, win_res))
+            for h in dev_heads:
+                _r, _t, _e = probe("devhead%d" % h, "decay_ulp_mask", 1 << h, -1)
+                one = DA.pair_bytes(ctx["work"] / "dvariant" / ("d_dial_devhead%d.bin" % h),
+                                    device_rec)[1]
+                if one == 0:
+                    reasons.append("head %d alone reproduced the whole device record, which contradicts the "
+                                   "subset claim: one head is doing all the work and the DHEAD ruler that "
+                                   "named the subset is not measuring what it claims" % h)
+    legs = legs_since(snap)
+    v.control("attribution-probe-is-dialable", not reasons,
+              "%d probe legs on the arm's per-head decay mask, all against the honest record: withdrawing the "
+              "mode moves %d B and echoes mask=%r steps=%r; an empty mask is refused by name; the full mask "
+              "0x%x moves %d B across %d heads; +1 ULP moves %d B where −1 moves %d B, so the step is signed; "
+              "single-head legs are %s%s"
+              % (4 + len(heads) + (1 + len(dev_heads) if ctx["device"] and device_rec.exists() else 0),
+                 t_plain, echo_plain[0], echo_plain[1], full, t_full, len(heads), t_up, t_full,
+                 ",".join(single) or "none",
+                 "" if not reasons else "; REFUSALS: " + "; ".join(reasons)),
+              legs=legs, claims=("host_cpubody",),
+              reason=(None if not reasons else "; ".join(reasons)))
 
 
 def control_gather_device_refusal(v, ctx):
@@ -3212,12 +3904,15 @@ def checks_g(v, ctx, g_runs, g_rows, g_tally, censuses):
             "rows are counted as unlicensed rather than dropped, and PASS remains unreachable while any "
             "row is unlicensed" % (g_tally["licensed"], g_tally["accepted"], g_tally["rejected"],
                                    g_tally["unlicensed"]))
+    g_launch_offences = launch_count_offences(dict((k, r) for k, r in g_runs.items()
+                                                   if "device" in k))
     v.check("gather-device-path-claims-executed-on-device",
-            (not ctx["device"]) or all(int(r["run"]["launches"]) > 0 for k, r in g_runs.items()
-                                       if "device" in k),
-            "in a device run every gather device arm reported launches>0 (%d device arms); in a CPU window "
-            "the same --device ask on the g++ twin is refused with a named tag instead of a host run, and "
-            "this check is vacuous here and says so" % len([k for k in g_runs if "device" in k]))
+            (not ctx["device"]) or not g_launch_offences,
+            "in a device run every gather device arm reported `launches` as an int and > 0 (%d device arms, "
+            "offences: %s); in a CPU window the same --device ask on the g++ twin is refused with a named "
+            "tag instead of a host run, and this check is vacuous here and says so"
+            % (len([k for k in g_runs if "device" in k]),
+               ",".join(g_launch_offences) or "none"))
     # What the gather controls are allowed to claim, on the width axis. The general
     # `control-legs-cover-the-path-under-claim` already refuses any control that claims a name it executed no
     # arm act under; this one asserts the gather-specific half: a control that speaks about width paths has
@@ -3412,12 +4107,7 @@ def d_claims(ctx):
 def d_arm(binary, plan, slab, out, device=False, fault=None, label=None):
     """`arm_leg` with the run's device bill folded in, so a control's variant cannot go unbilled."""
     rec = arm_leg(binary, plan, slab, out, device=device, fault=fault, label=label)
-    run = rec["run"]
-    WITNESS["hip_calls_arm"] += int(run["hip_calls"])
-    WITNESS["launches"] += int(run["launches"])
-    WITNESS["allocs"] += int(run["allocs"])
-    WITNESS["bytes_to_device"] += int(run["bytes_to_device"])
-    WITNESS["bytes_from_device"] += int(run["bytes_from_device"])
+    witness_fold(rec["run"], label or "d_arm")
     return rec
 
 
@@ -3867,17 +4557,22 @@ def control_d_state_read_witness(v, ctx):
         as if it were a device read-back.
     """
     fp = ctx["d"]["fingerprint"]
-    honest_ok, rows = True, []
+    honest_ok, rows, honest_fails = True, [], []
     snap = dict(PATH_LEGS)
     for label in sorted(ctx["d_runs"]):
         ag = ctx["d_censuses"][label]
         leg = (not ag["disagree"] and ag["arm_state_sum"] == ag["driver_state_sum"]
                and ag["driver_state_live"] > 0 and ag["state_words"] > 0)
         honest_ok = honest_ok and leg
+        if not leg:
+            honest_fails.append("%s: arm fold %s vs driver fold %s, live %d/%d, disagree=%s"
+                                % (label, ag["arm_state_sum"], ag["driver_state_sum"],
+                                   ag["arm_state_live"], ag["driver_state_live"],
+                                   ",".join(ag["disagree"]) or "none"))
         rows.append("%s=%s(sum arm=%d driver=%d live=%d/%d)"
                     % (label, "agree" if leg else "DISAGREE", ag["arm_state_sum"],
                        ag["driver_state_sum"], ag["arm_state_live"], ag["driver_state_live"]))
-    flip_ok, flip_rows = True, []
+    flip_ok, flip_rows, flip_fails = True, [], []
     hm = ctx["d_honest_metrics"]
     flip_arms = [("host_twin", ctx["args"].d_host_binary, False),
                  ("hip_hostpath", ctx["args"].d_arm_binary, False)]
@@ -3892,13 +4587,25 @@ def control_d_state_read_witness(v, ctx):
         still_agree = not r["agree"]["disagree"]
         # One flipped word is one element of the carried state, so the derived claim is that the row the
         # state IS moves and nothing gets closer — not that every derived row moves after bf16 rounding.
-        rows_moved = (r["metrics"]["state"]["ndiff"] > hm["state"]["ndiff"]
-                      and all(r["metrics"][s]["ndiff"] >= hm[s]["ndiff"] for s in D_STATE_STAGES))
+        not_closer = all(r["metrics"][s]["ndiff"] >= hm[s]["ndiff"] for s in D_STATE_STAGES)
+        state_moved = r["metrics"]["state"]["ndiff"] > hm["state"]["ndiff"]
+        rows_moved = state_moved and not_closer
         flip_ok = flip_ok and moved_fp and still_agree and rows_moved
-        flip_rows.append("%s[fingerprint %d->%d agrees=%s state_ndiff %d->%d scan_out_ndiff %d->%d]"
-                         % (name, fp["sum"], r["census"]["state_sum"], still_agree,
+        for cond, val in (("fingerprint-did-not-move", moved_fp), ("fingerprint-disagreed", not still_agree),
+                          ("state-row-did-not-move", state_moved),
+                          ("a-state-derived-row-got-closer-to-the-pin", not_closer)):
+            if not val:
+                flip_fails.append("%s: %s (fingerprint %d->%d, state_ndiff %d->%d, scan_out %d->%d)"
+                                  % (name, cond, fp["sum"], r["census"]["state_sum"],
+                                     hm["state"]["ndiff"], r["metrics"]["state"]["ndiff"],
+                                     hm["scan_out"]["ndiff"], r["metrics"]["scan_out"]["ndiff"]))
+        rows_moved_note = "moved" if rows_moved else "REFUSED"
+        flip_rows.append("%s[fingerprint %d->%d agrees=%s state_rows=%s state_ndiff %d->%d "
+                         "scan_out_ndiff %d->%d]"
+                         % (name, fp["sum"], r["census"]["state_sum"], still_agree, rows_moved_note,
                             hm["state"]["ndiff"], r["metrics"]["state"]["ndiff"],
                             hm["scan_out"]["ndiff"], r["metrics"]["scan_out"]["ndiff"]))
+    back_ok, back_fails = True, []
     if ctx["device"]:
         # In a window this is not a presence check, it is a comparison: the first bytes of the state span
         # as the DEVICE holds them after the H2D have to be the bytes the dump reader certified, or the
@@ -3911,11 +4618,18 @@ def control_d_state_read_witness(v, ctx):
             m = re.search(r"DREADBACK path=device off=(\d+) bytes=(\d+) hex=([0-9a-f]+|ABSENT)",
                           ctx["d_runs"][key]["stdout"])
             if not m:
-                back_ok, back_rows = False, back_rows + ["%s=line-absent" % key]
+                back_ok = False
+                back_fails.append("%s: the arm printed no `DREADBACK path=device` line, so nothing was "
+                                  "copied back off the device to compare" % key)
+                back_rows.append("%s[line-absent]" % key)
                 continue
             off, nbytes, got = int(m.group(1)), int(m.group(2)), m.group(3)
             same = (got == want_hex and nbytes == D_STATE_READBACK and off == state_off)
             back_ok = back_ok and same
+            if not same:
+                back_fails.append("%s: read back off=%d bytes=%d match=%s (want off=%d bytes=%d, "
+                                  "got %s…)" % (key, off, nbytes, got == want_hex, state_off,
+                                                D_STATE_READBACK, got[:24]))
             back_rows.append("%s[off=%d bytes=%d match=%s%s]"
                              % (key, off, nbytes, "yes" if same else "no",
                                 "" if same else " got=%s" % got[:24]))
@@ -3928,8 +4642,13 @@ def control_d_state_read_witness(v, ctx):
         print("DVOID control-leg=gdn-device-readback status=not-exercised reason=needs-a-device-window "
               "note=no host body printed a read-back line, and none was allowed to: the host path binds "
               "file bytes to slab bytes by digest instead")
-    v.control("gdn-state-read-is-the-arm-s-own-fingerprint",
-              honest_ok and flip_ok and (not ctx["device"] or back_ok),
+    # The reason has to name the leg that refused, not recite a fixed sentence. Window `i` printed "
+    # `reason=nothing: every honest arm's fold equalled the driver's …` on a run where the control had in "
+    # fact refused on the DEVICE flip leg — a canned reason is a second lie stapled to the first, and the "
+    # whole point of `silent-control-names-its-reason` is that the reason is the finding.
+    refusals = honest_fails + flip_fails + back_fails
+    fired = honest_ok and flip_ok and (not ctx["device"] or back_ok)
+    v.control("gdn-state-read-is-the-arm-s-own-fingerprint", fired,
               "honest legs: %s — the arm's modular fold of the state's 524288 words equals the driver's "
               "fold of the bytes it wrote, on every arm that ran, with %d live words as a non-zero "
               "denominator. Flip legs: %s — flipping one byte of the state's 77,777th word moves the "
@@ -3938,10 +4657,12 @@ def control_d_state_read_witness(v, ctx):
               "the arm prints."
               % ("; ".join(rows), fp["live"], "; ".join(flip_rows)),
               legs=legs_since(snap), claims=d_claims(ctx),
-              reason=("nothing: every honest arm's own modular fold of the state equalled the driver's fold "
-                      "of the same bytes on every leg this control could run on both paths, which IS the "
-                      "finding — the witness is not dead, because the flip legs moved it on both sides. If "
-                      "it ever goes quiet with fewer legs than this, the legs= count is what shows it"))
+              reason=(None if fired else
+                      "%d leg(s) refused: %s. The witness is not dead unless these say it is; if the list is "
+                      "empty while this control is SILENT, the bug is in this control's own arithmetic, not in "
+                      "the arm (legs: %s)" % (len(refusals), " | ".join(refusals) or "NONE — no leg "
+                      "reports a refusal, which means the control's fired-expression and its legs disagree",
+                      "; ".join(flip_rows))))
 
 
 def control_d_form_not_merged(v, ctx):
@@ -4202,13 +4923,31 @@ def checks_d(v, ctx, d_runs, d_rows, d_tally, d_censuses, d_pop):
             "at this pass"
             % (d_tally["licensed"], d_tally["accepted"], d_tally["rejected"], d_tally["unlicensed"],
                len(unl)))
+    d_launch_offences = launch_count_offences(dict((k, r) for k, r in d_runs.items()
+                                                   if "device" in k))
     v.check("gdn-device-path-claims-executed-on-device",
-            (not ctx["device"]) or all(r["run"]["launches"] > 0 for k, r in d_runs.items()
-                                       if "device" in k),
-            "in a device run the GDN device arm reported launches>0 (%d device arms, 8 launches each: "
-            "poison plus one per stage); in a CPU window the same --device ask on the g++ twin is refused "
-            "with a named tag instead of a host run, and this check is vacuous here and says so"
-            % len([k for k in d_runs if "device" in k]))
+            (not ctx["device"]) or not d_launch_offences,
+            "in a device run the GDN device arm reported `launches` as an int and > 0 (%d device arms, "
+            "8 launches each: poison plus one per stage; offences: %s); in a CPU window the same --device "
+            "ask on the g++ twin is refused with a named tag instead of a host run, and this check is "
+            "vacuous here and says so. This is the check that crashed window `i` at `str > int`"
+            % (len([k for k in d_runs if "device" in k]),
+               ",".join(d_launch_offences) or "none"))
+    all_launch_offences = launch_count_offences(ctx["all_runs"])
+    v.check("device-launch-counts-are-ints-and-positive",
+            (not ctx["device"]) or (not all_launch_offences
+                                    and len([k for k, r in ctx["all_runs"].items()
+                                             if run_facts(r).get("path") == "device"]) > 0),
+            "across all four verticals (%d arm records, %d of them reporting `path=device`), every device "
+            "record's `launches` is an `int` and > 0 — the type is guaranteed at the parse site by "
+            "`engine/device_arm.py::parse_arm_report`, which reads the field's conversion off the arm's own "
+            "printf format strings in `engine/device/m2_*_main.inc`, and this is the belt over every device "
+            "record the run produced (offences: %s). A CPU run cannot exercise this and says so; the "
+            "fabrications in `control-witness-guard-can-redden` (`launches` absent, `=0`, `=\"abc\"`) are what "
+            "show the predicate reddens on all three"
+            % (len(ctx["all_runs"]),
+               len([k for k, r in ctx["all_runs"].items() if run_facts(r).get("path") == "device"]),
+               ",".join(all_launch_offences) or "none"))
 
 
 # ----------------------------------------------------------------------------------------------
@@ -4291,11 +5030,12 @@ def run(out, args):
     def register(bucket, label, rec):
         bucket[label] = dict(rec=rec, records=[rec["hdr"], rec["plan"], rec["run"], rec["wrote"],
                                               rec["result"]])
-        WITNESS["hip_calls_arm"] += int(rec["run"]["hip_calls"])
-        WITNESS["launches"] += int(rec["run"]["launches"])
-        WITNESS["allocs"] += int(rec["run"]["allocs"])
-        WITNESS["bytes_to_device"] += int(rec["run"]["bytes_to_device"])
-        WITNESS["bytes_from_device"] += int(rec["run"]["bytes_from_device"])
+        # The five counters arrive TYPED — `device_arm.parse_arm_report` refuses a `RUN` field that its own
+        # printf says is an integer and is not one — so the witness sums them without casting and does not fold
+        # an unreadable value into a printed total either. Window `i` died on exactly this line's `int(...)`;
+        # a broken guarantee must produce a red check and a named offence on the RESULT line, not a `ValueError`
+        # that prints no RESULT at all.
+        witness_fold(rec["run"], label)
         print("ARM arm=%s path=%s hip_calls=%s launches=%s allocs=%s bytes_to_device=%s "
               "bytes_from_device=%s out=%s"
               % (label, rec["run"]["path"], rec["run"]["hip_calls"], rec["run"]["launches"],
@@ -4466,6 +5206,8 @@ def run(out, args):
     control_gather_swap(v, ctx)
     control_gather_census(v, ctx)
     control_no_device_act_guard(v, ctx)
+    control_silent_reason_guard(v, ctx)
+    control_attribution_contradiction_guard(v, ctx)
     control_gather_poison(v, ctx)
     control_gather_order_and_form(v, ctx)
     control_gather_width_substitution(v, ctx)
@@ -4474,6 +5216,7 @@ def run(out, args):
     control_gather_read_back(v, ctx)
     control_gather_divergence_causes(v, ctx)
     control_d_divergence_causes(v, ctx)
+    control_attribution_probe_is_dialable(v, ctx)
     control_d_state_transposition(v, ctx)
     control_d_carry_index(v, ctx)
     control_d_non_carried_state(v, ctx)
@@ -4521,15 +5264,24 @@ def run(out, args):
           % (verdict, len(rows), len(ctx.get("d_rows", [])), len(parsed), tally["licensed"],
              tally["accepted"], tally["rejected"], tally["unlicensed"], len(v.names), red,
              len(v.controls), v.fired, digest[:16]))
+    v.check("witness-counters-all-parsed-from-arm-reports", not WITNESS["unparsable_counters"],
+            "every one of the %d arm records this run registered folded an integer into the witness totals "
+            "(hip_calls, launches, allocs, bytes_to_device, bytes_from_device); the fields arrive typed from "
+            "`device_arm.parse_arm_report`, which is derived from each arm's own printf format, so "
+            "`register()` adds them instead of casting them. Unparsable: %s. Window `i` printed no RESULT line "
+            "because this line's `int()` raised; a counter the driver cannot read is a finding, not an "
+            "exception"
+            % (len(ctx["all_runs"]), ",".join(WITNESS["unparsable_counters"]) or "none"))
     print("RESULT mode=%s checks=%d findings=%d controls=%d fired=%d rows=%d gdn_rows=%d arms=policy_a "
           "device=%s staged=%s hip_calls=%d+%d launches=%d bytes_to_device=%d bytes_from_device=%d "
-          "band_digest=%s no timing taken"
+          "counters_unparsed=%d band_digest=%s no timing taken"
           % ("device" if device else "cpu", len(v.names), red, len(v.controls), v.fired, len(rows),
              len(ctx.get("d_rows", [])),
              "on" if device else "off",
              "admitted" if WITNESS["staged_runs"] else "not-attempted",
              WITNESS["hip_calls_python"], WITNESS["hip_calls_arm"], WITNESS["launches"],
-             WITNESS["bytes_to_device"], WITNESS["bytes_from_device"], digest[:16]))
+             WITNESS["bytes_to_device"], WITNESS["bytes_from_device"],
+             len(WITNESS["unparsable_counters"]), digest[:16]))
     for r in v.red:
         print("RED %s" % r)
     return 1 if red else 0
@@ -4565,10 +5317,11 @@ def main(argv=None):
     except DA.Refused as exc:
         print("REFUSED tag=%s note=%s" % (exc.tag, exc))
         print("RESULT mode=%s checks=0 findings=1 controls=0 fired=0 rows=0 arms=policy_a "
-              "device=%s staged=%s hip_calls=%d+%d launches=%d no timing taken"
+              "device=%s staged=%s hip_calls=%d+%d launches=%d counters_unparsed=%d no timing taken"
               % ("device" if args.device else "cpu", "on" if args.device else "off",
                  "admitted" if WITNESS["staged_runs"] else "not-attempted",
-                 WITNESS["hip_calls_python"], WITNESS["hip_calls_arm"], WITNESS["launches"]))
+                 WITNESS["hip_calls_python"], WITNESS["hip_calls_arm"], WITNESS["launches"],
+                 len(WITNESS["unparsable_counters"])))
         return 1
     finally:
         sys.stdout = out.fh

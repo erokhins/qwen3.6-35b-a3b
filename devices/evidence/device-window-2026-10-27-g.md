@@ -173,3 +173,47 @@ injects 73,475 B, 19.6x, and cannot reach field `s`, which the device shows diff
 Until those three are closed the device arm is not "green": it is **attributed**, which is a
 different and weaker thing. `band_digest` unchanged; no field left claimed-exactness; no band
 authored; the `exp`-scope question this raises is a decision, not a tolerance to be slipped in.
+
+## Window `j` — 2026-10-27 — the device run reaches a verdict for the first time, and it is RED
+
+Fourth window. Scratch purged first (`find … -name '*.bin' -delete`) because a rehearsal child had
+written fabricated device-shaped records into `engine/work/m2dev` — the lane disclosed this itself,
+and the rehearsal now runs in its own `--work m2dev-rehearsal` directory behind a guard that aborts
+if any HIP library is mapped. Arms rebuilt from source, then two identical `--device` runs.
+**No timing taken.**
+
+```
+RESULT mode=device checks=63 findings=4 controls=32 fired=30 device=on staged=admitted
+       hip_calls=19+448 launches=146 bytes_to_device=839,032,304 bytes_from_device=20,357,384
+       counters_unparsed=0   (Traceback count in log: 0)
+GREPRO … probe=exp_ulp_table sites_perturbed=58 unexplained=0 histogram=-1:42,+1:16 … EXACT-REPRODUCTION
+DREPRO … steps=-1 heads=9,12,14,15,23 … vs_device_record_ndiff_bytes=0 verdict=EXACT-REPRODUCTION
+DREPRO … steps=+1 … vs_device_record_ndiff_bytes=75,206 verdict=RESIDUAL-LEFT
+DREPRO-WIN … residual_bytes=0 verdict=EXACT note=frozen winning combination: this leg reddens if the cause is withdrawn
+RUNG-1 constant across runs: ok     band_digest=27a68c7e82c9aa05
+```
+
+The crash class is closed: the run prints a verdict, `counters_unparsed=0`, and the pass-9 typing
+checks pass on real device output (`device-launch-counts-are-ints-and-positive` across 15 arm
+records; `device-run-counters-are-typed-at-the-parse-site` with zero casts and zero inline quoted
+comparisons; `device-only-paths-are-enumerated-not-assumed` with an AST census of 106 statements).
+The attribution survived a rebuild from source and a purge of the contaminated scratch.
+
+The verdict is **RED by exactly the two attributed divergences** — `gather-compiled-pair-byte-
+identical-per-path` (policy_a ndiff 3,744, ref_bf16 0) and `gdn-compiled-pair-byte-identical`
+(device vs host 52,976) — which is the honest state, and better than a PASS that cannot be believed.
+Six of seven `fired=SILENT` lines carry a `reason=`; the seventh is the fabricated `quiet-no-reason`
+whose whole purpose is to make the guard redden.
+
+## Two defects the window exposed in the new instrumentation
+
+1. **`no-control-contradicts-an-exact-reproduction` printed `verdict=PASS` claiming `0`
+   reproduction legs, in a log that contains three.** It parses `ctx["text"]`, a buffer captured
+   before the reproduction lines are printed. The check that exists to catch the window-`i`
+   contradiction is itself vacuous in the window where it matters — the same failure mode as
+   `parsed=0` printing PASS, arrived at by a different route (ordering, not parsing).
+2. **Two tallies disagree**: `RESULT … findings=4` while a summary line in the same log says
+   `findings=2`, and three `verdict=FAIL` lines are present. A terminal verdict must state its own
+   finding count, and one number reaching four while another reaches two means neither is checked.
+
+Nothing is licensed here, no field left claimed-exactness, and the `exp` scope remains a draft.
