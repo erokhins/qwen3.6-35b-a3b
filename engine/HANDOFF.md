@@ -1316,3 +1316,379 @@ execution create no GPU context (supervisor's ruling, recorded as an agent decis
 
 GDN decode step, M2 device arm's remaining blocks, M3 and beyond, any timing. The gather is a gather: it
 proves which bytes are read and what they produce, and says nothing about how fast.
+*(The GDN decode step is delivered by PASS 6 below; the rest of this line still stands.)*
+
+---
+
+## PASS 6 (2026-10-27, the GDN recurrent decode step) — the fourth compiled pair: one form, one state-contraction point, and a licence that prints `chunked|pinned=refused`
+
+PASS 5 §6 named the GDN decode step as out of scope; this pass is that item. Committed as `4b733de`.
+Everything here was executed on the **CPU witness only** — hipcc *compilation* plus host-path execution,
+no device act, no `gpu_lock`, no timer read. The orchestrator re-ran the witness independently and
+reproduced it exactly.
+
+### 1. What was built
+
+| file | what it is |
+|---|---|
+| `engine/device/m2_d_kernels.h` (550 L) | the shared item body for one cached recurrent decode step (§04b.1 + §04.7 + §04.8). Seven item kinds, `m2d_item_enter/carry/kvmem/write/out/norm/outproj`, plus `m2d_run` (the serial order the **g++ twin** drives) and `m2d_state_dot` (§2 below). No atomics, no barriers — the device folds tallies with `atomicAdd` in its own `__global__` bodies, the host with plain `+=`, same split `m2_se_kernels.h` and `m2_g_kernels.h` established. |
+| `engine/device/m2_d_io.h` (356 L) | plan parser and structural refuse-list: `form-not-implemented`, `field-unknown`, `field-missing`, `field-elt`, `field-words`, `field-bytes`, `span-past-slab`, `span-unaligned`, `spans-overlap`, `mode-unknown`, `fault-unknown`, `readback-range`; plus `m2d_census_report` (one `;`-separated space-free token, because `run_arm` parses whitespace-separated `key=value`). |
+| `engine/device/m2_d_main.inc` (206 L) | the `main()` both binaries share: plan read, plan/slab size agreement (`slab-size`), run, record write, `HDR`/`PLAN`/`RUN`/`WROTE`/`RESULT` + `DSTATEFINGERPRINT`. It is where `--device` is answered **or refused**: the g++ twin prints `FAIL tag=device-path-absent-in-this-binary` and exits 1 — it never answers `--device` with a host run — and `fault=alloc-oversize` on a binary with no device path prints `fault-device-only` rather than faking the leg. A device failure exits 1 with `verdict=FAIL`; there is no fallback path to `m2d_host_run`. |
+| `engine/device/m2_d_host.cpp` (37 L) | the g++ twin: allocates the scratch, executes `m2d_run` — the engine's own host-side GDN body, the same code the hipcc arm's host path runs. |
+| `engine/device/m2_d_arm.hip` (267 L) | the hipcc arm, the only binary that can launch. `WITH --device the acts are: four hipMalloc (slab, record, scratch, counters), one H2D of the slab, one hipMemset (the counters only), eight launches (poison, then enter/carry/kvmem/write/out/norm/outproj), two or three D2H, one synchronize, four hipFree` — every one counted in `M2DRunStats`, because the counter and not the flag is what lets the driver print anything device-shaped. **It never calls `m2d_run`.** One launch per stage, not per head: §04b.1's five steps are sequentially dependent, so the stage boundary is a real barrier and the launch is how a device gets one; the largest grid is 4096 threads. |
+| `engine/device/build.sh` | the fourth pair, `BUILD ok gdn_host_twin=` / `gdn_hip_arm=`, `-I $ROOT/prototype/gdn` added, and a refusal if that header is absent (the arm takes `gdn_sumsq`, the bf16 bit-image helpers and `GDN_H/GDN_H_K/GDN_H_V/GDN_D_K/GDN_D_V` from that lane **included, never copied**). Still `-ffp-contract=off -fno-fast-math` on both compilers. |
+| `engine/device_arm.py` (+407) | `parse_d_layout` (field names/offsets/widths read out of the C header, not typed), `d_spans` (nine pinned spans, each manifest `dtype` checked against the element width the header claims), `d_slab` (with `zero_state`/`flip_state_word`), `write_d_plan`, `d_record`, `d_stage_tensors`, `parse_d_census`, `d_fingerprint`, `d_census_agreement`. |
+| `engine/block_device.py` (+969) | the vertical: `d_prepare`, `run_d_arms`, `emit_d_rows`, `d_variant`, `d_metrics`, `d_row_verdicts`, `d_fields_moved`, `d_bits`, `d_torch_body`, `d_claims`, `derived_d_population`, 11 checks, 8 controls, `--d-arm-binary` / `--d-host-binary`. |
+
+**The seven item kinds and their counts.** The driver derives this table from the header's own constants
+and requires the arm's `census=` token to match it kind by kind (`DCENSUS … disagree=none`);
+`items_total=18496/18496` is the printed sum, not a typed constant:
+
+| kind | items | geometry | spec | one item does |
+|---|---|---|---|---|
+| `enter` | 32 | `h_v` | §04.4 | the two l2norms and the recurrent arm's q scale (`q / d_k**0.5`; `speccheck/gdn_ref.py::Form.named("recurrent")` is `q_scale="div"`, not the chunked arm's multiply); V head *h* reads K head `h/expansion` |
+| `carry` | 4096 | `h_v·d_k` | §04b.1 step 1 | `S = S_old · exp(decay_head)` — the only stage that reads every word of the incoming state, so this is where the state fingerprint is taken |
+| `kvmem` | 4096 | `h_v·d_v` | §04b.1 step 2 | the `k·S` read that forms the delta |
+| `write` | 4096 | `h_v·d_k` | §04b.1 step 4 | the rank-one write `S += k⊗delta` |
+| `out` | 4096 | `h_v·d_v` | §04b.1 step 5 | the output read `q_hat·S` → `scan_out` |
+| `norm` | 32 | `h_v` | §04.7 | the gated norm, both bf16 roundings |
+| `outproj` | 2048 | `d` | §04.8 | one `out_proj` row of the decode step |
+| **total** | **18496** | | | |
+
+**Record geometry.** one f32 array of `M2D_FLOATS = 546816` words = **2,187,264 B**; a bf16-carrying
+field is stored *widened* (`M2D_FIELD_IS_BF16 = 0,0,0,1,0,1,1`), so the comparator compares 4-byte
+patterns and never guesses a dtype off a file:
+
+| field | offset (words) | length | referent dtype |
+|---|---|---|---|
+| `q_hat` | 0 | 4096 | f32 |
+| `k_hat` | 4096 | 4096 | f32 |
+| `scan_out` | 8192 | 4096 | f32 |
+| `core_attn` | 12288 | 4096 | bf16 (widened) |
+| `state` | 16384 | 524288 | f32 |
+| `normed` | 540672 | 4096 | bf16 (widened) |
+| `y` | 544768 | 2048 | bf16 (widened) |
+
+Inputs are nine spans from the pinned decode step (`layer0.decode0.q_pre/k_pre/v_pre/beta/g_decay/z`,
+`layer0.weights.norm/out`, and the carried `layer0.prefill.state`), `slab_bytes=18899392`,
+`state_words=524288 state_bytes=2097152`, host scratch `3·h_v·d_v + h_v = 12320` f32.
+
+### 2. The two decisions that shape the arithmetic
+
+**One contraction point for the state.** `d_k == d_v == 128`, so a state stored `[d_v,d_k]` instead of
+`[d_k,d_v]` is the same 16,384 words per head in a different order: in bounds, shape-legal, and a
+different number at every live word. The oracle's own injection name for it is `state_stored_transposed`,
+and the prototype lane documents why a zero state made it invisible to its first gate. So the whole
+contraction lives in exactly one function, and the mode word is spelled inside it:
+
+```c
+GDNDAY_DEV static inline float m2d_state_dot(const float *a, const float *S, long sbase, int col,
+                                             int mode) {
+    float acc = 0.0f;
+    int k;
+    if (mode == M2D_MODE_STATE_XPOSE) {          /* injected: S read as [d_v, d_k] */
+        for (k = 0; k < GDN_D_K; ++k) acc += a[k] * S[sbase + (long)col * GDN_D_K + k];
+        return acc;
+    }
+    for (k = 0; k < GDN_D_K; ++k) acc += a[k] * S[sbase + (long)k * GDN_D_V + col];
+    return acc;
+}
+```
+
+Single, because a transposition must have exactly one answer and exactly one place for a control to
+bend. Its two callers are `m2d_item_kvmem` (the `k·S` that forms the delta) and `m2d_item_out` (the `q_hat·S`
+that becomes `scan_out`), and both are `GDNDAY_DEV` inlines reached by the serial host body and by the
+device stage-kernels alike, so one control leg per path covers the launched arithmetic and the host body
+with the same injection. The decode step's incoming state is **not** zero, which is what makes every state
+witness non-vacuous:
+`DSTATE role=carried record=layer0.prefill.state words=524288 live=509952 sum=2525565901
+sumidx=3508630800 nonzero_fraction=0.972656`.
+
+**The arm never calls `m2d_run`.** `grep -n m2d_run engine/device/m2_d_arm.hip` matches only comments.
+The g++ twin reaches the items serially, the hipcc arm reaches the same items with seven stage launches,
+and `PAIR pair=d_host_twin_vs_d_hip_hostpath … ndiff_bytes=0` is a codegen statement at zero tolerance,
+not a band. That is two implementations; a third is printed for free (§3), so no row rests on one arm
+being compared to itself.
+
+### 3. The form discipline — `chunked` is not this arm, and the log says so per row
+
+`speccheck/gdn_ref.py::band_licenses` keys on `width|form`, and at the pinned decode pass
+(`layer0/pinned/decode0`) the only pair that grants anything is `recurrent|pinned` — `DECISIONS.md` D-21
+records why: `probe_arms_for("decode","pinned")` yields `recurrent,reassoc,pinned`, so no chunked probe
+record exists at a decode pass to license it. Every row is therefore meaningless without the form that
+produced it, and the driver asks the licensor for **both** pairs per stage and prints the answer —
+verbatim, all seven rows:
+
+```
+DLICENCE stage=q_hat arm_form=recurrent recurrent|pinned=granted chunked|pinned=refused chunked_reason=no probe record for one of the two arms at this pass
+DLICENCE stage=k_hat arm_form=recurrent recurrent|pinned=granted chunked|pinned=refused chunked_reason=no probe record for one of the two arms at this pass
+DLICENCE stage=scan_out arm_form=recurrent recurrent|pinned=granted chunked|pinned=refused chunked_reason=no probe record for one of the two arms at this pass
+DLICENCE stage=core_attn arm_form=recurrent recurrent|pinned=refused chunked|pinned=refused chunked_reason=no probe record for one of the two arms at this pass
+DLICENCE stage=state arm_form=recurrent recurrent|pinned=granted chunked|pinned=refused chunked_reason=no probe record for one of the two arms at this pass
+DLICENCE stage=normed arm_form=recurrent recurrent|pinned=refused chunked|pinned=refused chunked_reason=no probe record for one of the two arms at this pass
+DLICENCE stage=y arm_form=recurrent recurrent|pinned=refused chunked|pinned=refused chunked_reason=no probe record for one of the two arms at this pass
+```
+
+`DLICENCE … chunked|pinned=refused` is the only place the word `chunked` appears in the log; the arm
+also refuses to be *labelled* into a licence it did not earn — a plan declaring `form=chunked` is refused
+by both binaries with `form-not-implemented` before a byte is read. Per-row licence source, exactly as
+printed (never a bare number):
+
+| row | licence as printed | verdict as printed |
+|---|---|---|
+| `q_hat` | `licence=gdn-band(band_licenses\|recurrent\|pinned@layer0/pinned/decode0)` | `band=ACCEPTED`, `DETAIL … why=all four derived keys inside the probe-derived band` |
+| `k_hat` | same | same |
+| `scan_out` | same | same |
+| `state` | same | same |
+| `core_attn` | `licence=none` | `band=UNLICENSED stage=core_attn reason=arm-pair-not-licensed-at-pass`, `DETAIL … why=no probe record for one of the two arms at this pass` |
+| `normed` | `licence=none` | same shape |
+| `y` | `licence=none` | same shape |
+
+`DROWS form=recurrent rows=7 licensed=4 accepted=4 rejected=0 unlicensed=3 licensed_stages=q_hat,k_hat,
+scan_out,state unlicensed_stages=core_attn,normed,y`. The four grants are judged by
+`band_check_row` on `BAND_FACTORS` (`one_minus_cos`, `mean_rel`, `max_abs`, `per_head_max`) of
+`gdn-band-2026-10-26.json`, `band_digest=27a68c7e82c9aa0507b9bcd677adc0d5d1b0bc865dd1e86bf495ed90f47392ee`
+— unchanged by this pass, because no band, floor, limit or tolerance was authored here.
+
+### 4. What the CPU witness printed, and what "three implementations" means
+
+`engine/work/m2d-full.log` (reproduced independently by the orchestrator; two runs differ only in pid and
+work-dir path):
+
+```
+RESULT mode=cpu checks=51 findings=0 controls=25 fired=25 rows=6 gdn_rows=7 arms=policy_a device=off staged=not-attempted hip_calls=0+0 launches=0 bytes_to_device=0 bytes_from_device=0 band_digest=27a68c7e82c9aa05 no timing taken
+PAIR pair=d_host_twin_vs_d_hip_hostpath file=gdn_record.f32 bytes=2187264 ndiff_bytes=0 cases=1 zero_tolerance=1 verdict=IDENTICAL
+DCENSUS arm=d_hip_hostpath path=host_cpubody form=recurrent items_total=18496/18496 reads_state=524288/524288 writes_state=524288/524288 state_nonzero=509952 state_sum=2525565901 state_sumidx=3508630800 out_elems=4096/4096 outproj_reads=8388608/8388608 disagree=none
+DCENSUS arm=d_host_twin path=host_cpubody form=recurrent items_total=18496/18496 reads_state=524288/524288 writes_state=524288/524288 state_nonzero=509952 state_sum=2525565901 state_sumidx=3508630800 out_elems=4096/4096 outproj_reads=8388608/8388608 disagree=none
+DSTATE role=carried record=layer0.prefill.state words=524288 live=509952 sum=2525565901 sumidx=3508630800 nonzero_fraction=0.972656 note=a zero state would make every state-reading control below vacuous, so the count is printed before any row is emitted
+```
+
+The `DCENSUS` line is the reconciliation, not a decoration: each of `enter/carry/kvmem/write/out/norm/
+outproj`, each of `reads_q/reads_k/reads_v/out_elems/outproj_reads`, and both state counters are compared
+against the geometry, and the arm's modular fold of the state's bytes is compared against the driver's
+fold of the bytes it wrote into the slab. `disagree=none` means both agreed, on both compilers.
+
+Three implementations, none compared only to itself: the **crediting** comparison is the arm against the
+pinned decode records; the **pair** is g++ vs hipcc at zero tolerance; and a **third opinion** is printed
+with its own distance to the pins, so the first two cannot be two wrong programs agreeing:
+
+```
+XIMPL pair=d_arm_vs_engine_torch_body body=block_forward.gdn_recurrent_step stages=7 ndiff_elements=q_hat=1178/4096,k_hat=820/4096,scan_out=3511/4096,core_attn=0/4096,state=85187/524288,normed=0/4096,y=1/2048 verdict=MEASURED note=this comparison is a THIRD opinion, not a licensor: the rows below are judged against the pinned records by block_gate.adjudicate, and a torch-vs-C difference here is reported and investigated, never absorbed into a band
+XIMPL pair=engine_torch_body_vs_pinned body=block_forward.gdn_recurrent_step stages=19 ndiff_vs_pin=a_raw=0/32,b_raw=0/32,beta=0/32,conv_out=0/8192,conv_pre=0/8192,conv_window=0/32768,core_attn=0/4096,g_decay=0/32,k_hat=0/4096,k_pre=0/2048,mixed_qkv=0/8192,normed=0/4096,q_hat=0/4096,q_pre=0/2048,scan_out=0/4096,state=0/524288,v_pre=0/4096,y=0/2048,z=0/4096 verdict=EXACT note=the torch body's own distance to the pins, so the line above cannot be read as two wrong programs agreeing with each other
+```
+
+Read that honestly: the engine's torch body is **bit-exact** against all 19 pinned stages, so the C arm's
+deviations are its own (declared-order differences: one ascending f32 accumulator where torch reduces its
+own way), and the licensed stages are inside the band on the band's four keys. `scan_out` shows
+`max_ulp=5912` and `state` `max_ulp=8192` while `meanrel` is 1.840e-07 and 8.433e-09 — that is what a
+relative-error band measures, and it is the licensor's rule, unchanged. Nobody should cite those four
+ACCEPTED rows as ULP-level exactness.
+
+### 5. The eight controls, what each injects, and what reddens
+
+All eight `fired=RED`; zero `fired=SILENT`; `checks=51 findings=0`. A control that cannot redden its own
+predicate is a finding here, which is why each row below names the injection and the thing that moves.
+
+| control | injects | what reddens |
+|---|---|---|
+| `gdn-state-transposition-reddens` | `mode=state_xpose` through `m2d_state_dot`, on both compiled arms | `q_hat`/`k_hat` must stay **bit-identical** (they are computed before the state is touched, so a control moving them is moving something else), all five state-reading fields must move, none may land closer to the pin, the reach set the control measures must name exactly those five (`reach=scan_out,core_attn,state,normed,y`), and the transposed record must come back **REJECTED from the licensor** on at least one licensed stage: `band_reddened_on=scan_out,state`, with both sides printed — `honest_ndiff=scan_out=3511/4096,core_attn=0/4096,state=85187/524288,normed=0/4096,y=1/2048` against `dirty_ndiff=scan_out=4096/4096,core_attn=4094/4096,state=417406/524288,normed=4094/4096,y=2045/2048`. Reddening the *licence*, not a distance this file chose. |
+| `gdn-carry-index-reddens` | `mode=decay_head_off1` — decay taken from head `(h+1) % 32` | the state-byte fingerprint must be **exactly unchanged** from the honest run (`2525565901`/`3508630800`, both equal to the driver's own fold) while all five derived fields move. That equality is the clause that makes this about the carry and not the read: had the mode also changed which words it touched, `state_sum` would move and the control would refuse. This is the class that used to pass silently. |
+| `gdn-non-carried-state-reddens` | two legs per compiler: driver zeroes the slab's state span; arm runs `fault=zero-state` | zeroed-bytes leg: fingerprint must become **exactly the all-zero fold the driver computes over those bytes** (`arm_sum=0 driver_sum=0`, `state_ndiff 85187->417408`), with `q_hat`/`k_hat` bit-identical. arm-fault leg: `reads_state=0` and a zero fingerprint, which `d_census_agreement(zero_in=True)` **requires** rather than permits — a fault that read anyway is a red control, not an invisible cheap step. |
+| `gdn-state-read-is-the-arm-s-own-fingerprint` | one byte flipped (`XOR 0xFF`) in state word 77,777 of a copy of the slab, on both arms | honest legs: arm fold == driver fold on every arm that ran, with `live=509952` as a non-zero denominator. Flip legs: fingerprint moves (`2525565901→2525566144`), the two sides stay equal, the `state` row moves (`state_ndiff 85187->85188`) and nothing gets closer. This is the leg that shows the fingerprint is a fingerprint of *these bytes* and not a constant the arm prints. |
+| `gdn-form-not-merged` | a plan declaring `form=chunked`; both pairs asked of the licensor per stage | every arm run's parsed `form` must be exactly `recurrent`; `chunked\|pinned` must grant 0 of 7 (if a future band file ever grants it here, the control says so aloud instead of keeping the claim decorative); both binaries must refuse the chunked plan by name (`form-not-implemented`); every ACCEPTED row's licence must contain `recurrent\|pinned`; and no stage the licensor granted may be missing from the ACCEPTED set. |
+| `gdn-poison-census-can-be-nonzero` | `fault=skip-carry` on the twin, `fault=skip-out` on the hipcc arm | honest record carries no poison in any of the seven fields; forbidding one stage makes **its own** field read entirely poison — `skip-carry field=state poison=524288/524288`, `skip-out field=scan_out poison=4096/4096` — with `q_hat`/`k_hat` clean. Poison is the quiet NaN pattern, so a `hipMemset` to zero would have hidden the same bug as a field of exact zeros. |
+| `gdn-plan-refusals-fire` | five plans per binary, each with exactly one thing wrong | all ten refusals must arrive by name: `field-elt`, `field-words`, `field-missing`, `mode-unknown` (a chunked-lane mode word), `fault-unknown` (a gather-lane fault word). A plan this arm must not run is refused before a byte is read, which is what makes the honest run's spans worth something. |
+| `gdn-device-ask-refuses-instead-of-substituting` | `--device` and `fault=alloc-oversize` against the g++ twin | both must refuse by name (`device-path-absent-in-this-binary`, `fault-device-only`). No host body is offered for a device claim, so a `--device` report from this arm can only come from the binary that launches. |
+
+Eleven checks back them (`gdn-rows-equal-licensor-stage-list`, `gdn-kernel-geometry-matches-the-config`, `gdn-arm-implements-only-the-form-it-claims`, `gdn-census-equals-geometry-and-driver`, `gdn-honest-record-has-no-unwritten-slot`, `gdn-compiled-pair-byte-identical`, `gdn-state-span-binds-the-arm-slab`, `gdn-cross-implementation-comparison-was-made`, `gdn-licensed-rows-name-the-arm-form-and-no-others`, `gdn-unlicensed-counted-not-absorbed`, `gdn-device-path-claims-executed-on-device`), all PASS. The stage list is derived twice and required to be the same seven (`DPOPULATION licensor=… arm_record=… missing=none extra=0`), the kernel's `GDN_*` constants are required to equal the checkpoint config, and `PASS` stays unreachable while any row is unlicensed (the verdict is `QUALIFIED`).
+
+### 6. The legs that did NOT run here — listed individually for a window to pick up
+
+`DVOID` is printed instead of assuming. Three legs, verbatim, and where each one is picked up:
+
+1. `DVOID control-leg=gdn-state-transposition-on-device status=not-exercised reason=needs-a-device-window note=the same mode is compiled into the hipcc binary's device kernels but no leg executed it in this window; it is reported as unexercised rather than assumed from the host body`
+   → in a `--device` window `control_d_state_transposition` adds a third leg (`binary=m2_d_arm, device=True`), the control's claim set becomes `claims=host_cpubody,device`, and it prints `DCONTROL control=transposition leg=gdn-device ran=yes`.
+2. `DVOID control-leg=gdn-device-readback status=not-exercised reason=needs-a-device-window note=no host body printed a read-back line, and none was allowed to: the host path binds file bytes to slab bytes by digest instead`
+   → in a window the arm prints `DREADBACK path=device off=16802240 bytes=32 hex=<64 hex>` — the first 32 bytes of the state span read back off the **device slab**, i.e. the H2D landing area — and the driver **compares** those bytes to the bytes the dump reader certified: `DREADBACK control-leg=gdn-device-readback ran=yes state_off=16802240 bytes=32 file_sha256=<first 16 hex of the sha256 of the pinned state record this span was read from> per_run=d_hip_device[off=16802240 bytes=32 match=yes]`, and it requires `off`/`bytes` to equal the plan's read range as well as the hex to match. `gdn-state-read-is-the-arm-s-own-fingerprint` requires that comparison in a device run.
+3. `DVOID control-leg=gdn-alloc-oversize-actually-fails reason=needs-a-device-window note=the host twin refuses to run this leg at all, which is the leg above; the hipcc arm's 1 TiB hipMalloc refusing is witnessed only in a window`
+   → **no driver code path runs it on the device today**, so a window must run it by hand; the command is in §7 and it is part of the window's assertions. (Note for accuracy: this line prints `reason=` but no `status=not-exercised` field, unlike 1 and 2 — see §9.)
+
+### 7. Exact next-window device command (main agent only; zero workers stopped, halogen down, lock held, foreground, blocking)
+
+PASS 4 §5's shape is kept and its stale assertion fixed: `engine/device/build.sh` now prints **eight**
+`BUILD ok` lines (four pairs), not the two PASS 4 asserted. No gate command sits inside a pipeline, the
+lock is matched against the expected tag, and engine-down is read off the device.
+
+```bash
+set -uo pipefail                                    # before any pipeline exists; not after the first one
+cd /home/erokhins/erokhins_projects/qwen3.6-35b-a3b || exit 1
+V=/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python
+day=$(date +%F); tag="m2-gdn-device-window-$day"
+wd="engine/work/m2dev-gdn-$day"; log="engine/work/blockdevice-device-gdn-$day.log"
+D_ARM=engine/device/build/m2_d_arm; D_HOST=engine/device/build/m2_d_host
+ACQUIRED=0
+die() { printf 'WINDOW-ABORT %s\n' "$*"
+        [ "$ACQUIRED" = 1 ] && tools/gpu_lock.sh release "$tag"
+        exit 1; }
+
+# --- preconditions. Each one is a command that can refuse, and refusing stops the window. ---------
+[ -x "$V" ]                            || die "no venv python at $V"
+[ -x "$D_ARM" ]                        || die "$D_ARM missing; run engine/device/build.sh first"
+[ -x "$D_HOST" ]                       || die "$D_HOST missing; the twin is the other half of the pair"
+[ -e /tmp/pi_halogen.lock ]            && die "a halogen worker holds the stream lock; it is a device activity, this window cannot open beside it"
+[ "${PI_PROVIDER:-}" != "halogen" ]    || die "this shell is served by halogen; stopping the engine decapitates the session doing the stopping"
+gl=$(tools/gpu_lock.sh status)         || die "gpu_lock.sh status unreadable"
+printf 'gpu_lock before acquire: %s\n' "$gl"
+[ "$gl" = "free" ]                     || die "gpu_lock is not free ($gl); do not steal it"
+tools/gpu_lock.sh acquire "$tag"       || die "gpu_lock acquire refused"
+ACQUIRED=1
+gl=$(tools/gpu_lock.sh status)         || die "gpu_lock status unreadable after acquire"
+case "$gl" in "HELD:"*"$tag"*) ;; *) die "acquire returned 0 but the lock is not held as $tag ($gl)" ;; esac
+grep -qF "$tag" /tmp/pi_gpu.lock/holder || die "the lock file does not name our tag"
+GPU_LOCK_TAG="$tag" tools/halogen_gate.sh down || die "halogen_gate down refused"
+
+# engine-down read off the device, not off a message (PASS 4 §5: vram_used is the 2.0 GiB BAR and
+# cannot see the engine; --showpids and mem_info_gtt_used can).
+rocm-smi --showmeminfo vram                              || die "cannot read vram"
+rocm-smi --showpids > "engine/work/showpids-$day.txt"    || die "cannot read --showpids"
+grep -q flash_serve "engine/work/showpids-$day.txt"      && die "flash_serve still resident; see that file"
+gtt=$(cat /sys/class/drm/card*/device/mem_info_gtt_used | sort -n | tail -1)
+[ "${gtt:-0}" -lt 24696061952 ] || die "gtt_used=${gtt} B is the recorded halogen-resident footprint (23.53-23.66 GiB, devices/measured-facts.md §Residency above the pool); the engine is up whatever the message said"
+
+b=$(./engine/device/build.sh)          || die "engine/device/build.sh failed"
+[ "$(printf '%s\n' "$b" | grep -c 'BUILD ok')" = 8 ] || die "build did not print BUILD ok 8 times (four pairs, two binaries each)"
+
+mkdir -p "$wd" || die "cannot create $wd"
+"$V" engine/block_device.py --device --work "$wd" \
+    --d-arm-binary "$D_ARM" --d-host-binary "$D_HOST" > "$log" 2>&1
+rc=$?
+printf 'driver exit=%d log=%s\n' "$rc" "$log"
+[ "$rc" = 0 ] || die "block_device.py --device exited $rc; the refusal is in $log — a REFUSED tag is a finding, not a retry signal"
+
+# --- the log has to have PRINTED the device claims; exit 0 alone is not a device run ---------------
+missing=0
+while read -r pat; do
+  grep -q -- "$pat" "$log" || { printf 'MUST-BE-TRUE missing: %s\n' "$pat"; missing=1; }
+done <<'PAT'
+RESULT mode=device checks=55 findings=0 controls=26 fired=26
+band_digest=27a68c7e82c9aa05
+DCENSUS arm=d_hip_device path=device form=recurrent items_total=18496/18496 reads_state=524288/524288 writes_state=524288/524288 state_nonzero=509952 state_sum=2525565901 state_sumidx=3508630800 out_elems=4096/4096 outproj_reads=8388608/8388608 disagree=none
+PAIR pair=d_hip_device_vs_d_hip_hostpath file=gdn_record.f32 bytes=2187264 ndiff_bytes=0 cases=1 zero_tolerance=1 verdict=IDENTICAL
+DREADBACK path=device off=16802240 bytes=32 hex=
+DREADBACK control-leg=gdn-device-readback ran=yes
+DCONTROL control=transposition leg=gdn-device ran=yes
+claims=host_cpubody,device
+CONTROL name=gdn-state-transposition-reddens fired=RED
+CONTROL name=gdn-state-read-is-the-arm-s-own-fingerprint fired=RED
+DROWS form=recurrent rows=7 licensed=4 accepted=4 rejected=0 unlicensed=3
+PAT
+[ "$missing" = 0 ] || die "exited 0 without printing what a device run must print; treat the window as NOT taken"
+
+# --- DVOID #3: the 1 TiB refusal. No driver path runs it on the device, so the window does. --------
+ov="engine/work/d-oversize-$day.txt"
+if "$D_ARM" --plan "$wd/d_plan.txt" --slab "$wd/d_slab.bin" --out "$wd/d_out_oversize.bin" \
+     --device --fault alloc-oversize > "$ov" 2>&1; then
+  die "the 1 TiB hipMalloc SUCCEEDED or the fault never ran; the leg is broken, see $ov"
+fi
+grep -qF "alloc-oversize refused" "$ov" || die "the oversize leg refused, but not by name; see $ov"
+printf 'DVOID-3 witnessed: alloc-oversize refused by the allocator (see %s)\n' "$ov"
+
+nstage=$(grep -c '^STAGERUN' "$log");  [ "$nstage" = 4 ]  || die "expected 4 STAGERUN rows (three shared spans + the router span), got $nstage"
+nbind=$(grep -c '^BIND ' "$log");      [ "$nbind" = 10 ]  || die "expected 10 BIND lines with a read-back digest, got $nbind"
+printf 'WINDOW ok log=%s no timing taken\n' "$log"
+printf 'NOTE halogen is still DOWN. When this session has every timing it wants: tools/halogen_gate.sh up\n'
+tools/gpu_lock.sh release "$tag"       || die "release refused; release by hand with the tag $tag"
+```
+
+`checks=55` is the CPU witness's 51 plus the four device-only `rt-device-*` checks, and `controls=26` is
+25 plus `gather-device-unit-read-back`, which registers only in a window. **If a check or control is
+added or removed, update this pattern in the same commit** (PASS 4 §5's rule). If the printed line
+disagrees, that is a finding to read, not a pattern to relax: the GDN contribution to the device bill is
+eight launches and four allocations per device run, and the fingerprint numbers above are deterministic
+because the arm is handed the same certified bytes.
+
+### 8. What is NOT established here — do not cite any of this as done
+
+* **No device leg has ever run for this arm.** Not one launch, allocation, H2D, D2H or read-back. Every
+  device-shaped claim above is `DVOID`/`not exercised`, and §7 is the first opportunity any of it is
+  executed. `device-claims-come-from-device-only` is what makes a host run unable to launder one.
+* **No timing, no rate, no clock read.** Nothing in `m2_d_*` reads a timer; the driver's lines end `no
+  timing taken`. Whether this shape is fast is a different question with a different owner (M5).
+* **The four ACCEPTED rows are decode-only under one form.** They are `pass=layer0.decode0`,
+  `recurrent|pinned`, one cached token, on the pinned bf16 arm. **Nothing here licenses a prefill claim,
+  a `chunked` claim, or a policy-A GDN claim**: `chunked|pinned` grants nothing at this pass (printed
+  seven times), the prefill passes were not probed for either pair, and `adjudicate` answers a policy-A
+  GDN row with `policy-a-arm-outside-band-population` — the arm reads pinned bf16 dump bytes precisely so
+  it never produces a row no licence can judge.
+* **`core_attn`, `normed`, `y` are measured residue.** They are printed with the licensor's own reason and
+  counted (`unlicensed=3`); nothing leans on them, and the driver keeps `PASS` unreachable while any row
+  is unlicensed (verdict `QUALIFIED`).
+* **The M1 resident set is untouched.** The GDN arm's inputs are host pinned dump bytes read through
+  `block_forward.Dumps` (sha-verified per read) and copied into the arm's own allocation; they are not
+  policy-A resident tensors, so nothing here says anything about staging or residency.
+* **The `max_ulp` numbers are inside a relative-error band, not inside ±1 ULP.** `scan_out max_ulp=5912`
+  and `state max_ulp=8192` pass on `one_minus_cos/mean_rel/max_abs/per_head_max`. If D-17's ±1-ULP policy
+  is ever meant to reach f32 GDN stages, that is a licensor question for the user, not this arm's.
+
+### 9. Corrections to record while this is fresh (code-side cleanups, not redesigns)
+
+* `control_d_plan_refusals`'s docstring says "Six refusals … and a plan whose state span overlaps `z`";
+  `wants` has five legs per binary and the printed evidence is ten (`10 refusals across two binaries`).
+  Add the `spans-overlap` leg or drop the clause — the printed line is the truth and it says ten.
+* The third `DVOID` line (`gdn-alloc-oversize-actually-fails`) prints `reason=needs-a-device-window`
+  without the `status=not-exercised` field the other two carry. A window grepping for
+  `DVOID.*status=not-exercised` finds two of three.
+* The per-kind item counts are reconciled but not echoed: they live inside the arm's `RUN census=` token
+  and reach the log only as `items_total=18496/18496` plus `disagree=none`. A `DCENSUSKIND` echo would let
+  a reader see `enter/carry/kvmem/write/out/norm/outproj` without re-deriving them.
+* `engine/work/device_window_pass4.sh:41` still asserts two `BUILD ok` lines; build.sh prints eight. Use
+  §7's block, and do not paste the old script into a GDN window.
+
+### 10. `DECIDED (agent, 2026-10-27)` — pass-6 drafts to transplant into `DECISIONS.md`
+
+None of these is a user decision; none touches a shipping width, a band, a floor, a route allowance, a
+pinned fixture, or halogen. Each names the number or failure that forced it.
+
+1. **One compiled pair per form; a plan naming any other form is refused rather than honoured.**
+   DECIDED (agent, 2026-10-27), forced by `band_licenses` keying on `width|form` and granting
+   `recurrent|pinned` for 4 of 7 rows while `chunked|pinned` grants 0 of 7 at `layer0/pinned/decode0`
+   (the standing licence D-21 chose, and the reason it chose it). An arm that accepted a `form=` word it
+   did not implement could be *labelled* into a licence for arithmetic it never ran; `m2d_io.h` refuses
+   with `form-not-implemented` and `gdn-form-not-merged` requires the refusal, the parsed
+   `form=recurrent` on every run, and `chunked` granting nothing, all at once.
+2. **The state is contracted in exactly one function, and the transposition mode lives inside it.**
+   DECIDED (agent, 2026-10-27), forced by `d_k == d_v == 128` making a transposed state shape-legal, and
+   by the prototype lane's record of a zero state making the injection invisible. One contraction point
+   means one answer, one place to bend, and a control (`band_reddened_on=scan_out,state`) that reddens the
+   *licence*. The alternative — inlining the contraction in each of the two stages that contract
+   (`kvmem`, `out`) — would have needed two injections per path to prove one property.
+3. **The state read is witnessed by a fingerprint the arm computes as it reads, reconciled against the
+   driver's own fold, and the reconciliation must also hold at zero.** DECIDED (agent, 2026-10-27),
+   forced by the same trap class (`reads_state` as a claim, not a constant). The `zero_in` leg *requires*
+   `reads_state=0` and a zero fingerprint, so a skipped carry cannot present as a cheap success.
+   Witnessed non-zero (509,952 live words) and witnessed moved (one flipped byte ⇒ `2525565901→2525566144`).
+4. **`-ffp-contract=off -fno-fast-math` on the GDN pair as on the other three.** DECIDED (agent,
+   2026-10-27), following `m2_se_kernels.h`/`m2_g_kernels.h` and D-25 item 6 (zero-tolerance compiled
+   pairs extend to the device TUs): the declared order is one ascending f32 accumulator per reduction with
+   no fusion, so the g++/hipcc pair comparison stays a codegen question instead of becoming a question
+   about FMA contraction.
+5. **The recurrent arm takes `gdn_sumsq`, the bf16 bit-image helpers and the geometry constants from
+   `prototype/gdn/gdn_kernels.h` (included, not copied), but implements the cached decode step itself.**
+   DECIDED (agent, 2026-10-27), forced by the lane implementing the *chunked* scan: no prototype gate
+   vouches for the recurrent step's arithmetic, so importing its body would borrow a licence that does not
+   exist. What is imported is the reduction form D-23 ratified (`gdn_sumsq`) and the bf16 bit-image
+   helpers. The `q` scale follows the recurrent arm's spelling (`Form.named("recurrent") → q_scale="div"`),
+   because the two arms' product trees are not the same program — the same distinction D-21 rests on.
+6. **The arm reads pinned bf16 decode-step records, not policy-A resident bytes.** DECIDED (agent,
+   2026-10-27), forced by `adjudicate` answering a policy-A GDN row with
+   `policy-a-arm-outside-band-population`: the only licence at this pass is the bf16 cross-form one, so
+   reading Q8_0 projections would produce rows no licence can judge. D-01/D-01a are untouched — this is a
+   statement about which record set a *gate* reads, not about what ships.
+7. **The third implementation is printed with its own distance to the pins.** DECIDED (agent, 2026-10-27):
+   `XIMPL pair=d_arm_vs_engine_torch_body` alone could be two wrong programs agreeing, so
+   `XIMPL pair=engine_torch_body_vs_pinned … verdict=EXACT` is printed beside it. The comparison is
+   measured and never used as a licensor; the band remains the only thing that credits a row.
+8. **Controls carry their path claim with `d_claims(ctx)`, so the device claim only appears with a device
+   leg.** DECIDED (agent, 2026-10-27), applying D-25 item 3 ("device claims require a device") to this
+   vertical: transposition and read-witness add a `device=True` leg in a window and stop claiming `device`
+   in a CPU run. A control whose legs are all host is host-only, in the printed claim as well as in fact.
