@@ -3405,13 +3405,29 @@ def d_cause_args(d, cause):
 
 
 def window_command(extra="--device"):
-    """The exact command that would run a leg this witness cannot, rebuilt from this run's own argv.
+    """The canonical device command, rebuilt from the DEFAULT work dir — never from this run's scratch.
 
-    A DVOID line that names no command is a suggestion. Rebuilding it from `sys.argv` means the next window
-    runs THIS command with the flag added, so a witness invoked with a non-default fixture or work dir
-    cannot print a command that quietly drops it.
+    A `command=` line is a promise the main agent runs verbatim, so it has to name the run they mean.
+    Two leaks rode along when this was rebuilt from `sys.argv`: a CPU witness invoked with
+    `--work engine/work/p12-x` printed a device command reading that scratch dir (window `l`'s own
+    device run read `engine/work/m2dev`), and an argv that already carried `--device` printed
+    `… --device --device`. Both are stripped here and the work dir is re-added as `WORK_DEFAULT`, so
+    the printed command is exactly the runnable one; the fabrications in this file keep their own
+    isolated dirs and never appear in a reported command. Other argv pairs stay — a window that built
+    its arm somewhere else must still say so.
     """
-    return " ".join([sys.argv[0]] + sys.argv[1:] + [extra])
+    keep, i, argv = [], 0, list(sys.argv[1:])
+    while i < len(argv):
+        tok = argv[i]
+        if tok == "--work":
+            i += 2
+            continue
+        if tok.startswith("--work=") or tok in ("--device", extra):
+            i += 1
+            continue
+        keep.append(tok)
+        i += 1
+    return " ".join([sys.argv[0]] + keep + ["--work", str(WORK_DEFAULT), extra])
 
 
 def print_device_only_attribution_dvoids(vertical, pair_label):
@@ -4569,74 +4585,263 @@ def d28_qualification_decision(red, unlicensed, escalate):
     return "QUALIFIED" if unlicensed else "PASS"
 
 
-def vb_fabricate_at_limit(A, B, field, metric, bound, direction, layout):
-    """A copy of the A-side field perturbed to sit just inside, or just outside, one metric's bound.
+# --------------------------------------------------------------------------------- rejection legs
+#
+# A bound is a bound only if something can be built that lands on each side of it, and both legs are
+# therefore built on the grid the stored format actually has — the field's own f32 word images — so
+# "one past the bound" is an ADJACENT representable point and not a continuous wish:
+#
+#   * `ndiff_frac`: the lattice index is the number of differing WORDS, so one step is one word and the
+#     measured gap between two adjacent legs is 1/n of the field's words. The base divergence between A
+#     and B is counted first and the leg adds divergence by flipping words from the AGREEING set,
+#     because flipping a word that already differs adds nothing: window `l` printed
+#     `g/ndiff_frac at-limit=False … measured=0.374756 > bound=0.368164` for exactly that reason — 58
+#     of gather `s`'s 4096 words already differed, and flipping the first 1508 A-words as the pre-fix
+#     construction did added only 1481 of them, overshooting by 27 words.
+#   * `rel-err`, `relL2`: the lattice index is the number of f32 steps one element is moved away from
+#     its B-side value, so one step is one ULP at that element.
+#
+# `vb_edge_sizing` then MEASURES the step (`granularity = measured_one_past - measured_at_limit`, which
+# is how 1/n = 2.44140625e-04 for a 4096-word field reaches the log — as a measurement, never typed)
+# and asks whether the at-limit leg sits within one step of the bound. That one rule catches both
+# failure shapes: a leg that overshot (window `l`) and a leg that undershot so far that the bound was
+# never approached, which is the quiet twin — a bound nothing can approach was never tested.
 
-    The construction is closed-form per metric, so `at-limit` is not a guess that happens to land
-    inside: one element moved by `t*||b||` puts relL2 at t; one element at the denominator's floor
-    moved by `t*n*denom` puts the mean there; `floor(t*n)` differing words put ndiff_frac there. The
-    f32 cast of a large base value can round a hair past a continuous bound, so the leg is then
-    tightened (inside leg) or widened (outside leg) until it is unambiguously on its own side, and the
-    fraction it landed at is printed. Nothing is written to disk — these are in-memory fabrications and
-    say so.
+# The pinned device-window record the byte-axis ratio is read from when this run has no device pair of
+# its own. Window `l` is D-28's first device window; its two pair totals (52,976 B GDN, 3,744 B policy
+# A) are unchanged since window `g`, and the per-field split on the same lines is what the ratio is
+# re-derived from, so the number a reader can check lives beside the code that checks it.
+VB_DEVICE_EVIDENCE = ROOT / "specification" / "evidence" / "blockdevice-device-2026-10-27-l1.log"
+
+
+def _vb_f32_rank(x):
+    """The integer position of an f32 on the number line: adjacent ranks are adjacent representables.
+
+    IEEE order is magnitude-with-sign, so ranking is `bits + 0x80000000` at or above zero and
+    `0x7FFFFFFF - bits` below it. `signbit`, not `>= 0`, splits the two halves so -0.0 ranks just under
+    +0.0 instead of above every positive number.
+    """
+    arr = np.array([x], dtype=np.float32)
+    bits = int(arr.view(np.uint32)[0])
+    return (0x80000000 + bits) if not np.signbit(arr[0]) else (0x7FFFFFFF - bits)
+
+
+def _vb_f32_of_rank(rank):
+    """Inverse of `_vb_f32_rank`: the f32 value sitting at that position on the number line."""
+    bits = (rank - 0x80000000) if rank >= 0x80000000 else (0x7FFFFFFF - rank)
+    return float(np.array([bits], dtype=np.uint32).view(np.float32)[0])
+
+
+def vb_edge_sizing(measured_at, measured_past, bound, step=None):
+    """distance_to_bound / granularity / sized_correctly for one metric's pair of adjacent legs.
+
+    `granularity` is measured off the two legs, never hardcoded, so the lattice the format has is what
+    sizes the leg rather than a constant someone remembered. A leg is sized correctly when the at-limit
+    leg sits no further below the bound than one lattice step: anything further down is an under-sized
+    leg, and an under-sized leg is a bound that was never approached, therefore never tested.
+
+    `step` overrides the measured gap for callers that must judge a leg against a step measured
+    elsewhere — the deliberately mis-sized fabrications are judged against the real lattice step, not
+    against the gap to whatever leg they happen to be paired with.
+    """
+    distance = bound - measured_at
+    granularity = (measured_past - measured_at) if step is None else step
+    ok = granularity > 0.0 and distance <= granularity * (1.0 + 1e-9)
+    if not ok:
+        reason = ("legs-not-adjacent(granularity=%.6g)" % granularity if granularity <= 0.0 else
+                  "under-sized(distance %.6g > one lattice step %.6g)" % (distance, granularity))
+    else:
+        reason = ("overshot-past-bound(distance %.6g is negative)" % distance if distance < 0.0
+                  else "within-one-lattice-step")
+    return dict(distance_to_bound=distance, granularity=granularity,
+                sized_correctly=bool(ok), reason=reason)
+
+
+def vb_pre_diverge(a, b, count):
+    """A copy of `a` with `count` further words made to differ from `b`, by flipping bit 0 of agreeing
+    words spread evenly through the field. The count is a device window's own per-field `ndiff_words`, so
+    a leg built on this base is built on the population the device actually produced, and spreading them
+    is what makes the base look like a real divergence rather than a block a head-only construction can
+    overlap by accident. In-memory only.
+    """
+    out = np.array(a, dtype=np.float32)
+    agree = np.flatnonzero(out.view(np.uint32) == np.asarray(b, dtype=np.float32).view(np.uint32))
+    count = int(count)
+    stride = max(1, agree.size // max(count, 1))
+    out.view(np.uint32)[agree[::stride][:count]] ^= np.uint32(1)
+    return out
+
+
+def vb_naive_first_words_leg(a, b, count):
+    """The pre-fix construction, kept ONLY as the negative control that proves the fix is load-bearing:
+    flip bit 0 of the first `count` A-words *without regard to whether they already differ*. Under a
+    non-zero base that leg lands past its own bound, which is what window `l` printed.
+    """
+    out = np.array(a, dtype=np.float32)
+    out.view(np.uint32)[:int(count)] ^= np.uint32(1)
+    return out
+
+
+def vb_word_axis(text, kind):
+    """The device pair's own per-field word/byte counts, parsed off printed GATTRIB/DATTRIB lines.
+
+    Returns `(pair_bytes, {field: (ndiff_words, ndiff_bytes)}, source)`, or None when no such pair line
+    was printed. The pair total is RE-DERIVED as the sum of the per-field `ndiff_bytes` and required to
+    equal the printed pair line and its printed `sum_of_fields`, so the number a ratio uses is the
+    per-field arithmetic, not a constant copied from a summary. In a device run the source is this run's
+    own lines; in a CPU witness it is the pinned window-`l` log named on the line, which is device data
+    this box cannot produce and says so.
+    """
+    head, pair = ("GATTRIB", "g_policy_a_hip_device_vs_hip_hostpath") if kind == "gather" else \
+        ("DATTRIB", "d_hip_device_vs_d_hip_hostpath")
+    lines = [l for l in (text or "").splitlines() if l.startswith("%s pair=%s " % (head, pair))]
+    source = "this-run"
+    if not lines and VB_DEVICE_EVIDENCE.exists():
+        lines = [l for l in VB_DEVICE_EVIDENCE.read_text().splitlines()
+                 if l.startswith("%s pair=%s " % (head, pair))]
+        source = VB_DEVICE_EVIDENCE.name
+    if not lines:
+        return None
+    per_field, pair_total, printed_sum = {}, None, None
+    accounted = "absent"
+    for line in lines:
+        words = re.search(r"field=(\S+) words=(\d+) ndiff_words=(\d+) ndiff_bytes=(\d+)", line)
+        if words:
+            per_field[words.group(1)] = (int(words.group(3)), int(words.group(4)))
+            continue
+        total = re.search(r" ndiff_bytes=(\d+) sum_of_fields=(\d+) accounting=(\S+)", line)
+        if total:
+            pair_total, printed_sum = int(total.group(1)), int(total.group(2))
+            accounted = total.group(3)
+    if pair_total is None:
+        return None
+    derived_sum = sum(b for _, b in per_field.values())
+    if not per_field or derived_sum != pair_total or printed_sum != pair_total or \
+            accounted != "ok":
+        raise Refused("d28-byte-axis-does-not-account",
+                      "the %s/%s byte axis could not be re-derived from its printed per-field split: "
+                      "fields sum to %d, pair line prints ndiff_bytes=%d sum_of_fields=%s "
+                      "accounting=%s. A ratio against a total that does not account is not a refutation"
+                      % (head, pair, derived_sum, pair_total, printed_sum, accounted))
+    return pair_total, per_field, source
+
+
+def vb_cause_bytes(text, kind, cause):
+    """The injected byte total of a refuted cause, parsed off this run's printed GCAUSE/DCAUSE line."""
+    prefix = "GCAUSE path=policy_a injected_causes=" if kind == "gather" else "DCAUSE injected_causes="
+    full = [l for l in (text or "").splitlines() if l.startswith(prefix)]
+    if not full:
+        return None
+    body = full[0].split("injected_causes=", 1)[1].split(" device_pair=")[0]
+    for entry in body.split(";"):
+        m = re.match(r"^(\S+) total=(\d+)", entry)
+        if m and m.group(1) == cause:
+            return int(m.group(2))
+    return None
+
+
+def vb_byte_axis(text, kind, cause):
+    """The byte-count refutation of a cause, in numbers, re-derived from printed lines.
+
+    The rule is the one the device screen already uses (`DMAGMATCH`/`GMAGMATCH::within_factor_two`): a
+    cause is ruled out when its injected divergence is more than a factor of two above what the device
+    pair actually differs by — i.e. when it exceeds the observed divergence *by more than the observed
+    divergence itself*. Returns None when either side has no printed source, and the caller prints
+    `carried_by=none`, which is a finding rather than a shrug.
+    """
+    axis = vb_word_axis(text, kind)
+    if axis is None:
+        return None
+    observed, per_field, source = axis
+    injected = vb_cause_bytes(text, kind, cause)
+    if injected is None:
+        return None
+    # The same rule the screen uses, written so a byte-exact pair does not escape it: injecting 264,704 B
+    # when the pair differs by 0 B is ruled out by any ratio, and `observed > 0` must not become a way for
+    # a clean pair to make a huge cause look unrefuted.
+    return dict(injected=injected, observed=observed, excess=injected - observed,
+                ratio=(injected / float(observed)) if observed else float("inf"),
+                refuted=bool(injected - observed > observed),
+                source=source,
+                per_field=";".join("%s=%d/%dw" % (f, b, w) for f, (w, b) in sorted(per_field.items())))
+
+
+def vb_fabricate_at_limit(A, B, field, metric, bound, direction, layout):
+    """A copy of the A-side field placed on one side of one metric's bound, on the format's own lattice.
+
+    `direction="inside"` returns the largest lattice point at or below the bound; `"outside"` returns the
+    immediately adjacent point above it, so the two legs are adjacent points of one grid and the step
+    between them is measurable rather than assumed. The construction preserves the A-side's existing
+    divergence and adds to it in lattice steps — `k` differing words for the count metric (added from the
+    agreeing set, one differing word per flip), one element moved `j` f32 steps for the two norm metrics.
+    Nothing is written to disk; these are in-memory fabrications and the line says so.
     """
     a = np.array(A[field], dtype=np.float32)
     b = np.asarray(B[field], dtype=np.float32)
     n = a.size
+    b64 = b.astype(np.float64)
 
     def measure(values):
-        return vb_metrics(values, b)[metric]
+        value = vb_metrics(values, b)[metric]
+        if not np.isfinite(value):
+            raise Refused("d28-edge-leg-wont-size",
+                          "the %s/%s %s leg went non-finite on the lattice; a leg that is not a number is "
+                          "not a leg" % (field, metric, direction))
+        return value
 
-    def build(count=None, delta=None):
+    slack = bound * (1.0 + 1e-9)
+    if metric == "ndiff_frac":
+        differ = a.view(np.uint32) != b.view(np.uint32)
+        base = int(np.count_nonzero(differ))
+        k = int(np.floor(bound * (1.0 + 1e-9) * n))
+        if direction != "inside":
+            k += 1
+        if k > n:
+            raise Refused("d28-edge-leg-wont-size",
+                          "the %s/%s bound %.6g admits %d differing words but the field holds %d; a count "
+                          "bound that admits every word forbids nothing and cannot be leg-sized"
+                          % (field, metric, bound, k, n))
         out = a.copy()
-        if metric == "ndiff_frac":
-            bits = out.view(np.uint32).copy()
-            bits[:count] ^= np.uint32(1)
-            return bits.view(np.float32)
-        out[build.index] = np.float32(float(b[build.index]) + delta)
-        if out[build.index] == a[build.index]:
-            out[build.index] = np.float32(np.nextafter(float(b[build.index]),
-                                                       float(b[build.index]) + (1.0 if delta >= 0
-                                                                                else -1.0)))
+        if k > base:
+            agree = np.flatnonzero(~differ)
+            out.view(np.uint32)[agree[:k - base]] ^= np.uint32(1)
+        return out, measure(out), dict(index=k, unit="word", base=base)
+
+    scale = float(np.max(np.abs(b64)))
+    site = int(np.argmax(np.abs(b64)))
+    b_site = float(b64[site])
+    unit = float(np.linalg.norm(b64)) if metric == "relL2" else \
+        max(abs(b_site), 1e-3 * scale) * n
+    rank0 = _vb_f32_rank(b_site)
+
+    def leg(j):
+        if j <= 0:
+            return a.copy()
+        out = a.copy()
+        out[site] = _vb_f32_of_rank(rank0 + j)
         return out
 
-    if metric == "ndiff_frac":
-        count = int(np.floor(bound * n)) if direction == "inside" else \
-            min(n, max(int(np.ceil(bound * n)) + 1, 1))
-        out = build(count=count)
-        return out, measure(out), count / float(n)
-    y = b.astype(np.float64)
-    scale = float(np.max(np.abs(y)))
-    build.index = int(np.argmax(np.abs(y)))
-    if metric == "relL2":
-        unit = float(np.linalg.norm(y))
-    else:
-        unit = max(abs(float(y[build.index])), 1e-3 * scale) * n
-    if bound <= 0.0:
-        # A zero bound cannot be scaled: the at-limit leg is "nothing moved" and the one-past leg is the
-        # smallest move the format admits. That IS the zero-tolerance edge.
-        if direction == "inside":
-            return a.copy(), 0.0, 0.0
-        bits = a.view(np.uint32).copy()
-        bits[int(np.argmax(np.abs(y)))] ^= np.uint32(1)
-        out = bits.view(np.float32)
-        return out, measure(out), 0.0
-    steps = [1.0 * 0.75 ** k for k in range(40)] if direction == "inside" else \
-        [1.0 + 2.0 ** -4 + 1.5 * k for k in range(40)]
-    chosen = None
-    for k in steps:
-        out = build(delta=bound * unit * k)
-        value = measure(out)
-        ok = value <= bound if direction == "inside" else value > bound
-        if ok:
-            chosen = (out, value, k)
+    # The lattice index that puts the metric at the bound in closed form (delta = bound*unit), then at
+    # most a few step corrections to land on the correct side of the stored f32 values. The metric is
+    # monotone in j — the moved element's own |a-b| grows one representable value per step and every
+    # other element is untouched — so "largest j at or below the bound" is well defined.
+    j = 0 if bound <= 0.0 else max(0, _vb_f32_rank(b_site + bound * unit) - rank0)
+    for _ in range(64):
+        if j > 0 and measure(leg(j)) > slack:
+            j -= 1
+        elif measure(leg(j + 1)) <= slack:
+            j += 1
+        else:
             break
-    if chosen is None:
+    else:
         raise Refused("d28-edge-leg-wont-size",
-                      "the %s/%s %s leg could not be placed on its own side of the bound %.6g in 40 "
-                      "steps; a rejection leg that cannot be sized is not a rejection leg"
-                      % (field, metric, direction, bound))
-    return chosen
+                      "the %s/%s %s leg could not be placed on its own side of the bound %.6g in 64 lattice "
+                      "steps from the closed-form estimate; a rejection leg that cannot be sized is not a "
+                      "rejection leg" % (field, metric, direction, bound))
+    if direction != "inside":
+        j += 1
+    out = leg(j)
+    return out, measure(out), dict(index=j, unit="ulp", base=0)
 
 
 def vb_must_catch_population(spec):
@@ -4736,38 +4941,59 @@ def _vb_invert_decay(R, spec):
 
 
 def value_band_rejection(v, ctx):
-    """At-limit INSIDE / one-past-limit OUTSIDE, per pair per metric, on fabrications.
+    """At-limit INSIDE / one-past-limit OUTSIDE per pair per metric, on adjacent lattice points.
 
-    Sized from the bound, never from the spread (`blockdevice-wpre-scope-2026-10-26.md` §4 is the
-    precedent), and every leg is a fabrication that says so on the line. A band whose at-limit leg is
-    outside, or whose one-past-limit leg is inside, is not a band.
+    Sized from the bound and from the lattice the format actually has, never from the spread
+    (`specification/evidence/blockdevice-wpre-scope-2026-10-26.md` §4 is the precedent), and every leg is
+    a fabrication that says so on the line. Three ways a band fails and all three redden this: the
+    at-limit leg lands outside, the one-past-limit leg lands inside, or the at-limit leg sits more than
+    one measured lattice step below the bound — the quiet one, a leg that never approached the bound and
+    so never tested it. `sized_correctly` is a property of the PAIR of legs (the step between them is
+    what measures the granularity), so both legs of one metric print the same verdict.
     """
-    results, lines = True, []
+    results, lines, rows = True, [], []
     for spec in ctx["vb"].values():
         A, B = spec["witness_A"], vb_record(spec["b_side"], spec["order"], spec["fields"])
         for metric in VB_METRICS:
             field = next((f for f in spec["order"] if spec["derived"][f][metric] > 0),
                          spec["order"][0])
             bound = spec["derived"][field][metric]
-            outcomes = {}
+            legs = {}
             for label, direction in (("at-limit", "inside"), ("one-past-limit", "outside")):
-                fake, measured, landed = vb_fabricate_at_limit(A, B, field, metric, bound, direction,
-                                                              spec["layout"])
-                inside = measured <= bound * (1.0 + 1e-9)
-                outcomes[label] = inside
+                fake, measured, lattice = vb_fabricate_at_limit(A, B, field, metric, bound, direction,
+                                                                spec["layout"])
+                legs[label] = dict(measured=measured, lattice=lattice,
+                                   inside=measured <= bound * (1.0 + 1e-9))
+            sizing = vb_edge_sizing(legs["at-limit"]["measured"], legs["one-past-limit"]["measured"],
+                                    bound)
+            for label in ("at-limit", "one-past-limit"):
+                leg = legs[label]
+                lattice = leg["lattice"]
+                extra = "" if sizing["sized_correctly"] else " sized_correctly_because=%s" % sizing[
+                    "reason"]
+                basenote = "" if lattice["unit"] != "word" else " base_words=%d" % lattice["base"]
                 print("BOUNDEDGE pair=%s metric=%s field=%s leg=%s bound=%.6g measured=%.6g "
-                      "sized_at=%.4g_of_bound inside=%s verdict=%s note=FABRICATION, in-memory only, "
-                      "one element (or round(bound*n) words) of the A-side copy, sized from the bound "
-                      "rather than from the spread"
-                      % (spec["pair"], metric, field, label, bound, measured, landed, inside,
-                         "INSIDE" if inside else "OUTSIDE"))
-            good = outcomes["at-limit"] and not outcomes["one-past-limit"]
+                      "lattice_index=%d lattice_step=%s%s distance_to_bound=%.9g granularity=%.9g "
+                      "sized_correctly=%s inside=%s verdict=%s note=FABRICATION, in-memory only, "
+                      "adjacent points of the field's own f32 word grid (%d %s steps apart), sized from "
+                      "the bound and from the measured step rather than from the spread%s"
+                      % (spec["pair"], metric, field, label, bound, leg["measured"], lattice["index"],
+                         lattice["unit"], basenote, abs(leg["measured"] - bound),
+                         sizing["granularity"], "yes" if sizing["sized_correctly"] else "no",
+                         leg["inside"], "INSIDE" if leg["inside"] else "OUTSIDE",
+                         abs(legs["one-past-limit"]["lattice"]["index"]
+                             - legs["at-limit"]["lattice"]["index"]), lattice["unit"], extra))
+            good = (legs["at-limit"]["inside"] and not legs["one-past-limit"]["inside"]
+                    and sizing["sized_correctly"])
             if not good:
                 results = False
-            lines.append("%s/%s at-limit=%s one-past=%s" % (spec["pair"].split("_")[0], metric,
-                                                           outcomes["at-limit"],
-                                                           outcomes["one-past-limit"]))
-    ctx["vb_edges"] = dict(ok=results, lines=lines)
+            lines.append("%s/%s at-limit=%s one-past=%s sized_correctly=%s"
+                         % (spec["pair"].split("_")[0], metric,
+                            legs["at-limit"]["inside"], legs["one-past-limit"]["inside"],
+                            "yes" if sizing["sized_correctly"] else "no"))
+            rows.append(dict(pair=spec["pair"], metric=metric, field=field, bound=bound, legs=legs,
+                             sizing=sizing, word_count=int(A[field].size), good=good))
+    ctx["vb_edges"] = dict(ok=results, lines=lines, rows=rows)
 
 
 def value_band_must_catch(v, ctx):
@@ -4815,34 +5041,43 @@ def value_band_must_catch(v, ctx):
 
 
 def value_band_refuted_causes(v, ctx):
-    """The two causes D-28 says are refuted stay live controls that must keep failing.
+    """The two causes D-28 says are refuted stay live controls that must keep failing, on a NAMED axis.
 
-    `silu_exp_ulp1` (15,426 B against the 3,744 observed) and `decay_ulp1` (264,704 B against 52,976)
-    were priced as too big to be the device's mechanism. Each is re-priced here against the derived
-    bounds, and the line says plainly which way it came out:
+    `silu_exp_ulp1` and `decay_ulp1` were refuted by a byte-count ratio against the observed device pair
+    (264,704 B injected against 52,976 B observed on the GDN pair; 15,426 B against 3,744 B on policy A),
+    and that ratio is device data no device-free value bound can encode. Each cause is re-priced here twice
+    — in the value currencies, and on that byte axis — and the line names which axis carries the refutation:
 
-      * `teeth=yes` — the band still rejects it, in a value currency;
-      * `teeth=none` — the band does NOT reject it, and the line says THE BAND IS TOO WIDE and names
-        where the refutation is actually carried: these two causes were refuted by a **byte-count
-        ratio against the observed pair** (5x and 4x), which is device data, and a bound derived
-        without the device necessarily sizes the worst case over the whole documented site
-        population — so a 1-ULP injection on that population is inside it by construction. The live
-        control that keeps them refuted is then `GMAGMATCH`/`DMAGMATCH verdict=RULED-OUT`, which is
-        printed in every device window and reddens `gather-/gdn-divergence-causes-priced` if a cause
-        ever matches. This function refuses to pretend the value band did a job the byte ratio does.
+      * `carried_by=value-band(rel-err,relL2)` — the band still rejects it in a value currency
+        (`teeth=yes`);
+      * `…+byte-diagnostic(...)` — the byte ratio rejects it, with the arithmetic spelled out in bytes and
+        re-derived from this run's printed `DCAUSE`/`GCAUSE` totals and the per-field `DATTRIB`/`GATTRIB`
+        split of the observed pair (the pair total is re-summed from those per-field numbers and required
+        to equal the printed total, so the ratio uses arithmetic and not a copied summary);
+      * `carried_by=none` — neither axis refutes it. That is a finding, and
+        `d28-refuted-causes-still-refuted-and-say-what-carries-it` reddens on it.
+
+    `decay_ulp1` is inside the value band by construction: a bound derived without the device sizes the
+    worst case over the whole documented site population, and a +1-ULP injection on that population is a
+    smaller member of the same family as the documented ±2-ULP allowance. So the byte axis is what keeps
+    it refuted, and the line prints that in numbers instead of pretending the band did the job. Neither the
+    band nor the cause list is adjusted to make the value axis look stronger: D-28 §3 is satisfied by
+    naming the ruler, not by relaxing either side.
     """
     rows = []
+    text = run_text(ctx)
     for spec in ctx["vb"].values():
         cause = "silu_exp_ulp1" if spec["kind"] == "gather" else "decay_ulp1"
         path = (ctx.get("g_cause_paths", {}).get("policy_a", {}) if spec["kind"] == "gather"
                 else ctx.get("d_cause_paths", {})).get(cause)
+        screen_head = "GMAGMATCH" if spec["kind"] == "gather" else "DMAGMATCH"
         screen = (ctx.get("g_cause_match", {}) or {}).get("policy_a") if spec["kind"] == "gather" \
             else ctx.get("d_cause_match")
         if not path:
-            print("REFUTED-CAUSE cause=%s pair=%s status=not-exercised reason=no cause record in "
-                  "this run (the divergence control did not run it), so the width claim is untested"
+            print("REFUTED-CAUSE cause=%s pair=%s status=not-exercised carried_by=none reason=no cause "
+                  "record in this run (the divergence control did not run it), so neither axis priced it"
                   % (cause, spec["pair"]))
-            rows.append(dict(cause=cause, pair=spec["pair"], fails=None, carried=None))
+            rows.append(dict(cause=cause, pair=spec["pair"], fails=None, carried="none", byte=None))
             continue
         A = vb_record(path, spec["order"], spec["fields"])
         B = vb_record(spec["b_side"], spec["order"], spec["fields"])
@@ -4856,33 +5091,36 @@ def value_band_refuted_causes(v, ctx):
                  inside).append("%s/%s %.3g vs %.3g" % (field, metric, m[metric],
                                                         spec["derived"][field][metric]))
         fails = bool(outside)
-        # What still refutes this cause: the value band if it has teeth here, otherwise the byte-count
-        # magnitude ruler — whose verdict for THIS cause is read off the run's own DMAGMATCH/GMAGMATCH
-        # lines when they exist, and named as a required device-window print when they do not.
+        byte = vb_byte_axis(text, spec["kind"], cause)
         entry = [s for s in (screen or []) if "cause=%s " % cause in s]
         ruler = ("verdict=%s" % entry[0].split("verdict=", 1)[1].split()[0] if entry
-                 else "leg-not-printed-in-this-run(mode=%s)"
-                 % ("device" if ctx["device"] else "cpu"))
-        carried = ("band:%s" % ",".join(sorted(set(x.split("/")[1] for x in outside)))
-                   if fails else
-                   "byte-count-ruler(%s)%s" % (
-                       ruler,
-                       "" if entry else "; required print wherever a real device record exists: "
-                       "DMAGMATCH/GMAGMATCH verdict=RULED-OUT cause=%s, taken by %s"
-                       % (cause, window_command())))
-        print("REFUTED-CAUSE cause=%s pair=%s must_keep_failing=%s teeth=%s outside=%s inside=%s "
-              "verdict=%s refutation_carried_by=%s%s"
-              % (cause, spec["pair"], "yes", "yes" if fails else "none",
+                 else "screen-not-printed-in-this-run(mode=%s);required-print=%s verdict=RULED-OUT "
+                      "cause=%s taken by %s" % ("device" if ctx["device"] else "cpu", screen_head,
+                                                cause, window_command()))
+        carried = []
+        if fails:
+            carried.append("value-band(%s)" % ",".join(sorted(set(x.split("/")[1] for x in outside))))
+        if byte and byte["refuted"]:
+            carried.append("byte-diagnostic(injected=%dB observed=%dB excess=%dB ratio=%.3f %s)"
+                           % (byte["injected"], byte["observed"], byte["excess"], byte["ratio"], ruler))
+        carried_by = "+".join(carried) or "none"
+        arithmetic = ("" if not byte else
+                      " injected_bytes=%d observed_bytes=%d excess_bytes=%d "
+                      "exceeds_observed_by_more_than_observed=%s byte_source=%s observed_per_field=%s"
+                      % (byte["injected"], byte["observed"], byte["excess"],
+                         "yes" if byte["refuted"] else "no", byte["source"], byte["per_field"]))
+        print("REFUTED-CAUSE cause=%s pair=%s must_keep_failing=yes teeth=%s outside=%s inside=%s "
+              "verdict=%s%s carried_by=%s%s"
+              % (cause, spec["pair"], "yes" if fails else "none",
                  ";".join(outside[:4]) or "none", ";".join(inside[:4]) or "none",
-                 "STILL-REFUTED" if fails else "NOW-INSIDE-BAND",
-                 carried,
-                 "" if fails else " note=THE BAND IS TOO WIDE for this cause in value space: it was "
-                 "refuted on a byte-count ratio (264,704 B injected against 52,976 B observed on the "
-                 "GDN pair, 15,426 B against 3,744 B on policy A), and a bound derived without the "
-                 "device necessarily sizes the worst case over the whole documented site population, so "
-                 "a 1-ULP injection on that population sits inside it. Saying so is D-28 §3; pretending "
-                 "the value band did that job would be the wider error"))
-        rows.append(dict(cause=cause, pair=spec["pair"], fails=fails, carried=carried))
+                 "STILL-REFUTED" if fails else "NOW-INSIDE-BAND", arithmetic, carried_by,
+                 "" if fails else " note=THE BAND IS TOO WIDE for this cause in value space, and the "
+                 "byte axis above is what refutes it: a bound derived without the device necessarily "
+                 "sizes the worst case over the whole documented site population, so a 1-ULP injection on "
+                 "that population sits inside it. Saying so is D-28 §3; pretending the value band did that "
+                 "job would be the wider error, and widening the band or dropping the cause would be wider "
+                 "still"))
+        rows.append(dict(cause=cause, pair=spec["pair"], fails=fails, carried=carried_by, byte=byte))
     ctx["vb_refuted"] = rows
 
 
@@ -4910,6 +5148,141 @@ def vb_diag_print_sites():
         if head in VB_DIAG_HEADS:
             sites.append((head, "role=diagnostic gate=no" in ast.get_source_segment(src, node)))
     return sites
+
+
+def refuted_carriage_offences(text):
+    """Which printed REFUTED-CAUSE lines carry no refutation.
+
+    `carried_by=none` is the shape that reddens — a refuted cause whose line names no axis that still
+    refutes it is a cause that has stopped being checked. Split out of the check so a fabricated line can
+    be run through the same predicate that reads the real ones, which is what proves the predicate can
+    fail.
+    """
+    bad = []
+    for line in (text or "").splitlines():
+        if not line.startswith("REFUTED-CAUSE ") or " cause=" not in line:
+            continue
+        m = re.search(r" carried_by=(\S+)", line)
+        carried = m.group(1) if m else "field-absent"
+        if not any(axis in carried for axis in ("value-band", "byte-diagnostic")):
+            bad.append("%s carried_by=%s" % (line.split(" cause=")[1].split()[0], carried))
+    return bad
+
+
+def device_command_offences(text):
+    """How many printed lines carry a device command, and which of them are not exactly runnable.
+
+    Two shapes count. A `--work` whose value is not the canonical default work dir is a witness's scratch
+    dir riding along into a command that would read different bytes than the window it was printed for,
+    and a doubled `--device` (window `l`'s `command=… --device --device`) is a command nobody typed. Both
+    are read off the printed text, and the population is the lines that actually carry a command.
+    """
+    offences, count = [], 0
+    for line in (text or "").splitlines():
+        if "--device" not in line or "block_device.py" not in line:
+            continue
+        count += 1
+        head = line.split(" ")[0]
+        for value in re.findall(r"--work[= ](\S+)", line):
+            if value != str(WORK_DEFAULT):
+                offences.append("%s: --work %s is not the canonical %s" % (head, value, WORK_DEFAULT))
+        if line.count("--device") > 1:
+            offences.append("%s: %d --device flags in one reported command" % (head,
+                                                                              line.count("--device")))
+    return count, offences
+
+
+def vb_edge_fabrications(ctx, text):
+    """The deliberately mis-sized rejection legs, built through the same sizing rule as the real ones.
+
+    A `sized_correctly` flag that has never seen a bad leg is decoration, so three bad legs are built on
+    purpose and one good one under a base it was previously built on zero of:
+
+      * `under-sized-half-bound` — the at-limit leg built at half the bound. It is INSIDE, which is the
+        quiet shape: it sits further below the bound than one lattice step, so the bound it claims to
+        touch was never approached.
+      * `naive-first-words-derived-base` — the pre-fix construction (flip bit 0 of the first `k` A-words
+        regardless of whether they already differ) under the device window's own per-field differing-word
+        count. That reproduces window `l`'s `at-limit=False` from its own numbers on host bytes, with no
+        device act.
+      * `zero-granularity` — two legs at the same lattice point, i.e. no step between them at all.
+      * `fixed-under-derived-base` — the shipped construction under that same non-zero base. This one must
+        NOT be flagged, which is what says the fix is doing the work rather than the flag.
+
+    Everything is in-memory and labelled; nothing here touches a device or the scratch dir.
+    """
+    legs = []
+    rows_by_pair = {}
+    for row in (ctx.get("vb_edges") or {}).get("rows") or []:
+        rows_by_pair.setdefault(row["pair"], {})[row["metric"]] = row
+    for pair, spec in (ctx.get("vb") or {}).items():
+        rows = rows_by_pair.get(pair) or {}
+        B = vb_record(spec["b_side"], spec["order"], spec["fields"])
+        axis = vb_word_axis(text, spec["kind"])
+        for metric in VB_METRICS:
+            row = rows.get(metric)
+            if not row:
+                continue
+            field, bound = row["field"], row["bound"]
+            A1 = {"f": spec["witness_A"][field]}
+            B1 = {"f": B[field]}
+            past = row["legs"]["one-past-limit"]["measured"]
+            half, m_half, _ = vb_fabricate_at_limit(A1, B1, "f", metric, bound / 2.0, "inside",
+                                                    spec["layout"])
+            under = vb_edge_sizing(m_half, past, bound,
+                                   step=row["sizing"]["granularity"])
+            legs.append(dict(pair=pair, metric=metric, name="under-sized-half-bound",
+                             expected=True, flagged=not under["sized_correctly"],
+                             detail="at-limit built at half the bound: measured=%.6g bound=%.6g %s"
+                                    % (m_half, bound, under["reason"])))
+            zero = vb_edge_sizing(row["legs"]["at-limit"]["measured"],
+                                  row["legs"]["at-limit"]["measured"], bound)
+            legs.append(dict(pair=pair, metric=metric, name="zero-granularity",
+                             expected=True, flagged=not zero["sized_correctly"],
+                             detail=zero["reason"]))
+            if metric != "ndiff_frac":
+                continue
+            base_words = axis[1].get(field, (0, 0))[0] if axis else 0
+            n = row["word_count"]
+            k_at = int(np.floor(bound * (1.0 + 1e-9) * n))
+            if base_words <= 0 or k_at <= base_words:
+                legs.append(dict(pair=pair, metric=metric, name="naive-first-words-derived-base",
+                                 expected=None, flagged=None,
+                                 detail="not-exercised reason=no printed per-field word count for %s "
+                                        "(axis=%s) or the bound admits fewer words than the base differs"
+                                        % (field, "none" if not axis else axis[2])))
+                continue
+            A2 = {"f": vb_pre_diverge(spec["witness_A"][field], B[field], base_words)}
+            naive_at = vb_naive_first_words_leg(A2["f"], B[field], k_at)
+            naive_past = vb_naive_first_words_leg(A2["f"], B[field], k_at + 1)
+            m_naive = vb_metrics(naive_at, B[field])[metric]
+            m_naive_past = vb_metrics(naive_past, B[field])[metric]
+            sizing = vb_edge_sizing(m_naive, m_naive_past, bound)
+            legs.append(dict(pair=pair, metric=metric, name="naive-first-words-derived-base",
+                             expected=True,
+                             flagged=not (m_naive <= bound * (1.0 + 1e-9) and
+                                          sizing["sized_correctly"]),
+                             detail="base_words=%d k=%d naive at-limit=%.6g bound=%.6g inside=%s %s"
+                                    % (base_words, k_at, m_naive, bound,
+                                       m_naive <= bound * (1.0 + 1e-9), sizing["reason"])))
+            fixed_at, m_fix, lat = vb_fabricate_at_limit(A2, B1, "f", metric, bound, "inside",
+                                                          spec["layout"])
+            fixed_past, m_fix_past, _ = vb_fabricate_at_limit(A2, B1, "f", metric, bound, "outside",
+                                                              spec["layout"])
+            fix_sizing = vb_edge_sizing(m_fix, m_fix_past, bound)
+            legs.append(dict(pair=pair, metric=metric, name="fixed-under-derived-base",
+                             expected=False,
+                             flagged=not (m_fix <= bound * (1.0 + 1e-9)
+                                          and m_fix_past > bound * (1.0 + 1e-9)
+                                          and fix_sizing["sized_correctly"]),
+                             detail="base_words=%d lattice=%d*%s measured=%.6g one-past=%.6g %s"
+                                    % (base_words, lat["index"], lat["unit"], m_fix, m_fix_past,
+                                       fix_sizing["reason"])))
+    for leg in legs:
+        print("GWITNESS guard=edge-sizing pair=%s metric=%s leg=%s expected_flag=%s flagged=%s %s"
+              % (leg["pair"], leg["metric"], leg["name"], leg["expected"], leg["flagged"],
+                 leg["detail"]))
+    return legs
 
 
 def checks_d28(v, ctx):
@@ -5014,19 +5387,159 @@ def checks_d28(v, ctx):
                len(caught), derived_total, ",".join(clean) or "none"))
 
     refuted = ctx.get("vb_refuted") or []
+    refuted_lines = [l for l in lines if l.startswith("REFUTED-CAUSE ") and " cause=" in l]
+    printed_carried = re.findall(r" carried_by=(\S+)", "\n".join(refuted_lines))
     bad = ["%s/%s" % (r["cause"], r["pair"]) for r in refuted
-           if r["fails"] is None or not r["carried"]]
+           if r["fails"] is None or not r["carried"] or r["carried"] == "none"
+           or not any(axis in r["carried"] for axis in ("value-band", "byte-diagnostic"))
+           or not (r["byte"] and r["byte"]["refuted"])]
+    # The rule is `DMAGMATCH`/`GMAGMATCH::within_factor_two` read the other way: a cause is refuted when
+    # it exceeds the observed divergence by MORE than the observed divergence itself. Asserted in numbers
+    # so a line that prints a ratio without that arithmetic behind it is caught, not admired.
+    arithmetic = ["%s: injected %d B - observed %d B = %d B > observed %d B (%.3fx, per-field %s, via %s)"
+                  % (r["cause"], r["byte"]["injected"], r["byte"]["observed"], r["byte"]["excess"],
+                     r["byte"]["observed"], r["byte"]["ratio"], r["byte"]["per_field"],
+                     r["byte"]["source"]) for r in refuted if r["byte"]]
+    demo = refuted_carriage_offences(
+        "REFUTED-CAUSE cause=decay_ulp1 pair=d_hip_device_vs_d_hip_hostpath must_keep_failing=yes "
+        "teeth=none outside=none inside=state/relL2 0 vs 0 verdict=NOW-INSIDE-BAND carried_by=none")
     v.check("d28-refuted-causes-still-refuted-and-say-what-carries-it",
-            bool(refuted) and len(refuted) == len(specs) and not bad,
-            "the two causes D-28 refuted on magnitude are re-priced against the derived bounds "
-            "(%s). A cause that lands inside every value bound is reported as teeth=none with THE BAND "
-            "IS TOO WIDE on its line and names the live control that still refutes it — the "
-            "GMAGMATCH/DMAGMATCH byte-count ratio, which is device data and the only ruler that was "
-            "ever able to separate 15,426 B from 3,744 B or 264,704 B from 52,976 B. Unpriced or "
-            "unattributed refutations: %s"
+            bool(refuted) and len(refuted) == len(specs) == len(refuted_lines)
+            and len(printed_carried) == len(refuted_lines) and not bad
+            and len(arithmetic) == len(refuted) and bool(demo),
+            "the two causes D-28 refuted on magnitude are re-priced on both axes (%s). Every line prints "
+            "`carried_by=` naming `value-band` and/or `byte-diagnostic` (parsed %d of %d lines, none of "
+            "them `none`), the observed total each ratio uses is re-summed from the printed per-field "
+            "DATTRIB/GATTRIB split rather than copied off a summary, and each refutation carries the "
+            "factor-two arithmetic in bytes: %s. The same predicate reddens a fabricated line that carries "
+            "nothing (%s). Neither band was widened nor cause dropped to get here: `decay_ulp1` is "
+            "teeth=none in value space and refuted on the byte axis, which is exactly what D-28 §3 asks a "
+            "line to admit"
             % (";".join("%s[%s]=%s(%s)" % (r["cause"], r["pair"].split("_")[0],
-                                          "still-refuted" if r["fails"] else "inside-band",
-                                          r["carried"]) for r in refuted) or "not exercised", bad or "none"))
+                                           "still-refuted" if r["fails"] else "inside-band",
+                                           r["carried"]) for r in refuted) or "not exercised",
+               len(printed_carried), len(refuted_lines), " | ".join(arithmetic) or "none",
+               ";".join(demo) or "NOT CAUGHT"))
+
+    edges_rows = (ctx.get("vb_edges") or {}).get("rows") or []
+    edge_lines = [l for l in lines if l.startswith("BOUNDEDGE ")]
+    edge_bad, granularity_notes = [], []
+    for row in edges_rows:
+        mine = [l for l in edge_lines if "pair=%s " % row["pair"] in l
+                and "metric=%s " % row["metric"] in l]
+        if len(mine) != 2:
+            edge_bad.append("%s/%s printed %d legs, not 2" % (row["pair"], row["metric"], len(mine)))
+            continue
+        by_leg = dict((re.search(r" leg=(\S+)", l).group(1), l) for l in mine)
+        at, past = by_leg.get("at-limit"), by_leg.get("one-past-limit")
+        if not at or not past:
+            edge_bad.append("%s/%s legs are not named at-limit/one-past-limit" % (row["pair"],
+                                                                                 row["metric"]))
+            continue
+
+        def pstr(line, key):
+            got = re.search(r" %s=(\S+)" % key, line)
+            if not got:
+                edge_bad.append("%s/%s %s line prints no %s=" % (row["pair"], row["metric"],
+                                                                "at-limit", key))
+                return None
+            return got.group(1)
+
+        m_at_s, m_past_s = pstr(at, "measured"), pstr(past, "measured")
+        gran_at, gran_past = pstr(at, "granularity"), pstr(past, "granularity")
+        dist_at_s = pstr(at, "distance_to_bound")
+        step_at, step_past = pstr(at, "lattice_index"), pstr(past, "lattice_index")
+        unit = pstr(at, "lattice_step") or "?"
+        if None in (m_at_s, m_past_s, gran_at, gran_past, dist_at_s, step_at, step_past):
+            continue
+        at_m = row["legs"]["at-limit"]["measured"]
+        past_m = row["legs"]["one-past-limit"]["measured"]
+        real_step = past_m - at_m
+        # parsed == printed, to the digit the line prints, and printed == what the legs actually
+        # measured. A granularity that agreed with nothing on the line would be a decoration.
+        if m_at_s != "%.6g" % at_m or m_past_s != "%.6g" % past_m:
+            edge_bad.append("%s/%s prints measurements that are not the ones its legs measured"
+                            % (row["pair"], row["metric"]))
+        if gran_at != "%.9g" % real_step or gran_past != "%.9g" % real_step:
+            edge_bad.append("%s/%s prints granularity %s, which is not the measured gap %.9g between "
+                            "its own two legs" % (row["pair"], row["metric"], gran_at, real_step))
+        if dist_at_s != "%.9g" % abs(at_m - row["bound"]):
+            edge_bad.append("%s/%s prints distance_to_bound %s, not the gap %.9g from its at-limit leg "
+                            "to the bound" % (row["pair"], row["metric"], dist_at_s,
+                                              abs(at_m - row["bound"])))
+        if " verdict=INSIDE" not in at or " verdict=OUTSIDE" not in past:
+            edge_bad.append("%s/%s legs are not INSIDE/OUTSIDE" % (row["pair"], row["metric"]))
+        if step_past.isdigit() and int(step_past) - int(step_at) != 1:
+            edge_bad.append("%s/%s legs are %s-%s %s, not adjacent lattice points"
+                            % (row["pair"], row["metric"], step_at, step_past, unit))
+        if " sized_correctly=yes" not in at or " sized_correctly=yes" not in past:
+            edge_bad.append("%s/%s is under-sized: at-limit sits %.9g below the bound, one lattice step "
+                            "is %.9g — %s" % (row["pair"], row["metric"], row["sizing"]["distance_to_bound"],
+                                              real_step, row["sizing"]["reason"]))
+        if row["sizing"]["distance_to_bound"] > real_step * (1.0 + 1e-9):
+            edge_bad.append("%s/%s at-limit leg sits %.9g below the bound, more than one step %.9g"
+                            % (row["pair"], row["metric"], row["sizing"]["distance_to_bound"],
+                               real_step))
+        if unit == "word":
+            expected = 1.0 / row["word_count"]
+            if abs(real_step - expected) > expected * 1e-9:
+                edge_bad.append("%s/%s count granularity %.9g is not 1/%d = %.9g"
+                                % (row["pair"], row["metric"], real_step, row["word_count"], expected))
+            granularity_notes.append("%s/%s measured granularity=%s == 1/%d words=%s (a word is the "
+                                     "field's own step; the count metric's granularity fell out of the "
+                                     "two adjacent legs, it was not typed)"
+                                     % (row["pair"].split("_")[0], row["metric"], gran_at,
+                                        row["word_count"], "%.9g" % expected))
+    edge_fabrications = vb_edge_fabrications(ctx, text)
+    misfired = ["%s/%s" % (l["pair"], l["name"]) for l in edge_fabrications
+                if l["expected"] is not None and bool(l["flagged"]) != bool(l["expected"])]
+    exercised = [l for l in edge_fabrications if l["expected"] is not None]
+    v.check("d28-edge-legs-are-adjacent-lattice-points-and-sized-from-the-bound",
+            bool(edges_rows) and len(edge_lines) == 2 * len(edges_rows) and not edge_bad
+            and bool(exercised) and not misfired
+            and (ctx.get("vb_edges") or {}).get("ok") is not False,
+            "%d BOUNDEDGE legs, %d metrics, each pair of legs one adjacent pair of lattice points of the "
+            "field's own f32 word grid: at-limit INSIDE, one-past-limit OUTSIDE, indices one step apart, "
+            "and the printed `granularity` equal to the measured gap between its own two legs — %s. "
+            "sized_correctly requires the at-limit leg to sit within one measured step of the bound, so a "
+            "leg that never approached the bound reddens too (the quiet twin of window `l`, whose "
+            "`ndiff_frac` at-limit legs landed past the bound because the pre-fix construction flipped "
+            "words that already differed). The flag is not inert: %d fabrications through the same sizing "
+            "rule came out as expected (under-sized-half-bound and zero-granularity flagged, "
+            "fixed-under-derived-base clean), %s misfired=%s; legs with no printed base population to "
+            "build on: %s"
+            % (len(edge_lines), len(edges_rows), " | ".join(granularity_notes) or "no count metric among "
+               "the sized legs", len(exercised), "bad=%s" % (";".join(edge_bad) or "none"),
+               misfired or "none",
+               ";".join("%s/%s" % (l["pair"].split("_")[0], l["name"]) for l in edge_fabrications
+                            if l["expected"] is None) or "none"))
+
+    cmd_count, cmd_offences = device_command_offences(text)
+    cmd_demo_count, cmd_demo = device_command_offences(
+        "GCAUSE-VOID cause=x note=… command=engine/block_device.py --work /tmp/leaked-scratch --device\n"
+        "DVOID control-leg=x required-print=Y taken by engine/block_device.py --device --device\n")
+    # A CPU witness owes a command on every leg it cannot take, so a zero population there is a blind parse.
+    # A device window owes none — it IS the window — and its population is legitimately empty (a window that
+    # did print a command, as window `l` did, is held to the same rule). Either way the fabricated pair must
+    # still be caught, which is what keeps the predicate from being decorative in an empty mode.
+    population_note = ("mode=%s: every leg this run cannot take owes the command that takes it, so a zero "
+                       "population is blindness" % ("device" if ctx["device"] else "cpu")
+                       if not ctx["device"] else
+                       "mode=device: this run is the window, so no leg owes a command it already took; any "
+                       "command it does print is still held to the rule (window `l` printed one)")
+    v.check("d28-reported-device-command-is-the-canonical-one",
+            (cmd_count > 0 or ctx["device"]) and not cmd_offences
+            and cmd_demo_count == 2 and len(cmd_demo) == 2,
+            "%d printed lines carry a device command and every one of them is the command the main agent "
+            "would actually run: `--work %s` and exactly one `--device` (%s). This closes the two ways a "
+            "reported command used to lie — an argv `--work <scratch>` riding into a printed device "
+            "command (a witness run in a scratch dir cannot report a command that reads a different "
+            "scratch dir) and window `l`'s `command=… --device --device` — because `window_command()` "
+            "rebuilds from WORK_DEFAULT and strips an argv `--work`. Canonical command: `%s`. Offences "
+            "this run: %s; non-inertness, the same predicate on a fabricated pair of lines (%d commands "
+            "parsed, %d offences): %s"
+            % (cmd_count, WORK_DEFAULT, population_note, window_command(), cmd_offences or "none",
+               cmd_demo_count, len(cmd_demo), " | ".join(cmd_demo) or "NOT CAUGHT"))
 
     repro = [l for l in lines if l.startswith(VB_DIAG_HEADS)]
     unlabelled = [l.split()[0] for l in repro if "role=diagnostic gate=no" not in l]

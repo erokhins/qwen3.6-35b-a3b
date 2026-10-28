@@ -297,3 +297,42 @@ remain live controls that must keep failing" is carried by the diagnostic byte a
 not by the value band, and `silu_exp_ulp1` is carried by both (`teeth=yes outside=routed/rel-err
 5.65e-07 vs 3.25e-07`). The clause is amended to say which axis carries which cause; it is not relaxed,
 because the byte diagnostic still fails that cause.
+
+## Window `m` — 2026-10-27 — a refusal aborts the suite: `checks=0` is not a pass, and it nearly read as one
+
+Seventh window, same discipline. The CPU witness is green (`checks=69 findings=0 controls=31 fired=31`,
+`BLOCKDEVICE verdict=QUALIFIED`), all six rejection summaries behave (`at-limit=True one-past=False
+sized_correctly=yes`), `ndiff_frac` now lands exactly on the lattice (`at-limit measured=0.368164 ==
+bound`, `one-past=0.368408`, `lattice_step=word`), and `granularity` is measured rather than typed.
+
+The device run is **not** green, and the way it failed is worth recording:
+
+```
+RESULT mode=device checks=0 findings=1 controls=0 fired=0 rows=0 arms=policy_a device=on
+       staged=admitted hip_calls=16+448 launches=146 counters_unparsed=0
+last lines:  BOUNDEDGE … (6 legs, gather only)
+             REFUSED tag=d28-edge-leg-wont-size note=[d28-edge-leg-wont-size] the scan_out/rel-err
+             inside leg could not be placed on its own side of the bound 1.46299e-07 …
+tracebacks=0   printed CHECK lines=0   printed CONTROL lines=36   printed MUSTCATCH=0   REFUTED-CAUSE=0
+```
+
+`grep -E "verdict=FAIL"` on this log returns **nothing**, and that is the oldest trap in this repo:
+a run that executes no checks produces no failures. It is not a green, it is a run that died before
+the check suite — `checks=0` with the tally check itself among the never-run checks. The device-pair
+`BOUNDWITNESS` legs (36) and the gather edge legs printed; the GDN edge leg raised the lane's own
+`REFUSED … wont-size` guard, the guard propagated out of `run()`, and everything after it — the
+remaining edge legs, the whole `MUSTCATCH` population, the `REFUTED-CAUSE` lines, every `CHECK` —
+never ran.
+
+Two things follow, neither of which is a widening:
+
+1. A refusal must be a **counted finding on the leg that refused**, never an exception that ends the
+   run. And a device run with `checks == 0` must be fatal in a way that cannot be misread: the driver
+   must say so and exit non-zero with a named reason, because "nothing failed" and "nothing ran" have
+   been indistinguishable here before.
+2. The refusal is itself evidence. `scan_out/rel-err` has bound `1.46299e-07`, and on this substrate
+   the at-limit lattice point could not be reached by *adding* divergence — which is what happens when
+   the base divergence already exceeds the bound. The CPU-only run placed that leg inside
+   (`measured=1.097e-07` vs `1.463e-07`), so the question is what the device substrate changes. The
+   answer must be measured and reported; if the device's `scan_out` really sits outside the derived
+   bound, that is an escalation under D-28, **not** a licence to widen it.

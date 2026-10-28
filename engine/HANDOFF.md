@@ -2563,3 +2563,115 @@ Rule of the pass: a bound is only a bound if it can reject something on purpose 
 before the measurement, the rejection legs are sized from the bound rather than from the spread, the
 must-catch set is derived from geometry, and a limitation the band cannot cover is printed on the line
 that claims to check it. no timing taken.
+
+---
+
+## PASS 12 (2026-10-27, CPU-only) — the D-28 close-out: rejection legs on the format's own lattice, refuted causes naming the axis that refutes them, and a reported device command that is exactly runnable
+
+Window `l` (`specification/evidence/blockdevice-device-2026-10-27-l1.log`, `RESULT mode=device checks=71
+findings=3`) showed D-28's band reaching a verdict with real device bytes and **two of its twelve rejection
+legs failing** — `g/ndiff_frac at-limit=False` and `d/ndiff_frac at-limit=False` — and PASS 11's own lines
+carried two more defects: `sized_at=` was a knob nobody could audit, and a `command=` line printed by a
+witness running in a scratch dir was not the command the main agent runs. This pass closes all three in
+`engine/block_device.py`; the derivation is written up with its numbers in
+`specification/evidence/blockdevice-d28-edge-legs-2026-10-27.md`. No device act, no `--device`, no kernel,
+no `gpu_lock`, no timing; the CPU witness is 15.1 s wall / 394 MiB max RSS and
+`specification/evidence/blockdevice-cpu-2026-10-27-p12.log`
+is the full log behind every number below, with its derivation written up by
+`specification/evidence/blockdevice-d28-edge-legs-2026-10-27.py`. no timing taken.
+
+**Done.**
+
+* **1 — the `ndiff_frac` legs were sized in the wrong place, and now are not.** The cause: the old
+  `build(count)` flipped bit 0 of the first `count` A-words *without regard to whether they already
+  differed*, so with a non-zero base divergence the flips that landed on already-differing words added
+  nothing while the base was still counted — gather `s` had 58 of 4096 words differing and `k_at = 1508`,
+  and the leg landed at `measured=0.374756 > bound=0.368164`; GDN `scan_out` had 466 of 4096 and landed
+  at `0.676758 > 0.669678`. The construction is now `k_at = floor(bound*(1+1e-9)*n)` for at-limit and
+  `k_at+1` for one-past, and the divergence is *added* by flipping bit 0 of `k_at - base` words drawn from
+  the **agreeing** set, so each flip adds exactly one differing word; `base_words=` is printed on the word
+  legs so the base is on the line, not inside the arithmetic.
+* **2 — one sizing rule for all three metrics: adjacent lattice points, measured granularity.** Every leg
+  is now an index on the grid the stored format has — the number of differing **words** for `ndiff_frac`,
+  the number of **f32 steps** one element is moved from its B-side value for `rel-err`/`relL2` (IEEE rank,
+  so adjacent integers are adjacent representables) — and the two legs of a metric are the adjacent pair
+  that straddles the bound. `granularity = measured_one_past − measured_at_limit` is **measured**, never
+  typed: the count metric prints `granularity=0.000244140625`, which is `1/4096` and falls out of the two
+  legs (the check re-derives `1/word_count` from the record layout and requires the measurement to match).
+  Every `BOUNDEDGE` line now carries `lattice_index=`, `lattice_step=`, `distance_to_bound=`,
+  `granularity=`, `sized_correctly=yes|no`, and the six per-metric summaries read
+  `… at-limit=… one-past=… sized_correctly=…`. An **under-sized** leg — `distance_to_bound > granularity`
+  — reddens: a leg that never approached the bound tested nothing, which is the quiet twin of the leg that
+  overshot. Non-inertness is printed as `GWITNESS guard=edge-sizing` legs: `zero-granularity` and
+  `under-sized-half-bound` (at-limit built at half the bound: `distance 0.184082 > one lattice step
+  0.000244141`) both flag, `naive-first-words-derived-base` rebuilds the pre-fix construction under the
+  device's own per-field word count and reproduces window `l`'s `at-limit=False` from its own numbers on
+  host bytes with no device act, and `fixed-under-derived-base` — the shipped construction under that same
+  non-zero base — must stay clean, which is what says the fix and not the flag is doing the work.
+* **3 — a refuted cause now names the axis that refutes it.** `REFUTED-CAUSE` prints `carried_by=` (not
+  `refutation_carried_by=`) naming `value-band(currencies)` and/or `byte-diagnostic(injected, observed,
+  excess, ratio)`, and `carried_by=none` reddens — demonstrated by running a fabricated `carried_by=none`
+  line through the same predicate. `decay_ulp1` stays present, stays `teeth=none` in value space, and is
+  refuted **on the byte axis with the arithmetic in numbers**: `injected 264704 B - observed 52976 B =
+  211728 B > observed 52976 B (4.997x)`, and `silu_exp_ulp1` `15426 B - 3744 B = 11682 B > 3744 B
+  (4.120x)`. The injected totals are parsed from this run's printed `GCAUSE`/`DCAUSE` lines and the
+  observed total is **re-summed from the printed per-field `GATTRIB`/`DATTRIB` split** and required to
+  equal the pair line and its printed `sum_of_fields`; a CPU witness has no device pair of its own, so it
+  reads the pinned window-`l` log and names it on the line (`byte_source=`), and the rule is the screen's
+  own `within_factor_two` read the other way, so a byte-exact pair cannot make a huge cause look unrefuted.
+  Nothing was relaxed to "both axes must fail in value space", and neither band was widened nor cause
+  dropped. Read PASS 11's bullet 6 with this rename: the field it printed as `refutation_carried_by=` and
+  the `sized_at=` knob on `BOUNDEDGE` are both gone, superseded by `carried_by=` and the
+  `distance_to_bound`/`granularity`/`sized_correctly` triple.
+* **4 — a `command=` line is now exactly the command the main agent runs.** `window_command()` rebuilds
+  from `WORK_DEFAULT` instead of `sys.argv`, stripping an argv `--work <val>` / `--work=<val>` and any
+  argv `--device`, so a witness run in `--work engine/work/p12-*` cannot report a device command that
+  reads that scratch dir (window `l` also printed `--device --device`). The new check requires every
+  printed device command to carry the canonical `--work` and exactly one `--device` — 9 such lines in this
+  run, 0 offences — and proves the predicate bites on a fabricated stray `--work` and a fabricated doubled
+  `--device`. A CPU witness owes a command on every leg it cannot take, so a zero population there is
+  blindness and reddens; a device window owes none (it *is* the window) and any command it prints is still
+  held to the rule. The fabrications and the rehearsal keep their own dirs: nothing in this pass writes to
+  `engine/work/m2dev`.
+
+**Gate lines.**
+
+```
+BLOCKDEVICE verdict=QUALIFIED … checks=69 red=0 controls=31 fired=31 band_digest=27a68c7e82c9aa05
+RESULT mode=cpu checks=69 findings=0 controls=31 fired=31 rows=6 gdn_rows=7 arms=policy_a device=off
+    staged=not-attempted hip_calls=0+0 launches=0 counters_unparsed=0 band_digest=27a68c7e82c9aa05 no timing taken
+engine/block_gate.py  → BLOCKGATE verdict=QUALIFIED … checks=17 red=0 controls=11 fired=11
+engine/gate.py        → RESULT PASS checks=27 findings=0 notes=41 arms=40 evidence=not-written
+tools/doc_ref_check.py --strict → findings: 0
+specification/evidence/blockdevice-device-shape-2026-10-27.py
+    → REHEARSAL verdict=PASS no device act occurred, no timing taken   (child: checks=73 findings=7,
+      the same 7 named in PASS 10; confined to --work m2dev-rehearsal)
+```
+
+`checks` 67 → 69 is the two new checks (`d28-edge-legs-are-adjacent-lattice-points-and-sized-from-the-bound`,
+`d28-reported-device-command-is-the-canonical-one`); controls, licences, bands and the digest are
+untouched, all 36 `BOUNDWITNESS` cells are still `inside=yes` with `outside=none`, and all 8 `MUSTCATCH`
+legs still print `RED` with `printed MUSTCATCH lines=8, derived=8`.
+
+**Not done / not claimed.**
+
+* **The device leg of the witness is still not taken here.** The command that takes it is now printed
+  canonically and is exactly runnable:
+  `/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python engine/block_device.py --work /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/engine/work/m2dev --device`
+  under the standing device rules. Its required prints now include 12 `BOUNDEDGE` legs with
+  `base_words=` non-zero on the count legs and `sized_correctly=yes` on all six metrics, the two
+  `REFUTED-CAUSE … carried_by=` lines taking their observed bytes from **that window's own** `DATTRIB`/
+  `GATTRIB` lines instead of the pinned log, and no `--work` other than the canonical one.
+* **The byte-axis observed numbers in a CPU witness are window `l`'s**, read out of
+  `specification/evidence/blockdevice-device-2026-10-27-l1.log` and named on the line. They are unchanged
+  since window `g`, but they are pinned device data, not a CPU measurement, and the line says which file
+  it came from.
+* No band, floor, must-catch set, licence or pin was authored or moved; `ulp_policy.py`, `gate.py`,
+  `block_gate.py`, `device_arm.py`, `loader.py`, `engine/device/m2_[gd]_*` and `prototype/` are untouched;
+  nothing was written to the real device scratch `engine/work/m2dev` (this pass's runs used
+  `--work engine/work/p12-*`, the rehearsal its own `m2dev-rehearsal`); no device act occurred.
+
+Rule of the pass: a rejection leg is only a test if it is built on a grid the data can actually land on and
+it lands within one step of the bound it claims to touch — so the lattice comes from the format, the step
+comes from the measurement, the refutation names the axis that carries it, and a reported command is the
+command. no timing taken.
