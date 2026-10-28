@@ -366,3 +366,41 @@ printed `fired=SILENT` and counted as a finding under the rule that a control wh
 stays silent is not neutral. So the device arm's *checks* are clean and the arm is two silent controls
 away from `QUALIFIED` — the same `control-witness-guard-can-redden` that was silent in window `g`, still
 silent on the device path specifically.
+
+## Window `o` — 2026-10-27 — **M2's device arm reaches `QUALIFIED`**
+
+Ninth window, same discipline (scratch purged, arms rebuilt, two identical runs, tag asserted against
+the expected string, engine-down read from `rocm-smi`). **No timing taken.**
+
+```
+RESULT mode=device checks=77 findings=0 controls=32 fired=32 device=on staged=admitted counters_unparsed=0
+BLOCKDEVICE verdict=QUALIFIED … checks=77 red=0
+CONTROL name=control-witness-guard-can-redden          fired=RED legs=cpu_predicate:6,device:10 claims=device
+CONTROL name=gdn-state-read-is-the-arm-s-own-fingerprint fired=RED legs=device:1,host_cpubody:2 claims=host_cpubody,device
+CHECK name=control-states-enumerate-and-claimed-and-silent-reddens verdict=PASS … fired=32, not-applicable=0, claimed-and-silent=0
+CHECK name=control-claims-do-not-quietly-shrink       verdict=PASS (baseline: the 36 controls of n1)
+BOUNDEDGE=12  MUSTCATCH=10 (8 RED)  REFUTED-CAUSE=2  REFUSED=0  printed CHECK verdict=FAIL=0
+```
+
+Both controls that window `n` left silent now execute on the device path, and the control whose
+fingerprint leg had been inverted since window `h` judges each flip leg against **its own arm's**
+honest record instead of a cross-path baseline — which is what window `n`'s "7 legs refused" really
+was: four of those refusals were the control comparing a host flip against the device arm's number.
+
+**Two hygiene defects found while verifying, neither fatal, both recorded.**
+
+1. `status=not-exercised%s%s` at `engine/block_device.py:603` concatenates the next field with no
+   separator, so two controls printed `status=not-exerciseddevice`. Both are fabrications in a scratch
+   verifier, so nothing was miscounted **this** run — but a real control taking the not-applicable state
+   would emit a token that is neither `not-exercised` nor absent, and the three-state rule depends on
+   reading that token. A state machine whose state is parsed out of a formatted string must be tested
+   against the formatter.
+2. The terminal-tally check's own message contains the literal text `0 CHECK verdict=FAIL lines`. My
+   verification grep `^CHECK name=.*verdict=FAIL` matched it and reported "one FAIL record" in a run with
+   zero — a false alarm aimed at exactly the reader who is checking whether anything failed. A verdict
+   line should not print the word it is counting; I counted with a stricter predicate and it went away,
+   but the wording invites the mistake.
+
+M2's exit gate is therefore met: rows ACCEPTED against pinned under licensed bands, CPU and device
+halves both `QUALIFIED`, with D-28's value-space judgement replacing byte identity only for the
+arm-against-its-own-CPU-twin relation. Everything that measures us against the oracle is unchanged.

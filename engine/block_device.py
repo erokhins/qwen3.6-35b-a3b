@@ -218,6 +218,45 @@ def silent_control_finding(fired, reason):
     return None if (reason or "").strip() else "silent-without-named-reason"
 
 
+CONTROL_STATES = ("fired", "not-applicable", "claimed-and-silent")
+
+
+def control_state(fired, claims=(), not_exercised=()):
+    """Which of exactly three states a registered control is in, decided in one place.
+
+    A control that did not fire used to be one bit — `fired=SILENT` — and a silent guard is not a neutral
+    state. Window `n` printed two of them (`control-witness-guard-can-redden`, which had lost its device
+    legs in window `g`, and `gdn-state-read-is-the-arm-s-own-fingerprint`, which had been refused by its own
+    arithmetic since window `j`), and nothing in the line told a reader whether the control had run on the
+    path it claimed and failed, or never ran there. So there are three states and every control is in exactly
+    one:
+
+      * `fired` — it reddened. Whether its `legs=` name every path it claimed is
+        `control-legs-cover-the-path-under-claim`'s question, asked separately and counted separately; a
+        fired control is `fired` here even when that check is red, because the two failures are different.
+      * `not-applicable` — it did not fire, it printed `status=not-exercised reason=<named>` naming the
+        paths it could not exercise, and it claims none of them.
+      * `claimed-and-silent` — everything else, with the sub-shape named beside it: `claimed-and-silent` (it
+        claimed a path and went silent), `claims-a-path-it-declared-unexercised` (one line contradicts
+        itself), or `silent-without-declaration` (a `reason=` in prose that never says which path it could not
+        run).
+
+    `Verifier.control` is the only place a control registers, so the population this returns is total, and
+    `control-states-enumerate-and-claimed-and-silent-reddens` is the leg that shows the third state is
+    reachable rather than a label nothing ever lands on.
+    """
+    claimed, dead = set(claims or ()), set(not_exercised or ())
+    if fired:
+        return ("fired", "")
+    if claimed & dead:
+        return ("claimed-and-silent", "claims-a-path-it-declared-unexercised")
+    if claimed:
+        return ("claimed-and-silent", "claimed-and-silent")
+    if dead:
+        return ("not-applicable", "")
+    return ("claimed-and-silent", "silent-without-declaration")
+
+
 # ---------------------------------------------------------------------------------------------
 # A control may not deny what this run's own reproduction legs proved.
 #
@@ -527,7 +566,17 @@ class Verifier:
         print("CHECK name=%s verdict=%s %s" % (name, "PASS" if ok else "FAIL", detail))
         return ok
 
-    def control(self, name, fired, detail, legs=None, claims=None, reason=None):
+    def control(self, name, fired, detail, legs=None, claims=None, reason=None,
+                not_exercised=None, declaim=None):
+        """Register one control: did it fire, on what path, with what legs, and if not, why.
+
+        `not_exercised` names the paths this control could not exercise here and turns the line into state 2
+        (`status=not-exercised reason=<named>`); it is the only way a silent control escapes the third state,
+        and it is void if the same line also claims that path. `declaim` is `{path: reason}` for a path a
+        recorded run of this mode claimed and this line no longer does — the reason is printed on the line,
+        because the only honest way to narrow a claim is in the line that narrows it
+        (`control-claims-do-not-quietly-shrink`).
+        """
         self.controls.append(name)
         if fired:
             self.fired += 1
@@ -536,15 +585,25 @@ class Verifier:
         finding = silent_control_finding(fired, reason)
         if finding:
             self.unreasoned.append(name)
-        self.control_paths[name] = dict(legs=dict(legs or {}), claims=tuple(claims or ()))
+        not_exercised = tuple(not_exercised or ())
+        declaim = dict(declaim or {})
+        state, sub = control_state(fired, claims, not_exercised)
+        self.control_paths[name] = dict(legs=dict(legs or {}), claims=tuple(claims or ()),
+                                       not_exercised=not_exercised, declaims=declaim,
+                                       state=state, sub=sub, fired=bool(fired))
         pathnote = ""
         if legs or claims:
             pathnote = " legs=%s claims=%s" % (
                 ",".join("%s:%d" % (p, n) for p, n in sorted((legs or {}).items())) or "none",
                 ",".join(claims or ()) or "none")
+        for path, why in sorted(declaim.items()):
+            pathnote += " declaimed=%s reason=%s" % (path, why)
         notecount = "" if not reason else " reason=%s" % reason
+        if not fired and not_exercised:
+            notecount = " status=not-exercised%s%s" % (
+                ",".join(sorted(not_exercised)), notecount)
         print("CONTROL name=%s fired=%s%s%s %s" % (name, "RED" if fired else "SILENT", pathnote,
-                                                  notecount, detail))
+                                                   notecount, detail))
         return bool(fired)
 
 
@@ -1920,6 +1979,100 @@ def device_path_census(v, ctx):
                len(census["cast_sites"]), len(census["compare_sites"])))
 
 
+def control_state_findings(control_paths):
+    """Every control sitting in the third state, named with its sub-shape. Pure over registered records.
+
+    `Verifier.control` classified each one when it registered (`control_state`), so this reads a state rather
+    than re-deriving one — the check and the printer cannot disagree about who is in trouble.
+    """
+    return ["%s(%s)" % (name, d["sub"]) for name, d in sorted(control_paths.items())
+            if d["state"] == "claimed-and-silent"]
+
+
+def control_state_tally(control_paths):
+    """`{state: [names]}` over every registered control, with all three keys always present.
+
+    A tally that omitted an empty state would let a state disappear by being empty — the same reason the
+    counters below print `not-applicable=0` rather than dropping the field.
+    """
+    tally = dict((s, []) for s in CONTROL_STATES)
+    for name, d in sorted(control_paths.items()):
+        tally.setdefault(d["state"], []).append(name)
+    return tally
+
+
+# The claim baseline is PARSED from recorded logs of the same mode, not typed here: a hand-copied list is a
+# list of what someone remembered claiming, and the whole point of the guard is that a claim can only leave the
+# record in writing. Both files are ordinary gate logs, and each is the last recorded run of its mode when this
+# guard was written (`blockdevice-cpu-2026-10-27-p13.log`, `blockdevice-device-2026-10-27-n1.log`).
+CONTROL_CLAIM_BASELINE = {
+    "cpu": ROOT / "specification" / "evidence" / "blockdevice-cpu-2026-10-27-p13.log",
+    "device": ROOT / "specification" / "evidence" / "blockdevice-device-2026-10-27-n1.log",
+}
+
+
+def parse_control_claims(text):
+    """`CONTROL` lines -> per-control claim sets, with the printed line count so a blind parse cannot pass.
+
+    Returns (claims, declaims, printed, parsed). `claims[name]` is the set of paths that control claimed and
+    `declaims[name][path]` the reason it printed for dropping one. A parser whose regex matched nothing would
+    hand back two empty dicts and a green guard (`pitfalls/40` §a-check-that-printed-nothing-cannot-fail), so
+    `printed` counts the CONTROL LINES (lines that begin with the token, which is what makes it a line count
+    and not a substring count of prose that quotes the token) and the caller requires `parsed` to equal it and
+    to be non-zero. A control that claims no path is a legitimate line with an empty set, not a parse failure.
+    """
+    claims, declaims, parsed = {}, {}, 0
+    printed = 0
+    for line in text.splitlines():
+        if not line.startswith("CONTROL name="):
+            continue
+        printed += 1
+        m = re.match(r"^CONTROL name=(\S+) fired=(\S+)", line)
+        if not m:
+            continue
+        parsed += 1
+        cm = re.search(r" claims=(\S+)", line)
+        names = tuple(p for p in (cm.group(1) if cm else "").split(",") if p and p != "none")
+        claims[m.group(1)] = set(names)
+        declaims[m.group(1)] = dict(re.findall(r"declaimed=(\S+) reason=\"([^\"]*)\"", line))
+    return claims, declaims, printed, parsed
+
+
+def claim_shrink_findings(baseline, current, declaims, present_here=None):
+    """Every path a recorded run of this mode claimed and this run does not, unless the line justifies it.
+
+    Pure so it can be fed fabrications: `baseline` and `current` are `{control: {paths}}`, `declaims` is
+    `{control: {path: reason}}` as printed. Three ways to fail — a path that vanishes with no `declaimed=` on
+    the line (silent de-claim), a `declaimed=` whose reason is blank (a de-claim with no justification), and a
+    control that is gone entirely, which cannot have printed anything.
+
+    `present_here` is the set of control names this run accounted for at all, registered OR printed: the
+    guard's witnesses deliberately register fabricated controls through a scratch `Verifier`, so a recorded log
+    contains controls that were never part of the driver (`quiet-no-reason` and friends) and a run that prints
+    those same names again has not lost them. `None` means "assume every baseline name is present", which is
+    what the fabricated cases use so they test the shrink rule and not this one.
+    """
+    findings = []
+    for name in sorted(baseline):
+        lost = set(baseline[name]) - set(current.get(name, ()))
+        if not lost:
+            continue
+        if name not in current:
+            if present_here is not None and name in present_here:
+                continue
+            findings.append("%s: control absent from this run, taking its claim of %s with it"
+                            % (name, ",".join(sorted(lost))))
+            continue
+        for path in sorted(lost):
+            why = (declaims.get(name) or {}).get(path)
+            if why is None:
+                findings.append("%s: claimed %s in the recorded run and claims it not here, with no "
+                                "declaimed=%s on the line" % (name, path, path))
+            elif not why.strip():
+                findings.append("%s: declaimed=%s with a blank reason" % (name, path))
+    return findings
+
+
 def check_control_paths(v, ctx):
     """The two checks that make a control's path claim cost something. Split out of `checks_rt` so the
     device-shaped case can be exercised without a device (`engine/work/probe_pass4_local_smokes.py`)."""
@@ -1992,6 +2145,117 @@ def check_control_paths(v, ctx):
             "is required non-zero here rather than assumed"
             % (len(ATTRIBS), ";".join("%s=%d/%d" % (a["pair"], a["moved"], a["total"])
                                       for a in ATTRIBS[:6])))
+    check_control_states_and_declaims(v, ctx)
+
+
+def check_control_states_and_declaims(v, ctx):
+    """The two checks that make the three control states machine-readable instead of a reading exercise.
+
+    Split out beside `check_control_paths` because they run after every control has registered — same reason
+    the path checks are split out — and because both enumerate the WHOLE registered population: a control that
+    is in neither of the two honest states has to be named, not folded into a count that still reads `0`.
+    """
+    tally = control_state_tally(v.control_paths)
+    offenders = control_state_findings(v.control_paths)
+    probe = Verifier()
+    fabrications = [
+        ("fabric-fired-on-its-claim", True,
+         dict(claims=("device",), legs={"device": 1}), "fired"),
+        ("fabric-not-applicable", False,
+         dict(claims=(), legs={"cpu_predicate": 2}, not_exercised=("device",),
+              reason="needs-a-device-window"), "not-applicable"),
+        ("fabric-claimed-and-silent-no-legs", False,
+         dict(claims=("device",), legs={}, reason="the predicate never saw the shape it was for"),
+         "claimed-and-silent"),
+        ("fabric-claimed-and-silent-with-legs", False,
+         dict(claims=("device",), legs={"device": 1}, reason="the leg ran and the witness failed"),
+         "claimed-and-silent"),
+        ("fabric-claims-a-path-it-declared-unexercised", False,
+         dict(claims=("device",), legs={}, not_exercised=("device",),
+              reason="one line contradicts itself"), "claimed-and-silent"),
+        ("fabric-silent-without-declaration", False,
+         dict(claims=(), legs={}, reason="prose about why it could not run, no path named"),
+         "claimed-and-silent"),
+    ]
+    for name, fired, kw, _ in fabrications:
+        probe.control(name, fired, "fabricated leg (no arm act, nothing computed)", **kw)
+    flagged = dict((n, any(n == o.split("(")[0] for o in control_state_findings(probe.control_paths)))
+                    for n, _, _, _ in fabrications)
+    want = dict((n, state == "claimed-and-silent") for n, _, _, state in fabrications)
+    state_of_fab = dict((n, probe.control_paths[n]["state"]) for n, _, _, _ in fabrications)
+    for name, _, _, want_state in fabrications:
+        print("GWITNESS guard=control-states fabricated=%s state=%s want=%s offender=%s expected=%s"
+              % (name, state_of_fab[name], want_state, flagged[name], want[name]))
+    guard_ok = (sorted(state_of_fab[n] for n, _, _, _ in fabrications)
+                == sorted(want_state for _, _, _, want_state in fabrications) and flagged == want
+                and len(probe.controls) == len(fabrications))
+    v.check("control-states-enumerate-and-claimed-and-silent-reddens",
+            not offenders and guard_ok and sum(len(x) for x in tally.values()) == len(v.control_paths),
+            "every one of the %d controls registered in this run is in exactly one state: fired=%d, "
+            "not-applicable=%d, claimed-and-silent=%d (offenders: %s). `%s` — the third state is the one a "
+            "reader cannot tell from a passing run without this line, and it reddens here rather than living "
+            "in prose: a control that claimed a path and went silent, or went silent without printing "
+            "`status=not-exercised reason=<named>`. Not-applicable is NOT an escape hatch: an unfired control "
+            "is a counted finding whether or not it declared a reason, so converting one to "
+            "`status=not-exercised` lowers no counter — it only makes the state line honest. The state "
+            "assignment is done once, by `Verifier.control` calling `control_state`, and these %d fabricated "
+            "registrations are the non-vacuity leg: two honest states read clean and the four third-state "
+            "shapes (claim with no legs, claim whose leg failed, claim contradicting its own "
+            "not-exercised declaration, silent with no declaration at all) are each flagged"
+            % (len(v.control_paths), len(tally["fired"]), len(tally["not-applicable"]),
+               len(tally["claimed-and-silent"]), ",".join(offenders) or "none",
+               "window `n` is what this is for: control-witness-guard-can-redden and "
+               "gdn-state-read-is-the-arm-s-own-fingerprint both printed fired=SILENT while claiming legs, "
+               "and nothing in either line said whether they had run on the path they named",
+               len(fabrications)))
+    baseline_path = CONTROL_CLAIM_BASELINE["device" if ctx["device"] else "cpu"]
+    shrink, base_claims, base_printed, base_parsed = ["no baseline log on disk (%s)" % baseline_path.name], \
+        {}, 0, 0
+    if baseline_path.exists():
+        base_claims, _, base_printed, base_parsed = parse_control_claims(baseline_path.read_text())
+        live_claims = dict((n, set(d["claims"])) for n, d in v.control_paths.items())
+        live_declaims = dict((n, d["declaims"]) for n, d in v.control_paths.items())
+        printed_names = set(re.findall(r"^CONTROL name=(\S+) ", run_text(ctx), re.M))
+        shrink = claim_shrink_findings(base_claims, live_claims, live_declaims,
+                                       set(v.control_paths) | printed_names)
+    fab_base = {"fabric-control": {"device", "host_cpubody"}, "fabric-gone": {"device"},
+                "fabric-kept": {"host_cpubody"}}
+    keep_all = {"fabric-control": {"device", "host_cpubody"}, "fabric-gone": {"device"},
+                "fabric-kept": {"host_cpubody"}}
+    fab_cases = [
+        # Each case carries exactly one defect; the others are held honest, so a finding can only come from
+        # the defect the case is named for.
+        ("silent-declaim", claim_shrink_findings(
+            fab_base, dict(keep_all, **{"fabric-control": {"device"}}), {}, None), True),
+        ("control-vanished", claim_shrink_findings(
+            fab_base, {"fabric-control": {"device", "host_cpubody"},
+                       "fabric-kept": {"host_cpubody"}}, {}, set()), True),
+        ("justified-declaim", claim_shrink_findings(
+            fab_base, dict(keep_all, **{"fabric-control": {"device"}}),
+            {"fabric-control": {"host_cpubody": "the leg moved into another control's witness line"}},
+            None), False),
+        ("blank-reason-declaim", claim_shrink_findings(
+            fab_base, dict(keep_all, **{"fabric-control": {"device"}}),
+            {"fabric-control": {"host_cpubody": "   "}}, None), True),
+        ("nothing-shrank", claim_shrink_findings(fab_base, fab_base, {}, None), False),
+    ]
+    for label, findings, must_catch in fab_cases:
+        print("GWITNESS guard=claim-shrink fabricated=%s findings=%d expected=%s%s"
+              % (label, len(findings), 1 if must_catch else 0,
+                 "" if (len(findings) > 0) == must_catch else " — WRONG"))
+    guard2_ok = all((len(f) > 0) == want_catch for _, f, want_catch in fab_cases)
+    v.check("control-claims-do-not-quietly-shrink",
+            bool(base_parsed) and base_parsed == base_printed and not shrink and guard2_ok,
+            "the %d controls in the recorded %s run (%s) claimed %d path-paths, every one of them still "
+            "claimed here or explicitly de-claimed on the line that dropped it: %s. The baseline is parsed "
+            "out of that recorded log at run time rather than copied into this file, and the parse is "
+            "required to see all %d CONTROL lines it contains (%d parsed), because a claim guard whose parser "
+            "matched nothing would guard nothing. Fabricated legs: a path removed with no `declaimed=` reddens, "
+            "a control that vanished reddens with its claim named, a `declaimed=` with a blank reason reddens, "
+            "and a removal whose line names the reason does not (guard=%s)"
+            % (len(base_claims), "device" if ctx["device"] else "cpu", baseline_path.name,
+               sum(len(x) for x in base_claims.values()), "; ".join(shrink) or "no shrink found",
+               base_printed, base_parsed, "ok" if guard2_ok else "MISFIRED"))
 
 
 def want_reads(layout, which):
@@ -2574,100 +2838,201 @@ def device_act_absences(runs):
     return bad
 
 
+ABSENT_COUNTER = "absent"
+
+# One fabrication table per predicate, and the table is written in the field THAT PREDICATE READS. Window `n`
+# printed `control-witness-guard-can-redden fired=SILENT … uncaught=['device/bytes_to_device=1GiB']` because
+# the must-catch list was one flat list over three predicates: it asked `launch_count_offences` — which reads
+# `launches` and nothing else — to catch a `bytes_to_device` fabrication, and a shape a predicate cannot see
+# is not that predicate's failure to catch it. (`pitfalls/40` §a-negative-control-with-an-empty-must-catch-set,
+# read the other way: a must-catch set that names shapes outside the predicate's own field list is just as
+# dead, and it dies only in the mode the fabrication changes the base record in — here, on the device path,
+# silently since window `g`.)
+ACT_FABRICATIONS = (("launches", 1), ("bytes_to_device", 1073741824),
+                    ("bytes_from_device", 1073741824), ("hip_calls", 1),
+                    ("launches", ABSENT_COUNTER))
+DEVICE_ACT_FABRICATIONS = (("bytes_from_device", 0), ("launches", 0), ("launches", ABSENT_COUNTER))
+LAUNCH_FABRICATIONS = (("launches", 0), ("launches", ABSENT_COUNTER), ("launches", "abc"))
+# The must-be-clean half, derived from the same tables: `launches=1` is a device run reporting one launch,
+# which is honest, and the honest records themselves must read clean under every predicate.
+LAUNCH_CLEAN_SHAPES = (("launches", 1),)
+
+
+def fabricate_counter(base, shape):
+    """A copy of one arm's `RUN` record with exactly one counter bent — or with that counter unprinted.
+
+    `ABSENT_COUNTER` deletes the key rather than zeroing it: a `RUN` line that does not report a number cannot
+    certify that the number was zero, and "absent" and "0" being different offences is the whole point of
+    `counter_positive`/`no_device_act_offences` treating a missing counter as an offence.
+    """
+    field, value = shape
+    if value is ABSENT_COUNTER:
+        return dict((k, x) for k, x in base.items() if k != field)
+    return dict(base, **{field: value})
+
+
+def shape_name(shape):
+    field, value = shape
+    return "%s=%s" % (field, "absent" if value is ABSENT_COUNTER else value)
+
+
 def control_no_device_act_guard(v, ctx):
     """The `no device acts` predicate has to be capable of failing, and this shows it with a fabricated act.
 
     The check above passes by reading counters that are all zero, and "all zero" is also what a counter that
     is never incremented, never printed, or read off the wrong dict looks like — the first version of that
-    check threw `KeyError: 'run'` and so never ran at all. So the predicate is run here over three fabricated
-    records whose only difference from the real ones is the counter: one that launched, one that moved bytes
-    to the device, and one whose `RUN` line does not report `launches` at all. All three must be read as
-    offences, and the honest set must read clean, or the check is decoration.
+    check threw `KeyError: 'run'` and so never ran at all. So each of the three counters' predicates is run
+    here over the fabricated shapes it owns, and each honest half is run over the records the arms produced:
 
-    THE HONEST HALF IS PER PATH, because "honest" means different things in the two modes. In a CPU witness
-    every record must be act-free. In a device window the act-free requirement binds the `path=host_cpubody`
-    records — a host body that reached a device is the same defect the CPU witness looks for — and the
-    `path=device` records must be seen to HAVE acts, which is `device_act_absences`. Demanding an act-free
-    device run is what made this control print `fired=SILENT` in window `g`, on the one path its witness was
-    supposed to cover; a guard that can only be satisfied by the mode it is not guarding is not a guard.
+      * `no_device_act_offences` binds the `path=host_cpubody` records — a host body that reached a device is
+        the defect `cpu-witness-reports-no-device-acts` looks for — so its fabrications ADD an act to a host
+        record (a launch, a gigabyte each way, an unprinted counter) and every one must read as an offence.
+      * `device_act_absences` is the mirror and binds the `path=device` records: a device run that reports no
+        act is the silent fallback this lane exists to refuse. Its fabrications REMOVE an act from a device
+        record, and in a device window the base is a real device record's own counters, so these legs execute
+        on the device path and are counted as `device:` legs.
+      * `launch_count_offences` is the window-`i` belt (the `str > int` crash that cost a RESULT line) and its
+        field is `launches` alone, so its must-catch set is the three `launches` shapes and its must-be-clean
+        shape is one honest launch.
 
-    No arm runs here; the legs are driver-side predicate evaluations over records the arms already produced,
-    so the control declares no path claims (a claim with no counted arm act is what
-    `control-legs-cover-the-path-under-claim` reddens).
+    The honest half is per path because "honest" means different things in the two modes: in a CPU witness
+    every record must be act-free; in a window the act-free requirement binds the host bodies and the device
+    records must be seen to HAVE acts. Demanding an act-free device run is what made this control print
+    `fired=SILENT` in window `g`, and asking the launch predicate to catch a bytes_to_device fabrication is
+    what kept it SILENT in window `n` — twice now, and both times on the one path the witness was for.
+
+    No arm runs here. The legs are predicate executions over records the arms already produced, and each leg
+    is counted under the path of the record it read: `device:N` for legs that bent or folded a record whose
+    own `RUN path=` says device, `cpu_predicate:N` for the ones that had no device record to read (a CPU run
+    says so in the line instead of pretending). That is a predicate leg, not an arm act, and the detail says
+    which is which — `control-legs-cover-the-path-under-claim` counts the path, this text names the kind.
     """
-    honest = dict((k, dict(run_facts(r))) for k, r in ctx["all_runs"].items())
-    victim = sorted(honest)[0]
     host_runs = dict((k, r) for k, r in ctx["all_runs"].items()
                      if run_facts(r).get("path") != "device")
     dev_runs = dict((k, r) for k, r in ctx["all_runs"].items()
                     if run_facts(r).get("path") == "device")
-    fabricated = {
-        "launches=1": dict(honest[victim], launches=1),
-        "bytes_to_device=1GiB": dict(honest[victim], bytes_to_device=1073741824),
-        "launches-absent": dict((k, x) for k, x in honest[victim].items() if k != "launches"),
-    }
-    bad = dict((name, no_device_act_offences({victim: rec})) for name, rec in fabricated.items())
-    # The same three shapes, replayed against the launch-count predicate that the four
-    # `*-device-path-claims-executed-on-device` checks read, plus the two shapes only that predicate judges:
-    # a device run reporting `launches=0`, and one reporting `launches="abc"` — the last is window `i`'s
-    # crash, and the requirement is a RED check, not a `TypeError` from the driver.
-    launch_fabricated = dict(("device/" + n, dict(rec, path="device")) for n, rec in fabricated.items())
-    launch_fabricated["device/launches=0"] = dict(honest[victim], path="device", launches=0)
-    launch_fabricated['device/launches="abc"'] = dict(honest[victim], path="device", launches="abc")
-    launch_bad = dict((name, launch_count_offences({victim: rec}, paths=None))
-                      for name, rec in launch_fabricated.items())
+    legs = {"cpu_predicate": 0, "device": 0}
+
+    # --- half 1: the host bodies must not reach a device, and must be seen not to.
+    host_victim = sorted(host_runs)[0] if host_runs else None
+    act_bad, act_caught = {}, {}
+    if host_victim:
+        host_base = dict(run_facts(host_runs[host_victim]))
+        act_bad = dict((shape_name(s), no_device_act_offences(
+            {host_victim: fabricate_counter(host_base, s)})) for s in ACT_FABRICATIONS)
+        act_caught = [n for n, offences in sorted(act_bad.items()) if offences]
+    host_clean = no_device_act_offences(host_runs)
+
+    # --- half 2: a device run must be seen to HAVE acts.
+    if dev_runs:
+        dev_victim = sorted(dev_runs)[0]
+        dev_base = dict(run_facts(dev_runs[dev_victim]))
+        dev_base_kind = "device-record(%s)" % dev_victim
+    else:
+        # No device record exists to bend, so the base is a host record re-labelled with the counters a real
+        # device run prints. Labelled, because an honest base is what makes the fabrication a test: bending a
+        # record that was already an offence catches nothing (window `n`'s accidental CPU "catch").
+        dev_victim = sorted(host_runs)[0] if host_runs else sorted(ctx["all_runs"])[0]
+        dev_base = dict(run_facts(ctx["all_runs"][dev_victim]), path="device", hip_calls=1, launches=1,
+                        allocs=1, bytes_to_device=4096, bytes_from_device=4096)
+        dev_base_kind = "synthetic-device-record reason=no-device-act-in-this-run"
+    dev_bad = dict((shape_name(s), device_act_absences(
+        {dev_victim: fabricate_counter(dev_base, s)})) for s in DEVICE_ACT_FABRICATIONS)
+    dev_absences = device_act_absences(dev_runs)
+    fake_dev = {"fabricated/device-run-with-no-act":
+                dict(dev_base, launches=0, bytes_from_device=0)}
+    fake_absent = device_act_absences(fake_dev)
+
+    # --- half 3: the launch counter itself, typed at the parse site and read as an int here or not at all.
+    launch_bad = dict((shape_name(s), launch_count_offences(
+        {dev_victim: fabricate_counter(dev_base, s)}, paths=None)) for s in LAUNCH_FABRICATIONS)
+    launch_clean_shapes = dict((shape_name(s), launch_count_offences(
+        {dev_victim: fabricate_counter(dev_base, s)}, paths=None)) for s in LAUNCH_CLEAN_SHAPES)
     launch_clean = launch_count_offences(dev_runs)
-    clean = no_device_act_offences(host_runs)
-    absent = device_act_absences(dev_runs)
-    for name in sorted(fabricated):
-        print("GWITNESS guard=no-device-acts fabricated=%s offences=%s" % (name, bad[name] or "NONE"))
-    for name in sorted(launch_fabricated):
-        print("GWITNESS guard=launch-count fabricated=%s offences=%s"
-              % (name, launch_bad[name] or "NONE — the launch predicate is blind to this shape"))
+
+    # Legs are counted as they ran, under the path of the record each one read.
+    if dev_runs:
+        legs["device"] = (len(DEVICE_ACT_FABRICATIONS) + len(LAUNCH_FABRICATIONS)
+                          + len(LAUNCH_CLEAN_SHAPES) + 3)
+    legs["cpu_predicate"] = (len(act_bad) + 1
+                             + (0 if dev_runs else len(DEVICE_ACT_FABRICATIONS) + len(LAUNCH_FABRICATIONS)
+                                + len(LAUNCH_CLEAN_SHAPES) + 2))
+
+    for name in sorted(act_bad):
+        print("GWITNESS guard=no-device-acts fabricated=%s base=%s offences=%s"
+              % (name, host_victim, act_bad[name] or "NONE"))
+    print("GWITNESS guard=no-device-acts leg=host-records-clean records=%d offences=%s"
+          % (len(host_runs), host_clean or "clean"))
+    for name in sorted(dev_bad):
+        print("GWITNESS guard=device-acts fabricated=%s base=%s offences=%s"
+              % (name, dev_base_kind, dev_bad[name] or "NONE"))
+    if dev_runs:
+        print("GWITNESS guard=device-acts leg=device-records-have-acts records=%d base=%s offences=%s"
+              % (len(dev_runs), dev_base_kind, dev_absences or "clean"))
+    else:
+        print("GWITNESS guard=device-acts leg=device-records-have-acts status=not-exercised "
+              "reason=no-device-act-in-this-run note=no record reported path=device, so this half of the "
+              "predicate has nothing honest to read here; it is reported unexercised, not counted as passed, "
+              "and the fabrications above are what show it can fire")
+    print("GWITNESS guard=no-device-acts fabricated=device-run-with-no-act base=%s offences=%s"
+          % (dev_base_kind, fake_absent or "NONE — the predicate is blind to a device run that launched "
+                                           "nothing"))
+    for name in sorted(launch_bad):
+        print("GWITNESS guard=launch-count fabricated=%s base=%s offences=%s"
+              % (name, dev_base_kind, launch_bad[name] or "NONE — the launch predicate is blind to this "
+                                                      "shape"))
+    for name in sorted(launch_clean_shapes):
+        print("GWITNESS guard=launch-count fabricated-must-be-clean=%s offences=%s"
+              % (name, launch_clean_shapes[name] or "clean"))
     print("GWITNESS guard=launch-count leg=device-records-clean records=%d offences=%s"
           % (len(dev_runs), launch_clean or "clean"))
-    print("GWITNESS guard=no-device-acts leg=host-records-clean records=%d offences=%s"
-          % (len(host_runs), clean or "clean"))
-    if dev_runs:
-        print("GWITNESS guard=no-device-acts leg=device-records-have-acts records=%d offences=%s"
-              % (len(dev_runs), absent or "clean"))
-    else:
-        print("GWITNESS guard=no-device-acts leg=device-records-have-acts status=not-exercised "
-              "reason=no-device-act-in-this-run note=no record reported path=device, so this half of the "
-              "predicate has nothing to read here; it is reported unexercised, not counted as passed, and "
-              "the fabrication below is what shows it can fire")
-    fake_dev = {"fabricated/device-run-with-no-act": dict(honest[victim], path="device",
-                                                        launches=0, bytes_from_device=0)}
-    fake_absent = device_act_absences(fake_dev)
-    print("GWITNESS guard=no-device-acts fabricated=device-run-with-no-act offences=%s"
-          % (fake_absent or "NONE — the predicate is blind to a device run that launched nothing"))
-    must_be_clean = ["device/launches=1"]
-    must_catch = [n for n in launch_fabricated if n not in must_be_clean]
-    fired = (not clean and not absent and not launch_clean
-             and all(bad[n] for n in bad) and fake_absent
-             and all(launch_bad[n] for n in must_catch)
-             and not any(launch_bad[n] for n in must_be_clean))
-    nlegs = len(fabricated) + len(launch_fabricated) + 1 + (1 if dev_runs else 0) + 1
+
+    must_catch = sorted(launch_bad)
+    must_be_clean = sorted(launch_clean_shapes)
+    fired = (not host_clean and not dev_absences and not launch_clean
+             and all(act_bad[n] for n in act_bad) and bool(act_bad)
+             and all(dev_bad[n] for n in dev_bad) and bool(dev_bad)
+             and fake_absent
+             and all(launch_bad[n] for n in must_catch) and bool(must_catch)
+             and not any(launch_clean_shapes[n] for n in must_be_clean))
+    uncaught = [n for n in must_catch if not launch_bad[n]] \
+        + [n for n in act_bad if not act_bad[n]] \
+        + [n for n in dev_bad if not dev_bad[n]]
+    wrongly = [n for n in must_be_clean if launch_clean_shapes[n]]
     v.control("control-witness-guard-can-redden", fired,
-              "the same predicate the check runs, over the honest set split by the path the arm reported "
-              "(executed=device:%d,host_cpubody:%d predicate legs, no arm act) and %d fabrications: "
-              "host-clean=%s; device-acts=%s; %s; launch-count: %s. Every fabrication is read as an offence, "
-              "including the record that simply omits the counter — a RUN line that does not report a number "
-              "cannot certify that the number was zero — and including `launches=\"abc\"`, which reddens the "
-              "check instead of raising inside it; the one fabrication that must stay clean "
-              "(`device/launches=1`, a device run reporting one launch) does"
-              % (len(dev_runs), len(host_runs), len(fabricated) + len(launch_fabricated),
-                 clean or "clean", absent or "clean",
-                 "; ".join("%s -> %s" % (n, ",".join(bad[n])) for n in sorted(bad)),
-                 "; ".join("%s -> %s" % (n, ",".join(launch_bad[n])) for n in sorted(launch_bad))),
-              legs={"cpu_predicate": nlegs},
+              "the three counter predicates, each over the shapes its own fields own, plus the honest set "
+              "split by the path the arm reported: no-device-acts(host records, %d fabrications)=%s; "
+              "device-acts(base %s, %d fabrications)=%s; launch-count(%d fabrications)=%s. Honest halves: "
+              "host-clean=%s over %d records, device-acts=%s over %d records, device-launches=%s. Legs "
+              "executed on the device path=%d, on predicate-only shapes=%d; no arm act is owed here because "
+              "nothing computes — the legs are predicate executions over the records the arms printed. Every "
+              "fabrication is read as an offence by the predicate that owns its field, including the record "
+              "that simply omits the counter — a RUN line that does not report a number cannot certify that "
+              "the number was zero — and including `launches=\"abc\"`, which reddens the check instead of "
+              "raising inside it; the shape that must stay clean (`launches=1`, a device run reporting one "
+              "launch) does."
+              % (len(act_bad), "; ".join("%s -> %s" % (n, ",".join(act_bad[n]) or "NONE")
+                                         for n in sorted(act_bad)) or "none",
+                 dev_base_kind, len(dev_bad),
+                 "; ".join("%s -> %s" % (n, ",".join(dev_bad[n]) or "NONE")
+                            for n in sorted(dev_bad)) or "none",
+                 len(launch_bad),
+                 "; ".join("%s -> %s" % (n, ",".join(launch_bad[n]) or "NONE")
+                            for n in sorted(launch_bad)) or "none",
+                 host_clean or "clean", len(host_runs), dev_absences or "clean", len(dev_runs),
+                 launch_clean or "clean", legs["device"], legs["cpu_predicate"])
+              if fired else
+              "the three counter predicates and their fabrications (see the GWITNESS legs above): "
+              "host-clean=%s; device-acts=%s; device-launches=%s"
+              % (host_clean or "clean", dev_absences or "clean", launch_clean or "clean"),
+              legs=dict((k, n) for k, n in sorted(legs.items()) if n),
+              claims=("device",) if dev_runs else (),
               reason=(None if fired else
                       "an honest half disagreed with a predicate the way the path forbids, or a fabrication "
                       "went unseen: host records offending=%s, device records missing acts=%s, device launch "
                       "records with offences=%s, uncaught=%s, wrongly-caught=%s (see the GWITNESS legs above)"
-                      % (clean or "clean", absent or "clean", launch_clean or "clean",
-                         [n for n in must_catch if not launch_bad[n]] or "none",
-                         [n for n in must_be_clean if launch_bad[n]] or "none")))
+                      % (host_clean or "clean", dev_absences or "clean", launch_clean or "clean",
+                         uncaught or "none", wrongly or "none")))
 
 
 def control_silent_reason_guard(v, ctx):
@@ -6846,7 +7211,18 @@ def control_d_state_read_witness(v, ctx):
                     % (label, "agree" if leg else "DISAGREE", ag["arm_state_sum"],
                        ag["driver_state_sum"], ag["arm_state_live"], ag["driver_state_live"]))
     flip_ok, flip_rows, flip_fails = True, [], []
-    hm = ctx["d_honest_metrics"]
+    # EACH FLIP LEG IS JUDGED AGAINST THE HONEST RECORD OF THE ARM THAT RAN IT. `ctx["d_honest_metrics"]` is
+    # the headline distance — the device arm's record in a window, the hipcc host path in a CPU witness — and
+    # window `n` measured every leg against it, which compared the g++ twin's flipped record (its own honest
+    # `state` ndiff 85187, flipped 85188) to the DEVICE arm's honest 120259 and printed
+    # `hip_hostpath: state-row-did-not-move (state_ndiff 120259->85188)` and
+    # `host_twin: a-state-derived-row-got-closer-to-the-pin (… 120259->85188)`. Both refusals were arithmetic
+    # on two different programs: 85188 > 85187 is a move and 85188 is further than 85187, so the legs were
+    # fine and the baseline was not. Window `e2`'s topk control names the same defect from the other side
+    # (§attribution): a cross-path comparison printed as a refusal of the leg instead of of the baseline.
+    honest_by_arm = {"host_twin": "d_host_twin", "hip_hostpath": "d_hip_hostpath",
+                     "hip_device": "d_hip_device"}
+    hm_cache, hm_source = {}, {}
     flip_arms = [("host_twin", ctx["args"].d_host_binary, False),
                  ("hip_hostpath", ctx["args"].d_arm_binary, False)]
     if ctx["device"]:
@@ -6856,6 +7232,17 @@ def control_d_state_read_witness(v, ctx):
     for name, binary, dev in flip_arms:
         r = d_variant(ctx, "d_out_flip_%s.bin" % name, "d_%s-state-flip" % name,
                       flip_state_word=77777, binary=binary, device=dev, subdir="dreadwitness")
+        alabel = honest_by_arm[name]
+        if alabel not in ctx["d_runs"]:
+            flip_ok = False
+            flip_fails.append("%s: no honest run of this arm is on record (%s is missing), so the flip has "
+                              "nothing to be compared against and cannot be credited" % (name, alabel))
+            continue
+        if alabel not in hm_cache:
+            honest_fields, _ = DA.d_record(Path(ctx["d_runs"][alabel]["wrote"]["path"]), ctx["d"]["d"])
+            hm_cache[alabel] = d_metrics(ctx["dumps"], DA.d_stage_tensors(honest_fields, ctx["d"]["d"]))
+            hm_source[alabel] = ctx["d_runs"][alabel]["wrote"]["path"]
+        hm = hm_cache[alabel]
         moved_fp = r["census"]["state_sum"] != fp["sum"]
         still_agree = not r["agree"]["disagree"]
         # One flipped word is one element of the carried state, so the derived claim is that the row the
@@ -6864,20 +7251,30 @@ def control_d_state_read_witness(v, ctx):
         state_moved = r["metrics"]["state"]["ndiff"] > hm["state"]["ndiff"]
         rows_moved = state_moved and not_closer
         flip_ok = flip_ok and moved_fp and still_agree and rows_moved
-        for cond, val in (("fingerprint-did-not-move", moved_fp), ("fingerprint-disagreed", not still_agree),
-                          ("state-row-did-not-move", state_moved),
-                          ("a-state-derived-row-got-closer-to-the-pin", not_closer)):
-            if not val:
-                flip_fails.append("%s: %s (fingerprint %d->%d, state_ndiff %d->%d, scan_out %d->%d)"
+        # The table lists what WENT WRONG, so a condition appends when it is true: `still_agree` is the
+        # failure named `fingerprint-disagreed`. Window `n` had `not still_agree` here, so the refusals
+        # printed for the legs that agreed — `host_twin: fingerprint-disagreed (… agrees=True)` on the very
+        # next line — and the three legs that were judged against the wrong baseline each carried a second,
+        # spurious reason. A reason list that inverts its own column is worse than no reason list, because
+        # whoever reads it next will "fix" the leg the control was praising.
+        for cond, bad in (("fingerprint-did-not-move", moved_fp is False),
+                          ("fingerprint-disagreed", still_agree is False),
+                          ("state-row-did-not-move", state_moved is False),
+                          ("a-state-derived-row-got-closer-to-the-pin", not_closer is False)):
+            if bad:
+                flip_fails.append("%s: %s (fingerprint %d->%d, state_ndiff %d->%d, scan_out %d->%d, "
+                                  "honest baseline=%s)"
                                   % (name, cond, fp["sum"], r["census"]["state_sum"],
                                      hm["state"]["ndiff"], r["metrics"]["state"]["ndiff"],
-                                     hm["scan_out"]["ndiff"], r["metrics"]["scan_out"]["ndiff"]))
+                                     hm["scan_out"]["ndiff"], r["metrics"]["scan_out"]["ndiff"],
+                                     hm_source[alabel]))
         rows_moved_note = "moved" if rows_moved else "REFUSED"
         flip_rows.append("%s[fingerprint %d->%d agrees=%s state_rows=%s state_ndiff %d->%d "
-                         "scan_out_ndiff %d->%d]"
+                         "scan_out_ndiff %d->%d honest=%s]"
                          % (name, fp["sum"], r["census"]["state_sum"], still_agree, rows_moved_note,
                             hm["state"]["ndiff"], r["metrics"]["state"]["ndiff"],
-                            hm["scan_out"]["ndiff"], r["metrics"]["scan_out"]["ndiff"]))
+                            hm["scan_out"]["ndiff"], r["metrics"]["scan_out"]["ndiff"],
+                            Path(hm_source[alabel]).name))
     back_ok, back_fails = True, []
     if ctx["device"]:
         # In a window this is not a presence check, it is a comparison: the first bytes of the state span

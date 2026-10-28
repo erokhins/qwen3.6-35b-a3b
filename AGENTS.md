@@ -100,7 +100,7 @@ own correctness gate is green:
 |---|---|---|
 | **M0** | pinned dumps + independent oracle | *done* — 178 records, byte-identity 162,519,680 B |
 | **M1** | policy-A resident set actually staged on device by `engine/loader.py`, read back byte-exact | staging plan executed (not sampled), 464 runs, per-tensor read-back digest matches |
-| **M2** | one block forward on device (GDN + MoE + shared expert) | per-stage rows ACCEPTED under licensed bands vs pinned |
+| **M2** | one block forward on device (GDN + MoE + shared expert) — *met 2026-10-27*: CPU half `QUALIFIED`, device half `RESULT mode=device checks=77 findings=0 controls=32 fired=32` (`devices/evidence/device-window-2026-10-27-g.md` §window `o`); shared expert, router and the bf16 gather are byte-exact on device, policy-A gather and GDN judged in value space under D-28 with every cell inside its derived bound | per-stage rows ACCEPTED under licensed bands vs pinned |
 | **M3** | all 40 blocks + `lm_head`, pinned prompt | pinned logits matched, **greedy argmax exact** over the pinned rows |
 | **M4** | token stream, n=128, greedy | text reproduced vs llama.cpp and the oracle; zero host syncs per step counted |
 | **M5** | performance | ≥ 48 t/s in a clean window (zero workers, halogen down, `gpu_lock` held, blocking) |

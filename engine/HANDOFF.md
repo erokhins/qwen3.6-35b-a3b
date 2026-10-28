@@ -2821,3 +2821,76 @@ Rule of the pass: a refusal is a claim about one leg, so it is counted on that l
 cannot be approached from a substrate is evidence about the *construction* until the substrate's own base has
 been measured in the bound's own currency — which is the only measurement that may ever point at a
 re-derivation, and never at a widening. no timing taken.
+
+## PASS 14 (2026-10-27, CPU-only) — a silent control is a state, not a bit: the two window-`n` controls, and the two checks that make de-claiming cost a sentence
+
+Window `n` (`specification/evidence/blockdevice-device-2026-10-27-n1.log`) was otherwise clean —
+`RESULT mode=device checks=75 findings=2 controls=32 fired=30`, 75 CHECK lines, no `verdict=FAIL` except the
+two findings themselves, 12 BOUNDEDGE, 8 MUSTCATCH RED, `REFUSED=0` — and both findings were controls printing
+`fired=SILENT` while claiming legs. Neither was a dead arm; both were the control's own bookkeeping, and the
+mode that exposed them is the mode the controls were written to cover.
+
+**The two defects, and why they were invisible in a CPU witness.**
+`control-witness-guard-can-redden` (SILENT on the device path since window `g`) had a single flat must-catch
+list shared by three predicates, so it asked `launch_count_offences` — which reads `launches` and nothing else
+— to catch a `bytes_to_device` fabrication, and cloned every fabrication from `sorted(honest)[0]`, which in a
+window is the *device* record. On CPU that accident fired the control (the victim was a host record with
+`launches=0`, so the bytes_to_device fabrication looked caught for a reason that had nothing to do with the
+field it bent); on a device window the victim had `launches>0` and the control printed
+`uncaught=['device/bytes_to_device=1GiB']`. Each predicate now gets the fabrications its own fields own:
+`no_device_act_offences` has acts added to a *host* base, `device_act_absences` has acts removed from a real
+*device* base (`bytes_from_device=0`, `launches=0`, the counter unprinted) and `launch_count_offences` gets
+the three `launches` shapes plus the `launches=1` shape that must stay clean. Where no device record exists the
+base is printed as `synthetic-device-record reason=no-device-act-in-this-run`, because bending a base that was
+already an offence catches nothing — that was the accident. Legs are counted under the path of the record each
+one read, so the control now claims `device` and carries `device:10` in a device-shaped run.
+`gdn-state-read-is-the-arm-s-own-fingerprint` printed `reason=7 leg(s) refused` and all seven reasons were
+fabricated by the control: three were `fingerprint-disagreed` printed beside `agrees=True` (the refusal table
+listed `("fingerprint-disagreed", not still_agree)`, so it appended exactly when the folds agreed), and four
+were a cross-path baseline — every flip leg was judged against `ctx["d_honest_metrics"]`, the headline record,
+which in a window is the device arm's `state` ndiff 120259, so the g++ twin's flip printed
+`state-row-did-not-move (state_ndiff 120259->85188)` for a flip that moved one word *away* from its own honest
+85187. Each leg is now judged against the honest record of the arm that ran it and prints which baseline it
+used (`honest=d_out_host.bin`, `d_out_hip.bin`, `d_out_device.bin`), the same correction
+`topk-selection-perturbations-redden-ids` needed in window `e2`.
+
+**The state rule.** A control is now in exactly one of three machine-distinguishable states, assigned by
+`control_state` at the moment `Verifier.control` prints it: **fired** (`fired=RED` with `legs=` naming the
+path it claimed), **not-applicable** (`status=not-exercised reason=<named>` and it claims none of those paths),
+**claimed-and-silent** (a finding, named with its sub-shape: `claimed-and-silent`,
+`claims-a-path-it-declared-unexercised`, `silent-without-declaration`). Two checks, both in
+`check_control_states_and_declaims` and both running after every control has registered:
+`control-states-enumerate-and-claimed-and-silent-reddens` enumerates the whole registered population and
+reddens on the third state, and `control-claims-do-not-quietly-shrink` compares this run's claim sets against
+the sets parsed at run time out of the last recorded log of the same mode — a path may only leave a control's
+`claims=` if the line that dropped it prints `declaimed=<path> reason=<named>`, and a blank reason reddens.
+Nothing was converted to `not-exercised` to move a count: an unfired control is still a counted finding either
+way, which is the clause that makes the marker honest rather than an escape hatch. Both checks carry
+fabricated legs (six registrations through the real `Verifier`; five claim-shrink cases) and the baseline parse
+is required to see every `CONTROL` line in its source log (35/35 in the CPU baseline) so a guard whose parser
+matched nothing cannot pass.
+
+**Evidence.** `specification/evidence/blockdevice-cpu-2026-10-27-p14.log`:
+`RESULT mode=cpu checks=73 findings=0 controls=31 fired=31 … band_digest=27a68c7e82c9aa05` (checks grew by the
+two new ones; BOUNDWITNESS 38 lines with 36 `inside=yes` and no `inside_no`, six
+`at-limit=True one-past=False sized_correctly=yes`, eight `MUSTCATCH name=` RED legs with the derived set equal
+to the printed set, `REFUSED=0`, escalation and canonical-command checks PASS), beside
+`BLOCKGATE … checks=17 red=0 controls=11 fired=11`, `engine/gate.py` → `RESULT PASS checks=27 findings=0` and
+`tools/doc_ref_check.py --strict` → `findings: 0`. Device-shaped, with no device act
+(`specification/evidence/blockdevice-device-shape-rehearsal-2026-10-27-p14.log`,
+`specification/evidence/blockdevice-control-states-2026-10-27.md`):
+`RESULT mode=device checks=77 findings=7 controls=32 fired=28`, rehearsal `verdict=PASS`, and
+`control-witness-guard-can-redden fired=RED legs=cpu_predicate:6,device:10 claims=device`. The state check
+reddens by name in that rehearsal, which is the required "fabricated claimed-and-silent control went red" seen
+on a real population rather than only on a scratch one. `gdn-state-read-…` in the rehearsal keeps exactly one
+refusal — `d_hip_device: the arm printed no DREADBACK path=device line` — because a host body is not allowed to
+print a device read-back (`engine/device/m2_d_main.inc`), and its three flip legs are the window-`n` numbers
+that the two defects had been printing as refusals (host 85187→85188, hip host path 85187→85188, device
+120259→120260); the window's own `DREADBACK control-leg=gdn-device-readback ran=yes … match=yes` is the leg
+that closes it there. That control's device-run `CONTROL` line is the one line this pass could not print
+without touching the iGPU, so it is named as the open item rather than quoted from imagination.
+
+Rule of the pass: a control owes its state in the line, not in the reader's memory of the format — claim a
+path and go silent and a check reddens with your name on it; drop a claim and the line has to say why; and a
+fabrication must be bent against a base that was clean, or it proves only that the base was dirty. no timing
+taken.

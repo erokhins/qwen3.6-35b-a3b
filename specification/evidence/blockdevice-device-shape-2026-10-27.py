@@ -367,13 +367,16 @@ def child_main(argv):
     if MUTATE == "silent-control":
         real_control = BD.Verifier.control
 
-        def control(self, name, fired, detail, legs=None, claims=None, reason=None):
+        def control(self, name, fired, detail, legs=None, claims=None, reason=None, **kw):
             if name == MUTATE_CONTROL:
                 fired, reason = False, "   "
                 log("REHEARSAL-MUTATE control=%s field=reason value=whitespace-only fired=False "
                     "note=a quiet control whose reason is whitespace is a quiet control with no reason"
                     % name)
-            return real_control(self, name, fired, detail, legs=legs, claims=claims, reason=reason)
+            # `**kw` forwards `not_exercised`/`declaim`, which `Verifier.control` grew when the three control
+            # states became machine-readable; a wrapper that dropped them would make the rehearsal's own
+            # mutation arm crash for a reason that has nothing to do with what it is testing.
+            return real_control(self, name, fired, detail, legs=legs, claims=claims, reason=reason, **kw)
         BD.Verifier.control = control
 
     rc = None
