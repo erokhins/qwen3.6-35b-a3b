@@ -1,0 +1,15 @@
+REHEARSAL arm=grepro-drepro status=not-claimed note=no real GDN/gather device record was available on this box, so the device-vs-host pairs in this rehearsal compare host paths; their ndiff_bytes=0 is the absence of a second record and NOT an agreement, and the reproduction legs are not claimed from here - a device window owns them
+REHEARSAL arm=counters-unparsed status=zero note=every arm record folded an integer into the witness totals
+REHEARSAL arm=child-rc rc=0 log=p9-shape.log
+REHEARSAL arm=result-line RESULT mode=device checks=79 findings=7 controls=32 fired=28 rows=6 gdn_rows=7 arms=policy_a device=on staged=admitted hip_calls=19+336 launches=111 bytes_to_device=98123776 bytes_from_device=11507624 counters_unparsed=0 band_digest=27a68c7e82c9aa05 no timing taken
+REHEARSAL arm=counters RESULT mode=device checks=79 findings=7 controls=32 fired=28 rows=6 gdn_rows=7 arms=policy_a device=on staged=admitted hip_calls=19+336 launches=111 bytes_to_device=98123776 bytes_from_device=11507624 counters_unparsed=0 band_digest=27a68c7e82c9aa05 no timing taken
+REHEARSAL arm=device-bytes-stated status=present count=1 first=REHEARSAL-DEVICE-BYTES status=present sources=e2-device-records/rt_out_device.bin note=without a real device record the rehearsal's device-vs-host pairs compare two host paths; their ndiff_bytes=0 is 
+REHEARSAL arm=stub-counted status=present count=2 first=STUBHIP op=alloc_slab slab=weights.exact bytes=104581632 addr=0x7f0000000000 note=substitute, not a hipMalloc
+REHEARSAL arm=fabrication-labelled status=present count=37 first=REHEARSAL-FABRICATION arm=m2_se_arm out=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/engine/work/m2dev-rehearsal/out_device.bin key=out_device.bin path-field=device(counters hip_calls=12,launches=
+REHEARSAL arm=devonly-census status=present count=1 first=DEVONLY census statements=123 exercised=118 not-exercised=5 traced=4239 mutation=none
+REHEARSAL arm=no-hip-library status=present count=1 first=REHEARSAL-CHECK arm=no-hip-library stage=after-run maps_grep=0 libs=libamdhip64,librocm,hipblas
+MUTATION arm=launches-abc-red mutate=launches-abc rc=0 target-red=True result-reached=True crash=False named-on-result-line=True log=p9-mutate-launches-abc.log
+MUTATION arm=silent-control-red mutate=silent-control rc=0 target-red=True result-reached=True crash=False named-on-result-line=True log=p9-mutate-silent-control.log
+REHEARSAL arm=devonly-census DEVONLY census statements=123 exercised=118 not-exercised=5 traced=4239 mutation=none
+REHEARSAL arm=devonly-named not-exercised legs carry reason= (lines above)
+REHEARSAL verdict=PASS no device act occurred, no timing taken

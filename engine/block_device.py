@@ -234,8 +234,8 @@ def control_state(fired, claims=(), not_exercised=()):
       * `fired` — it reddened. Whether its `legs=` name every path it claimed is
         `control-legs-cover-the-path-under-claim`'s question, asked separately and counted separately; a
         fired control is `fired` here even when that check is red, because the two failures are different.
-      * `not-applicable` — it did not fire, it printed `status=not-exercised reason=<named>` naming the
-        paths it could not exercise, and it claims none of them.
+      * `not-applicable` — it did not fire, it printed `status=not-exercised paths=<named> reason=<named>`
+        naming the paths it could not exercise, and it claims none of them.
       * `claimed-and-silent` — everything else, with the sub-shape named beside it: `claimed-and-silent` (it
         claimed a path and went silent), `claims-a-path-it-declared-unexercised` (one line contradicts
         itself), or `silent-without-declaration` (a `reason=` in prose that never says which path it could not
@@ -255,6 +255,112 @@ def control_state(fired, claims=(), not_exercised=()):
     if dead:
         return ("not-applicable", "")
     return ("claimed-and-silent", "silent-without-declaration")
+
+
+# The state-2 field as `Verifier.control` prints it. Window `o` defect 1: this was
+# `" status=not-exercised%s%s"`, which ran the path list and the reason straight into the token, so a
+# control naming `device` printed `status=not-exerciseddevice`. Nothing was miscounted in that run only
+# because both instances were scratch fabrications; the state a reader (or `control_state_of_line`) takes
+# away from the line is parsed out of this token, so the field is named now and
+# `control-printed-lines-parse-back-to-their-registered-state` holds the printed line and the registered
+# state to each other for every control in the run.
+NOT_EXERCISED_FIELD = " status=not-exercised paths=%s%s"
+
+
+def control_state_of_line(line):
+    """`(state, sub)` read back out of ONE printed CONTROL line — the reader's half of `control_state`.
+
+    `control_state` decides the state from the arguments a control registers with; this decides it from the
+    characters that registration ended up printing. They must agree for every control in the run, and that
+    agreement is the contract `control_state_contract_findings` checks. It is invisible to any test that
+    only ever reads the registered record: window `o`'s malformed token was produced by the formatter and
+    never seen by the state machine that had already filed the control under state 2.
+
+    Deliberately STRICTER than `control_state`, in one place: a `status=not-exercised` whose path list is
+    not a well-formed `paths=` field is not state 2. "Neither present nor absent" is the one reading a
+    state machine may not allow itself, so the token window `o` printed lands in the third state and is
+    counted as a finding by `control_state_findings`, exactly like a control that went silent.
+    """
+    if not line.startswith("CONTROL name="):
+        return (None, "")
+    head = re.match(r"^CONTROL name=(\S+) fired=(\S+)\b", line)
+    if not head:
+        return ("claimed-and-silent", "line-has-no-fire-field")
+    if head.group(2) == "RED":
+        return ("fired", "")
+    pm = re.search(r" status=not-exercised paths=(\S+)", line)
+    if "status=not-exercised" in line and not pm:
+        return ("claimed-and-silent", "malformed-not-exercised-token")
+    cm = re.search(r" claims=(\S+)", line)
+    claimed = set(p for p in (cm.group(1) if cm else "").split(",") if p and p != "none")
+    declared = set(p for p in (pm.group(1) if pm else "").split(",") if p)
+    if claimed & declared:
+        return ("claimed-and-silent", "claims-a-path-it-declared-unexercised")
+    if claimed:
+        return ("claimed-and-silent", "claimed-and-silent")
+    if declared:
+        return ("not-applicable", "")
+    return ("claimed-and-silent", "silent-without-declaration")
+
+
+def control_states_from_lines(text):
+    """`{name: {"state":…, "sub":…}}` read off the printed CONTROL lines of some text.
+
+    Shaped like `Verifier.control_paths` so `control_state_findings` — the shipped rule for "who is sitting
+    in the third state" — can be run on the PARSE of printed output and not only on a registration. That is
+    what lets the malformed-token leg prove the consequence (a finding) rather than just a label.
+
+    Two lines for one control that parse to two different states is itself the third state: a control is in
+    exactly one of three, so a run that printed it in two prints a control that cannot be classified.
+    """
+    records = {}
+    for line in text.splitlines():
+        state, sub = control_state_of_line(line)
+        if state is None:
+            continue
+        name = re.match(r"^CONTROL name=(\S+) ", line).group(1)
+        prior = records.get(name)
+        if prior is None:
+            records[name] = dict(state=state, sub=sub)
+        elif prior["state"] != state:
+            records[name] = dict(state="claimed-and-silent", sub="two-lines-disagree-on-state")
+    return records
+
+
+def control_state_contract_findings(control_paths, text):
+    """Where a registered control's state and the state its own printed line parses to disagree.
+
+    Pure over (registered records, printed text) so a fabrication runs through the same predicate the check
+    runs — the shape `pitfalls/40` demands of a guard that must be able to fail. The population is the
+    registered one: a control that printed no line a reader can parse is named (it registered, so it must be
+    classifiable), as is one whose line parses to a different state. Registrations made by a scratch witness
+    `Verifier` are not in `control_paths` and are not this contract's business; their own lines are still
+    covered by the malformed-token census below.
+    """
+    printed = control_states_from_lines(text)
+    out = []
+    for name in sorted(control_paths):
+        want = control_paths[name]["state"]
+        got = printed.get(name)
+        if got is None:
+            out.append("%s registered state %s but printed no CONTROL line a reader can parse" % (name, want))
+        elif got["state"] != want:
+            out.append("%s registered state %s but its printed line parses to %s (%s)"
+                       % (name, want, got["state"], got["sub"]))
+    return out
+
+
+def malformed_not_exercised_lines(text):
+    """Printed CONTROL lines carrying a `status=not-exercised` token that is not a `paths=` field.
+
+    The whole-population version of window `o` defect 1, over witness lines as well as driver lines: it
+    asks the question a verifier at the end of a log asks (`grep -oE "status=not-exercised[a-z_]*"`), inside
+    the run. A malformed token is a state that is neither present nor absent, so there is no such thing as
+    one that is harmless; the list is the population and the check requires it empty.
+    """
+    return [ln for ln in text.splitlines()
+            if ln.startswith("CONTROL name=") and "status=not-exercised" in ln
+            and not re.search(r" status=not-exercised paths=(\S+)", ln)]
 
 
 # ---------------------------------------------------------------------------------------------
@@ -369,6 +475,36 @@ def contradiction_findings(text):
 CONTROL_RED_PREFIX = "control:"
 REJECT_TALLY_CHECK = "terminal-verdict-finding-count-matches-printed-records"
 EMPTY_SUITE_CHECK = "run-executed-a-non-empty-check-and-control-suite"
+# The two greps a reader reaches for when they want to know whether anything failed, written down next to
+# the guard that uses them. Window `o` is why they are here: `grep -E "^CHECK name=.*verdict=FAIL"` reported
+# ONE failing record in a run with zero, because the terminal tally's own message contained the words it was
+# counting. A reader will not write the field-anchored form, so the guard uses the loose form and requires
+# it to agree with the record form (and with the tally) — see `verdict_self_match_findings`.
+CHECK_RECORD = re.compile(r"^CHECK name=(\S+) verdict=(PASS|FAIL)\b")
+CHECK_FAIL_RECORD = re.compile(r"^CHECK name=(\S+) verdict=FAIL\b")
+CHECK_FAIL_MENTION = re.compile(r"^CHECK name=(\S+).*\bverdict=FAIL\b")
+CONTROL_RECORD = re.compile(r"^CONTROL name=(\S+) fired=(RED|SILENT)\b")
+CONTROL_SILENT_RECORD = re.compile(r"^CONTROL name=(\S+) fired=SILENT\b")
+CONTROL_SILENT_MENTION = re.compile(r"^CONTROL name=(\S+).*\bfired=SILENT\b")
+# The counted tokens, and the words the guard prints instead of them. A message that spells out a token it
+# is counting is the window-`o` defect re-imported through the error message, so nothing this file PRINTS
+# may contain either literal; every finding string below names the token as `F-A-I-L` / `S-I-L-E-N-T`.
+COUNTED_TOKENS = ("verdict=FAIL", "fired=SILENT")
+COUNTED_TOKEN_WORDS = {"verdict=FAIL": "F-A-I-L", "fired=SILENT": "S-I-L-E-N-T"}
+
+
+def mask_counted_tokens(line):
+    """A printed line with every counted token replaced by the word the guard prints for it.
+
+    A finding about a self-matching line must not itself match: quoting the offending characters verbatim
+    would put the token back into the log, in the message of the check that exists to ban it. The mask is
+    exercised on a synthetic token-bearing line in the same GWITNESS line that reports `self-token-free`,
+    so neither half of that pair is a constant.
+    """
+    out = line
+    for token, word in COUNTED_TOKEN_WORDS.items():
+        out = out.replace(token, word)
+    return out
 # The run's Verifier, reachable from `main()` so the abort path can report how much of the suite printed
 # instead of asserting `checks=0` from outside. Written once, in `run()`.
 RUN_STATE = {"v": None}
@@ -449,50 +585,116 @@ def reject_tally_findings(red, printed_lines):
     Returns the reconciliation findings; empty means the printed tally IS the parsed tally. Pure over
     (list, lines) so a witness leg can fabricate a mismatch through the same predicate the check runs.
     """
-    printed_fail = [m.group(1) for line in printed_lines
-                    for m in [re.match(r"CHECK name=(\S+) verdict=FAIL\b", line)] if m]
-    printed_silent = set(m.group(1) for line in printed_lines
-                         for m in [re.match(r"CONTROL name=(\S+) fired=SILENT\b", line)] if m)
+    printed_fail = [m.group(1) for line in printed_lines for m in [CHECK_FAIL_RECORD.match(line)] if m]
+    printed_silent = set(m.group(1) for line in printed_lines for m in [CONTROL_SILENT_RECORD.match(line)] if m)
     red_checks = [n for n in red if not n.startswith(CONTROL_RED_PREFIX)]
     red_controls = [n[len(CONTROL_RED_PREFIX):] for n in red if n.startswith(CONTROL_RED_PREFIX)]
     out = []
     for name in red_checks:
         if printed_fail.count(name) != 1:
-            out.append("finding %s printed %d CHECK verdict=FAIL records, expected exactly 1"
-                       % (name, printed_fail.count(name)))
+            out.append("finding %s printed %d %s CHECK records, expected exactly 1"
+                       % (name, printed_fail.count(name), COUNTED_TOKEN_WORDS["verdict=FAIL"]))
     for name in printed_fail:
         if name not in red_checks:
-            out.append("a printed CHECK verdict=FAIL for %s has no entry in the verdict's finding list"
-                       % name)
+            out.append("a printed %s CHECK record for %s has no entry in the verdict's finding list"
+                       % (COUNTED_TOKEN_WORDS["verdict=FAIL"], name))
     for name in red_controls:
         if name not in printed_silent:
-            out.append("unfired control %s counts as a finding but printed no fired=SILENT record"
-                       % name)
+            out.append("unfired control %s counts as a finding but printed no %s control record"
+                       % (name, COUNTED_TOKEN_WORDS["fired=SILENT"]))
     records = len(printed_fail) + len(red_controls)
     if records != len(red):
-        out.append("the verdict counts %d findings but %d printed finding-records back them (%d FAIL "
+        out.append("the verdict counts %d findings but %d printed finding-records back them (%d %s "
                    "CHECK lines + %d unfired controls)" % (len(red), records, len(printed_fail),
+                                                           COUNTED_TOKEN_WORDS["verdict=FAIL"],
                                                            len(red_controls)))
     return out
 
 
+def verdict_self_match_findings(lines, reported_fail, reported_silent, registered_controls):
+    """Where this run's printed output and the terminal tally disagree about how many verdicts there are.
+
+    The window-`o` class, in three shapes, all of them aimed at the reader who is checking whether anything
+    failed:
+
+      * a line that matches a reader's grep for a failing CHECK (or a silent control) without being such a
+        record — prose that quotes the token, the exact line that made window `o`'s verification grep
+        report one FAIL in a run with zero;
+      * a record that is printed and not counted, or counted and not printed, over this run's own
+        population. `registered_controls` is what keeps the witness fabrications (which register through a
+        scratch `Verifier` and print SILENT lines on purpose) from reading as phantom findings; a printed
+        failing-CHECK record is held to the tally whatever its name, because a printed FAIL that no verdict
+        list carries is never innocent.
+      * the message of a real record line spelling out one of the counted tokens. That is shape one wearing
+        a record's clothes, and it is the one a re-word can reintroduce silently, so it is forbidden by
+        name rather than by convention.
+
+    Pure over (lines, reported names, registered names) so the same predicate judges this run's real output
+    and the fabrications that prove it can fail. The reported sets are the ones `check_terminal_tally`
+    prints, so "what the tally says" and "what the log contains" are compared rather than both asserted.
+    """
+    out = []
+    for line in lines:
+        if CHECK_FAIL_MENTION.match(line) and not CHECK_FAIL_RECORD.match(line):
+            out.append("a printed line matches a reader's grep for a failing CHECK without being a CHECK "
+                       "record (%s): %s"
+                       % (COUNTED_TOKEN_WORDS["verdict=FAIL"], mask_counted_tokens(line)[:120]))
+        if CONTROL_SILENT_MENTION.match(line) and not CONTROL_SILENT_RECORD.match(line):
+            out.append("a printed line matches a reader's grep for a silent control without being a CONTROL "
+                       "record (%s): %s"
+                       % (COUNTED_TOKEN_WORDS["fired=SILENT"], mask_counted_tokens(line)[:120]))
+        head = CHECK_RECORD.match(line) or CONTROL_RECORD.match(line)
+        if head:
+            name = head.group(1)
+            for token in COUNTED_TOKENS:
+                if token in line[head.end():]:
+                    out.append("the message of %s spells out the %s token it is supposed to be counting, so "
+                               "no reader grep can tell this line from a record"
+                               % (name, COUNTED_TOKEN_WORDS[token]))
+    printed_fail = [m.group(1) for line in lines for m in [CHECK_FAIL_RECORD.match(line)] if m]
+    for name in sorted(set(printed_fail) - set(reported_fail)):
+        out.append("a printed %s CHECK record for %s is not in the tally the terminal check reports"
+                   % (COUNTED_TOKEN_WORDS["verdict=FAIL"], name))
+    for name in sorted(set(reported_fail) - set(printed_fail)):
+        out.append("the terminal tally reports a failing CHECK for %s but no printed record backs it"
+                   % name)
+    twice = sorted(set(n for n in printed_fail if printed_fail.count(n) > 1))
+    if twice:
+        out.append("a %s CHECK record printed more than once for one name: %s"
+                   % (COUNTED_TOKEN_WORDS["verdict=FAIL"], ",".join(twice)))
+    printed_silent = [m.group(1) for line in lines for m in [CONTROL_SILENT_RECORD.match(line)] if m]
+    own = sorted(set(n for n in printed_silent if n in registered_controls))
+    for name in sorted(set(own) - set(reported_silent)):
+        out.append("a registered control printed a %s record and is not counted as an unfired control by the "
+                   "terminal tally: %s" % (COUNTED_TOKEN_WORDS["fired=SILENT"], name))
+    for name in sorted(set(reported_silent) - set(own)):
+        out.append("the terminal tally counts unfired control %s but no printed record of it is in this "
+                   "run's output" % name)
+    return out
+
+
 def check_terminal_tally(v, ctx):
-    """The last check the run prints: the verdict's own count, held to the records it printed.
+    """The tally check: the verdict's own count, held to the records it printed.
 
     Window `j` defect 2 (`_REJECT_TALLY`): `RESULT ... findings=4` went out in a log that also printed a
     CONTROL detail counting `2 findings` (the attribution guard's own fabricated stale text — a different
-    denominator, but printed in the same log with nothing saying so) and three `verdict=FAIL` lines; two
+    denominator, but printed in the same log with nothing saying so) and three failing CHECK lines; two
     tallies disagreed and neither was re-read against the printed record. One source of truth is
     `Verifier.red`; this parses the printed finding records against it BEFORE the `BLOCKDEVICE`/`RESULT`
     lines state the number, so both terminal lines print a count that has just been reconciled. The third
-    `verdict=FAIL` line of a red log is the `BLOCKDEVICE` verdict line itself — the echo of the tally,
-    never a further divergence — and the detail names every counted finding so the population is
-    inspectable rather than a bare number. The predicate is witnessed non-inert by three fabrications
-    through the same pure function: a finding with no printed record reddens it, a printed FAIL with no
-    finding reddens it, an honest empty pair stays clean. A check cannot observe its own verdict line, so
-    when this one reddens its own record is absent from its own parse and present in the next reader's —
-    the count it reports is the count before itself, and the `red=` it hands to the summaries is the
-    count after.
+    failing line of a red log is the `BLOCKDEVICE` verdict line itself — the echo of the tally, never a
+    further divergence — and the detail names every counted finding so the population is inspectable rather
+    than a bare number. The predicate is witnessed non-inert by three fabrications through the same pure
+    function: a finding with no printed record reddens it, a printed failing record with no finding reddens
+    it, an honest empty pair stays clean. A check cannot observe its own verdict line, so when this one
+    reddens its own record is absent from its own parse and present in the next reader's — the count it
+    reports is the count before itself, and the `red=` it hands to the summaries is the count after.
+
+    Window `o` defect 1 of two: this check's own message used to read `%d CHECK verdict=FAIL lines`, and a
+    verifier grepping the finished log with `^CHECK name=.*verdict=FAIL` counted that PASS line as a FAIL
+    record — a false alarm aimed at exactly the reader checking whether anything failed. The wording now
+    spells the counted tokens as `F-A-I-L` / `S-I-L-E-N-T` and `check_printed_verdict_token_tally` (which
+    runs after this one, so it can read this line) makes the class impossible rather than merely absent.
     """
     lines = run_text(ctx).splitlines()
     findings = reject_tally_findings(v.red, lines)
@@ -506,7 +708,7 @@ def check_terminal_tally(v, ctx):
           "finding with no printed record and a printed FAIL with no finding both redden it on "
           "fabrication, and a consistent empty pair stays clean"
           % (len(v.red),
-             sum(1 for ln in lines if re.match(r"CHECK name=\S+ verdict=FAIL\b", ln)),
+             sum(1 for ln in lines if CHECK_FAIL_RECORD.match(ln)),
              sum(1 for n in v.red if n.startswith(CONTROL_RED_PREFIX)),
              bool(fab_missing), bool(fab_extra), not fab_clean))
     fail_names = [n for n in v.red if not n.startswith(CONTROL_RED_PREFIX)]
@@ -514,18 +716,131 @@ def check_terminal_tally(v, ctx):
     v.check(REJECT_TALLY_CHECK,
             not findings and bool(fab_missing) and bool(fab_extra) and not fab_clean,
             "the terminal verdict's finding count is one source — `Verifier.red`, %d entries — and the "
-            "printed records reconcile to it: %d CHECK verdict=FAIL lines (%s) plus %d registered unfired "
-            "controls, each printed as `fired=SILENT` and counted as a finding (%s). Reconciliation "
+            "printed records reconcile to it: %d %s CHECK records (%s) plus %d registered unfired "
+            "controls, each printed as a %s control record and counted as a finding (%s). Reconciliation "
             "findings: %s. The BLOCKDEVICE `red=` and RESULT `findings=` printed next state this same "
-            "number, and the BLOCKDEVICE line's own `verdict=FAIL` in a red run is the echo of this tally, "
-            "not a separate finding; the attribution guard's `%d findings` detail counts its OWN fabricated "
-            "stale text, a different denominator, and is not this tally. Witness: the predicate reddened "
-            "on both fabrications (%s, %s) and stayed clean on the honest empty pair"
-            % (len(v.red), len(fail_names), ",".join(fail_names) or "none", len(silent_names),
+            "number, and the BLOCKDEVICE line's own failing verdict in a red run is the echo of this "
+            "tally, not a separate finding; the attribution guard's `%d findings` detail counts its OWN "
+            "fabricated stale text, a different denominator, and is not this tally. This message spells "
+            "the two counted tokens %s / %s rather than printing them, because window `o`'s verification "
+            "grep matched this very line while it spelled one of them out; "
+            "`printed-verdict-tokens-match-reported-tallies` holds these two counts against the run's own "
+            "printed output. Witness: the predicate reddened on both fabrications (%s, %s) and stayed "
+            "clean on the honest empty pair"
+            % (len(v.red), len(fail_names), COUNTED_TOKEN_WORDS["verdict=FAIL"],
+               ",".join(fail_names) or "none", len(silent_names),
+               COUNTED_TOKEN_WORDS["fired=SILENT"],
                ",".join(silent_names) or "none", "; ".join(findings) or "none",
                found_stale_population(),
+               COUNTED_TOKEN_WORDS["verdict=FAIL"], COUNTED_TOKEN_WORDS["fired=SILENT"],
                "missing-record" if fab_missing else "MISSED",
                "extra-print" if fab_extra else "MISSED"))
+
+
+def check_printed_verdict_token_tally(v, ctx):
+    """The last check the run prints: no line may match a reader's failure grep unless the tally counts it.
+
+    Window `o` defect 2. The terminal tally line said `0 CHECK verdict=FAIL lines` inside its own PASS
+    record, so the obvious verification grep over the finished log — `grep -E '^CHECK name=.*verdict=FAIL'`
+    — returned one FAIL record in a run with zero. Re-wording that line fixes one sentence; this check is
+    what stops the next re-word from putting it back: it re-reads the run's own printed output with patterns
+    as loose as a reader's, and requires the number of lines they match to be the number
+    `check_terminal_tally` just reported (the same two lists, so the comparison is between the tally and the
+    log rather than between two assertions of one variable).
+
+    It sits after the tally check on purpose: a check cannot observe its own line, so the guard can see the "
+    "tally line but not itself — and its own detail is written to the same rule it enforces, verified by "
+    "the GWITNESS line below printing `self-token-free=yes`.
+    """
+    lines = run_text(ctx).splitlines()
+    fail_names = [n for n in v.red if not n.startswith(CONTROL_RED_PREFIX)]
+    silent_names = [n[len(CONTROL_RED_PREFIX):] for n in v.red if n.startswith(CONTROL_RED_PREFIX)]
+    registered = set(v.control_paths)
+    findings = verdict_self_match_findings(lines, fail_names, silent_names, registered)
+    # The fabrications, each fed through the SAME pure predicate. None of them is printed: putting an
+    # injected token into the log is the defect this check exists to prevent, so the witness prints whether
+    # each one was caught and never the line that would have carried it.
+    tally_line = next((ln for ln in lines if ln.startswith("CHECK name=%s " % REJECT_TALLY_CHECK)), "")
+    # (a) window `o`'s own wording, spliced onto the real record line: a mention, not a record.
+    fab_mention = verdict_self_match_findings(
+        lines + [tally_line + " note=the window-`o` wording printed 0 CHECK verdict=FAIL lines here"],
+        fail_names, silent_names, registered)
+    # (a2) the same class on the control side: prose quoting a silent control inside a FIRED record. The
+    # host line is this run's own first fired CONTROL record, so the leg tests the mention and not the host.
+    fired_record = next((ln for ln in lines if CONTROL_RECORD.match(ln)
+                         and CONTROL_RECORD.match(ln).group(2) == "RED"), "")
+    fired_name = CONTROL_RECORD.match(fired_record).group(1) if fired_record else "fabricated-fired-control"
+    fab_control_mention = verdict_self_match_findings(
+        lines + ["CONTROL name=%s fired=RED note=prose quoting fired=SILENT inside a fired record "
+                 "(witness only)" % fired_name], fail_names, silent_names, registered)
+    # (b) a genuine failing CHECK record that the reported tally omits. The name is one this run PASSED
+    # with, so the leg cannot be satisfied by a check the tally already counts.
+    passed = [n for n in v.names if n not in v.red]
+    fab_omitted = verdict_self_match_findings(
+        lines + ["CHECK name=%s verdict=FAIL a genuine failing record the reported tally omits "
+                 "(witness only)" % (passed[-1] if passed else "fabricated-passed-check")],
+        fail_names, silent_names, registered)
+    # (b2) the silent half, both ways. `unrecorded` is the registered population that printed no silent
+    # record (the fired controls); both legs need a name from it, and an empty population would make them
+    # vacuous, so the predicate requires it non-empty rather than letting the legs pass on nothing.
+    printed_silent_names = set(m.group(1) for ln in lines for m in [CONTROL_SILENT_RECORD.match(ln)] if m)
+    unrecorded = sorted(registered - printed_silent_names)
+    a_control = unrecorded[0] if unrecorded else "fabricated-registered-control"
+    fab_extra_silent = verdict_self_match_findings(
+        lines + ["CONTROL name=%s fired=SILENT reason=a silent record the tally omits (witness only)"
+                 % a_control], fail_names, silent_names, registered)
+    fab_missing_silent = verdict_self_match_findings(
+        lines, fail_names, sorted(set(silent_names) | {a_control}), registered)
+    fab_clean = verdict_self_match_findings(lines, fail_names, silent_names, registered)
+    printed_checks = sum(1 for ln in lines if CHECK_RECORD.match(ln))
+    printed_controls = sum(1 for ln in lines if CONTROL_RECORD.match(ln))
+    masker = sum(1 for tok in COUNTED_TOKENS if tok not in mask_counted_tokens("probe %s probe" % tok))
+    detail = ("the run's own printed output holds: %d lines match a reader's grep for a failing CHECK and "
+              "the tally reports %d such records (%s); %d lines match a reader's grep for a silent control "
+              "and the tally counts %d registered unfired controls (%s); %d CHECK record lines printed "
+              "against %d registered checks (this one not yet printed), and %d CONTROL record lines against "
+              "%d registered controls — the extra CONTROL lines are scratch-witness registrations, which "
+              "print silent records on purpose and are therefore compared by name, while a printed failing "
+              "CHECK is held to the tally whatever its name. Offences: %s. The class this forbids is a "
+              "record line whose message spells out a token it is counting, which is what window `o` shipped "
+              "in the tally line itself. Non-inertness, all six fabrications through this same predicate: "
+              "re-adding the window-`o` wording reddens it (%s), prose quoting a silent control inside a "
+              "fired record reddens it (%s), a genuine failing record the tally omits reddens it (%s), an "
+              "uncounted silent record for a registered control reddens it (%s), a counted control with no "
+              "record reddens it (%s), and the honest pair stays clean (%s). The candidate population the "
+              "two silent legs draw their control name from is non-empty (%d registered controls printed no "
+              "silent record), and the token mask this line's quotations go through caught %d/%d tokens on a "
+              "synthetic token-bearing line, so the self-token-free claim below is produced by machinery "
+              "seen to work and not by the absence of one"
+              % (sum(1 for ln in lines if CHECK_FAIL_MENTION.match(ln)), len(fail_names),
+                 ",".join(fail_names) or "none",
+                 sum(1 for ln in lines if CONTROL_SILENT_MENTION.match(ln)), len(silent_names),
+                 ",".join(silent_names) or "none", printed_checks, len(v.names), printed_controls,
+                 len(v.control_paths), "; ".join(findings) or "none",
+                 "yes" if fab_mention else "MISSED", "yes" if fab_control_mention else "MISSED",
+                 "yes" if fab_omitted else "MISSED", "yes" if fab_extra_silent else "MISSED",
+                 "yes" if fab_missing_silent else "MISSED", "yes" if not fab_clean else "MISSED",
+                 len(unrecorded), masker, len(COUNTED_TOKENS)))
+    self_free = not any(tok in detail for tok in COUNTED_TOKENS)
+    print("GWITNESS guard=verdict-token-tally reported-fail=%d reported-silent=%d "
+          "printed-check-lines=%d registered-checks=%d printed-control-lines=%d registered-controls=%d "
+          "silent-record-candidate-controls=%d findings=%d fabricated=window-o-mention flagged=%s "
+          "fabricated=control-mention flagged=%s fabricated=omitted-record flagged=%s "
+          "fabricated=extra-silent flagged=%s fabricated=missing-silent flagged=%s "
+          "fabricated=clean flagged=%s token-mask-caught=%d/%d self-token-free=%s "
+          "note=the reader-pattern count must equal the reported tally; the six fabrications are the "
+          "non-vacuity witness and none of them is printed"
+          % (len(fail_names), len(silent_names), printed_checks, len(v.names), printed_controls,
+             len(v.control_paths), len(unrecorded), len(findings), bool(fab_mention),
+             bool(fab_control_mention), bool(fab_omitted), bool(fab_extra_silent),
+             bool(fab_missing_silent), not fab_clean, masker, len(COUNTED_TOKENS), self_free))
+    v.check("printed-verdict-tokens-match-reported-tallies",
+            not findings and bool(tally_line) and bool(fab_mention) and bool(fab_control_mention)
+            and bool(fab_omitted) and bool(fab_extra_silent) and bool(fab_missing_silent) and not fab_clean
+            and printed_checks == len(v.names) and printed_checks > 0
+            and printed_controls >= len(v.control_paths) and bool(unrecorded)
+            and masker == len(COUNTED_TOKENS) and self_free,
+            detail)
 
 
 def found_stale_population():
@@ -571,11 +886,15 @@ class Verifier:
         """Register one control: did it fire, on what path, with what legs, and if not, why.
 
         `not_exercised` names the paths this control could not exercise here and turns the line into state 2
-        (`status=not-exercised reason=<named>`); it is the only way a silent control escapes the third state,
-        and it is void if the same line also claims that path. `declaim` is `{path: reason}` for a path a
-        recorded run of this mode claimed and this line no longer does — the reason is printed on the line,
-        because the only honest way to narrow a claim is in the line that narrows it
-        (`control-claims-do-not-quietly-shrink`).
+        (`status=not-exercised paths=<named> reason=<named>`, one field per thing the line asserts); it is the
+        only way a silent control escapes the third state, and it is void if the same line also claims that
+        path. `declaim` is `{path: reason}` for a path a recorded run of this mode claimed and this line no
+        longer does — the reason is printed on the line, because the only honest way to narrow a claim is in
+        the line that narrows it (`control-claims-do-not-quietly-shrink`).
+
+        Every field on the line is a named field for a reason: `control_state_of_line` reads the state back
+        out of what this prints, and `control-printed-lines-parse-back-to-their-registered-state` reddens the
+        run when the two readings of one control disagree.
         """
         self.controls.append(name)
         if fired:
@@ -600,8 +919,7 @@ class Verifier:
             pathnote += " declaimed=%s reason=%s" % (path, why)
         notecount = "" if not reason else " reason=%s" % reason
         if not fired and not_exercised:
-            notecount = " status=not-exercised%s%s" % (
-                ",".join(sorted(not_exercised)), notecount)
+            notecount = NOT_EXERCISED_FIELD % (",".join(sorted(not_exercised)), notecount)
         print("CONTROL name=%s fired=%s%s%s %s" % (name, "RED" if fired else "SILENT", pathnote,
                                                    notecount, detail))
         return bool(fired)
@@ -2149,11 +2467,13 @@ def check_control_paths(v, ctx):
 
 
 def check_control_states_and_declaims(v, ctx):
-    """The two checks that make the three control states machine-readable instead of a reading exercise.
+    """The three checks that make the three control states machine-readable instead of a reading exercise.
 
     Split out beside `check_control_paths` because they run after every control has registered — same reason
-    the path checks are split out — and because both enumerate the WHOLE registered population: a control that
-    is in neither of the two honest states has to be named, not folded into a count that still reads `0`.
+    the path checks are split out — and because all three enumerate the WHOLE registered population: a control
+    that is in neither of the two honest states has to be named, not folded into a count that still reads `0`,
+    and a control whose PRINTED line says something other than the state it registered in has to be named too
+    (`control-printed-lines-parse-back-to-their-registered-state`, window `o` defect 1).
     """
     tally = control_state_tally(v.control_paths)
     offenders = control_state_findings(v.control_paths)
@@ -2195,8 +2515,8 @@ def check_control_states_and_declaims(v, ctx):
             "not-applicable=%d, claimed-and-silent=%d (offenders: %s). `%s` — the third state is the one a "
             "reader cannot tell from a passing run without this line, and it reddens here rather than living "
             "in prose: a control that claimed a path and went silent, or went silent without printing "
-            "`status=not-exercised reason=<named>`. Not-applicable is NOT an escape hatch: an unfired control "
-            "is a counted finding whether or not it declared a reason, so converting one to "
+            "`status=not-exercised paths=<named> reason=<named>`. Not-applicable is NOT an escape hatch: an "
+            "unfired control is a counted finding whether or not it declared a reason, so converting one to "
             "`status=not-exercised` lowers no counter — it only makes the state line honest. The state "
             "assignment is done once, by `Verifier.control` calling `control_state`, and these %d fabricated "
             "registrations are the non-vacuity leg: two honest states read clean and the four third-state "
@@ -2205,8 +2525,8 @@ def check_control_states_and_declaims(v, ctx):
             % (len(v.control_paths), len(tally["fired"]), len(tally["not-applicable"]),
                len(tally["claimed-and-silent"]), ",".join(offenders) or "none",
                "window `n` is what this is for: control-witness-guard-can-redden and "
-               "gdn-state-read-is-the-arm-s-own-fingerprint both printed fired=SILENT while claiming legs, "
-               "and nothing in either line said whether they had run on the path they named",
+               "gdn-state-read-is-the-arm-s-own-fingerprint both printed a silent-fired record while claiming "
+               "legs, and nothing in either line said whether they had run on the path they named",
                len(fabrications)))
     baseline_path = CONTROL_CLAIM_BASELINE["device" if ctx["device"] else "cpu"]
     shrink, base_claims, base_printed, base_parsed = ["no baseline log on disk (%s)" % baseline_path.name], \
@@ -2256,6 +2576,139 @@ def check_control_states_and_declaims(v, ctx):
             % (len(base_claims), "device" if ctx["device"] else "cpu", baseline_path.name,
                sum(len(x) for x in base_claims.values()), "; ".join(shrink) or "no shrink found",
                base_printed, base_parsed, "ok" if guard2_ok else "MISFIRED"))
+    check_control_line_formatter_contract(v, ctx)
+
+
+def check_control_line_formatter_contract(v, ctx):
+    """The third state-machine leg: run the FORMATTER, then read the printed line back as a reader does.
+
+    Window `o` defect 1. `Verifier.control` built its state-2 field as `" status=not-exercised%s%s"`, with
+    no separator, so a control naming `device` printed `status=not-exerciseddevice`. Two such lines went out
+    in window `o` and nothing noticed, because the state had already been decided from the ARGUMENTS by
+    `control_state` and the printed token was read by nobody. The day a real control takes that state, the
+    token is what the next reader (and `control_state_of_line`) reads, and a token that is neither present
+    nor absent is a state machine handed a value outside its domain.
+
+    So the three legs here go through the shipped formatter and back:
+
+      * one control per state, registered through a scratch `Verifier` (the house shape for a fabricated
+        registration: it prints a real line and touches nothing else), read back out of this run's own
+        printed output with `control_state_of_line` and required to parse to the state it was registered as;
+      * the same not-applicable line with the separator the fix added taken back out — window `o`'s exact
+        token, derived from the printed line so it cannot drift from what the formatter prints — which must
+        parse to the THIRD state and must be named by `control_state_findings`, because a malformed
+        declaration buys a control nothing; a variant with the whole field dropped is the other way the token
+        can go missing;
+      * the whole registered population: `control_state_contract_findings` re-derives every control's state
+        from its own printed line and names each disagreement, and the same predicate on a text where one
+        real control's line has been corrupted the same way must name exactly that control — the leg that
+        shows the contract can fail rather than merely never having fired.
+    """
+    fabric = [("fabric-formatter-fired", True, dict(legs={"device": 1}, claims=("device",)), "fired"),
+              ("fabric-formatter-not-applicable", False,
+               dict(legs={"cpu_predicate": 2}, not_exercised=("device",),
+                    reason="needs-a-device-window"), "not-applicable"),
+              ("fabric-formatter-claimed-and-silent", False,
+               dict(legs={}, claims=("device",), reason="the predicate never saw the shape it was for"),
+               "claimed-and-silent")]
+    probe = Verifier()
+    for name, fired, kw, _ in fabric:
+        probe.control(name, fired, "fabricated registration, no arm act, nothing computed", **kw)
+    text = run_text(ctx)
+
+    def printed_line(name):
+        hits = [ln for ln in text.splitlines() if ln.startswith("CONTROL name=%s " % name)]
+        return hits[0] if len(hits) == 1 else ""
+
+    # Leg 1 — the formatter's line, parsed back, for all three states.
+    states_read, states_want, honest_ok = {}, {}, True
+    for name, _, _, want in fabric:
+        line = printed_line(name)
+        states_read[name] = control_state_of_line(line)[0] if line else "NO-LINE-PRINTED"
+        states_want[name] = want
+        honest_ok = honest_ok and bool(line) and states_read[name] == want
+    # Leg 2 — the malformed token, built out of the not-applicable line this run just printed.
+    na_name = "fabric-formatter-not-applicable"
+    na_line = printed_line(na_name)
+    variants = []
+    if na_line:
+        variants = [("window-o-no-separator",
+                     na_line.replace(" status=not-exercised paths=", " status=not-exercised")),
+                    ("field-dropped", na_line.replace(" status=not-exercised paths=device", ""))]
+    variant_ok = []
+    for label, bad in variants:
+        parsed = control_states_from_lines(bad)
+        state, sub = parsed.get(na_name, {}).get("state"), parsed.get(na_name, {}).get("sub", "")
+        flagged = any(na_name in f for f in control_state_findings(parsed))
+        variant_ok.append((label, bad != na_line, state, sub, flagged))
+        print("GWITNESS guard=line-formatter-contract fabricated=%s variant=%s state=%s sub=%s "
+              "counts-as-finding=%s token-separator-present=%s note=the malformed token is never printed; "
+              "state and sub are what `control_state_of_line` read off the corrupted line, and "
+              "counts-as-finding is `control_state_findings` over the same parse"
+              % (na_name, label, state, sub, flagged, " status=not-exercised paths=" in bad))
+    # Each variant is required to land on a NAMED third state, not merely on the third state: the two ways
+    # the declaration can go missing are different defects and the sub-shape is what tells them apart.
+    by_label = dict((label, (differs, state, sub, flagged))
+                    for label, differs, state, sub, flagged in variant_ok)
+    window_o_ok = by_label.get("window-o-no-separator") \
+        == (True, "claimed-and-silent", "malformed-not-exercised-token", True)
+    dropped_ok = by_label.get("field-dropped") \
+        == (True, "claimed-and-silent", "silent-without-declaration", True)
+    # Leg 3 — the contract over the run's own registered population, and its non-inertness witness. The
+    # witness flips one real control's fire word, which is the corruption that must change the parse for
+    # any control in any state: a control registered `fired` whose line says silent (or the reverse) is a
+    # control the two readings put in different states, and the contract has to name it.
+    contract = control_state_contract_findings(v.control_paths, text)
+    bad_tokens = malformed_not_exercised_lines(text)
+    witness_name = sorted(v.control_paths)[0] if v.control_paths else ""
+    witness_line = printed_line(witness_name) if witness_name else ""
+    want_fired = bool(v.control_paths.get(witness_name, {}).get("fired"))
+    corrupted = witness_line.replace(" fired=%s" % ("RED" if want_fired else "SILENT"),
+                                     " fired=%s" % ("SILENT" if want_fired else "RED"), 1)
+    prefix = "CONTROL name=%s " % witness_name
+    witness_text = "\n".join(corrupted if ln.startswith(prefix) else ln for ln in text.splitlines())
+    witness = control_state_contract_findings(v.control_paths, witness_text)
+    witness_named = bool(witness) and any(witness_name in f for f in witness)
+    flip_changed_line = bool(witness_line) and corrupted != witness_line
+    print("GWITNESS guard=line-formatter-contract leg=registered-contract controls=%d offenders=%d "
+          "malformed-token-lines=%d witness-control=%s witness-registered-state=%s "
+          "witness-fire-flipped=%s witness-offender=%s "
+          "note=every registered control's state is re-derived from its own printed line; the witness "
+          "flips one such line's fire word and the same predicate must name that control"
+          % (len(v.control_paths), len(contract), len(bad_tokens), witness_name,
+             v.control_paths.get(witness_name, {}).get("state", "none"), flip_changed_line,
+             witness_named))
+    for name, _, _, want in fabric:
+        print("GWITNESS guard=line-formatter-contract fabricated=%s registered-state=%s parsed-state=%s "
+              "agree=%s note=the state a control registers with must be the state its printed line parses to"
+              % (name, want, states_read[name], states_read[name] == want))
+    v.check("control-printed-lines-parse-back-to-their-registered-state",
+            honest_ok and len(variants) == 2 and window_o_ok and dropped_ok
+            and not contract and not bad_tokens and len(probe.controls) == len(fabric)
+            and flip_changed_line and bool(witness_named) and bool(v.control_paths),
+            "every printed CONTROL line parses back to the state its control registered in: the three "
+            "fabricated registrations read back as %s (wanted %s), all %d registered controls agree with "
+            "their own lines (offenders: %s), no printed CONTROL line in the run carries a "
+            "`status=not-exercised` token that is not a `paths=` field (%d such lines), and the two "
+            "malformed variants of the not-applicable line — "
+            "window `o`'s no-separator token and the field dropped outright — both parse to "
+            "`claimed-and-silent`, one as `malformed-not-exercised-token` and one as "
+            "`silent-without-declaration`, and both are named by `control_state_findings`, so a malformed "
+            "declaration buys a control nothing (variants: %s). The contract predicate is not inert: "
+            "flipping the fire word on one real control (%s, registered state %s) made this predicate "
+            "name it (%s). "
+            "Window `o` shipped that field as `\" status=not-exercised%%s%%s\"`, with no separator, so the "
+            "two fabrications printed the path list jammed onto the token itself (the malformed token is "
+            "quoted nowhere in this line, for the reason this whole check gives); it cost nothing then only "
+            "because both were scratch fabrications, and the field is `\"%s\"` now"
+            % (",".join(states_read[n] or "none" for n, _, _, _ in fabric),
+               ",".join(states_want[n] for n, _, _, _ in fabric), len(v.control_paths),
+               ",".join(contract) or "none", len(bad_tokens),
+               ";".join("%s:%s/%s%s" % (label, state, "flagged" if flagged else "MISSED",
+                                        "" if differs else "/UNCHANGED")
+                        for label, differs, state, sub, flagged in variant_ok),
+               witness_name, v.control_paths.get(witness_name, {}).get("state", "none"),
+               "yes" if witness_named else "MISSED", NOT_EXERCISED_FIELD))
 
 
 def want_reads(layout, which):
@@ -7974,6 +8427,9 @@ def run(out, args):
     # parsed-and-agreed; this also closes the `checks=62` vs `checks=63` drift, which was this very
     # check printing between the two summaries.
     check_terminal_tally(v, ctx)
+    # One check after the tally, because it reads the tally's own record line: the reader's failure greps
+    # may not match anything the tally does not count (window `o` defect 2).
+    check_printed_verdict_token_tally(v, ctx)
     red = len(v.red)
     D28_ESCALATE["armed"] = bool(D28_ESCALATE["offences"])
     verdict = d28_qualification_decision(red, tally["unlicensed"], D28_ESCALATE["armed"])
