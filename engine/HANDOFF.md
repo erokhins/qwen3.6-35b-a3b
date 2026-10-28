@@ -2435,3 +2435,131 @@ tools/gpu_lock.sh release "$tag"
 Rule of the pass: a count that reaches a verdict must be parsed from the same lines it claims to count,
 and a count of zero must be able to say *why* zero is the honest answer — `parsed=0 → PASS` is banned
 whether it arrives through the parser or through the ordering. no timing taken.
+
+---
+
+## PASS 11 (2026-10-27, CPU-only) — D-28 executed: the two compiled-pair checks judge **value-space agreement per field**, with the bound derived before the measurement and from sources that are not the build
+
+D-28 retired the byte-identity premise on the two device-vs-host compiled pairs, because byte identity
+was the instrument that *found* the mechanism and is now a worse ruler than the mechanism implies. This
+pass implements it in `engine/block_device.py`. No device act, no `--device`, no kernel, no `gpu_lock`,
+no timing; host wall and RSS only. Every number below is from `engine/work/p11-f3.log` (the pre-D-28
+baseline used for the no-regression diff is `engine/work/p11-base.log`), and the whole derivation is
+written up with its numbers in
+`specification/evidence/blockdevice-d28-value-band-2026-10-27.md`. no timing taken.
+
+**Done.**
+
+* **1 — the two checks changed verdict-basis, and the keeps-exact list became a bound.**
+  `gather-compiled-pair-byte-identical-per-path` → `gather-compiled-pair-value-agreement-per-path`
+  (policy A judged per field in value space; the `ref_bf16` pair still at byte identity), and
+  `gdn-compiled-pair-byte-identical` → `gdn-compiled-pair-value-agreement` (device-vs-host in value
+  space; the g++ twin pair still at zero tolerance). Nothing that D-28 left exact moved: host twins,
+  the bf16 gather, router `ids`/`ids_alt`/`wcast`, M1 read-back digests, the pinned-oracle licences,
+  `band_digest=27a68c7e82c9aa05`. The keeps-exact *fields* — gather `gate`/`up`, GDN
+  `q_hat`/`k_hat`/`core_attn`/`normed`/`y` — are now derived bounds of exactly **0** from the arms' own
+  reach claims (`engine/device/m2_g_kernels.h::m2g_mode_field`,
+  `engine/device/m2_d_kernels.h::m2d_mode_fields`), printed `teeth=zero-tolerance`, so "stays exact"
+  is asserted by the band rather than promised next to it.
+* **2 — every bound is computed before the pair is measured, from three device-free sources.**
+  `BOUNDFROM pair=… metric=… field=… sources=N[…] derived=… binding=… single_source=… teeth=…
+  unavailable=…`, one line per (pair, field, currency) — 36 cells — plus a `BOUNDFROM-SITE` line per
+  pair naming the probe, the population (gather 4096 = `MG_K·MG_I`; GDN 32 heads), the step and the
+  sign patterns. Sources: (a) `prototype/moe_router/moe_router_kernels.h::mr_exp`'s "an ULP or two",
+  read out of the sentence at run time (`vb_documented_allowance` refuses if the wording moves) and
+  propagated by an arm-executed finite difference on the arm's *host* path at every documented site,
+  all-up / all-down / half-population split; (b) the licensor's published width doubled by the triangle
+  inequality (`speccheck/evidence/gdn-band-2026-10-26.json`, same shape as prior 1 of
+  `specification/evidence/blockdevice-wpre-scope-2026-10-26.md`) — available for `scan_out`/`state`,
+  printed as an unavailable reason for policy A (`policy-a-width-band-absent`); (c) the fp64 floor
+  probe of `s` and `routed` from the record's own operands (`engine/device/m2_g_kernels.h::m2g_item1`,
+  `::m2g_item4`), doubled, with the D-19 §7 premise inside the source label. `min` binds. A count
+  bound that derives to ≥1.0 is refused outright (`d28-count-bound-vacuous`) rather than printed. The
+  three admitted single-source shapes (zero-tolerance cells, `gather.raw` per D-14, count cells whose
+  other two families each print a reason) are named in `d28-bounds-come-from-documented-sources`, and
+  that check also catches a printed source count that disagrees with the source list beside it.
+* **3 — the witness is its own line and a CPU box says so.** 38 `BOUNDWITNESS` cells
+  (`measured/derived/margin/inside/for_leg`), never folded into a PASS: the pair that exists here (the
+  g++ twin against the hipcc host path) is measured for real at `measured=0 inside=yes`, and the
+  device-vs-host pair prints `measured=not-claimed … the command that takes it is
+  engine/block_device.py --work <work> --device`. `d28-value-band-witness-inside-and-edge-legs-reject`
+  fails on any `inside=no`.
+* **4 — the band can say no.** `BOUNDEDGE … leg=at-limit|one-past-limit bound=… measured=…
+  sized_at=… verdict=INSIDE|OUTSIDE`, twelve legs, one pair of legs per currency, constructed in closed
+  form *from the bound* (one element at the denominator's floor moved by `t·n·denom`; one element moved
+  by `t·‖b‖`; `floor(t·n)` flipped words) and tightened or widened until unambiguously on its own side;
+  every leg is labelled `note=FABRICATION, in-memory only` and nothing is written to disk.
+  `at-limit → INSIDE` and `one-past-limit → OUTSIDE` are both required per metric.
+* **5 — the must-catch set comes from geometry, not from the build.** `MUSTCATCH-DERIVE` prints the
+  geometry it used (`MG_K=8`, `MG_I=512`, `MG_H=2048`, gate|up along the output dim, each field's own
+  span boundary; `GDN_H_V=32`, `GDN_D_K=GDN_D_V=128`, state span 524,288 words) and the population it
+  derived: 3 gather + 5 GDN = 8, printed `MUSTCATCH name=… reddens=RED` — gate/up halves swapped, wrong
+  expert id (slot swap), span off-by-one on each of `raw` and `state`, two heads' state permuted, one
+  head zeroed, carried state dropped, decay sign inverted (`state[h] *= exp(2·g_decay[h])`, `g_decay`
+  read from the slab span, the record-space image of `exp(−g)`). All eight redden, by five to seven
+  orders of magnitude in the value currencies; the check reconciles printed against derived and a zero
+  population reddens the run.
+* **6 — the refuted causes were re-priced, and the one the band cannot refute is named, not hidden.**
+  `silu_exp_ulp1` is still outside the derived band (`teeth=yes`, `routed/rel-err 5.65e-07 vs 3.25e-07`).
+  `decay_ulp1` is **inside** it (`teeth=none … note=THE BAND IS TOO WIDE`), and the line says why: that
+  cause was refuted by a **byte-count ratio against the observed pair** (264,704 B injected against
+  52,976 B observed; 15,426 B against 3,744 B on policy A), a +1 ULP whole-population injection is a
+  *smaller member of the same family* as the documented ±2 ULP worst case, and the observed pair is
+  device data no device-free bound can encode. The live control that keeps it refuted is
+  `GMAGMATCH`/`DMAGMATCH verdict=RULED-OUT`, and the REFUTED-CAUSE line now carries that obligation
+  explicitly (`refutation_carried_by=…`), naming the required device-window print. If the reading is
+  that D-28 §3 must be satisfied *by the value band itself*, then the bound cannot be derived without
+  the device and the re-derivation is the user's call — this pass refuses to fake it either way.
+* **7 — the diagnostics keep their voice and lose their vote.** `GREPRO`, `DREPRO`, `DREPRO-WIN` carry
+  `role=diagnostic gate=no` at their print sites. Because a CPU witness prints none of them,
+  `d28-diagnostic-legs-are-labelled-and-do-not-decide` is structural: it walks this file's own AST, finds
+  every `print` whose first literal names one of the three legs, requires the label there, and separately
+  proves the two pair checks cite their `BOUNDWITNESS` cells and no `vs_device_record_ndiff_bytes`.
+* **8 — D-28's escalation clause is a rule, and it is demonstrated.** `d28_mechanism_offences` reads
+  the run's own diagnostics for a value band that passed beside a non-`exp` mechanism (residual-left
+  repro where one is required, `unexplained != 0`, a `CANDIDATE` cause that is not an `exp`/`decay`
+  cause, a device pass with no repro leg), and `d28_qualification_decision` returns
+  `ESCALATE-USER(…)` instead of `QUALIFIED` — it is the function that computes the terminal verdict word
+  now. `d28-escalation-clause-refuses-qualification` demonstrates the refusal on a fabricated log
+  (`residual-left repro + CANDIDATE cause=state_xpose` → 2 refusals) while the same predicate finds 0 in
+  this run, so the clause cannot be decorative.
+
+**Gate lines.**
+
+```
+BLOCKDEVICE verdict=QUALIFIED … checks=67 red=0 controls=31 fired=31 band_digest=27a68c7e82c9aa05
+RESULT mode=cpu checks=67 findings=0 controls=31 fired=31 rows=6 gdn_rows=7 arms=policy_a device=off
+    staged=not-attempted hip_calls=0+0 launches=0 counters_unparsed=0 band_digest=27a68c7e82c9aa05 no timing taken
+engine/block_gate.py  → checks=17 red=0 controls=11 fired=11 band_digest=27a68c7e82c9aa05
+engine/gate.py        → RESULT PASS checks=27 findings=0
+tools/doc_ref_check.py --strict → findings: 0
+specification/evidence/blockdevice-device-shape-2026-10-27.py
+    → REHEARSAL verdict=PASS no device act occurred, no timing taken   (child: checks=71 findings=7,
+      the same 7 named in PASS 10; confined to --work m2dev-rehearsal)
+```
+
+`checks` 60 → 67 is the 7 new D-28 checks; controls, licences, bands and the digest are untouched.
+
+**Not done / not claimed.**
+
+* **The device leg of the witness is not taken here.** The command that takes it is
+  `/home/erokhins/erokhins_projects/qwen3.5-0.8b/.venv/bin/python engine/block_device.py --work engine/work/m2dev --device`
+  under the standing device rules, and its required prints are the 36 `BOUNDFROM` lines, 36
+  `BOUNDWITNESS` cells carrying `measured=` numbers instead of `not-claimed`, the two
+  `REFUTED-CAUSE … teeth=` lines (with `decay_ulp1`'s `DMAGMATCH verdict=RULED-OUT` obligation
+  discharged), and the labelled `DREPRO`/`GREPRO` diagnostics. The rehearsal exercises the *shape* of
+  that path against its own labelled fabrications, never against real device bytes, so nothing on this
+  box has yet shown a real `measured=` value inside these bounds.
+* **The value band does not price a byte-count ratio.** See bullet 6: `decay_ulp1` is inside it by
+  construction, and the tension between "refuted causes must keep failing" and "no number read off the
+  build" is recorded rather than resolved. Resolving it in favour of the band needs device data and is
+  therefore the user's call, not this pass's.
+* No band, floor, must-catch set, licence or pin was authored or moved; `ulp_policy.py`, `gate.py`,
+  `block_gate.py`, `device_arm.py`, `loader.py`, `engine/device/m2_[gd]_*` and `prototype/` are
+  untouched; nothing was written to the real device scratch `engine/work/m2dev` (this pass's runs used
+  `--work engine/work/p11-*`); no device act occurred and no timing was taken.
+
+Rule of the pass: a bound is only a bound if it can reject something on purpose — so the band is derived
+before the measurement, the rejection legs are sized from the bound rather than from the spread, the
+must-catch set is derived from geometry, and a limitation the band cannot cover is printed on the line
+that claims to check it. no timing taken.

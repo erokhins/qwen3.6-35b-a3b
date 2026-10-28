@@ -3501,6 +3501,7 @@ def control_gather_divergence_causes(v, ctx):
                                             % (cause, what))
             rows_by_cause[cause] = attrib
             cause_rec[cause] = rec["wrote"]["path"]
+            ctx.setdefault("g_cause_paths", {}).setdefault(width, {})[cause] = rec["wrote"]["path"]
             # The arm publishes which record fields the mode it just ran can reach, and the measured set must
             # never exceed it: a mode that moves a field the driver did not name is a mode the driver is not
             # entitled to interpret. Moving LESS than claimed is not an offence per width — a width can
@@ -3593,8 +3594,10 @@ def control_gather_divergence_causes(v, ctx):
                 print("GREPRO pair=g_%s_hip_device_vs_hip_hostpath probe=exp_ulp_table path=host_cpubody "
                       "sites_perturbed=%d explained_by_exp_within_4ulp=%d unexplained=%d "
                       "min_steps_histogram=%s record_bytes=%d vs_device_record_ndiff_bytes=%d verdict=%s "
+                      "role=diagnostic gate=no "
                       "note=the exp table is host-path-only by construction (`exp-table-host-only`), so a "
-                      "clean reproduction here says the DEVICE's decoded weights equal the host's"
+                      "clean reproduction here says the DEVICE's decoded weights equal the host's "
+                      "(D-28: this leg is a diagnostic and does not decide the pair's verdict)"
                       % (width, tab["sites"], tab["explained"], tab["sites"] - tab["explained"],
                          tab["hist"], rbytes, rdiff,
                          "EXACT-REPRODUCTION" if rdiff == 0 else "RESIDUAL-LEFT"))
@@ -3719,6 +3722,7 @@ def control_d_divergence_causes(v, ctx):
                                                  "gdn_record.f32", rows, total,
                                                  note="cause=%s (%s), hipcc arm's host path"
                                                       % (cause, what))
+        ctx.setdefault("d_cause_paths", {})[cause] = r["rec"]["wrote"]["path"]
         # The arm publishes, in its own HDR line, which record fields the mode it just ran is able to move.
         # The measured set must equal that claim, in both directions: a mode that moves a field it did not
         # name is a mode the driver is not entitled to interpret, and a mode that moves LESS than it names is
@@ -3780,7 +3784,8 @@ def control_d_divergence_causes(v, ctx):
                                               ctx["work"] / "d_out_device.bin")
                 print("DREPRO pair=d_hip_device_vs_d_hip_hostpath probe=decay_ulp_mask steps=%+d "
                       "mask=0x%x heads=%s path=host_cpubody record_bytes=%d "
-                      "vs_device_record_ndiff_bytes=%d verdict=%s"
+                      "vs_device_record_ndiff_bytes=%d verdict=%s role=diagnostic gate=no "
+                      "note=D-28: diagnostic, does not decide the pair's verdict"
                       % (steps, mask, ",".join(str(h) for h in moved), rbytes, rdiff,
                          "EXACT-REPRODUCTION" if rdiff == 0 else "RESIDUAL-LEFT"))
                 d_repro[steps] = rdiff
@@ -3962,7 +3967,9 @@ def control_attribution_probe_is_dialable(v, ctx):
             win_res = DA.pair_bytes(ctx["work"] / "dvariant" / "d_dial_device_heads.bin",
                                     device_rec)[1]
             print("DREPRO-WIN probe=decay_ulp_mask steps=-1 mask=0x%x heads=%s residual_bytes=%d "
-                  "verdict=%s note=frozen winning combination: this leg reddens if the cause is withdrawn"
+                  "verdict=%s role=diagnostic gate=no "
+                  "note=frozen winning combination: this leg reddens if the cause is withdrawn; D-28 "
+                  "keeps it printed as a diagnostic and it does not decide the pair's value verdict"
                   % (win_mask, ",".join(str(h) for h in dev_heads), win_res,
                      "EXACT" if win_res == 0 else "WITHDRAWN"))
             if win_res:
@@ -4027,6 +4034,1060 @@ def control_gather_device_refusal(v, ctx):
               "report can only come from the arm that launches" % ", ".join(seen))
 
 
+# =====================================================================================
+# D-28 — DEVICE-VS-HOST AGREEMENT IS JUDGED IN VALUE SPACE, AND THE BOUND IS DERIVED
+# FIRST.
+#
+# WHY. `DECISIONS.md` D-28 retired byte identity as the witness between a device arm and its own CPU
+# twin, for one measured reason: a last-bit difference at an `exp` site is not a last-bit difference
+# in VALUE terms once the body has multiplied it through a long dot. Window `k` printed
+# `GATTRIB … field=raw … max_bit_step=24576`, which in binary32 is about 2.9e-3 relative — roughly
+# 12,000 times the 1-ULP perturbation it came from. Cancellation is the amplifier
+# (`pitfalls/30-numerics.md` §A max-ULP band cannot see a whole-tensor 1-ULP error, and `ndiff`
+# cannot see a chain), and a band numbered in ULPs of the *field* would have been both unachievable
+# and blind. So the two compiled-pair checks judge per-field value-space agreement now.
+#
+# WHAT IS STILL EXACT, and it is this section that says so in lines: every host-twin pair
+# (`ndiff_bytes=0`), the bf16 reference gather on the device, every field a documented transcendental
+# does NOT reach (the arm's own reach table — `engine/device/m2_g_kernels.h::m2g_mode_field` and
+# `engine/device/m2_d_kernels.h::m2d_mode_fields` — is the source of
+# that population, not a list typed here), and every licence judged against the pinned oracle. The
+# `GREPRO`/`DREPRO`/`DREPRO-WIN` legs stay printed and carry `role=diagnostic gate=no`: the mechanism
+# stays legible, it no longer decides the verdict, and
+# `d28-diagnostic-legs-are-labelled-and-do-not-decide` is what stops that sentence from rotting.
+#
+# WHY THE BOUND IS NOT READ OFF THE BUILD. D-28: "No number here may be read off the build it
+# covers." Every number on a `BOUNDFROM` line is therefore computed before the pair is measured, and
+# from three device-free sources:
+#   * `mr_exp_documented_x_host_fd` — the documented transcendental allowance, read out of
+#     `prototype/moe_router/moe_router_kernels.h::mr_exp` ("allowed to differ by an ULP or two") at
+#     run time, propagated through the field's arithmetic by an arm-executed finite difference: the
+#     arm's own host path, run with the documented step at every documented site, under every sign
+#     pattern the allowance admits (all-up, all-down, and a half-population split so a mixed-sign
+#     assignment is priced too). This is the amplification, measured on host bytes.
+#   * `licensor_band_triangle` — the licensor's own published width for the same field
+#     (`speccheck/evidence/gdn-band-2026-10-26.json`, which says of itself
+#     `derived_from="floor probe (f64 anchor) x the triangle inequality"`), doubled by the triangle
+#     inequality exactly as `specification/evidence/blockdevice-wpre-scope-2026-10-26.md` prior 1
+#     does. Its premise (both routes inside their licence against the pin) is measured by the STAGE
+#     rows of this run, and a field with no licence for the path under test prints that reason
+#     rather than a borrowed number: policy A's gather rows are UNLICENSED
+#     (`policy-a-width-band-absent`) so no licensor prior exists for `s`/`raw`/`routed`.
+#   * `fp64_floor_probe` — the same arithmetic recomputed in float64 from operands the record itself
+#     carries, and the fp32 body's distance from it: `s = silu(gate)*up` and
+#     `routed = sum_slot raw[slot]*wcast[slot]` (`engine/device/m2_g_kernels.h::m2g_item1/::m2g_item4
+#     spell both), so these two need no second implementation and no device. A field whose operands
+#     the record does not carry (`raw`'s down_proj dot) says so instead of inventing a probe.
+# The strictest available prior binds (`min`), as in `WPRESCOPE`. Where only ONE prior exists —
+# `gather.raw` — D-14's condition is what admits it: a documented-route bound is admissible provided
+# the must-catch set grows with it, and `d28-must-catch-set-is-derived-and-reddens` is that set.
+#
+# THE ESCALATION CLAUSE, AS A RULE. D-28 accepted the risk that a value band could pass while the
+# mechanism is something other than the documented `exp` last-bit. `d28_mechanism_offences` reads
+# this run's own diagnostic lines for exactly that shape, `d28_qualification_decision` refuses to
+# print `QUALIFIED` when it fires, and `d28-escalation-clause-refuses-qualification` demonstrates the
+# refusal on a fabrication so the rule cannot be decorative.
+# =====================================================================================
+
+VB_METRICS = ("rel-err", "relL2", "ndiff_frac")
+DOC_ULP_HEADER = ROOT / "prototype" / "moe_router" / "moe_router_kernels.h"
+VB_ULP_WORDS = {"one": 1, "two": 2, "three": 3}
+# The only mechanism D-28 licensed: an `exp` last-bit difference at a documented site. A magnitude
+# screen that names any other cause as CANDIDATE while a value band passed is the clause firing.
+VB_DOCUMENTED_CAUSES = ("silu_exp_ulp1", "decay_ulp1", "decay_ulp_mask")
+VB_DIAG_HEADS = ("GREPRO", "DREPRO", "DREPRO-WIN")
+
+
+def vb_documented_allowance():
+    """The documented per-call transcendental allowance, read out of the sentence that grants it.
+
+    The bound multiplies by this number, so the number has to have a source that a reader can open and
+    that fails loudly when the sentence is edited. A bound whose allowance was remembered from a
+    previous pass is a fitted bound with extra steps.
+    """
+    flat = re.sub(r"\s+", " ", DOC_ULP_HEADER.read_text().replace("*", " "))
+    m = re.search(r"allowed to differ by an ULP or (\w+)", flat)
+    if not m or m.group(1) not in VB_ULP_WORDS:
+        raise Refused("d28-documented-allowance-moved",
+                      "%s::mr_exp no longer contains `allowed to differ by an ULP or <one|two>`; every "
+                      "D-28 bound is that sentence times an amplification, so if the sentence moved the "
+                      "bound is re-derived, not remembered" % DOC_ULP_HEADER.name)
+    return int(VB_ULP_WORDS[m.group(1)]), "%s::mr_exp 'an ULP or %s'" % (DOC_ULP_HEADER.name, m.group(1))
+
+
+def vb_metrics(a, b):
+    """(rel-err, relL2, ndiff_frac) between two equal-shaped f32 field images.
+
+    `rel-err` is the licensor's own currency — the mean of |a-b| over the anchor denominator
+    max(|b|, 1e-3 max|b|) — so the 1e-3 cancellation floor documented in
+    `speccheck/gdn_ref.py::aggregates` is one floor in this repo and not a second one here; an
+    unfloored per-element relative error is precisely the quantity that cannot be bounded at a
+    cancelled element, which is the whole reason D-28 exists. `relL2` is the norm currency the
+    non-expansive-write argument of `specification/evidence/ssm_a_ulp_bound.py` lives in, and
+    `ndiff_frac` is the count that carries the zero-tolerance claim.
+    """
+    a = np.asarray(a, dtype=np.float32)
+    b = np.asarray(b, dtype=np.float32)
+    if a.shape != b.shape:
+        raise Refused("d28-field-shape", "value metrics need two fields of one shape, got %s and %s"
+                      % (a.shape, b.shape))
+    if not a.size:
+        return None
+    x, y = a.astype(np.float64), b.astype(np.float64)
+    scale = float(np.max(np.abs(y)))
+    norm_y = float(np.linalg.norm(y))
+    if scale == 0.0 or norm_y == 0.0:
+        return None
+    denom = np.maximum(np.abs(y), 1e-3 * scale)
+    diff = np.abs(x - y)
+    return {"rel-err": float(np.mean(diff / denom)),
+            "relL2": float(np.linalg.norm(diff) / norm_y),
+            "ndiff_frac": float(np.count_nonzero(a.view(np.uint32) != b.view(np.uint32))) / float(a.size),
+            "n": int(a.size)}
+
+
+def vb_combine_amplification(values):
+    """The mixed-sign worst case over a set of response legs: max(single-sign) vs sum(opposite-sign).
+
+    `values` is a list of (name, metric_value) in one currency. The documented allowance permits each
+    site its own sign, so a single-sign injection is not the worst case; the triangle inequality says
+    the sum of the half-population opposite-sign legs dominates any per-site sign assignment as long
+    as the response is additive in the per-site step, and the additivity itself is printed rather
+    than assumed.
+    """
+    singles = [v for _, v in values if v is not None]
+    if not singles:
+        return None
+    return float(max(singles))
+
+
+def vb_gather_response_legs(ctx):
+    """The policy-A gather body, run on the host path with the documented step at every silu site.
+
+    Three sign patterns over the whole site population (MG_K x MG_I, derived from the header): all up,
+    all down, alternating. These are the amplification of `s -> raw -> routed` measured on host bytes
+    at the size the document allows, which is what a bound on the device's difference needs and
+    contains no device number.
+    """
+    p = ctx["gpaths"]["policy_a"]
+    g, nulp, _ = p["g"], vb_documented_allowance()[0], None
+    honest = p["dir"] / "out_hip.bin"
+    population = g["MG_K"] * g["MG_I"]
+    patterns = (("all_up", lambda i: nulp), ("all_down", lambda i: -nulp),
+                ("alternating", lambda i: nulp if i % 2 else -nulp))
+    legs = []
+    for name, step in patterns:
+        tab = p["dir"] / ("vb_table_%s.bin" % name)
+        tab.write_bytes(np.array([step(i) for i in range(population)], dtype=np.int8).tobytes())
+        plan = g_plan_variant(p, p["plan"].read_text().replace(
+            "mode=correct", "mode=exp_ulp_table exp_table=%s" % tab))
+        rec = g_run_variant(ctx, "policy_a", plan, "out_vb_%s.bin" % name,
+                            "g_policy_a_vb_%s" % name, device=False)
+        fields, _ = DA.g_record(rec["wrote"]["path"], g)
+        legs.append((name, fields))
+    return dict(kind="exp_ulp_table", population=population, steps=nulp, legs=legs,
+                honest=honest, split_pairs=[])
+
+
+def vb_gdn_response_legs(ctx):
+    """The GDN body, run on the host path with the documented step on exp(g_decay) per head.
+
+    The mask mode's population is the arm's own (`GDN_H_V` heads, derived, never typed), so the four
+    legs are: every head up, every head down, odd heads up, even heads down. The last two are the
+    mixed-sign probe; their per-field deviations sum in every currency this band uses.
+    """
+    d = ctx["d"]["d"]
+    nulp = vb_documented_allowance()[0]
+    heads = (1 << d["GDN_H_V"]) - 1
+    odd = sum(1 << h for h in range(d["GDN_H_V"]) if h % 2)
+    even = heads ^ odd
+    spec = dict(kind="decay_ulp_mask", population=d["GDN_H_V"], steps=nulp, legs=[],
+                honest=ctx["work"] / "d_out_hip.bin", split_pairs=[])
+    for label, mask, steps in (("all_up", heads, nulp), ("all_down", heads, -nulp),
+                               ("split_odd_up", odd, nulp), ("split_even_down", even, -nulp)):
+        r = d_variant(ctx, "d_vb_%s.bin" % label, "d_vb_%s" % label, mode="decay_ulp_mask",
+                      mask=mask, steps=steps, binary=ctx["args"].d_arm_binary, metrics_ok=False)
+        spec["legs"].append((label, r["fields"]))
+    spec["split_pairs"] = [(("split_odd_up", "split_even_down"))]
+    return spec
+
+
+def vb_response_metrics(spec):
+    """Per (field, metric), the worst documented-allowance response of each field of the record.
+
+    Returns `{field: {metric: (value, leg_names)}}` plus the additivity witness: if moving half the
+    population twice is not about the same as moving all of it once, the response is not additive and
+    the summed mixed-sign leg is doing something other than what the triangle argument claims.
+    """
+    order = spec.get("order")
+    honest = spec["honest"]
+    base = spec.get("base_fields")
+    out, additivity = {}, []
+    leg_metrics = dict((name, dict((f, vb_metrics(base[f], fields[f])) for f in order))
+                       for name, fields in spec["legs"])
+    for field in order:
+        out[field] = {}
+        for metric in VB_METRICS:
+            vals = [(name, leg_metrics[name][field][metric]) for name, _ in spec["legs"]
+                    if leg_metrics[name][field]]
+            if not vals:
+                out[field][metric] = (None, "no leg reached this field")
+                continue
+            singles = dict(vals)
+            mixed = None
+            for a, b in spec["split_pairs"]:
+                if a in singles and b in singles:
+                    mixed = min(1.0, singles[a] + singles[b]) if metric == "ndiff_frac" \
+                        else singles[a] + singles[b]
+            best = vb_combine_amplification(vals + ([("mixed", mixed)] if mixed is not None else []))
+            names = [n for n, v in sorted(vals, key=lambda kv: -(kv[1] or 0))[:1]]
+            if mixed is not None and mixed >= max(v for _, v in vals):
+                names = [n for pair in spec["split_pairs"] for n in pair]
+            out[field][metric] = (best, "+".join(names))
+            if field == order[0]:
+                allv = max(singles.get("all_up") or 0.0, singles.get("all_down") or 0.0)
+                summed = (singles.get("split_odd_up", 0.0) + singles.get("split_even_down", 0.0)\
+                          if "split_odd_up" in singles else None)
+                if summed is not None and allv:
+                    additivity.append("%s/%s all=%.3g split_sum=%.3g ratio=%.3f"
+                                      % (field, metric, allv, summed, summed / allv))
+    return out, additivity
+
+
+def vb_floor_probes(ctx, width_fields, rt_fields):
+    """The fp64 floor probes that need no device and no second implementation.
+
+    `s = silu(gate) * up` and `routed = sum_slot raw[slot] * wcast[slot]` are the two stages whose
+    every operand is already in the record (plus the router arm's own weights), so the float64
+    recomputation is the same arithmetic without the f32 roundings — the floor probe D-28 allows,
+    computed from bytes, not from a model of the bytes. Anything the record does not carry (`raw`'s
+    down_proj dot) is returned as a named absence.
+    """
+    out = {}
+    gate = width_fields["gate"].astype(np.float64)
+    up = width_fields["up"].astype(np.float64)
+    s64 = (gate / (1.0 + np.exp(-gate))) * up
+    out["s"] = (vb_metrics(s64.astype(np.float32), width_fields["s"]),
+                "fp64(silu(gate)*up) vs the arm's f32 s, per engine/device/m2_g_kernels.h::m2g_item1; "
+                "premise D-19 §7: the device rounds the same operands, so its distance to fp64 is at "
+                "most the host's, and the pair's separation is 2x the host's own distance")
+    raw = width_fields["raw"].astype(np.float64).reshape(width_fields["_k"], width_fields["_h"])
+    w = np.asarray(rt_fields["wcast"], dtype=np.float64)
+    if w.size != width_fields["_k"]:
+        raise Refused("d28-combine-population", "the combine has %d slots but the router record carries "
+                                                "%d weights; the fp64 floor probe would be summing a "
+                                                "different population than the arm did"
+                      % (width_fields["_k"], w.size))
+    acc = np.zeros(raw.shape[1], dtype=np.float64)
+    for slot in range(raw.shape[0]):
+        acc = acc + raw[slot] * w[slot]
+    out["routed"] = (vb_metrics(acc.astype(np.float32), width_fields["routed"]),
+                     "fp64(sum_slot raw[slot]*wcast[slot]) vs the arm's f32 routed, per "
+                     "engine/device/m2_g_kernels.h::m2g_item4 (policy A: f32 accumulation, one "
+                     "rounding); premise D-19 §7 as for s")
+    out["raw"] = (None, "no fp64 route: the record does not carry the down_proj operands and no "
+                        "in-tree fp64 body decodes the policy-A widths, so the stage that amplifies "
+                        "most is the stage no floor probe can reach")
+    for name in ("gate", "up"):
+        out[name] = (None, "no transcendental reaches this field (arm reach claim); it stays exact")
+    return out
+
+
+def vb_licensor_priors(ctx, kind):
+    """The licensor's published width for each field, doubled by the triangle inequality.
+
+    Device-free by construction: the numbers come from the pinned band file and the premise — that
+    both routes of the pair sit inside their own licence against the pin — is read off this run's
+    STAGE rows, not asserted. A field with no licence on the path under test yields its licensor's
+    own reason; `wpre`'s prior 1 is the precedent for the shape (`min(10, 9, 22)`, recorded in
+    `specification/evidence/blockdevice-wpre-scope-2026-10-26.md`).
+
+    Returns `({stage: {metric: bound}}, {stage: why-not})`. The licensor publishes `mean_rel` and
+    `one_minus_cos` and no count of differing words, so it can never inform the count currency, and
+    that absence is printed rather than quietly dropped.
+    """
+    if kind != "gdn":
+        reasons = ",".join(sorted(set(
+            r["band"].split("reason=", 1)[-1].split()[0] for r in (ctx.get("g_rows") or [])
+            if r["arm"] == "policy_a" and r["band"].startswith("UNLICENSED"))))
+        return {}, {"*": reasons or "no-band-for-this-path"}
+    band, rows = ctx.get("band") or {}, {r["stage"]: r for r in (ctx.get("d_rows") or [])}
+    out, why = {}, {}
+    for stage, row in sorted(rows.items()):
+        ent = band.get(stage)
+        if ent is None or not row["band"].startswith("ACCEPTED"):
+            why[stage] = (row["band"].split("reason=", 1)[-1].split()[0] if "reason=" in row["band"]
+                          else row["band"].split()[0])
+            continue
+        out[stage] = {"rel-err": 2.0 * float(ent["mean_rel"]),
+                      "relL2": 2.0 * math.sqrt(2.0 * float(ent["one_minus_cos"])),
+                      "ndiff_frac": None}
+        why[stage] = None
+    return out, why
+
+
+def vb_pair_specs(ctx):
+    """The two pairs D-28 changed, as this run can actually adjudicate them.
+
+    In a device window the A side is the device record; in a CPU witness the pair that exists is the
+    host-twin pair, whose agreement is measured for real (and is zero) while the device leg is
+    explicitly not claimed. Which of the two it is gets printed, so no reader can mistake the host leg
+    for the device verdict.
+    """
+    specs = []
+    if ctx.get("gpaths"):
+        p = ctx["gpaths"]["policy_a"]
+        g = p["g"]
+        a = p["dir"] / ("out_device.bin" if ctx["device"] else "out_host.bin")
+        wf, _ = DA.g_record(p["dir"] / "out_hip.bin", g)
+        wf["_k"], wf["_h"] = g["MG_K"], g["MG_H"]
+        specs.append(dict(kind="gather", pair="g_policy_a_hip_device_vs_hip_hostpath",
+                          host_pair="g_policy_a_host_twin_vs_hip_hostpath",
+                          file_word="gather_record.f32", order=list(g["order"]),
+                          fields=g["fields"], a_side=a, b_side=p["dir"] / "out_hip.bin",
+                          host_a=p["dir"] / "out_host.bin",
+                          reach=("s", "raw", "routed"), layout=g, width_fields=wf,
+                          claim_mode="silu_exp_ulp1"))
+    if ctx.get("d"):
+        d = ctx["d"]["d"]
+        a = ctx["work"] / ("d_out_device.bin" if ctx["device"] else "d_out_host.bin")
+        specs.append(dict(kind="gdn", pair="d_hip_device_vs_d_hip_hostpath",
+                          host_pair="d_host_twin_vs_d_hip_hostpath",
+                          file_word="gdn_record.f32", order=list(d["order"]),
+                          fields=d["fields"], a_side=a, b_side=ctx["work"] / "d_out_hip.bin",
+                          host_a=ctx["work"] / "d_out_host.bin",
+                          reach=("scan_out", "state"), layout=d,
+                          claim_mode="decay_ulp_mask"))
+    return specs
+
+
+def vb_record(path, order, fields):
+    words = np.fromfile(str(path), dtype="<f4")
+    return dict((name, words[off:off + ln].copy()) for name, (off, ln) in
+                [(n, fields[n][:2]) for n in order])
+
+
+def vb_field_derive(ctx, spec):
+    """Every BOUNDFROM line for one pair, printed from priors computed before any witness.
+
+    Returns `{field: {metric: derived}}`. For a field a documented transcendental does not reach the
+    derived number is exactly zero, from the arm's own reach claim — which is D-28's keeps-exact list
+    expressed as a bound rather than as a sentence.
+    """
+    nulp, src = vb_documented_allowance()
+    if spec["kind"] == "gather":
+        resp_spec = vb_gather_response_legs(ctx)
+        resp_spec["order"], resp_spec["base_fields"] = spec["order"], vb_record(
+            resp_spec["honest"], spec["order"], spec["fields"])
+        floors = vb_floor_probes(ctx, spec["width_fields"], ctx["rt_fields"])
+    else:
+        resp_spec = vb_gdn_response_legs(ctx)
+        resp_spec["order"], resp_spec["base_fields"] = spec["order"], vb_record(
+            resp_spec["honest"], spec["order"], spec["fields"])
+        floors = dict((f, (None, "no fp64 route: the record does not carry the carry/scan operands "
+                                 "of this field"))
+                      for f in spec["order"])
+    response, additivity = vb_response_metrics(resp_spec)
+    licensor, why = vb_licensor_priors(ctx, spec["kind"])
+    print("BOUNDFROM-SITE pair=%s probe=%s population=%d steps_per_site=%d sources=%s "
+          "sign_patterns=%s additivity=%s note=the amplification is measured on the arm's own host "
+          "path at the documented step; no device number is read here"
+          % (spec["pair"], resp_spec["kind"], resp_spec["population"], nulp, src,
+             ",".join(name for name, _ in resp_spec["legs"]),
+             "; ".join(additivity) or "single-sign-legs-only"))
+    derived = {}
+    for field in spec["order"]:
+        for metric in VB_METRICS:
+            priors, unavailable = [], []
+            if field not in spec["reach"]:
+                priors.append(("arm_reach_claim_zero(%s mode=%s cannot move %s)"
+                               % ("m2g_mode_field" if spec["kind"] == "gather"
+                                  else "m2d_mode_fields", spec["claim_mode"], field), 0.0))
+            else:
+                val, legname = response[field][metric]
+                if val is not None:
+                    priors.append(("%s x host_fd[%s](steps=%d,%s)" % (src.split(" ")[0], legname,
+                                                                      nulp, resp_spec["kind"]), val))
+                ent = (licensor.get(field) or {}).get(metric)
+                if ent:
+                    priors.append(("licensor_band_triangle(speccheck band, %s)" % field, ent))
+                elif field in licensor:
+                    unavailable.append("licensor_band_triangle(%s:reason=publishes mean_rel and "
+                                       "one_minus_cos only, no count of differing words)" % field)
+                else:
+                    unavailable.append("licensor_band_triangle(%s:reason=%s)"
+                                       % (field, why.get(field) or why.get("*") or "no-band"))
+                flo = floors.get(field)
+                if flo and flo[0] and flo[0].get(metric) is not None:
+                    # The probe measures |fp64 − host|. It bounds |device − host| only under the
+                    # documented premise that the device rounds the same operands to the same order of
+                    # error, so the prior is 2x the measured distance, and the premise is in the label.
+                    # For the count metric a doubled fraction can reach 1.0, which says nothing, so the
+                    # probe is withheld from that cell with the reason printed rather than inflated.
+                    val = 2.0 * flo[0][metric]
+                    if metric == "ndiff_frac" and val >= 1.0:
+                        unavailable.append("fp64_floor_probe:reason=doubled count floor=%.3g of the "
+                                           "field's words, which forbids nothing" % val)
+                    else:
+                        priors.append(("fp64_floor_probe(%s) premise=D-19§7 both-arms-round-same-terms"
+                                       % flo[1], val))
+                else:
+                    unavailable.append("fp64_floor_probe:reason=%s" % (flo[1] if flo else
+                                                                     "not-attempted"))
+            if not priors:
+                raise Refused("d28-no-documented-source",
+                              "%s/%s has no documented source at all; refusing to invent a bound"
+                              % (field, metric))
+            value = min(v for _, v in priors)
+            if metric == "ndiff_frac" and value >= 1.0:
+                raise Refused("d28-count-bound-vacuous",
+                              "the %s/%s count bound derived to %.4g of the field's words, i.e. every "
+                              "word may differ and the cell can never fail. A bound that cannot fail is "
+                              "not a bound; tighten the source or drop the cell, do not print it"
+                              % (field, metric, value))
+            derived.setdefault(field, {})[metric] = value
+            print("BOUNDFROM pair=%s metric=%s field=%s sources=%d[%s] derived=%.6g binding=%s "
+                  "single_source=%s teeth=%s unavailable=%s note=no number on this line is read from "
+                  "the pair under test"
+                  % (spec["pair"], metric, field, len(priors), " AND ".join(n for n, _ in priors),
+                     value, min(priors, key=lambda kv: kv[1])[0],
+                     "yes" if len(priors) == 1 else "no",
+                     ("zero-tolerance" if value == 0 else
+                      ("fraction-forbidden=%.3g" % (1.0 - value)) if metric == "ndiff_frac" else "n/a"),
+                     "|".join(unavailable) or "none"))
+    spec["derived"], spec["response"] = derived, response
+    return derived
+
+
+def vb_witness(spec, a_side, b_side, tag):
+    """BOUNDWITNESS lines for one pair: the measured value against the derived bound, never folded in."""
+    A, B = vb_record(a_side, spec["order"], spec["fields"]), vb_record(b_side, spec["order"],
+                                                                      spec["fields"])
+    ok, rows = True, {}
+    for field in spec["order"]:
+        m = vb_metrics(A[field], B[field])
+        for metric in VB_METRICS:
+            bound = spec["derived"][field][metric]
+            if m is None:
+                print("BOUNDWITNESS pair=%s field=%s metric=%s measured=unmeasurable derived=%.6g "
+                      "margin=none inside=no note=the reference side is all zero; a comparator over "
+                      "zeros cannot fail, so it is not a pass either" % (spec["pair"], field, metric,
+                                                                        bound))
+                ok = False
+                continue
+            measured = m[metric]
+            inside = measured <= bound * (1.0 + 1e-9)
+            margin = (bound / measured) if measured > 0 else float("inf")
+            print("BOUNDWITNESS pair=%s field=%s metric=%s measured=%.6g derived=%.6g margin=%.4g "
+                  "inside=%s for_leg=%s" % (tag, field, metric, measured, bound, margin,
+                                            "yes" if inside else "no", spec["pair"]))
+            rows[(field, metric)] = dict(measured=measured, derived=bound, inside=inside,
+                                         margin=margin)
+            ok = ok and inside
+    spec["witness"] = rows
+    spec["witness_ok"] = ok
+    spec["witness_A"] = A
+    return ok
+
+
+def value_band(v, ctx):
+    """Derive, then measure, for both D-28 pairs. Called once, after every arm record exists."""
+    ctx["vb"] = {}
+    for spec in vb_pair_specs(ctx):
+        vb_field_derive(ctx, spec)
+        same = spec["a_side"] != spec["b_side"]
+        if ctx["device"] and same:
+            vb_witness(spec, spec["a_side"], spec["b_side"], spec["pair"])
+        else:
+            vb_witness(spec, spec["host_a"], spec["b_side"], spec["host_pair"])
+            print("BOUNDWITNESS pair=%s field=all metric=all measured=not-claimed derived=see-above "
+                  "margin=none inside=not-claimed for_leg=%s note=no device record exists in a CPU "
+                  "witness, so the device-vs-host leg is not claimed here; the command that takes it "
+                  "is %s" % (spec["pair"], spec["pair"], window_command()))
+            spec["device_leg"] = "not-claimed"
+        ctx["vb"][spec["pair"]] = spec
+        spec["witness_ok"] = bool(spec.get("witness_ok"))
+    # Which verdict each compiled-pair check may reach: policy A and the GDN device leg in value space,
+    # every keeps-exact leg of D-28 at byte identity.
+    for width, p in (ctx.get("gpaths") or {}).items():
+        if width == "policy_a":
+            s = ctx["vb"].get("g_policy_a_hip_device_vs_hip_hostpath")
+            p["exact_leg"], p["pair_ok"] = False, bool(s and s.get("witness_ok"))
+        else:
+            p["exact_leg"] = True
+            p["pair_ok"] = p["pair"][1] == 0 and p["pair"][0] > 0
+    s = ctx["vb"].get("d_hip_device_vs_d_hip_hostpath")
+    ctx["d_pair_ok"] = bool(s and s.get("witness_ok"))
+
+
+D28_ESCALATE = {"armed": False, "offences": []}
+
+
+def d28_mechanism_offences(text, passing_pairs):
+    """Which passing pairs have a diagnostic leg naming a mechanism that is not the documented one.
+
+    Read off this run's printed lines, the way the contradiction guard is. Three shapes count, and
+    only these: an `unexplained=` count above zero on a reproduction leg, a pair whose reproduction "
+    legs exist but none of which came out EXACT-REPRODUCTION (the `steps=+1` withdrawal arm prints
+    RESIDUAL-LEFT on purpose, so a residual beside an exact leg is not an offence), a magnitude
+    screen whose CANDIDATE cause is not one of the documented transcendental causes, and — in a "
+    device run, where a leg is owed — no diagnostic leg for the pair at all.
+    """
+    offences = []
+    lines = (text or "").splitlines()
+    for pair in sorted(passing_pairs):
+        mine = [l for l in lines if pair in l]
+        repro = [l for l in mine if l.startswith(VB_DIAG_HEADS)]
+        for line in repro:
+            if re.search(r"unexplained=(?!0\b)\d+", line):
+                offences.append("%s: reproduction leg leaves work unexplained: %s" % (pair, line[:150]))
+        if repro and not any("verdict=EXACT-REPRODUCTION" in l for l in repro):
+            offences.append("%s: %d diagnostic legs and none reproduced this pair by the documented "
+                            "exp route" % (pair, len(repro)))
+        for line in mine:
+            if "verdict=CANDIDATE" in line:
+                m = re.search(r"cause=([a-z0-9_]+)", line)
+                if m and m.group(1) not in VB_DOCUMENTED_CAUSES:
+                    offences.append("%s: magnitude screen names a non-transcendental cause as "
+                                    "CANDIDATE (%s) while the value band passed"
+                                    % (pair, m.group(1)))
+        if D28_ESCALATE.get("require_repro") and not repro:
+            offences.append("%s: value band PASS with no diagnostic leg at all for the pair" % pair)
+    return offences
+
+
+def d28_qualification_decision(red, unlicensed, escalate):
+    """The one place the lane's verdict word is chosen, with D-28's clause wired in.
+
+    `QUALIFIED` and `PASS` are both refused while the clause is firing, and the refusal is a printed
+    verdict word of its own so a log reader cannot miss it.
+    """
+    if red:
+        return "FAIL"
+    if escalate:
+        return "ESCALATE-USER(d28-value-band-passed-off-mechanism)"
+    return "QUALIFIED" if unlicensed else "PASS"
+
+
+def vb_fabricate_at_limit(A, B, field, metric, bound, direction, layout):
+    """A copy of the A-side field perturbed to sit just inside, or just outside, one metric's bound.
+
+    The construction is closed-form per metric, so `at-limit` is not a guess that happens to land
+    inside: one element moved by `t*||b||` puts relL2 at t; one element at the denominator's floor
+    moved by `t*n*denom` puts the mean there; `floor(t*n)` differing words put ndiff_frac there. The
+    f32 cast of a large base value can round a hair past a continuous bound, so the leg is then
+    tightened (inside leg) or widened (outside leg) until it is unambiguously on its own side, and the
+    fraction it landed at is printed. Nothing is written to disk — these are in-memory fabrications and
+    say so.
+    """
+    a = np.array(A[field], dtype=np.float32)
+    b = np.asarray(B[field], dtype=np.float32)
+    n = a.size
+
+    def measure(values):
+        return vb_metrics(values, b)[metric]
+
+    def build(count=None, delta=None):
+        out = a.copy()
+        if metric == "ndiff_frac":
+            bits = out.view(np.uint32).copy()
+            bits[:count] ^= np.uint32(1)
+            return bits.view(np.float32)
+        out[build.index] = np.float32(float(b[build.index]) + delta)
+        if out[build.index] == a[build.index]:
+            out[build.index] = np.float32(np.nextafter(float(b[build.index]),
+                                                       float(b[build.index]) + (1.0 if delta >= 0
+                                                                                else -1.0)))
+        return out
+
+    if metric == "ndiff_frac":
+        count = int(np.floor(bound * n)) if direction == "inside" else \
+            min(n, max(int(np.ceil(bound * n)) + 1, 1))
+        out = build(count=count)
+        return out, measure(out), count / float(n)
+    y = b.astype(np.float64)
+    scale = float(np.max(np.abs(y)))
+    build.index = int(np.argmax(np.abs(y)))
+    if metric == "relL2":
+        unit = float(np.linalg.norm(y))
+    else:
+        unit = max(abs(float(y[build.index])), 1e-3 * scale) * n
+    if bound <= 0.0:
+        # A zero bound cannot be scaled: the at-limit leg is "nothing moved" and the one-past leg is the
+        # smallest move the format admits. That IS the zero-tolerance edge.
+        if direction == "inside":
+            return a.copy(), 0.0, 0.0
+        bits = a.view(np.uint32).copy()
+        bits[int(np.argmax(np.abs(y)))] ^= np.uint32(1)
+        out = bits.view(np.float32)
+        return out, measure(out), 0.0
+    steps = [1.0 * 0.75 ** k for k in range(40)] if direction == "inside" else \
+        [1.0 + 2.0 ** -4 + 1.5 * k for k in range(40)]
+    chosen = None
+    for k in steps:
+        out = build(delta=bound * unit * k)
+        value = measure(out)
+        ok = value <= bound if direction == "inside" else value > bound
+        if ok:
+            chosen = (out, value, k)
+            break
+    if chosen is None:
+        raise Refused("d28-edge-leg-wont-size",
+                      "the %s/%s %s leg could not be placed on its own side of the bound %.6g in 40 "
+                      "steps; a rejection leg that cannot be sized is not a rejection leg"
+                      % (field, metric, direction, bound))
+    return chosen
+
+
+def vb_must_catch_population(spec):
+    """One entry per structural boundary this record's own geometry offers, derived not listed.
+
+    Every entry is a real defect at a real coordinate of the block, and the coordinates come out of
+    the header-derived layout: 32 value heads of d_k*d_v words, the gate|up pair laid out along the
+    output dim, MG_K expert slots of MG_H words, and each field's own span boundary. If the geometry
+    changes the population changes with it, which is what makes the count a derivation.
+    """
+    items = [("span_off_by_one", "rotate %s by one f32 word: the image of reading a span from off+1 "
+                                 "(the field's own span boundary)" % spec["span_field"],
+              lambda R: _vb_rotate(R, spec["span_field"]))]
+    if spec["kind"] == "gdn":
+        d = spec["layout"]
+        heads, per_head = d["GDN_H_V"], d["GDN_D_K"] * d["GDN_D_V"]
+        if heads >= 2:
+            items.append(("state_two_heads_permuted",
+                          "swap head 0 and head 1 of the carried state (%d heads x %d words)"
+                          % (heads, per_head),
+                          lambda R: _vb_swap_blocks(R, "state", 0, 1, per_head)))
+            items.append(("state_one_head_zeroed",
+                          "zero head 2 of the state: one head's decay never applied",
+                          lambda R: _vb_zero_block(R, "state", 2, per_head)))
+        items.append(("carried_state_dropped",
+                      "zero the whole state field: the record-space image of the arm's own skip-carry "
+                      "fault (the carry stage never ran)", lambda R: _vb_zero_block(R, "state", 0,
+                                                                                   10 ** 9)))
+        if "g_decay" in [s["name"] for s in (ctx_g_decay(spec) or [])]:
+            items.append(("decay_sign_inverted",
+                          "state[h] *= exp(2*g_decay[h]) for every head: applying exp(-g) where §04b.1 "
+                          "step 1 says exp(+g) (record-space image, g_decay read from the slab span)",
+                          lambda R: _vb_invert_decay(R, spec)))
+    else:
+        g = spec["layout"]
+        items.insert(0, ("gate_up_halves_swapped",
+                         "exchange the gate and up halves (each MG_I=%d words, laid out along the "
+                         "output dim): the SwiGLU operand swap" % g["MG_I"],
+                         lambda R: _vb_swap_fields(R, "gate", "up")))
+        if g["MG_K"] >= 2:
+            items.insert(1, ("wrong_expert_id_slot_swapped",
+                             "exchange expert slot 0 and slot 1 of s/raw/up (MG_K=%d slots): a wrong "
+                             "expert id arrives under the right slot's weight" % g["MG_K"],
+                             lambda R: _vb_swap_slots(R, 0, 1, g)))
+    return items
+
+
+def ctx_g_decay(spec):
+    return spec.get("g_decay_spans")
+
+
+def _vb_rotate(R, field):
+    R[field] = np.roll(R[field], 1)
+    return R
+
+
+def _vb_zero_block(R, field, head, per_head):
+    lo = head * per_head
+    R[field][lo:lo + min(per_head, R[field].size - lo)] = 0.0
+    return R
+
+
+def _vb_swap_blocks(R, field, h0, h1, per_head):
+    a, b = h0 * per_head, h1 * per_head
+    tmp = R[field][a:a + per_head].copy()
+    R[field][a:a + per_head] = R[field][b:b + per_head]
+    R[field][b:b + per_head] = tmp
+    return R
+
+
+def _vb_swap_fields(R, f0, f1):
+    tmp = R[f0].copy()
+    R[f0][:] = R[f1][:]
+    R[f1][:] = tmp
+    return R
+
+
+def _vb_swap_slots(R, s0, s1, g):
+    for field, ln in (("s", g["MG_I"]), ("raw", g["MG_H"]), ("up", g["MG_I"]), ("gate", g["MG_I"])):
+        a, b = s0 * ln, s1 * ln
+        tmp = R[field][a:a + ln].copy()
+        R[field][a:a + ln] = R[field][b:b + ln]
+        R[field][b:b + ln] = tmp
+    return R
+
+
+def _vb_invert_decay(R, spec):
+    span = [s for s in spec["g_decay_spans"] if s["name"] == "g_decay"][0]
+    g = np.frombuffer(span["data"], dtype="<f4").astype(np.float64)
+    d = spec["layout"]
+    per_head = d["GDN_D_K"] * d["GDN_D_V"]
+    for h in range(min(d["GDN_H_V"], g.size)):
+        lo = h * per_head
+        R["state"][lo:lo + per_head] = (R["state"][lo:lo + per_head] * np.float32(
+            np.exp(2.0 * g[h]))).astype(np.float32)
+    return R
+
+
+def value_band_rejection(v, ctx):
+    """At-limit INSIDE / one-past-limit OUTSIDE, per pair per metric, on fabrications.
+
+    Sized from the bound, never from the spread (`blockdevice-wpre-scope-2026-10-26.md` §4 is the
+    precedent), and every leg is a fabrication that says so on the line. A band whose at-limit leg is
+    outside, or whose one-past-limit leg is inside, is not a band.
+    """
+    results, lines = True, []
+    for spec in ctx["vb"].values():
+        A, B = spec["witness_A"], vb_record(spec["b_side"], spec["order"], spec["fields"])
+        for metric in VB_METRICS:
+            field = next((f for f in spec["order"] if spec["derived"][f][metric] > 0),
+                         spec["order"][0])
+            bound = spec["derived"][field][metric]
+            outcomes = {}
+            for label, direction in (("at-limit", "inside"), ("one-past-limit", "outside")):
+                fake, measured, landed = vb_fabricate_at_limit(A, B, field, metric, bound, direction,
+                                                              spec["layout"])
+                inside = measured <= bound * (1.0 + 1e-9)
+                outcomes[label] = inside
+                print("BOUNDEDGE pair=%s metric=%s field=%s leg=%s bound=%.6g measured=%.6g "
+                      "sized_at=%.4g_of_bound inside=%s verdict=%s note=FABRICATION, in-memory only, "
+                      "one element (or round(bound*n) words) of the A-side copy, sized from the bound "
+                      "rather than from the spread"
+                      % (spec["pair"], metric, field, label, bound, measured, landed, inside,
+                         "INSIDE" if inside else "OUTSIDE"))
+            good = outcomes["at-limit"] and not outcomes["one-past-limit"]
+            if not good:
+                results = False
+            lines.append("%s/%s at-limit=%s one-past=%s" % (spec["pair"].split("_")[0], metric,
+                                                           outcomes["at-limit"],
+                                                           outcomes["one-past-limit"]))
+    ctx["vb_edges"] = dict(ok=results, lines=lines)
+
+
+def value_band_must_catch(v, ctx):
+    """The geometry-derived must-catch set: every injected real defect must redden a value band."""
+    printed = []
+    for spec in ctx["vb"].values():
+        spec["span_field"] = "state" if spec["kind"] == "gdn" else "raw"
+        if spec["kind"] == "gdn":
+            spec["g_decay_spans"] = [s for s in ctx["d"]["spans"] if s["name"] == "g_decay"]
+        B = vb_record(spec["b_side"], spec["order"], spec["fields"])
+        population = vb_must_catch_population(spec)
+        print("MUSTCATCH-DERIVE pair=%s derived=%d geometry=%s items=%s"
+              % (spec["pair"], len(population),
+                 ("GDN_H_V=%d GDN_D_K=%d GDN_D_V=%d state_span=%d words"
+                  % (spec["layout"]["GDN_H_V"], spec["layout"]["GDN_D_K"],
+                     spec["layout"]["GDN_D_V"], spec["fields"]["state"][1])) if spec["kind"] == "gdn"
+                 else ("MG_K=%d MG_I=%d MG_H=%d gate|up along the output dim, spans %s"
+                       % (spec["layout"]["MG_K"], spec["layout"]["MG_I"], spec["layout"]["MG_H"],
+                          ",".join("%d+%d" % spec["fields"][f] for f in ("gate", "up")))),
+                 ",".join(name for name, _, _ in population)))
+        caught = []
+        for name, what, apply in population:
+            fake = dict((f, arr.copy()) for f, arr in B.items())
+            apply(fake)
+            worst, outside = None, []
+            for field in spec["order"]:
+                m = vb_metrics(fake[field], B[field])
+                if not m:
+                    continue
+                for metric in VB_METRICS:
+                    if m[metric] > spec["derived"][field][metric] * (1.0 + 1e-9):
+                        outside.append("%s/%s %.3g>%.3g" % (field, metric, m[metric],
+                                                            spec["derived"][field][metric]))
+                        if worst is None or m[metric] > worst[0]:
+                            worst = (m[metric], field, metric)
+            reddens = "RED" if outside else "CLEAN"
+            if outside:
+                caught.append(name)
+            print("MUSTCATCH name=%s pair=%s injected=%s reddens=%s first=%s"
+                  % (name, spec["pair"], what, reddens, ";".join(outside[:3]) or "none"))
+            printed.append(dict(pair=spec["pair"], name=name, reddens=reddens))
+        spec["must_catch"] = printed[-len(population):]
+        spec["must_catch_derived"] = len(population)
+    ctx["vb_must_catch"] = printed
+
+
+def value_band_refuted_causes(v, ctx):
+    """The two causes D-28 says are refuted stay live controls that must keep failing.
+
+    `silu_exp_ulp1` (15,426 B against the 3,744 observed) and `decay_ulp1` (264,704 B against 52,976)
+    were priced as too big to be the device's mechanism. Each is re-priced here against the derived
+    bounds, and the line says plainly which way it came out:
+
+      * `teeth=yes` — the band still rejects it, in a value currency;
+      * `teeth=none` — the band does NOT reject it, and the line says THE BAND IS TOO WIDE and names
+        where the refutation is actually carried: these two causes were refuted by a **byte-count
+        ratio against the observed pair** (5x and 4x), which is device data, and a bound derived
+        without the device necessarily sizes the worst case over the whole documented site
+        population — so a 1-ULP injection on that population is inside it by construction. The live
+        control that keeps them refuted is then `GMAGMATCH`/`DMAGMATCH verdict=RULED-OUT`, which is
+        printed in every device window and reddens `gather-/gdn-divergence-causes-priced` if a cause
+        ever matches. This function refuses to pretend the value band did a job the byte ratio does.
+    """
+    rows = []
+    for spec in ctx["vb"].values():
+        cause = "silu_exp_ulp1" if spec["kind"] == "gather" else "decay_ulp1"
+        path = (ctx.get("g_cause_paths", {}).get("policy_a", {}) if spec["kind"] == "gather"
+                else ctx.get("d_cause_paths", {})).get(cause)
+        screen = (ctx.get("g_cause_match", {}) or {}).get("policy_a") if spec["kind"] == "gather" \
+            else ctx.get("d_cause_match")
+        if not path:
+            print("REFUTED-CAUSE cause=%s pair=%s status=not-exercised reason=no cause record in "
+                  "this run (the divergence control did not run it), so the width claim is untested"
+                  % (cause, spec["pair"]))
+            rows.append(dict(cause=cause, pair=spec["pair"], fails=None, carried=None))
+            continue
+        A = vb_record(path, spec["order"], spec["fields"])
+        B = vb_record(spec["b_side"], spec["order"], spec["fields"])
+        outside, inside = [], []
+        for field in spec["order"]:
+            m = vb_metrics(A[field], B[field])
+            if not m:
+                continue
+            for metric in VB_METRICS:
+                (outside if m[metric] > spec["derived"][field][metric] * (1.0 + 1e-9) else
+                 inside).append("%s/%s %.3g vs %.3g" % (field, metric, m[metric],
+                                                        spec["derived"][field][metric]))
+        fails = bool(outside)
+        # What still refutes this cause: the value band if it has teeth here, otherwise the byte-count
+        # magnitude ruler — whose verdict for THIS cause is read off the run's own DMAGMATCH/GMAGMATCH
+        # lines when they exist, and named as a required device-window print when they do not.
+        entry = [s for s in (screen or []) if "cause=%s " % cause in s]
+        ruler = ("verdict=%s" % entry[0].split("verdict=", 1)[1].split()[0] if entry
+                 else "leg-not-printed-in-this-run(mode=%s)"
+                 % ("device" if ctx["device"] else "cpu"))
+        carried = ("band:%s" % ",".join(sorted(set(x.split("/")[1] for x in outside)))
+                   if fails else
+                   "byte-count-ruler(%s)%s" % (
+                       ruler,
+                       "" if entry else "; required print wherever a real device record exists: "
+                       "DMAGMATCH/GMAGMATCH verdict=RULED-OUT cause=%s, taken by %s"
+                       % (cause, window_command())))
+        print("REFUTED-CAUSE cause=%s pair=%s must_keep_failing=%s teeth=%s outside=%s inside=%s "
+              "verdict=%s refutation_carried_by=%s%s"
+              % (cause, spec["pair"], "yes", "yes" if fails else "none",
+                 ";".join(outside[:4]) or "none", ";".join(inside[:4]) or "none",
+                 "STILL-REFUTED" if fails else "NOW-INSIDE-BAND",
+                 carried,
+                 "" if fails else " note=THE BAND IS TOO WIDE for this cause in value space: it was "
+                 "refuted on a byte-count ratio (264,704 B injected against 52,976 B observed on the "
+                 "GDN pair, 15,426 B against 3,744 B on policy A), and a bound derived without the "
+                 "device necessarily sizes the worst case over the whole documented site population, so "
+                 "a 1-ULP injection on that population sits inside it. Saying so is D-28 §3; pretending "
+                 "the value band did that job would be the wider error"))
+        rows.append(dict(cause=cause, pair=spec["pair"], fails=fails, carried=carried))
+    ctx["vb_refuted"] = rows
+
+
+def vb_diag_print_sites():
+    """Every print statement in this file that can emit a GREPRO/DREPRO/DREPRO-WIN leg.
+
+    Returned as `(head, labelled)` pairs, where `labelled` says the emitted text carries
+    `role=diagnostic gate=no`. The scan is structural (AST over this file's own source) because in a
+    CPU run not one of these legs prints, and a check that reads zero legs would pass by silence.
+    """
+    src = Path(__file__).read_text()
+    tree = ast.parse(src)
+    sites = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and getattr(node.func, "id", "") == "print" and node.args):
+            continue
+        first = node.args[0]
+        # The legs are printed as `("GREPRO … %s" % (...))`, so the argument is a `%` BinOp whose left
+        # operand is the literal that names the leg.
+        if isinstance(first, ast.BinOp) and isinstance(first.op, ast.Mod):
+            first = first.left
+        if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
+            continue
+        head = first.value.split()[0]
+        if head in VB_DIAG_HEADS:
+            sites.append((head, "role=diagnostic gate=no" in ast.get_source_segment(src, node)))
+    return sites
+
+
+def checks_d28(v, ctx):
+    """What the value bands may claim, and the counters that keep each of them from being decorative."""
+    specs = ctx.get("vb") or {}
+    if not specs:
+        return
+    text = run_text(ctx)
+    lines = text.splitlines()
+    bound_lines = [l for l in lines if l.startswith("BOUNDFROM ") and " derived=" in l]
+    witness_lines = [l for l in lines if l.startswith("BOUNDWITNESS ")]
+    expected = sum(len(s["order"]) * len(VB_METRICS) for s in specs.values())
+
+    v.check("d28-bound-and-witness-lines-are-parsed-not-assumed",
+            len(bound_lines) == expected and len(witness_lines) >= expected
+            and all(re.search(r"derived=(\d|inf)", l) for l in bound_lines),
+            "every BOUNDFROM the run printed is one of the %d (pair, field, metric) cells the record "
+            "layouts derive (%s), every derived number parsed, and at least one BOUNDWITNESS per cell: "
+            "printed BOUNDFROM=%d BOUNDWITNESS=%d. A count that parsed nothing would print PASS"
+            % (expected, ";".join("%s:%dx%d" % (p, len(s["order"]), len(VB_METRICS))
+                                   for p, s in sorted(specs.items())),
+               len(bound_lines), len(witness_lines)))
+
+    single = [l for l in bound_lines if "single_source=yes" in l]
+
+    def cell(l, key):
+        m = re.search(r" %s=(\S+)" % key, l)
+        return m.group(1) if m else "?"
+
+    def is_zero(l):
+        try:
+            return float(cell(l, "derived")) == 0.0
+        except ValueError:
+            return False
+
+    # A single documented source is admissible in exactly three shapes, each argued rather than waved
+    # through: (a) a zero-tolerance cell, where the arm's own reach claim is the whole argument and zero
+    # is the strictest bound the documentation admits; (b) a `gather.raw` cell, which D-14 admits on the
+    # strength of the grown must-catch set because no device-free probe reaches the down_proj dot; (c) a
+    # count cell whose other two source families are each printed unavailable with a reason — the
+    # licensor publishes no count of differing words, and a floor probe's count doubles past 1.0 and so
+    # forbids nothing.
+    unadmitted = []
+    for l in single:
+        field, metric = cell(l, "field"), cell(l, "metric")
+        if is_zero(l) or field == "raw":
+            continue
+        unav = l.split(" unavailable=", 1)[1] if " unavailable=" in l else ""
+        if metric == "ndiff_frac" and "licensor_band_triangle" in unav and "fp64_floor_probe" in unav:
+            continue
+        unadmitted.append("%s/%s" % (field, metric))
+    drift = []
+    for l in bound_lines:
+        # A printed source count that disagrees with the source list it prints is a drift between the
+        # claim and its content, and this is the only place that would notice.
+        m = re.search(r"sources=(\d+)\[(.*?)\] derived=", l)
+        if not m or int(m.group(1)) != (0 if not m.group(2) else len(m.group(2).split(" AND "))):
+            drift.append(l[:100])
+    no_reason = [l for l in bound_lines if " unavailable=" in l
+                 and "unavailable=none" not in l
+                 and any("reason=" not in e
+                         for e in l.split(" unavailable=", 1)[1].split("|") if e)]
+    v.check("d28-bounds-come-from-documented-sources",
+            not drift and not no_reason and not unadmitted,
+            "%d BOUNDFROM cells, every one carrying at least one documented source; the single-source "
+            "set is admitted by three named shapes — zero-tolerance cells (the arm's reach claim, "
+            "derived=0), gather.raw (D-14, on the strength of the grown must-catch set), and count cells "
+            "whose other two source families are each printed unavailable with a reason. Sources are "
+            "mr_exp x the arm's own host-path finite difference, the licensor's published band by the "
+            "triangle inequality (only where the path under test is licensed), and the fp64 floor probe "
+            "of the record's own operands; each unavailable source names its reason. "
+            "single_source=%s unadmitted=%s source-count-drift=%s reasonless=%s"
+            % (len(bound_lines),
+               ",".join(sorted(set("%s/%s" % (cell(l, "field"), cell(l, "metric")) for l in single)))
+               or "none", unadmitted or "none", drift or "none",
+               [l[:100] for l in no_reason] or "none"))
+
+    edges = ctx.get("vb_edges") or {}
+    not_inside = ["%s %s/%s %.6g>%.6g" % (p, field, metric, row["measured"], row["derived"])
+                  for p, s in sorted(specs.items())
+                  for (field, metric), row in sorted(s["witness"].items()) if not row["inside"]]
+    v.check("d28-value-band-witness-inside-and-edge-legs-reject",
+            not not_inside and bool(edges.get("lines")) and edges.get("ok") is not False,
+            "the measurement is a separate witness line, never folded into the PASS: %d BOUNDWITNESS "
+            "cells, outside=%s; and the rejection legs have a real edge (%s) — at-limit INSIDE and "
+            "one-past-limit OUTSIDE per metric, sized from the bound rather than from the spread, each "
+            "leg a labelled in-memory fabrication. A band that cannot reject is not a band."
+            % (len(witness_lines), ";".join(not_inside) or "none",
+               "; ".join(edges.get("lines") or []) or "NOT RUN"))
+
+    caught = ctx.get("vb_must_catch") or []
+    derived_total = sum(s.get("must_catch_derived", 0) for s in specs.values())
+    clean = ["%s/%s" % (c["pair"], c["name"]) for c in caught if c["reddens"] != "RED"]
+    v.check("d28-must-catch-set-is-derived-and-reddens",
+            bool(caught) and len(caught) == derived_total and derived_total > 0 and not clean,
+            "%d injected real defects, one per structural boundary of the geometry that offers it "
+            "(32 heads of d_k*d_v words, the gate|up pair along the output dim, %d expert slots, each "
+            "field's own span boundary), printed MUSTCATCH lines=%d, derived=%d, every one of them "
+            "REDDENS=RED (clean: %s). D-14 admits a documented-route bound only while this set grows "
+            "with it, and a set that parses to zero reddens this run rather than passing it"
+            % (len(caught), (ctx["gpaths"]["policy_a"]["g"]["MG_K"] if ctx.get("gpaths") else 0),
+               len(caught), derived_total, ",".join(clean) or "none"))
+
+    refuted = ctx.get("vb_refuted") or []
+    bad = ["%s/%s" % (r["cause"], r["pair"]) for r in refuted
+           if r["fails"] is None or not r["carried"]]
+    v.check("d28-refuted-causes-still-refuted-and-say-what-carries-it",
+            bool(refuted) and len(refuted) == len(specs) and not bad,
+            "the two causes D-28 refuted on magnitude are re-priced against the derived bounds "
+            "(%s). A cause that lands inside every value bound is reported as teeth=none with THE BAND "
+            "IS TOO WIDE on its line and names the live control that still refutes it — the "
+            "GMAGMATCH/DMAGMATCH byte-count ratio, which is device data and the only ruler that was "
+            "ever able to separate 15,426 B from 3,744 B or 264,704 B from 52,976 B. Unpriced or "
+            "unattributed refutations: %s"
+            % (";".join("%s[%s]=%s(%s)" % (r["cause"], r["pair"].split("_")[0],
+                                          "still-refuted" if r["fails"] else "inside-band",
+                                          r["carried"]) for r in refuted) or "not exercised", bad or "none"))
+
+    repro = [l for l in lines if l.startswith(VB_DIAG_HEADS)]
+    unlabelled = [l.split()[0] for l in repro if "role=diagnostic gate=no" not in l]
+    # In a CPU witness not one of these legs prints (they are device legs, and the run says so with a
+    # DVOID required-print line), which would make a legs-only claim vacuous. The non-vacuous form is
+    # structural: every print site that could emit one of the three legs must carry the label.
+    sites = vb_diag_print_sites()
+    missing_sites = sorted(set(VB_DIAG_HEADS) - set(h for h, _ in sites))
+    unlabelled_sites = [h for h, ok in sites if not ok]
+    dvoid = [l for l in lines if l.startswith("DVOID") and "required-print=" in l
+             and any(h in l for h in VB_DIAG_HEADS)]
+    pair_checks = [l for l in lines if l.startswith("CHECK name=")
+                   and ("compiled-pair-value-agreement" in l)]
+    decided_by_bytes = [l.split(" ")[1] for l in pair_checks if "vs_device_record_ndiff_bytes" in l]
+    cites_witness = [l for l in pair_checks if "BOUNDWITNESS cells" in l]
+    recomputed = all(bool(s.get("witness_ok")) == ("verdict=PASS" in l)
+                     for s in specs.values()
+                     for l in pair_checks if s["host_pair"].split("_")[1] in l
+                     or s["pair"].split("_")[1] in l)
+    v.check("d28-diagnostic-legs-are-labelled-and-do-not-decide",
+            not unlabelled and not missing_sites and not unlabelled_sites
+            and not decided_by_bytes and len(cites_witness) == len(pair_checks)
+            and bool(pair_checks) and recomputed,
+            "%d %s legs printed this run (%d DVOID lines name them as required device prints); every "
+            "print site that can emit one — %s — carries `role=diagnostic gate=no`, and the %d pair "
+            "CHECK lines decide on %d BOUNDWITNESS cells and cite none of the reproduction byte counts "
+            "(unlabelled=%s unlabelled_sites=%s sites_missing=%s byte-decided=%s missing-witness-cite=%d "
+            "verdict-mismatch=%s). Byte identity was the instrument that proved the mechanism; D-28 "
+            "keeps it legible and takes its vote"
+            % (len(repro), "/".join(VB_DIAG_HEADS), len(dvoid),
+               ",".join("%s(%s)" % (h, "labelled" if ok else "UNLABELLED")
+                        for h, ok in sorted(sites)) or "NONE", len(pair_checks), len(witness_lines),
+               unlabelled or "none", unlabelled_sites or "none", missing_sites or "none",
+               decided_by_bytes or "none",
+               len(pair_checks) - len(cites_witness),
+               "yes" if not recomputed else "no"))
+
+    fabricated_text = "\n".join([
+        "DREPRO pair=d_hip_device_vs_d_hip_hostpath probe=decay_ulp_mask steps=-1 mask=0x1 "
+        "heads=0 path=host_cpubody record_bytes=2187264 vs_device_record_ndiff_bytes=75206 "
+        "verdict=RESIDUAL-LEFT role=diagnostic gate=no",
+        "DMAGMATCH pair=d_hip_device_vs_d_hip_hostpath cause=state_xpose device_bytes=52976 "
+        "injected_bytes=52999 ratio=1.000 same_fields=True within_factor_two=True verdict=CANDIDATE",
+    ])
+    demo = d28_mechanism_offences(fabricated_text, {"d_hip_device_vs_d_hip_hostpath"})
+    live_offences = d28_mechanism_offences(text, set(p for p, s in specs.items()
+                                                     if s.get("witness_ok")))
+    D28_ESCALATE["offences"] = live_offences
+    word = d28_qualification_decision(0, 1, bool(live_offences))
+    v.check("d28-escalation-clause-refuses-qualification",
+            bool(demo) and (not live_offences or word.startswith("ESCALATE"))
+            and d28_qualification_decision(0, 1, False) == "QUALIFIED",
+            "the clause is wired as a rule and demonstrated: a fabricated log in which a value band "
+            "passed beside a non-exp mechanism (%d legs named: %s) produced %d refusal(s), while the "
+            "same predicate on this run's real diagnostics found %d and the verdict word computed here "
+            "is `%s`. If the mechanism ever stops being the documented exp last bit the run stops "
+            "printing QUALIFIED and stops to escalate to the user instead"
+            % (2, "residual-left repro + CANDIDATE cause=state_xpose", len(demo),
+               len(live_offences), word))
+
+
 def checks_g(v, ctx, g_runs, g_rows, g_tally, censuses):
     """Everything the gather vertical is allowed to claim, expressed over parsed reports."""
     if not ctx.get("gpaths"):
@@ -4073,12 +5134,23 @@ def checks_g(v, ctx, g_runs, g_rows, g_tally, censuses):
     v.check("gather-honest-record-has-no-unwritten-slot", not bad,
             "the honest records carry no NaN in any field on either path (offending: %s); the poison "
             "control is what shows that count can be non-zero" % (",".join(bad) or "none"))
-    v.check("gather-compiled-pair-byte-identical-per-path",
-            all(p["pair"][1] == 0 and p["pair"][0] > 0 for p in ctx["gpaths"].values()),
-            "per width path, g++ twin vs hipcc: %s at zero tolerance. One aggregate would let one path "
-            "cancel the other's difference" % ",".join("%s bytes=%d ndiff=%d"
-                                                      % (w, p["pair"][0], p["pair"][1])
-                                                      for w, p in sorted(ctx["gpaths"].items())))
+    # D-28: the policy-A device pair is judged in VALUE space, per field, against the bounds
+    # `BOUNDFROM` derived before it was measured; the bf16 reference pair stays byte-exact because D-28
+    # names it in its keeps-exact list. One aggregate would still let one path cancel the other's
+    # difference, so both paths are answered separately and the host-twin leg of each is zero tolerance.
+    g_value_ok = all(p["pair_ok"] for p in ctx["gpaths"].values())
+    v.check("gather-compiled-pair-value-agreement-per-path", g_value_ok,
+            "per width path, hipcc device arm vs hipcc host path, with the g++ twin pair at zero "
+            "tolerance beside it: %s. policy A is judged per field in value space under the derived "
+            "bounds (%d BOUNDWITNESS cells, every inside=yes or an explicit not-claimed); the bf16 "
+            "reference gather is judged at byte identity on every field, which is what D-28 left it at. "
+            "The old byte-identity witness for the policy-A pair survives as a diagnostic "
+            "(`GREPRO … role=diagnostic gate=no`) and casts no vote"
+            % (",".join("%s bytes=%d ndiff=%d[%s] value=%s" % (w, p["pair"][0], p["pair"][1],
+                                                              "exact" if p["exact_leg"] else "banded",
+                                                              "PASS" if p["pair_ok"] else "FAIL")
+                        for w, p in sorted(ctx["gpaths"].items())),
+               len([1 for s in (ctx.get("vb") or {}).values() for _ in s["witness"]])))
     fmt = ctx.get("gformat") or []
     fmt_offences = ["%s slot%d %s: bytes=%d != blocks=%d x block_bytes=%d"
                     % (r["role"], r["slot"], r["tensor"], r["bytes"], r["blocks"], r["block_bytes"])
@@ -5071,16 +6143,26 @@ def checks_d(v, ctx, d_runs, d_rows, d_tally, d_censuses, d_pop):
             "the honest record carries no poison in any of its seven fields (offending fields: %s); the "
             "poison control is the leg that shows that count can be non-zero"
             % (",".join(k for k, n in sorted(honest_nan.items()) if n) or "none"))
-    v.check("gdn-compiled-pair-byte-identical",
-            ctx["d_pair"][1] == 0 and ctx["d_pair"][0] > 0
-            and (ctx["d_device_pair"] is None or ctx["d_device_pair"][1] == 0),
-            "g++ twin vs hipcc host path over %d B: ndiff_bytes=%d at zero tolerance%s. A non-zero here "
-            "is a codegen finding, never a band to absorb: the two compilers are handed one arithmetic "
-            "(`engine/device/m2_d_kernels.h` is the only place it is written), so agreement is what the "
-            "shared body promises and disagreement is a compiler question, not a licence question"
+    # D-28: same split for the GDN pair. The g++ twin vs hipcc host path leg is still byte identity —
+    # one arithmetic, two compilers, and disagreement there is a codegen finding, never a band — and the
+    # device-vs-host leg is now judged per field in value space against a bound derived from documents
+    # and a host-path floor probe rather than from the record it judges.
+    d_value_ok = (ctx["d_pair"][1] == 0 and ctx["d_pair"][0] > 0
+                  and bool(ctx.get("d_pair_ok")))
+    v.check("gdn-compiled-pair-value-agreement", d_value_ok,
+            "g++ twin vs hipcc host path over %d B: ndiff_bytes=%d at zero tolerance%s, and the device "
+            "vs host-path leg is judged in value space over %d BOUNDWITNESS cells (all inside=%s). A "
+            "twin-pair non-zero here is still a codegen finding, never a band to absorb: the two "
+            "compilers are handed one arithmetic (`engine/device/m2_d_kernels.h` is the only place it "
+            "is written). The byte-identity witness for the device leg survives as a diagnostic "
+            "(`DREPRO/DREPRO-WIN … role=diagnostic gate=no`) and casts no vote; the value band decides, "
+            "and D-28's escalation clause refuses the verdict if the mechanism is not the documented "
+            "exp last bit"
             % (ctx["d_pair"][0], ctx["d_pair"][1],
                "" if ctx["d_device_pair"] is None
-               else ", and device vs host path ndiff_bytes=%d" % ctx["d_device_pair"][1]))
+               else " (device-vs-host byte count %d, reported not judged)" % ctx["d_device_pair"][1],
+               len((ctx.get("vb", {}).get("d_hip_device_vs_d_hip_hostpath") or {}).get("witness") or {}),
+               "yes" if ctx.get("d_pair_ok") else "no"))
     v.check("gdn-state-span-binds-the-arm-slab",
             all(b["slab_sha"] == b["file_sha"] for b in ctx["d"]["binds"])
             and len(ctx["d"]["binds"]) == len(ctx["d"]["spans"]),
@@ -5397,6 +6479,12 @@ def run(out, args):
     ctx["honest_rows"] = rows
     parsed = BG.parse_printed(out.text())
     ctx["text"] = out.text()
+    # D-28: the value bands are derived and witnessed once, after every arm record exists and before any
+    # check that may cite them. Order matters here for the same reason it mattered to the contradiction
+    # guard: a bound derived after the pair was measured would be a fit, and a witness with no bound to
+    # sit inside is a number with no meaning.
+    D28_ESCALATE["require_repro"] = bool(device)
+    value_band(v, ctx)
 
     control_corrupt(v, ctx)
     control_launch_failure(v, ctx)
@@ -5433,6 +6521,12 @@ def run(out, args):
     control_d_plan_refusals(v, ctx)
     control_d_device_ask_refuses(v, ctx)
     control_claim_scan(v, ctx)
+    # D-28's three witnessed halves: the rejection edge sized from the bound, the geometry-derived
+    # must-catch set, and the two refuted causes that must stay outside the band. Each reads the bounds
+    # `value_band` derived, so all three come after it and before the checks that count them.
+    value_band_rejection(v, ctx)
+    value_band_must_catch(v, ctx)
+    value_band_refuted_causes(v, ctx)
     gpu_after = gpu_context_witness("after")
     v.check("cpu-witness-had-no-gpu-context",
             (not device and not gpu_before["self_present"] and not gpu_after["self_present"])
@@ -5456,6 +6550,7 @@ def run(out, args):
     checks_rt(v, ctx, rt_runs)
     checks_g(v, ctx, g_runs, g_rows, g_tally, g_censuses)
     checks_d(v, ctx, d_runs, d_rows, d_tally, d_censuses, ctx["d_pop"])
+    checks_d28(v, ctx)
 
     if st["hip"] is not None:
         st["hip"].free_all()
@@ -5475,7 +6570,8 @@ def run(out, args):
     # check printing between the two summaries.
     check_terminal_tally(v, ctx)
     red = len(v.red)
-    verdict = "FAIL" if red else ("QUALIFIED" if tally["unlicensed"] else "PASS")
+    D28_ESCALATE["armed"] = bool(D28_ESCALATE["offences"])
+    verdict = d28_qualification_decision(red, tally["unlicensed"], D28_ESCALATE["armed"])
     print("STAGETALLY arms=1 licensed=%d accepted=%d rejected=%d unlicensed=%d"
           % (tally["licensed"], tally["accepted"], tally["rejected"], tally["unlicensed"]))
     print("BLOCKDEVICE verdict=%s block=layer0 subsystem=shared_expert+router+gdn_recurrent rows=%d "

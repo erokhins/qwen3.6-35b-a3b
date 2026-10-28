@@ -249,3 +249,51 @@ declared and asserted) but not the log filenames, because those read `…-2026-1
 pattern missed the hyphen. Window `k` therefore overwrote window `j`'s scratch logs; the committed
 copies under `specification/evidence/` were untouched and the files have since been renamed and the
 script corrected. A derived script has to be checked for what it did *not* substitute.
+
+## Window `l` — 2026-10-27 — D-28's value bands on real device output: every measurement inside, one metric with no teeth
+
+Sixth window: scratch purged, arms rebuilt, two identical `--device` runs, tag asserted, engine-down
+from `rocm-smi`. **No timing taken.**
+
+```
+RESULT mode=device checks=71 findings=3 controls=32 fired=30 device=on staged=admitted counters_unparsed=0
+gather-compiled-pair-value-agreement-per-path  verdict=PASS   (policy_a bytes=122,880 ndiff=3,744 [banded])
+gdn-compiled-pair-value-agreement              verdict=PASS   (host pair ndiff 0; device byte count 52,976 reported not judged)
+BOUNDWITNESS 36 cells, outside=none, inside=yes on all of them
+MUSTCATCH 8 injected real defects, all reddens=RED
+CHECK d28-escalation-clause-refuses-qualification verdict=PASS  (fabricated pass-with-foreign-mechanism is refused)
+```
+
+Measured against derived, with the margin printed rather than implied:
+
+| field | metric | measured | derived | margin |
+|---|---|---|---|---|
+| gather `s` | rel-err | 1.368e-09 | 3.620e-08 | 26.5 |
+| gather `raw` | rel-err | 8.455e-08 | 6.262e-07 | 7.41 |
+| gather `raw` | ndiff_frac | 0.1700 | 0.8555 | 5.03 |
+| gather `routed` | rel-err | 2.232e-07 | 3.249e-07 | **1.46** |
+| gather `routed` | ndiff_frac | 0.4019 | 0.8589 | 2.14 |
+| GDN `state` | relL2 | 3.136e-08 | 1.743e-07 | 5.56 |
+| GDN `state` | ndiff_frac | 0.0994 | 0.6951 | 6.99 |
+
+The tightest cell (`routed` rel-err, 1.46×) is only just inside, which is what a derived bound should
+look like — a band with 100× headroom everywhere would be measuring nothing.
+
+**The run is still FAIL, and on the rejection side, not the agreement side.**
+`d28-value-band-witness-inside-and-edge-legs-reject verdict=FAIL` reports the edge legs as
+`g/ndiff_frac at-limit=False` and `d/ndiff_frac at-limit=False` while the other four metrics behave
+(`at-limit=True one-past=False`). So the `ndiff_frac` metric has **no demonstrated power to reject**:
+its "sized at the bound" fabrication already lands outside the bound, most likely because the metric
+is quantised in whole words (1/4096 = 2.44e-04) and the sizing crosses the boundary on the way up.
+A band that cannot reject is not a band, so this stays red until the legs are sized so that one leg
+sits at the last word inside and the next sits at the first word outside.
+
+**One clause of D-28 is not satisfiable as written, stated here rather than buried.**
+`REFUTED-CAUSE cause=decay_ulp1 … teeth=none outside=none` — in value space the refuted whole-record
+`decay_ulp1` cause is no longer distinguishable, because value bands are deliberately looser than byte
+identity. It was refuted on *byte* magnitude (264,704 against 52,976), and that axis still distinguishes
+it — the `GATTRIB`/`DATTRIB` byte counts are still printed as diagnostics. So "the two refuted causes
+remain live controls that must keep failing" is carried by the diagnostic byte axis for `decay_ulp1`,
+not by the value band, and `silu_exp_ulp1` is carried by both (`teeth=yes outside=routed/rel-err
+5.65e-07 vs 3.25e-07`). The clause is amended to say which axis carries which cause; it is not relaxed,
+because the byte diagnostic still fails that cause.
