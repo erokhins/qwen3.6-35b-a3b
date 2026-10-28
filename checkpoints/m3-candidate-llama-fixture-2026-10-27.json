@@ -1,0 +1,7487 @@
+{
+ "byte_blobs": {
+  "durability": "scratch \u2014 this lane was closed to data/, so the candidate's bytes live outside the repo and every claim about them is a digest in this file plus the instrument manifest",
+  "location": "/tmp/m3-align/dumps/d3",
+  "promote_by": "moving them under data/dumps/ is part of registering the fixture, which is the user's act (D-18); the digests here are what to verify after the move (tools/llama_aligned_run.py witness path, or llama_dump_verify.py self)",
+  "rows_rehashed_from_disk": 460,
+  "rows_written_total": 3639
+ },
+ "coverage": {
+  "blocks_with_any_dump": 40,
+  "blocks_with_crosscheck_tensors": 40,
+  "crosscheck_rows": 430,
+  "hf_blocks_numerically_comparable": [
+   "layer0",
+   "layer1"
+  ],
+  "hf_blocks_on_disk": [
+   "layer0",
+   "layer1",
+   "layer38",
+   "layer39"
+  ],
+  "hf_blocks_structural_only": [
+   "layer38",
+   "layer39"
+  ],
+  "layers": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7,
+   8,
+   9,
+   10,
+   11,
+   12,
+   13,
+   14,
+   15,
+   16,
+   17,
+   18,
+   19,
+   20,
+   21,
+   22,
+   23,
+   24,
+   25,
+   26,
+   27,
+   28,
+   29,
+   30,
+   31,
+   32,
+   33,
+   34,
+   35,
+   36,
+   37,
+   38,
+   39
+  ],
+  "layers_2_to_37_licensed_as": "llama-crosscheck(cross-check only: no unquantized reference for these blocks exists on this box, D-26 clause 1)",
+  "limitation": "full-40-block logits/activation truth is available ONLY from the quantized oracle: models/qwen36-src/ holds 4 of 26 safetensors shards (layers 0, 1, 38, 39), so HF can calibrate layer0/layer1 numerically and layers 38/39 are structural-only because the pinned chain jumps layer1 -> layer38 (the fixture's own block_set.why_not_contiguous). There is no bf16 truth for layers 2..37 on this box at all."
+ },
+ "crosscheck": [
+  {
+   "block": 0,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_000_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 5,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "08cfb647983b6240a41c3c8fff2de38b5bb47806d863f3fbbb93541a88879231",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 0,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_000_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 53,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "265c7dca737a14496adb95cae0db27da036929994dfc5f44400b6f3cab7a5d45",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 0,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_000_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 64,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "56e9fc5fada68920362ef2a024eb5f245cec77fde3006b282d09835a6ce04bc0",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 0,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_000_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 62,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "9c475b9e648c42700fb25091043800cb961fcd2a6dbb9c4142fbf14d265d201c",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 0,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_000_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 65,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "dd0e9911002e304941b74137f1f01072589af2c6a2e3b134236500cb26432a51",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 0,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_000_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 96,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "a7152f2099fa7b5d43b32fad66f747334c3fe3195c18ff470b1cf4cd870f3e79",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 0,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_000_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 66,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "5b0f4f0db9511b424de41eb10fe5a75b76ea3abed0188fc12bce2bbe1157e189",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 0,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_000_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 74,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "f809bf7813b58f2a0e6a694d82f8f74be4688fff2401d2a60d84364383e3b617",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 0,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_000_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 104,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "a888f6a2f94d9fbdf925d6a751e11ab83c17ccbeef390f8be0738e267d647210",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 0,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_000_l_out_1.bin",
+   "name": "l_out",
+   "node": 105,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "8b3f2791b3654eae15df1d8f97507f862a123cc8c78b06917723438a7425d023",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 0,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_000_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 61,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "c12fa3d5542d736d0b0847f210e3d92f64e6b0e94e50734c725ad71ca39d38f0",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 1,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_001_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 107,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "b608bd5e1655c259de1ffa96da55ce82be574df6df25427f7c29d8d99c2aacee",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 1,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_001_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 155,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "494784494b210ee37f83a521c4a8d616553f9ce441366f9407280abb30fd5b7c",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 1,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_001_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 166,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "b7d637c54d6a27c1ffe725f11d2b34d84a9f4d4d74b8106adccc288e5b540ff6",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 1,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_001_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 164,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "62844fd417076f0fd64ebaa8da2e07e2b1a2cec7254a72146f183f9d4c5b660b",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 1,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_001_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 167,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "37a2a699280e80db39dd7f448764ba649894653f63e0ba5a56995fccb8500dde",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 1,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_001_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 198,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "427e5a669f43872dfee4e649ac6163c976226cfbb099008829f71ca883ad542e",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 1,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_001_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 168,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "3f8e6c7dc9796583890d2773d1bfd099eaf31442b54fd2ccb4fdbb2fd9488933",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 1,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_001_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 176,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "ea8ab07c43737ed43fcc40b62b7f9d0142ae3031de524f9dce1c957d1450f236",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 1,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_001_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 206,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "2d59bfa17022ca4a8ce0169d47316add0cfa0d25cd30ade319560b2cabe82b58",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 1,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_001_l_out_1.bin",
+   "name": "l_out",
+   "node": 207,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "188c10bdc5ebcc7b6874fbe03bb4f421e3fd14a67d7d21b67427718211da726e",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 1,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_001_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 163,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "5488210fdc28ac75172dcd8de1fbc57f2bb14d1068e26ab6b7a38ba9d31a24a7",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 2,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_002_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 209,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "7ac231d354f3f983a93866e09f863181e104fb21f26628c6a5c3f4bfacf1f84e",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 2,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_002_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 257,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "ec069e6bd4c30f3cd18f7c04df6c8cda621f8e77e2afc4c0c489b4c077a3d74d",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 2,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_002_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 268,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "dbec45d80d94f0f157c655b219717c2f0a159b8168d206b5f5fcddc392a17a56",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 2,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_002_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 266,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "160f23eb41e704314acc0ed0b30e32d87a7d538a0ec60c96fc9d8babf756e4e0",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 2,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_002_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 269,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "df8f3750105939f9bb5f732e49b489b279f524fae70aae6c5dbb91103831d91f",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 2,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_002_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 300,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "94a88897c09d8ccd360ea0a4cc12131841afcf404413da7985ab2d2af5603ebf",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 2,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_002_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 270,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "b5285e25f4c60dc6378eae26862a7323a608668d24299bd2aad7fea280d81f2f",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 2,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_002_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 278,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "2f0feffc00beef0c49c5f0f452ce9d3502525b9eb6314e6b58963db5e387e315",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 2,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_002_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 308,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "d5c2b58e55e5985a71f45b7eaf99811a8a3c290b5ec0e3ddfb07c05b03910cbb",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 2,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_002_l_out_1.bin",
+   "name": "l_out",
+   "node": 309,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "30342f23ded549673be51aa23bb012fe035c10208059130037a01fb03476d508",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 2,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_002_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 265,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "790de84c8def996c39ab27237fafda76b4f58f166a2eb5bc10fd04a1c439517c",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 3,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_003_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 311,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "afbb0fabe5f015a4a9a46e4818db30a195e508392dc382ee6984f1261fedcf7f",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 3,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_003_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 340,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "460dede6e92c88649f2765c20588e1c17323bdb1c224c16261d6f02485294de9",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 3,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_003_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 343,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "5ca437adfb0f54851087366e44ff8cf7ea4d104b43a65fc6845a720d66f8a8f8",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 3,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_003_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 341,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "466a0d7413733f922aa762c8dbde57dd43df4ea6ff89692ad6e8bf1dcfa59f91",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 3,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_003_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 344,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "5907d4ddf0ead831bba57fe27d44a5b5a4678ac32fb11425bdffe032c8bdd12d",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 3,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_003_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 375,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "ba9f308852d288e2201385be520d95805b825b443fad363abbdfa919e6f48d0d",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 3,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_003_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 345,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "38e79adfb39ef7456a31d24fe53a147bee732d22e6383e849d320a25080356eb",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 3,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_003_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 353,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "1f9c58a53d456c33f4eeb6ca3f7c4a9c3f7ab475d35283978325d37c1b5e4730",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 3,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_003_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 383,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "37be449262b9671d12d0654483b880470bea238b8553415c919d55f3637225ff",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 3,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_003_l_out_1.bin",
+   "name": "l_out",
+   "node": 384,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "079dad49715bbf098f41e31008962edd557bc69bac643f98b8c2268888505487",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 4,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_004_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 386,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "319f75ac05eddb6b7d697b5c48b3acc5773687b1d75609004178440bbe031acd",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 4,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_004_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 434,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "7906bf9cf637cdcd40812c28c7816f69cff5a7dcd40343dc10d6f6675a7b637c",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 4,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_004_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 445,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "83d44d49f00d06e0e261bf0061f5dd37da49ebf8c136394f8c270c6033dc6b3c",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 4,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_004_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 443,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "652a947bf6cfc9378b5cd9f76c0c148574f411db3f6fb7bb47d007413b805f55",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 4,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_004_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 446,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "9a4124ce499e7136ac874aeb77729ca420e61f01453b8cca941aa4f5a3c0ed48",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 4,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_004_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 477,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "bebd23fafcf5d0e7932a46c7c4d713f393e540fd0b28c7d73b1f24dc16bff704",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 4,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_004_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 447,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "8d8c9ac58af3ae0f60abe4eb340da1683f8227bd62a3b870254088aa7c5627aa",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 4,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_004_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 455,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "6e6f5fe0f58dcefb89a775bf5bb77fb8d57695981a16a57f86ab05ceb79fad87",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 4,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_004_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 485,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "c0c4330e89c9f88251b620876881cd97053c294b56e9e39bdc4b2c827888bacc",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 4,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_004_l_out_1.bin",
+   "name": "l_out",
+   "node": 486,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "c8ce507d26ad076ea3b82f6b1f415ce51b50d8b03e6218cdf0506328cefa8194",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 4,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_004_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 442,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "d40f80b38def3759a9e2af37f96794798f2e459d17b4f1d6d8cb6c8a89ce748f",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 5,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_005_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 488,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "0dca9124732e7a59368f32a1de832ee6827659ab30d623960e9b67e66f7d2695",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 5,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_005_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 536,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "f19541b6f28c37332fa9be96552ba8bd6743f941e4605e9ef7cb16bed261d007",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 5,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_005_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 547,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "02c0d8e6637eb39cf0007f267d7aafa59a3ff3667cc07a466cc9e69c748537b9",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 5,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_005_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 545,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "6017f755c789841c06f7bf2ca92908de79101362204ef881bb06d4b37dd26986",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 5,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_005_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 548,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "9dc4dcaf6403a70f01b3c360bee02b6c701a3af11a731b373f709239e51a161c",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 5,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_005_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 579,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "e38a9338ccddabe6d5a13146bc62e4949183114ed4a5af5e4bc6d4e64c1fa1f6",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 5,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_005_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 549,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "894d46a31602278dbc0450fd362924b48cf45c1f95b6347cd919c24df7812284",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 5,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_005_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 557,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "beb1cd84413006bcaabaa0b29a8a500bcc6056873f6f2c704006992419ae06ca",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 5,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_005_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 587,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "da6673619ab35c6596116fd242c8c63a637afe90ac8b30120ba1dea182d0e457",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 5,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_005_l_out_1.bin",
+   "name": "l_out",
+   "node": 588,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "010c745a2264b86d51a43c9490986eb34e370f6b3f61d286d28aaad41a0df118",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 5,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_005_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 544,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "43d9600c5c423c5c44d5be79466c38dc52dd1c70b6f41b7d9eacc673f29f9502",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 6,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_006_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 590,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "2b39645319dd7c749aee74f1d87d781749991c7f56f29d71541333869c52c50e",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 6,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_006_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 638,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "acff705d561245e36668129faf1b2b23dadc903a5bb9a832ff084fb5b4fd0ac0",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 6,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_006_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 649,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "abd1d64d08ac6cbc0d88ea8f044006a6a7bffede5ff617673eba4aaa6e960b98",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 6,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_006_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 647,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "bc49da72517bea32a2f6400aa5e1c0a6ccb078a90d24afd6271672242022205d",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 6,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_006_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 650,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "59863682f4505da4fd979c4751066a07fa022e15275075148756b7bc4f41420b",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 6,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_006_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 681,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "09bdae97c985c643a0f4f7eae8f4a814daed8bbd3c8f3576f780b281ab898a9d",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 6,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_006_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 651,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "b104b54344e3b1f81ff856ab0f3b568413fe69f6feeb028097793f00fde4ff97",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 6,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_006_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 659,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "b3c746b3c55a97e91f1557ed9b9ed30dd957513336dc0c30f17d563826ec0a0a",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 6,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_006_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 689,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "c4267e17bb41f72877a3e8b6bfecf6341e9e35bf93e41286074c9d09fff15dc3",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 6,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_006_l_out_1.bin",
+   "name": "l_out",
+   "node": 690,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "ea2a55757446e8c6a344cc69eedefcb2c7911b78bfa31d595e72a57f8777bf74",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 6,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_006_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 646,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "4f4c3e3edb4ae8bb829e75c78d9ebdb25f6f4b97accd469c13a9c632fea8a4ee",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 7,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_007_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 692,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "a98701bbc4524ebe58e107bf6caadbbbe77050da4587c021fddfe060b0755e7e",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 7,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_007_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 721,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "cf64977909241c4f0c7614e01152583e9566ecf9ea60282f17e11b7a279e6831",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 7,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_007_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 724,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "21a487ecc439865ac16780d02557be9fe1d9cba7d6a592ba1ac12f144881356f",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 7,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_007_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 722,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "660c7607b5e40373ab6fccea6ffb7801030f4b6efe4bd083b4bbf38ed62d06d8",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 7,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_007_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 725,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "421cc508c6e640b0dc7aa082d90319a0484815221bf64b895fe36492019c103e",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 7,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_007_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 756,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "4e2edeabcc63e4a17336814caec3442c429a18ea248ba758a8963bcf07aaff7f",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 7,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_007_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 726,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "c97992b3a232a7575b12d95f9487573539ad988d02fd89f6534c1afc57b1a019",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 7,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_007_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 734,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "afc20f2a0efce0c10ceebb7a6e52c2951e414e13abdc82c8e0d17ba1b277d640",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 7,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_007_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 764,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "953905eb775ebcff4956c77632e93d12fbbf306ed3a87dadbed2d7f5d8a02b94",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 7,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_007_l_out_1.bin",
+   "name": "l_out",
+   "node": 765,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "945e992398b8bb2c49e8a6da90f8d96cb13d61bdd25ab557c780a09676b7b729",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 8,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_008_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 767,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "1ac9c6ddde8e7bab7bdfda7d904a7be59e671d385f169b9d963e24ae1b361e6f",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 8,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_008_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 815,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "27af09a4df16f6759f58b08e7d5a401fc247e57b45fd6d52a8f7a572d69c3df7",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 8,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_008_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 826,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "d0e88ead0da7e55b627dbab9275255e9b8d360e31580a33ac208570dcafbe038",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 8,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_008_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 824,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "4d7fea76d83bf23fab853967974d23dec605b278055c1f30f17e19bc83868a23",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 8,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_008_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 827,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "161141adc55aa73931770657d52f10a9015a7492214b80c2c9590d21af9df4d3",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 8,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_008_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 858,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "d040569162e1527e9bf7a0a69c09d9f64dd53f01b43f2ce69edcfb846389c2e6",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 8,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_008_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 828,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "6516d63c1e1c04f93f099a1034e6bfab13bfab9de11f6ef2b77eb92a906e8dd6",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 8,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_008_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 836,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "38505dd2fa1e87531210ddfaadbd58191cb9f8450c1a4454167d0e38f1c8db61",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 8,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_008_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 866,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "1e67d52c2b7368969d54a23a28ecd53530aeec5b7e0ed25f1e309073e9678b7d",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 8,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_008_l_out_1.bin",
+   "name": "l_out",
+   "node": 867,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "caa78869cd08ad3c1143471dd420abb2d800767336c041b331d60d57ad46fb75",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 8,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_008_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 823,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "aa68f37ed24cc615e7d552807595680007d960f2f4fe3fd1e506cbb038ba44f4",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 9,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_009_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 869,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "befe7957f0b8fd5fe61bc7f59cd335c02cf021d8de8f0925d905d3d7206ed77a",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 9,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_009_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 917,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "b63f35a24c72ec016380bbe0e3a663a8eb252ca81378624c97c6e59cd687fd07",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 9,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_009_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 928,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "71e74539538c3b7114429b2c3b4b867dee5800630ff7e458423368fa4a8d68e5",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 9,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_009_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 926,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "b46873f0bac80563e31f9c29115f92b2fd8437287b8299d6d37f0afd18a73703",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 9,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_009_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 929,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "6f982db7134801937ab89b7b8a34e8966f1ac094d4770cb09666b5b2964e2006",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 9,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_009_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 960,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "ef70cf4bef20273de411b23fdb5d3fba6ef0ac620b36ead1c155d1c1a5821afe",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 9,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_009_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 930,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "93f5aaa04e0005309577cb4f2898c78b01292ee5255e3f862414390f0d25a4d4",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 9,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_009_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 938,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "c36271653812649e70931d5eafe272eef0152b1bb51fdb6418e5ce246589b4ee",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 9,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_009_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 968,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "8f9830df21ef272a58893679b647f7accb6eb1adfd783a6c9f0bab20c392e692",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 9,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_009_l_out_1.bin",
+   "name": "l_out",
+   "node": 969,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "e1325392995313cb46fe0e423546676b2c5c346fe4a13f929cbe751aa0e6859f",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 9,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_009_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 925,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "2771132823e5bc512a14f3ca87e113320a16952da15683e2e00bee7768e342d1",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 10,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_010_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 971,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "ee21eb26263f24168d61a385af6a75097db45d07cb16867907ba0717632c4ab1",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 10,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_010_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 1019,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "f3d0f6892a6999d6ecd4291c0b2c66ee5ab77257eb398a72594cc69d613ff88a",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 10,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_010_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 1030,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "1de3f9857dd397baaed4a8912707eae354e8fc738c2f46a091518f4cc7981808",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 10,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_010_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 1028,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "8dc09194fb59d11456dfd087bed63f83459e1e51f30ab5746cf3eaa9960cf6bf",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 10,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_010_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 1031,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "1d88a3afccb70937aef92eed67793ba1d6abf32f0fba5b7a388fe323ea88f188",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 10,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_010_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 1062,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "fb86b2854fc6943146819d611f4d2f908fdb2a2fc4fcf39e0d5547fe5e517bce",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 10,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_010_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 1032,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "15eef1fe8da3aba12a9a967a032696b17cf0d9a9e486b326499976dd84e5bb99",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 10,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_010_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 1040,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "61ba40f8014d2676e4c282d408a78e2f1f5326142e755dccbad14a4b6dd4d45e",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 10,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_010_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 1070,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "cddbfd83870be8de8b0cea67078ae7ec2a518e9a8187fbd64aee928cb4b93b5e",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 10,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_010_l_out_1.bin",
+   "name": "l_out",
+   "node": 1071,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "9d0fb550a8ab7e856c4a7f1ba909a61d82b41b9cd0d2207ac0d7f32c9e534de1",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 10,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_010_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 1027,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "2fb5ae10e22ad8eb34712c51bf7c207417be132edd051de18cfdeae36a280ec5",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 11,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_011_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 1073,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "dcdce825c2691f3454fbfb1281c87e806fc477757047a0bb157b8e5efe602877",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 11,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_011_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 1102,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "8ac66ebda9b1b1d7f03567b584d5e266c47e3a7630e0b600548c2ea4fe0c6ed8",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 11,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_011_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 1105,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "f5d78cc7873dc3a3292703da7f507e198a627956c08b681bd9b9f95efb774bdf",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 11,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_011_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 1103,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "7f1c118cd4711f79ce615c1fefcdc613687086b96d82240626981391bdde6bc5",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 11,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_011_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 1106,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "2f3ccfdbf33ce3c4cb66d4fb62a38e65e9566b2847e1b9d04447d5bf5769f323",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 11,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_011_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 1137,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "b485d550ab9780cdcefc1b0e1a59751d10e5edcb85969a63d11d7172d15639f1",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 11,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_011_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 1107,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "f04e03c225b88dc10ebc3803740e9386756b5bd1da151f8330f53222bd3dd3a5",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 11,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_011_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 1115,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "60f762d15499c6328d02a50f77e3b7617b014a4a84126f1e01b00484ad59a3c9",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 11,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_011_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 1145,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "f970146e264265d3e6a79600da0fb930986d4ff04ff8f62a5b0ad85a19c3f721",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 11,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_011_l_out_1.bin",
+   "name": "l_out",
+   "node": 1146,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "17aae3f721fc244139a22581cbcbc38f675e5e8d94ca9e3b3a01528734bfc61d",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 12,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_012_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 1148,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "08020b228fe4c37c53201e53e371ef9f9d665011d9f1629daf52561381f85019",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 12,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_012_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 1196,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "3d003f8704339ebc3504a9f8045511716496ba7a659f1c4b724902106d6986f4",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 12,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_012_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 1207,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "936291f3b7b2086c491be995b9f87bbbde7b69069c843dacb8a78a486eb7158e",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 12,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_012_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 1205,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "a41c2f924f1ba35ee272ae33dbd07c701611c5fdd475809a9787b9357b949d65",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 12,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_012_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 1208,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "d15fe314a10f0175cc76cf0c5b626a27859bad5ae58511410cdb30810dae67d8",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 12,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_012_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 1239,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "f8d0ecd371b61612d292a6504f324f98a386cdd0c1fabfff050b2f04afa67424",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 12,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_012_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 1209,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "ace1d6d559fb96dd3824851767b7c8d1b7cb88afa109985b82196b9ed944b3cb",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 12,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_012_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 1217,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "69b56c67f8564858221cf33d963eca3836d0dafb9033a6e31c877eeb647b920c",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 12,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_012_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 1247,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "c952f023f2f86ecaaae96ba8d088fd362eb1ffac55930fc61fff4d282de6afeb",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 12,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_012_l_out_1.bin",
+   "name": "l_out",
+   "node": 1248,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "b68e4fafa4825f0a12008b50141e89ee12e8129bd43e9c83c203f7b717445df9",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 12,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_012_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 1204,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "6ef86c7f69108fe5427eedccf15fab3f96bec4f789c7e74ed27e6b2775860d91",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 13,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_013_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 1250,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "3da86ac988169081224cd465e3e0d36412d1a88620d126fd3684f5968482f921",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 13,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_013_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 1298,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "e072b64aaf86e8f0cd4adf869968d1c3ecc326d68e1b21c308caecea035af0b5",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 13,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_013_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 1309,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "fe2d11babc09355d66787a109a855927894d6c65eb38483a76f960afd0c8f22a",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 13,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_013_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 1307,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "17c79cd22f89120c3954fbbf8a88784a4ea2aa19b80a401a8e4e237896ac31d5",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 13,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_013_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 1310,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "cd532520517446c25151f684ecc14fd0d2234b669b8ea6f4fc53d2e4143f59a1",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 13,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_013_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 1341,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "bfa161a5708d384d60f658841edc240c6b812bb20c4c3c45f24923bd0788d4de",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 13,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_013_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 1311,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "40d140095565f9642c4b4759be39b83577da4bc2eebf14ce00ccf02fffc5c32d",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 13,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_013_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 1319,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "20a66e215492991a3fcd26f39d79d6f4a1a33b9a06956dc5896212ff23c94320",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 13,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_013_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 1349,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "6a7d6ac369af5ab5a98ba2560c1f1a5abc93c9f786b71dd69baf9844fe4f8cb7",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 13,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_013_l_out_1.bin",
+   "name": "l_out",
+   "node": 1350,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "0d0698f60880507c347f468ef84e19903868c625f62152f505eda099e89a356e",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 13,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_013_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 1306,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "fd31b9b61ac8668ea5a24973d2a00885dcedc86577afd2c71fface4ca43dfa3a",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 14,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_014_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 1352,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "ca613fac6cc6e81af63176f61d24f6593e2fbd86bf4385bdd9b9130576ae6be3",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 14,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_014_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 1400,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "1783616bc38e1e162a710d8a6990b3c5855435b7c8e8d9ab7890f2c4d1cfd683",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 14,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_014_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 1411,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "2bb362f20339973be2b5378b2cdc468e15c508c24fab8187484410f7cc9ad8cc",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 14,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_014_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 1409,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "62cf512a159c378ce47a48e612af1dc7d1ff8ca9f21e773cbf2d77327a4f7051",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 14,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_014_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 1412,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "2c857de4c65385db373f6257536e42fd374f4f328195f2da8c0d24f7030ed633",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 14,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_014_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 1443,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "88755e5a63bb38adc3af4449073d9c93ee0a5027c786af331168fb8822ddd459",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 14,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_014_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 1413,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "6a1903c2ad6ec77c380235a2a012a9bc3397cc074105367fda1b8cab197f795e",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 14,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_014_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 1421,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "e9e4f86ac8d0cb75792ea99781ffd6a9b5a1441daee1aa490602dbe0e763abe4",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 14,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_014_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 1451,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "bd0a246dfcb93cfb68ffc13f96263fdb3c1668bc90c59d2ddcd1fde4382b0775",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 14,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_014_l_out_1.bin",
+   "name": "l_out",
+   "node": 1452,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "852bca8bbe3c6788c4e90a1b85dbec81fb6773e18c67a56fe17cc9291aa33e04",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 14,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_014_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 1408,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "ba86427d2cb8575a73f49324ee9ef0397a7cfdd878ae49666faaec1ace7afcd7",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 15,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_015_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 1454,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "b04ef7c65faf8db744097a07e9cb8a66f40a432bb243fa395cdad1060681db2c",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 15,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_015_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 1483,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "67f5088e0273e7bb4b443d0ccf9255315a6131c550af688b2fbc4ea6ba2bbf24",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 15,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_015_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 1486,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "9082ef21a6998250e9db5320f08dc470c185aec60e5098d581f770797ec0bed5",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 15,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_015_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 1484,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "385359c95157af073389eb968c765cdb63a50713bae8686b9a89148f6ea65b7c",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 15,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_015_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 1487,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "9f9597f93a03607d63f8722b04474c01668a16987ea829ec748c7484ea71f49e",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 15,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_015_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 1518,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "8fa9db82316c620305c6a6c064b06d1fa9afac578b768a4ef34a49791c1e965b",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 15,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_015_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 1488,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "ef101aa1101834cb610061721efaeccd77ff77796d4efd9c491e44f0f45da184",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 15,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_015_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 1496,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "22bdf60ade38996cd4f4c21446917a8c1568fb1fd34ab039099c720229294121",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 15,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_015_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 1526,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "3c359d5b980e5a27271c0429d8fd7e32e52469a0eb88f45a7bba94def7af1373",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 15,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_015_l_out_1.bin",
+   "name": "l_out",
+   "node": 1527,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "0dc7f87dd46d70a113bf5a2331213565f951b12d41c041e4950e7a60f6ba3d3e",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 16,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_016_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 1529,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "7db5f542c17376345be356f0b8dd26dcbc89bf3ceb300ecd805294e8de6b3165",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 16,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_016_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 1577,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "2778b4546af5e4d4d0a2404b8938190c8ceff82d48e284b8a9dde6156db30bdf",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 16,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_016_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 1588,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "8afcc64561f4456a70bd6310b5e7b60a94e11a7b26f36e9768572ad5c5f2913e",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 16,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_016_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 1586,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "bc5dece86bbb855001a881bf91dea5918f56455dc08ec2735902ac2cb3db3584",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 16,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_016_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 1589,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "f8c44203294487c051cd71ec5ad1c45586220450962d94801d91daf32b3a4f3e",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 16,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_016_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 1620,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "e05180e778657893c8554340c9b9cd168dc6729326b043b48e4d31cd5221f922",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 16,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_016_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 1590,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "319bc1d0d7771d577aa4be71e44344061a5217aaa3f0abc39bed4f8744d06fb2",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 16,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_016_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 1598,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "322eccfa4373d4e53edd9ff8c5245ca4ae84a4d50e4f36644ae0d800505789ab",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 16,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_016_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 1628,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "5afa8f1f402e2b654a8869b1471e9f854801e4d156a8256b3ee841e08ac02bf4",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 16,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_016_l_out_1.bin",
+   "name": "l_out",
+   "node": 1629,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "1fe8131bf9a518e89220d7e4ba0feeaf5e81267e6a58aa7e2052fa65b7c47f27",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 16,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_016_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 1585,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "399385727dee2817d85895068d6a69101b23f6b4c7a3e29a7b212649b41be80c",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 17,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_017_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 1631,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "87eaab41fdb28ab74f2cfabc4f35e57eac140feb4472daab69011ee8184db577",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 17,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_017_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 1679,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "56d9fbe98d4a858a1b6026bf836c4df149ecfac3cbca3a35eeff5ef6f37f30ba",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 17,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_017_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 1690,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "cc6acae509fc28e22e9fdec6a402a36282ead92c61802a81f620b398ff4e8dfc",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 17,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_017_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 1688,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "691cac42b772c267d3b5bc7a96a951abb1b26b165350fa95f414317d98425ed0",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 17,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_017_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 1691,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "1424c5b53046d786856452cdf5bbca26a6464938dc645f8e4445d36426029451",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 17,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_017_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 1722,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "5f81f461a71a54dd7505ef060c9f4767b8c145e2efcc1397db5649f83efd3113",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 17,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_017_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 1692,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "8dc55bd8be92a16978911ad4e7ef27842eb0705b34267b62ae2e15fa2e6e06ca",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 17,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_017_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 1700,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "b398c73b7f13882670643a74a712a2701e84ec5c67e9dfde9a462d35471b56c9",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 17,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_017_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 1730,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "28418e98d48a947df63d16a425b02c1002db134057eb365450180fa73c2b4a50",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 17,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_017_l_out_1.bin",
+   "name": "l_out",
+   "node": 1731,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "77399598203036dd020a88054ad087cca8e2e1371e1f83da78347fad892e00a9",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 17,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_017_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 1687,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "e330b015b80f135970a4ebf8c26f3057dcd07e2c2fd4a0947991cc5eefeb4779",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 18,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_018_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 1733,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "84d226ecc4c772862114645733fc197b4d25176e259dc81e8fcd9836ffd29506",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 18,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_018_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 1781,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "44ca4edca7c3d5aee33df501a14d2f1fb4c31d4bf6f7ada79eb85f2a89b3cce1",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 18,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_018_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 1792,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "5f8f90f2958943e6d823151610621886dc7f286450d0e023b5809effb3a76e51",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 18,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_018_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 1790,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "424d3302a501d83f7450d68cadc45e3359a29cbd7d98bf837202f2b851a6dfd4",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 18,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_018_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 1793,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "ce7644e7092dc5a4072dd1e49c384629b935ab064814ab35c2c719bb886b1cb9",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 18,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_018_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 1824,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "e1f8af3738cd57b803fc111e3a1e64734950d7b78533ad730f176f71d3d04732",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 18,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_018_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 1794,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "90c50479fe747825a2a482383f88c1272d10df15a151323d56313b48fecbc499",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 18,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_018_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 1802,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "19bbae32d3322f56a01c37ee17a369ca5faf9ceaaab19500638030f54fe92b2a",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 18,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_018_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 1832,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "6fd2e954ce8e45f281bbf9e7e19f20d515202a8121e28d7c3173986f4970da1f",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 18,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_018_l_out_1.bin",
+   "name": "l_out",
+   "node": 1833,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "aaec85d73bf76aed0d3bbd883a67388c4a6bfca3a2a5b83c82ecb16d9ad7616d",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 18,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_018_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 1789,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "ab10dff892b30f8f52f92a8dc971171c2b96672dce408fdbef03d3ca21a08140",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 19,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_019_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 1835,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "1bc5bd8d341238dfe9e9c2f27766a346ec1be236e85deab0e071b2e0754dd8b4",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 19,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_019_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 1864,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "9ed1f82766b29563a2b2607a4c26d174934ff7fe435a93d514dedaa1fbc3737a",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 19,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_019_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 1867,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "7b43b43f340f8c6696fc27db156ace6960e9daebcf8821309560d0c80448aec2",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 19,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_019_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 1865,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "c981f24f536726552ceb7860b7715517d9722413cca3f798afe7c55724d66f58",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 19,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_019_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 1868,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "bec8610e5518ecdfa0dc2025b61c524c56a4695b9b9f6d5636270ceb9fbf147e",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 19,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_019_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 1899,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "e527629c188443606949a291e2c105a4af49407eec66a30a6dd770faa4cb3bd9",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 19,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_019_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 1869,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "9a4e4d4ec1d8a5e046b62028d242d45413d6d9ca7a7ca4c48f15e8b2bd173033",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 19,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_019_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 1877,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "1632efbb52420437cc62a5cabf839ab9d046abc1114ed1955d9b58c9900991d7",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 19,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_019_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 1907,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "bfcbface026599acd0fa2219d01322578bbcd1b060e5ebc1e6b332b56a4ab042",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 19,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_019_l_out_1.bin",
+   "name": "l_out",
+   "node": 1908,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "ed89255b541448223c020f4779181cbe463765ee6e08a9ff44929f62b5d1f408",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 20,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_020_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 1910,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "a05200c6be44921646c1cd8092e901107df499dc0df4f2f586fee5e27d1edef0",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 20,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_020_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 1958,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "98da23af1145c65c64f0ae4d88ad3299f60bca4c424056ea6181f847dcb2d9a8",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 20,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_020_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 1969,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "72cb85e0aa657af6e5dfb9177f409021be1549926cdb5ba97f284b37f3312ac2",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 20,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_020_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 1967,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "442c51761525033cb0770ff7e6267134929734a35d8fad251352828fa383ec1b",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 20,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_020_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 1970,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "faa8412d29aeab3348833bccc31bf57ea3c6b6d368336bcb37b8b2e706e272e7",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 20,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_020_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 2001,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "95271a91d54d05ef0e3d7f5b98c84f91662c7dc638d68a0f575291b485edeac9",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 20,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_020_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 1971,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "27eb321881823ae7c933898d7413c597b677bc21732f4cefc88dd1ed7895ff3a",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 20,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_020_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 1979,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "3736331f012386b094d97173e9d9648cc0c51b9da102f1c8bf685d4bbe16c9b2",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 20,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_020_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 2009,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "6d5217995a0fe9a687064e4f217e600daa97019f726db60aaabf9b7ceb6c1e07",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 20,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_020_l_out_1.bin",
+   "name": "l_out",
+   "node": 2010,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "e320823a0114593b1cabcc5875dde9357d107604f4082fae750a08aa6643b63e",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 20,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_020_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 1966,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "28205ead40095534924759f3e39caf1a8f6bbba54383155b326e9f70f18ca2de",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 21,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_021_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 2012,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "f350194d0b4dbd6ff2f6890f5d909bc4c6c9ec2dbebf72c45ee193891c093ca2",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 21,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_021_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 2060,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "6d5415dec2ad36f9e00f118aae02f7180c64bdbd04c46c04d32dcd6b595794a4",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 21,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_021_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 2071,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "344fc2a8b3f95fcfd989ddea0221024bdc2a2987e43536ede471569f3cdc3966",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 21,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_021_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 2069,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "3699f4c8e4ffb36c95d6dd2f76af34e0bdeca72d76810a30697ca592c8708f64",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 21,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_021_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 2072,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "292eaa6d2032081286d6ca11a333b92da89190182ff3e9371ff77e1af97fa90a",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 21,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_021_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 2103,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "bfdef71e29f87b6666afed2718e9fc15166db82edd8d0fffd2eb1f75b93c5605",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 21,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_021_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 2073,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "34adad4e9d1fe891bb20358e2ab14c22fc9ccde35c8b781b48415b29f5900413",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 21,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_021_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 2081,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "23ee11843751d24c739713f7ab0595bb71439f18ed214774326d91aab59d2e85",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 21,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_021_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 2111,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "1c779760bfc008e60bdf330b70450ca9e0d86fec2630e2f710ffb3cfb8552916",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 21,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_021_l_out_1.bin",
+   "name": "l_out",
+   "node": 2112,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "dd913c0774e18f89abbbcac55c3ae55d327067b99fd2c5c1c31f5fc0830052aa",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 21,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_021_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 2068,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "9b725a004a69d88c6c524a7ea6177035f4c80c6059e4a1a2a0d24f4028957efd",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 22,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_022_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 2114,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "266366a91c9257c951f821c96298126b74e23b5f1a381b86bf0757123540934b",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 22,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_022_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 2162,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "2845d3cafa0dba2667a67255c82c44269b75feda1b01c4a708f86dd277aeb4d4",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 22,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_022_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 2173,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "8455d587d199523a2b6022813179bd29b1d898aa0cfdb79c9c0c24139d543af3",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 22,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_022_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 2171,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "3c5fbb5849039f3efee97cffa54d34047a7e9480c9342b9ec13f8b799e0ebcad",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 22,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_022_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 2174,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "8d2fdc227738f00edc8ff8e45933fdda7282cd5f5e14aa759e8f68d3833bd912",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 22,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_022_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 2205,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "aab3f89abc4df29b818490c865e7453160a0836c88e388bcb3a9f0d921d0fae1",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 22,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_022_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 2175,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "e9f044679c9f59f39e744d1046abb29abe74e67c82b13d374d2ad84708cdfdb0",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 22,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_022_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 2183,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "153bc62d4609738f82b9c68b86ad79996f99cd1f89eef1a5ad55338ad33f303f",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 22,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_022_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 2213,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "2ea65b79d94abf578eb23eca0cfb3e2e52e3841c7dec901464ac8f9fa9d8202b",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 22,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_022_l_out_1.bin",
+   "name": "l_out",
+   "node": 2214,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "f282257cb2811095d3bc6ab4cb2167f03b716a9e4404a620bcb8c70e31b60895",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 22,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_022_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 2170,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "f78ccfcb1538b2ba911e35bc03ad52b641c48decd4336f6434dedd41f80ef98e",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 23,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_023_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 2216,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "8a48f54c58c0a47d3f6420980463d6e0d74a1c4f05f5e45c357d0c1488ffc5ae",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 23,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_023_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 2245,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "d0f17bf6431de859a8a529e4d92bf934c65538c58cb27bde651814e355e658e0",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 23,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_023_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 2248,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "ea7f6ff5688aba4e737a78d876a8259d75cc63113e465e4f1a5cebd2ce7edeb4",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 23,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_023_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 2246,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "5eba536c0b7cd2c3dea4442ab36c133ea80abdda978dda1ae17b69188b1c7807",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 23,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_023_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 2249,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "0c7ac1dd09b36a16633c10469812d9df8f0e1cd0f7b8f928b4a0ccba298cfba6",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 23,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_023_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 2280,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "bcc7b9e3b501edd981096f83a6c4cee277ecf512bdfc3762371702f39d3ae1f8",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 23,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_023_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 2250,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "6bd2c4a2df4513f201b6436db87e49c51cb51bdf903b1995f2e3b023bc1a0162",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 23,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_023_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 2258,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "c81251d47d623f696ffcae561df1ddd4df8da75c748329b889f7575fc9817253",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 23,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_023_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 2288,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "961cccee698ad1bb24463af4d6b01435b1581b1a79d034d6f1240396c87bea99",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 23,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_023_l_out_1.bin",
+   "name": "l_out",
+   "node": 2289,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "b6655aec241c6156380e3a9f1167656114062b0eabf1861632f3b354deb3c637",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 24,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_024_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 2291,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "64f834fe79ae1624f6418a77d71b85de8ba2b572a1573f9d8299b1594595d94c",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 24,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_024_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 2339,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "952a60752128adec846e350288bcdb2145d316c74d070c7e50aeb21af384f591",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 24,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_024_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 2350,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "a98a15b0d90c9b3e3263fb387af81a68eb21a4686e2689f23d5480c28a8c3711",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 24,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_024_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 2348,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "70a180e310c18586a0962d43d6b8e38fc68ade2b97d9998566630da126fc4779",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 24,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_024_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 2351,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "fd71b9437ef17b92e9767ad5eb1b57c2a3c7e72aa73e7e2123ff9eda5a9f5913",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 24,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_024_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 2382,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "3daf77086a453bf35482c197dc5c7eb1c544404b8014bb4691ca1783b9f97dfe",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 24,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_024_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 2352,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "0d27b6d35bfdf4e2a6b5246857def16248978ffd439317053430dbecfaa1a0d2",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 24,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_024_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 2360,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "f0ccccbc6988cf8ab458f9ecc1572ee36a8cb5b88e3d4c8011f1539fc572de10",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 24,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_024_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 2390,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "7d9d762e492d511743006ed40cadf762aaa3395f66112b5f77bd5c423f0d296d",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 24,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_024_l_out_1.bin",
+   "name": "l_out",
+   "node": 2391,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "7ae9b28e3d014270c03c233d9e480bf52dcd1c2eb0badc12a13c276cae5a2367",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 24,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_024_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 2347,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "de344c8ee05a117092b1221fb47d2ada728838c7d02262656ba4299b2d233c20",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 25,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_025_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 2393,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "0103949311850bb6e34f0f9ff6361c09cea1ae610aaf81a33257f1db42396a6b",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 25,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_025_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 2441,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "caefbb2204b35eb8dfd6036cfeb7366f459630e3663a16bef6aff0226b6517c1",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 25,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_025_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 2452,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "deab23cd9ab46fa80eb7dabb76049f8dc156895274018a0aac01d36d69f371eb",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 25,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_025_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 2450,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "819ee020558cf7bd4f58da3d983430302d9b3fc3f4dd3f3dac478999e9990047",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 25,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_025_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 2453,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "df92146ff7acf2ee0cf770d3b01a27fad98a7b9e6f4178f4277e61c4a0200ee0",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 25,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_025_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 2484,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "6d9cd6b7ba1cdf59b013266fd10df04b316b240d0aa3ddb0863e23e1e17ab1e9",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 25,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_025_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 2454,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "6d941a74ef312e351c66a48abbab0c02e9aa599b4de809344f7296ca86c5a499",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 25,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_025_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 2462,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "878bf7c36a5c70e7bc7ad5b8114700547f1cc4cc9149486ae808592500bde880",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 25,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_025_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 2492,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "98af65b2a8c6584033d2876e16ea8b79de53bb8d19ea64d69748329f0a0bb15f",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 25,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_025_l_out_1.bin",
+   "name": "l_out",
+   "node": 2493,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "fe54c8c5a2224e41641129da1b3204f01f675b3d6c3d80dfeedd32f3a193ec34",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 25,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_025_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 2449,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "f8b9ae3b61b8aaf0bb1cc2be22b22ea13d28be085252d2f593a5a386cecdc1ca",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 26,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_026_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 2495,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "11e14e2fb83f68ac30786c91e95e65e464816f4504bb5114c731718fd941a732",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 26,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_026_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 2543,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "4c362368bceb44998892f9a521be551a4c74fbc31d6c241c4b83e87cbc30f6d6",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 26,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_026_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 2554,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "ddcec8c97e8894d6d2469cd131abbdc13a71bb747660409d9a4339e81ef185e8",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 26,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_026_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 2552,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "dc3ab96d7610597d52a9b59a6dbcb81be5797cafb775a422097c12c3ca335e18",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 26,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_026_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 2555,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "1233bd904257f1ca7e5edd7fc9d4c24d75266b5e02357c4b5911b4032c5ebce5",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 26,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_026_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 2586,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "8b571a1c8217b29d9f046f5137e717c22eefe975cfbc83ca4f97db6b2278235b",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 26,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_026_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 2556,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "2bd875eab58cd35a564a5eb1052b490624eef1b594dbbe51d73cd0d5786f2a62",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 26,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_026_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 2564,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "645dbd6485de60ae5dcd20a0f1c91d942a767ee08f12c37cbaeb0c2296a44214",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 26,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_026_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 2594,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "46d71825de7e68aad9a88f046aabd01f05569b25c0971ed390c2a14b1a8cf7fc",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 26,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_026_l_out_1.bin",
+   "name": "l_out",
+   "node": 2595,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "8271d5e2abadcbd8534b0be0f489f94ecc73f085e83c8d3038fd3767d6f7d2e7",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 26,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_026_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 2551,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "df6fa41f2f0530947c1c6b111e757d103a9cef407d2fd2dedc42f1d36f3fa493",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 27,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_027_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 2597,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "9b91b7405d58543c6f3fb9b836a7c2692c0173a5506508e788209f14b21fc2ec",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 27,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_027_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 2626,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "ca28a9bc119cc681555db9c63289eced358a45b439046398e6788c512aa6b695",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 27,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_027_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 2629,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "c5e31ac76555e180d0f3d7eda761229e74703133a4806d0bb24a192604081a4e",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 27,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_027_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 2627,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "ee9049e157fd4c579c098b034cb7043e3fd6ac024e2014d9f1cc3aae6afee013",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 27,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_027_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 2630,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "2d24bda5f776584c3c83271509bb9ee73fb572ec1203d9447a7429b9f55c3ae4",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 27,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_027_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 2661,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "0e5e83265bd9314fa70a705443b2e8b1c47f0a8a578692c49b105ad5febc24f1",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 27,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_027_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 2631,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "2684a6bb0ece93b0110cd49bb20482da65c3596e023f9e09e123bf2c1b5f3810",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 27,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_027_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 2639,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "6ccad1ce799baa0214e9f358b2d140f3e7ba61169a1ca6cbba143a727af995ea",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 27,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_027_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 2669,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "47a71d19a1d8ef789c4b2d9ef161d9813eb01b55b9a1c0f323aca87fac3dc571",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 27,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_027_l_out_1.bin",
+   "name": "l_out",
+   "node": 2670,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "246f26a382edc42cc7ea10b71dea25e921f636530879552c70a6ff23cfa800e0",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 28,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_028_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 2672,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "93fe4802e7a6496468c90a8932f64ddb308c8f464d85bfe52fd87bd280a862d3",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 28,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_028_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 2720,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "0e424253b6db8c4ca50bf365810afe38a9c519b4f7dc5ad73b6fe8a62d3762ce",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 28,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_028_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 2731,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "28c282d48e4a2fbebdaaff4401325c8518c0bc7e161ff7dbbfd1474edcb774f9",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 28,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_028_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 2729,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "9012ef85810d0620611ba9137b44508aac856f5907c7600b8c56bf05734d698f",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 28,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_028_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 2732,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "461b56c6ddf104247fd007ca933f2fcc1074d8a31be1f61ec50cb7e49b56d02e",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 28,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_028_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 2763,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "fd9e4327e48f9eb6a20511880c5e2d74e60e267485c410ef9bbb1f7e9cd7faf1",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 28,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_028_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 2733,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "730dd8bc8bd855c4f19603cda45c52bce3173f19ad635f912f37644741c983e9",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 28,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_028_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 2741,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "c810094a816a25d5ce360d4c2aead8e28e6b60e41a2b26d315cdb2cb276ddbc8",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 28,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_028_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 2771,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "92bcd0bc06aace1649b987087f78ed4ea8ff2b0ddf1a0179ad7063c12dfa9bcb",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 28,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_028_l_out_1.bin",
+   "name": "l_out",
+   "node": 2772,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "58e176b48b63d3dcdc4d3541021ecc3dffdd0e1b59f9b9459dca8b697f83610b",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 28,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_028_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 2728,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "d5dd041c7e59b9fdcc510deeec3ee89a1945a0800736223154235aefddda5f44",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 29,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_029_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 2774,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "f1874f55198c74d3e7e2ca5d4c0c1fb85893d4ed4735313d06b1805973b61549",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 29,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_029_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 2822,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "49f4c77fa1df4b491a94c234403be2732a89204a0725e68bf7289a0bf4b1add3",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 29,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_029_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 2833,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "ffa98f407237c0e2fd5334da48c5d55cb25fd319bd6108b64698123f557f21f0",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 29,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_029_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 2831,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "860a6bf99e86733a3ebc35dceed9c770534e0ef05ea366b125e19f13e2bbec02",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 29,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_029_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 2834,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "5dc745c72e51831a4a80923c79e243d142134aba4e85fa1f0740cb43bdddc9d8",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 29,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_029_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 2865,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "1ce9f778f0f51b6d70fe0ff9f91f89b2ce576ef2bf16aa61e94ce343838c58ea",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 29,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_029_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 2835,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "c2c830e9534f7bfd9e8354a7754da077784cdaf54065c3c2269db7f16c5c828a",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 29,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_029_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 2843,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "eb205d4488aa26a7ee05156db33f2f8827c3c430fdceb2ade2a0c6a817f24c68",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 29,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_029_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 2873,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "c5b93971fabdd0770ea9c407e2cfe81c6bd10567e05bc07bff7b4b7744cc64c7",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 29,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_029_l_out_1.bin",
+   "name": "l_out",
+   "node": 2874,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "e907572d04fb284b3881e36067efbf41b2517404683d970fcc0b2007a71b8cb1",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 29,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_029_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 2830,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "ba7768e0bc782922af1e4296d055aec6a2818c266ea642eea825b963460a7248",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 30,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_030_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 2876,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "40e00579695606c7ff808f7acdcdf517899b6dfa3bdc5787ec6ea50cd5d2d308",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 30,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_030_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 2924,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "f5d3e967d43b6843547f2a2887906c324e103d35b6e6d986379c01d159265e3a",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 30,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_030_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 2935,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "9d5d57e036a51115c470ae4fcf61aa72906795d9e20db3ad23da30f8d5aba73d",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 30,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_030_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 2933,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "f6d4998de99bcc9d8f87261c165df1721c5b4cfffd33a6a7917746301fbe7b9b",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 30,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_030_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 2936,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "2447db1e39200d690102c2370f2e8dd510de17540e144f7cfeebb33e3121f67d",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 30,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_030_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 2967,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "dedfab004c60ef94c81f179ceb1f0d0e720580bbdd0bdc67856483d8b32a27f4",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 30,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_030_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 2937,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "1407304bac43475d84e4cfc1c707e0c08db20691379e76d3cd23bc38a284f47a",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 30,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_030_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 2945,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "42da058a5fbb5fe346e3dae2703a1c999839ee0c4bb90290e842bf786fa201d7",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 30,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_030_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 2975,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "07463254006e17141378d3bdad848fbe5721ccfecd9cee61f0e0a32889f720b2",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 30,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_030_l_out_1.bin",
+   "name": "l_out",
+   "node": 2976,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "4a8dacef1ba618c6408061b3b549a23d341dcca3a52af5013a81c1157ee0767a",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 30,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_030_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 2932,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "ff11b98f162a9d1d5339b24c5dfdefea6f2ec12c7d4f3a7c27bdfdaf744c5a68",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 31,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_031_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 2978,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "ec06ce50ffdc61ddca66473428c1c7b5a55f71a343c6f6e9368e43df62dd4924",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 31,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_031_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 3007,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "fc7239a86db644ae1bfff0caaee58f94c2b142c06edc004eee46e06d39f4a752",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 31,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_031_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 3010,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "7f6fb924515686edd81d6956b9df440c3fba54469a28478bf657278c600a2fc4",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 31,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_031_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 3008,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "79e0faa31bc76b8ebb6faf1b9a1f7c9b62bdda7666bf1dec65dc72591489f7a4",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 31,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_031_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 3011,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "a340b8856e3a7fed8ab0360ed2e7af4edecc641e83907999414f43640dd944b1",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 31,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_031_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 3042,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "2a8cc5d21bc187be2cbd7cae50695ec14b64ebb7a861fdb559fe0c2518bf7d81",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 31,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_031_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 3012,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "18bdec94851cdfb5253bc770baa12bb254102b1da502f5ba564b13ede0907b16",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 31,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_031_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 3020,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "f874dba4c1c6fee0f9cb313194a2e9624b1ea455a2f4b9ce3249dac6163a6f81",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 31,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_031_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 3050,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "cac6976bf4059228a80f94919b286b14983a070403d7553381e6ce4364cea6f6",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 31,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_031_l_out_1.bin",
+   "name": "l_out",
+   "node": 3051,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "58fbfd677324f2992b99d29601ca31a1516d9af4b0364b051ff978a2ba25a6cd",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 32,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_032_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 3053,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "5dd4d87dc0b73b71db1855c87b3f4dfc069a1471811c17bfa77d88130607a59b",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 32,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_032_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 3101,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "46884cc89d8e7d1703a14f3476094d66892d6afdb3a1bd76933ef8b755ad94a5",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 32,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_032_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 3112,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "0e602730686aa36b148edc1948a2198dc87b0907a2ed67873d86c53e895b9a3c",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 32,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_032_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 3110,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "12fbfa530545a9dbdf954d80f035883ce1e61c1e68d359f0c20bcc5aa19d8200",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 32,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_032_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 3113,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "81a6e7925bffad5a9b0ba47f8130fc37b6b4afb75981eaba22ec4b6a025d6e5a",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 32,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_032_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 3144,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "66b8658c1a9b9c721547b63f174d17e6b90d0173e835945c0e71a55eb682463e",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 32,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_032_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 3114,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "bb6fcdea1cc86f39fb70b82e940afccd84e723e1a0fd3ffc38dc5595a0d484b7",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 32,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_032_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 3122,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "7b368f54cca936bb7decd907c5b6b44d28fd4b740707a7c1b33056d65e46fe35",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 32,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_032_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 3152,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "2f4c93d3178bdb8f94a481db84e125581a5db9082e1081e2f99e46d57ee3c6da",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 32,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_032_l_out_1.bin",
+   "name": "l_out",
+   "node": 3153,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "072a618f6b751afc57728efb839d58388bf5a9d4b2a324b3d8f94236d4cb81bb",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 32,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_032_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 3109,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "35e048f307056387df0b6291e0baf796043b765dccb913b497f537aac0dcc0ca",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 33,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_033_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 3155,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "5ae6ecf1b417cb6f1c10274fa16614986729ac428cce8afa1e1cdb3a34c45518",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 33,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_033_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 3203,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "e368d71532c1257182d83a7894bd749bd3f12931f80eec33c5d69b1dc9d97ea8",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 33,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_033_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 3214,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "d79ca5ffed787d58b326ca97f2ea0076e75cccd3812e0f6b02f474077568efe6",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 33,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_033_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 3212,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "33a120438c272b42241ca4c4d27f5f0018bd24325912329fd0cbd5484937aa2f",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 33,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_033_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 3215,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "65c469f1e780972344533559de0b884b3c1822d0ddfc1a5c592d12b5f5ec1d51",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 33,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_033_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 3246,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "b846626c974004322e6d80262ebf564047985d6165ef3670f7285cec0abe16a9",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 33,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_033_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 3216,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "5a4303a36956f526f669cdacdf47c95298b5ccbf708d0b94b7af5cead59c603e",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 33,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_033_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 3224,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "2711a41fd18e03428960f5d657d4c965cca07d7f99199f81177e18e6941bfcfe",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 33,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_033_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 3254,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "f1877111b66eb6d73c8a278be3a8417f2de2bf56157f27127b2918030d407f96",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 33,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_033_l_out_1.bin",
+   "name": "l_out",
+   "node": 3255,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "9792b004ff989e46eded0d1a5c39270b902a63623cf2d3ba1b3c4d74858751f4",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 33,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_033_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 3211,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "4b3a4a5b0ba4a95082c6030634ac6c13996aea1f8dcbbe0eaccedcf21aec850d",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 34,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_034_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 3257,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "de25e37776ab6d982a0a7885e4756c7ec45f72a5f6fdfd104975fa9b6805358f",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 34,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_034_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 3305,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "b6fa3b6fe3dd818ea548e5ecbaad020845c7e43e4e797b069e631a3f7dd2a639",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 34,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_034_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 3316,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "1cbdb7b2539fece66f0e2e6a773037be7fd9dfd2953f16ff11926ada4f66a2c4",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 34,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_034_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 3314,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "57d8e00b25bae974e21aebbcc420075aea2a80ea3c784e219364d5e300f1485e",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 34,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_034_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 3317,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "6ee7d94ccc108c579da37430114fcdcdbae148049aa81022a58112628938b0d3",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 34,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_034_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 3348,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "074b669506ecc214cac904a64828a918f2033119d1dc6341b75d9aae5ba982eb",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 34,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_034_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 3318,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "fa0727360cf223e8ba835818e5018c6ccdc53f77ad70ada4fa5e5a004b64e071",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 34,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_034_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 3326,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "d9be3ec6fdef5868b96111f6c7f4e87d425be27346f82f9de04f58d3a12697c5",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 34,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_034_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 3356,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "ca19d86d2b5f14153995e23dace35b15ff490eace72451e8f64d88086f3ae280",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 34,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_034_l_out_1.bin",
+   "name": "l_out",
+   "node": 3357,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "e84f65b761fedae30f9f0d61376f5b46172d34df990f828918131c05c10f33b0",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 34,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_034_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 3313,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "68c8291a627dbb5ff7f539af489dd9845b3638101f63c375e9cc0443c8a1101e",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 35,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_035_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 3359,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "35eccfa3e59fd250d1ba5084e25f9d996a61634cfcb89565d28201b3e967f958",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 35,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_035_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 3388,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "d35edc507e9ea13444d33dd0659d61e0869eba9848500b43caea8252130bfac8",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 35,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_035_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 3391,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "e22fe2a0c58a5b7fcae563fb94fc92636db5016a6e519af3e5e36a83a7829fad",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 35,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_035_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 3389,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "8d0ce80c79b5a1ca725c2d7cf2871c36b37003065170a8b3febfe28c2d76f149",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 35,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_035_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 3392,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "f9aa12f8dd3aea5e6ff33128aae07bdeba60aa50dad13fe33db408cb171d2419",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 35,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_035_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 3423,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "a447bbb0395b48a2439a638ca58263b095a1bec23461cd7ca59945569a70324b",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 35,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_035_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 3393,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "6a339e9369f0337ceef6ccfd769f03913da9ded02a76574925f8d0bcf50d9e57",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 35,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_035_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 3401,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "dfeb3d67dd36acc91ae36fd40c54e4c5d59c34d157311fd37f2b1c9fb6ebb2d9",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 35,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_035_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 3431,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "94b548c3ab9596f68bc2ccffdf07e06ba3a9aa218274ef34ba950b5875fc4e7f",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 35,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_035_l_out_1.bin",
+   "name": "l_out",
+   "node": 3432,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "b71862063586b31791f1a883f19871a62a0f722d56a75538122ba7a72d032146",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 36,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_036_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 3434,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "9e54907b12eaf67ee6d5b195f0d21e0012c637cb78e9658a686b40ffa860c8a7",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 36,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_036_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 3482,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "a2294280d29c14f78bae80507531edbca27659e9196bcf399506a34a7e830c3d",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 36,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_036_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 3493,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "8c1be54a416a675418ce417424f0547cacc0f4fdd2c17cc28a44a42797d0d271",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 36,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_036_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 3491,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "41ea39262cd64845dd71f84a43fd6041ecd45d04245534d50e6b95cd3937f104",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 36,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_036_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 3494,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "0b5c68d57d4067764d3da6c0632c10d003055069a48f950deb69f878912dfb95",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 36,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_036_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 3525,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "cf51a1ddbd5e6ec0c75860b2f5412917c5ca162d275f3cff73156ce979560135",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 36,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_036_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 3495,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "1fd32c037fda667f0585988ae3ed56121f8906980b58617247be07449c5e0fe7",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 36,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_036_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 3503,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "3c4308af0e079ee7ffc1db60a241720c26145dd9e5c94349f2daceabef2a6f15",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 36,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_036_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 3533,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "0135da56e836c6f326ca02242f91006c093bc1e6fd813e2d1d49099216a12af6",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 36,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_036_l_out_1.bin",
+   "name": "l_out",
+   "node": 3534,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "c04d0d99b50788c92fcb1598dce2ba9f018bb583a8c62e387262954d12d34602",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 36,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_036_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 3490,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "e993b26d930583cc8d66beddf09cd63b7a89ff6d774bff409364f9d88f2cd33e",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 37,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_037_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 3536,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "123df7bc46fd14d10292c7af6a372ae1b0f092c951d2b6256e3934c19b4efe12",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 37,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_037_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 3584,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "ff7f04da8a3497323fc14d1ab9be52d0d2122c8305f8beb2f0b223448bd1df3c",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 37,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_037_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 3595,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "fcadfed5cae3f6d741353eca7cab71bd4df1a7be4c3a119502eb11414fc987a7",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 37,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_037_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 3593,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "508c639bea1ac82ba1143062d41af385d96b764072efa4712fcb17a986dc0b29",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 37,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_037_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 3596,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "60afa05041e5f97d0977098dc7661aba2ffec06d14613480ff86761c345dbbce",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 37,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_037_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 3627,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "5614fe00e74b72d21f9ab1a50955edd37cc0736766b98c5f40328e278a27a96f",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 37,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_037_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 3597,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "0bd8ceb6e78e824ab4dc5f0bbf8fe75b4fec27c0c32d5f29cb83774301532744",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 37,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_037_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 3605,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "297ed526b78cc8680836ef0cad02949d1a141d9162f26e9d63fdf7e505aafa56",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 37,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_037_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 3635,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "b01b3c2d424e1b732bcc260ae700eecefdc628ccb658b8f28de73c050812fec5",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 37,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_037_l_out_1.bin",
+   "name": "l_out",
+   "node": 3636,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "824009c228a624504581067145fa9618306777daaa8c08177f086a3e2cf6e84b",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 37,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_037_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 3592,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "d595ba422b63a2957f45ac48f993db6caa84f1aad966d0978811028dc7841e01",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 38,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_038_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 3638,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "65d704add52cb6ca068cdf0fe786edd748797be20f7b790af2a63d6be9abd654",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 38,
+   "bytes": 524288,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_038_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 3686,
+   "op": "VIEW",
+   "seq": 1,
+   "sha256": "998b03f112318ec4e4bd5fc8c452c431a6d6567e90f00873c7777da3103327ca",
+   "shape": [
+    128,
+    32,
+    32,
+    1
+   ]
+  },
+  {
+   "block": 38,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_038_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 3697,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "cd45f684449d5fe21becff0c5c10ed483347584f111800b4fc806e49b399b49e",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 38,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_038_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 3695,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "30f8f98628053b4225818abf7f56a306a0be29008135fb7247c47a5ad46af5ac",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 38,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_038_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 3698,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "d036c874357641cb87d48b702dbde57fff27292cb1a259eeb391c2a9e193d7e5",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 38,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_038_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 3729,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "627e3a3265446bed23ba6c068742bb69b8e5f2e5c0e1dc1e05bb37a43a6b1c11",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 38,
+   "bytes": 32768,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_038_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 3699,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "35d56b47d2201584c65824dbffee917219e87d55b9c2d90af6a2ab093dd2c265",
+   "shape": [
+    256,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 38,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_038_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 3707,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "c31f44f7504ae64a35a7b50ec7a0852cc862c682cad88c929f50e8e3841b52e7",
+   "shape": [
+    8,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 38,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_038_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 3737,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "0b4907dcc6a9da5f3ef8382a84d0de0a7e2f9b7edb52c0074ae2f2550f5c044a",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 38,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_038_l_out_1.bin",
+   "name": "l_out",
+   "node": 3738,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "32b99fa3ac7df60013e701cb0b73c7123f2e28f69e67f5fe86d12d62f548cc56",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 38,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_038_linear_attn_out_1.bin",
+   "name": "linear_attn_out",
+   "node": 3694,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "f83bf4e1bd4f60b3a91cc6ec85604e752899a2656ee4b619aa13ab7750dc13e7",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 39,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_039_attn_norm_1.bin",
+   "name": "attn_norm",
+   "node": 3740,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "58fd17d5b4f26799431f053bc80a46b8a73db34551e754bf7b02dfebe356d298",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 39,
+   "bytes": 262144,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_039_attn_output_1.bin",
+   "name": "attn_output",
+   "node": 3769,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "199d98ba242a508c45ee7496763376a260e267aa0159ab4d3b4ad36246b59019",
+   "shape": [
+    2048,
+    32,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 39,
+   "bytes": 8192,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_039_attn_post_norm_1.bin",
+   "name": "attn_post_norm",
+   "node": 3774,
+   "op": "MUL",
+   "seq": 1,
+   "sha256": "599efd5a93b15dc9e8fdd8a4ea01bb44c5fd929c162d999507c5b24cf5bda790",
+   "shape": [
+    2048,
+    1,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 39,
+   "bytes": 8192,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_039_attn_residual_1.bin",
+   "name": "attn_residual",
+   "node": 3772,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "84ae74480f7524fca8602c43f22988bbab9da11e8ccc4b4c02683432700db5da",
+   "shape": [
+    2048,
+    1,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 39,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_039_ffn_moe_logits_1.bin",
+   "name": "ffn_moe_logits",
+   "node": 3775,
+   "op": "MUL_MAT",
+   "seq": 1,
+   "sha256": "d6ca379196c228dbc7132537806ca37b451f2ec004059e011cc5b68a32ccadab",
+   "shape": [
+    256,
+    1,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 39,
+   "bytes": 8192,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_039_ffn_moe_out_1.bin",
+   "name": "ffn_moe_out",
+   "node": 3806,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "3568ccfe16c5490b8d0ad6702aa0ef2d409909d6435f4283a6d95a66d8c0c0bc",
+   "shape": [
+    2048,
+    1,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 39,
+   "bytes": 1024,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_039_ffn_moe_probs_1.bin",
+   "name": "ffn_moe_probs",
+   "node": 3776,
+   "op": "SOFT_MAX",
+   "seq": 1,
+   "sha256": "2420ee5f9c5e999c9f3264264d973ea727d157760e1190ad146c0e7d260e2c06",
+   "shape": [
+    256,
+    1,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 39,
+   "bytes": 32,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_039_ffn_moe_weights_norm_1.bin",
+   "name": "ffn_moe_weights_norm",
+   "node": 3784,
+   "op": "DIV",
+   "seq": 1,
+   "sha256": "1b90e7ea2840baa3e87037e1a63e21a8d0f9557e4399178caf58d55ba6610400",
+   "shape": [
+    8,
+    1,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 39,
+   "bytes": 8192,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_039_ffn_out_1.bin",
+   "name": "ffn_out",
+   "node": 3814,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "4dc3e52514ca900b570ee1a1ae85693c5a53552d0b8528d490b3d069e1ae2bff",
+   "shape": [
+    2048,
+    1,
+    1,
+    1
+   ]
+  },
+  {
+   "block": 39,
+   "bytes": 8192,
+   "dtype": "f32",
+   "file": "/tmp/m3-align/dumps/d3/g0_blk_039_l_out_1.bin",
+   "name": "l_out",
+   "node": 3815,
+   "op": "ADD",
+   "seq": 1,
+   "sha256": "d64f15e4aac80bc118155075273a561b6e98c18d638504c9e181a7d632f26a4e",
+   "shape": [
+    2048,
+    1,
+    1,
+    1
+   ]
+  }
+ ],
+ "date": "2026-10-27",
+ "determinism": {
+  "aggregate_digest_run_1": "b9f83aa152c1984108d5408aac292f8d3ca8c00bf47298e2d3eca370be72a86c",
+  "aggregate_digest_run_2": "b9f83aa152c1984108d5408aac292f8d3ca8c00bf47298e2d3eca370be72a86c",
+  "aggregate_digests_equal": true,
+  "clause": "D-26 clause 4 \u2014 oracle determinism is a precondition, not a refinement",
+  "non_vacuity_control": {
+   "comparison_against": "checkpoints/llama-dump-manifest-2026-10-27-run-a.json",
+   "differing": 229,
+   "keys_compared": 649
+  },
+  "run_manifests": [
+   "/tmp/m3-align/manifests/llama-aligned-d3.json",
+   "/tmp/m3-align/manifests/llama-aligned-d4.json"
+  ],
+  "runs": [
+   "d3",
+   "d4"
+  ],
+  "tensors_compared": 3639,
+  "tensors_differing": 0
+ },
+ "kind": "m3-candidate-llama-fixture",
+ "logits": {
+  "argmax_id": 82,
+  "bytes": 993280,
+  "definition": "greedy argmax over all 248320 logits of the last token of the 32-token prefill; no penalties, no bad-token mask, no grammar, no temperature",
+  "file": "/tmp/m3-align/d3/logits-last-token.f32.bin",
+  "instrument_row_agrees": true,
+  "n_vocab": 248320,
+  "sha256": "68315e1a0aae1fea3774104d1f3cdab51719fddd98c51e760c1a08fea44b507f",
+  "top5": "TOKDUMP argmax=82 argmax_logit=9.12432384 top5=82:9.12432384 7:8.34050655 198:8.29955387 13:7.93430614 62:7.8670187"
+ },
+ "not_licensed": {
+  "band_question": "engine/HANDOFF.md \u00a7PASS 15 puts the logits-band derivation to the user",
+  "bands": "none authored here; logits are the most cancellation-hostile tensor in the model and D-18/D-20 forbid reading a band off the build"
+ },
+ "oracle": {
+  "artifact": "models/unsloth-q4km/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+  "cpu_only": "no ROCm/HIP in ldd, -ngl 0, no device flag exists in the surface",
+  "front_end": "tools/llama_tokens_dump.cpp (built by tools/llama_tokens_build.sh)",
+  "front_end_argv_note": "the full argv the instrument recorded; TOKDUMP role= line in the run log is the front end's own statement of its input path",
+  "front_end_build_record": "/tmp/llama-instrument-vendored/build-cpu/tokens-build-record.json",
+  "gguf_pinned_sha256": "ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61",
+  "gguf_sha256": "ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61",
+  "instrument_log": "/tmp/m3-align/logs/d3.log",
+  "instrument_manifest": "/tmp/m3-align/manifests/llama-aligned-d3.json",
+  "instrument_manifest_sha256": "22f6e6d76c889f8b687b5b581259171ea2d734b53f9543f89e1e450f05066517",
+  "llama_cpp_commit": "d327bf1f0780f87b8c01b367b61853b0c291d7c4",
+  "matches_pin": true,
+  "producing_command": "/tmp/llama-instrument-vendored/build-cpu/bin/llama-tokens-dump -m /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/models/unsloth-q4km/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf -t /tmp/m3-align/d3/tokens.txt -o /tmp/m3-align/d3/logits-last-token.f32.bin --n-ctx 128 --n-batch 64 --n-ubatch 64 --threads 8",
+  "tokens_file": "/tmp/m3-align/d3/tokens.txt"
+ },
+ "purpose": "M3 exit-gate material: llama.cpp logits + greedy argmax over the chain's aligned 32-token stimulus, plus the per-block cross-check tensors of every block the run wrote. Licence for layers 2-37 is llama-crosscheck(...) and never floor-probe(...) (D-26 clause 1).",
+ "registration": "not-registered \u2014 adding or replacing pinned fixtures is reserved to the user (D-18); this file is a proposal with its evidence attached",
+ "status": "candidate",
+ "stimulus": {
+  "chain_token_ids_sha256": "f87335bb69b4e413c4f7de5ed4077ea93acddaa22145ec71c6748539fa419631",
+  "n_tokens": 32,
+  "source_manifest": "checkpoints/dump-manifest-chain-2026-10-26.json",
+  "template_applied": "no",
+  "template_free_proof": [
+   "construction: batch.token[] -> llama_decode; the binary does not link libllama-common (tools/llama_tokens_build.sh gates 5-7, witnessed against llama-cli)",
+   "evidence: 0 control-class ids (>= 248044) among the 32 ids the oracle recorded, while the same detector finds 3 of them ([248045, 248046, 248045]) in the template-wrapped run-a prefill",
+   "evidence: graphs[0].n_tokens == 32 and graphs[0].token_ids == the chain's ids elementwise, so nothing was added before or after them"
+  ],
+  "token_ids": [
+   75767,
+   48645,
+   25290,
+   78392,
+   55186,
+   7464,
+   2393,
+   70962,
+   18630,
+   58883,
+   68803,
+   22545,
+   13456,
+   67839,
+   23233,
+   60377,
+   30202,
+   19060,
+   79456,
+   93321,
+   35648,
+   86608,
+   64588,
+   87257,
+   60667,
+   40221,
+   9956,
+   21117,
+   27930,
+   80746,
+   5867,
+   87935
+  ],
+  "token_ids_sha256": "f87335bb69b4e413c4f7de5ed4077ea93acddaa22145ec71c6748539fa419631",
+  "token_ids_sha256_matches_chain": true
+ }
+}

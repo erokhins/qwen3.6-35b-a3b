@@ -2894,3 +2894,358 @@ Rule of the pass: a control owes its state in the line, not in the reader's memo
 path and go silent and a check reddens with your name on it; drop a claim and the line has to say why; and a
 fabrication must be bent against a base that was clean, or it proves only that the base was dirty. no timing
 taken.
+
+## PASS 15 (2026-10-27, CPU-only) — M3 unblocked: one stimulus both oracles can be compared on, a candidate logits fixture, and the logits band put to the user instead of authored
+
+Rule of the pass, unchanged from every earlier one: **no band, floor, tolerance, factor, must-catch set
+or pinned fixture was created, relaxed or retyped anywhere here.** The candidate fixture this pass
+produces is `status=candidate`, is not registered, and licenses nothing (D-18 reserves registering
+pins to the user). `engine/cross_oracle.py` still prints `licence-issued=none` and still refuses to
+adjudicate HF-vs-llama disagreement (D-26 clause 3). CPU-only: `grep -c gpu_lock` is 0 on every file
+this pass added, the oracle binary is the CPU build gated by `tools/llama_instrument_apply.sh` plus
+`tools/llama_tokens_build.sh`, `-ngl 0`, no device act, and no rate or duration appears anywhere in
+this section or in the files it cites — host RSS only, read out of the manifests. **no timing taken.**
+
+### 1. What was actually blocking M3, and the one door that was left
+
+`specification/evidence/cross-oracle-three-way-2026-10-27.md` established the blocker: three sides,
+three stimuli. HF's chain ran on the 32 sampled ids of `checkpoints/dump-manifest-chain-2026-10-26.json`;
+the delivered llama runs (`checkpoints/llama-dump-manifest-2026-10-27-run-a.json`) ran on a
+chat-template-wrapped 11-id prefill plus a 4-id assistant header carrying the think-boundary id.
+`quantization/evidence/llama-stimulus-alignment-2026-10-27.md` then proved the text door is shut:
+detokenizing the 32 ids yields 205 bytes whose re-tokenization reproduces 30 of 32 (first divergence
+index 3), and for a byte-level BPE the byte string is forced by the ids, so that candidate is the
+*only* candidate. Two exits were named there: re-dump the chain on a tokenizable stimulus (that
+replaces pinned fixture material — the user's act, not an agent's), or give the oracle an id input
+channel. This pass takes the second.
+
+The vendored front ends have no id channel, and this pass does not patch one into them: **`tools/llama_tokens_dump.cpp` is a client of the vendored library, not an edit of the vendored tree.** Its input path, named because "template-free" has to be falsifiable and not a mood, is:
+
+```
+tokens file (decimal ids) -> llama_batch.token[i] (llama_batch_init) -> llama_decode(ctx, batch)
+```
+
+It never calls `llama_chat_apply_template` / `common_chat_apply_template`, `common_tokenize`,
+`llama_tokenize`, `llama_detokenize` or a BOS insertion, and `tools/llama_tokens_build.sh` proves the
+stronger fact from the artifact rather than the source: **`ldd` on the binary shows `libllama-common`
+absent** — the library that owns chat templating and tokenization in this tree is not in the process
+image, so it cannot run. That gate is witnessed, not asserted: gates 5–7 of `tools/llama_tokens_build.sh`
+require `libllama-common` absent from `llama-tokens-dump` **and present in `llama-cli`**, so the check
+has to be able to see the thing it is looking for. The dump itself is still `tools/llama-instrument.patch`
+arming inside `llama-context.cpp::process_ubatch()` — `engines/llama.cpp` was never made dirty
+(`tools/llama_instrument_apply.sh status` at the end of this pass: HEAD `d327bf1f…`, porcelain 0 lines,
+patch applied: no).
+
+The front end is a template-free *single ubatch prefill*: `n_ctx 128`, `n_batch 64`, `n_ubatch 64`,
+32 tokens → exactly one graph, positions 0..31 (the same positions the HF chain feeds
+`position_ids = torch.arange(tokens)` with), `logits[]` marked on the last token only, `load_mtp=false`
+so the graph is the 40-block main path, `n_gpu_layers=0`, `no_perf=true` so the library prints no
+timings either. `llama_batch_init` `malloc`s `logits[]` and does not fill it, so marking it is not
+optional — an uninitialized `logits[]` would have made `n_outputs` garbage and the logits row
+meaningless (`llama-batch.cpp::llama_batch_init`).
+
+### 2. The aligned stimulus, and the evidence that it is aligned
+
+Driver: `tools/llama_aligned_run.py run <tag>`. Verbatim lines from the run that produced the fixture
+(the ids are printed as numbers, per AGENTS.md §the special-token rule):
+
+```
+chain   n_ids=32 token_ids_sha256=f87335bb69b4e413f…9631 encoding=int64-le-per-id recomputes=True
+oracle  graphs_captured=1 (cap was 1: one ubatch of 32 tokens is one graph)
+oracle  graph 0 n_tokens=32 n_seqs=1 token_ids_sha256=f87335bb69b4e413f…9631
+align   token_ids_sha256=f87335bb69b4e413f…9631  chain_manifest_token_ids_sha256=f87335bb69b4e413f…9631
+        equal=True (elementwise 32/32, length_equal=True)
+template template_applied=no  (API path: file -> batch.token[] -> llama_decode; the binary does not
+        link libllama-common …)
+template control-class ids (>= 248044) among the 32 ids consumed: none
+template witness: the same detector run over run-a graphs[1].token_ids finds 3 control-class id(s)
+        [248045, 248046, 248045] — the detector is not vacuous …
+template length witness: the template-wrapped prefill carried 11 ids for a 5-token text; this run
+        carries 32 ids and every one of them is a chain id, so nothing was added around it
+gguf    gguf_sha256=ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61 pinned_sha256=ac0e2c11…
+        matches_pin=True
+```
+
+Three things about that block are load-bearing and each is a check that reddens, not a sentence:
+
+* **The equality is checked twice over.** The ids the *oracle* recorded consuming come from the
+  instrument's own `graphs[0].token_ids` (read from the `llama_ubatch` inside `process_ubatch()`), not
+  from the driver's echo, and their sha256 is recomputed under the chain manifest's own encoding —
+  sha256 over each id as a little-endian int64, which the driver first verifies against the chain
+  manifest's own `token_ids_sha256` field before trusting it. A negative control was run for real:
+  feeding the first 4 ids only makes the same check print `equal=False (elementwise 4/32)` and exit
+  `verdict=REFUSED tag=token-ids`.
+* **`template_applied=no` is proven by construction *and* by evidence**, as required. Construction: the
+  API path above plus `libllama-common` absent from the binary. Evidence: no control-class id among the
+  ids consumed, with the detector witnessed firing on run-a's template-wrapped prefill, and a length
+  argument (a template adds ids; 32 in, 32 out, all of them chain ids).
+* **The GGUF digest is read from the artifact and compared to the pin**, `ac0e2c11…53e31a61` =
+  `checkpoints/Qwen3.6-35B-A3B.gguf-pin.json`, `matches_pin=true`. This is the D-27 condition: the
+  oracle reads the same published artifact our engine reads, so the only freedom left to it is the
+  forward pass.
+
+Oracle determinism (D-26 clause 4) is re-established **on the aligned stimulus**, not inherited from
+the run-a/run-b pair. Two independent runs (`d3`, `d4`), keyed on
+`(graph, block, name, op, dtype, shape, seq)` like `tools/llama_dump_verify.py`, plus one aggregate
+digest per run over every written row's sha256, plus a control that runs the identical comparator
+against a *different* stimulus so `differing=0` is a property of the oracle and not of the comparison:
+
+```
+pair    run d3 rows_written=3639 aggregate_digest=b9f83aa152c1984108d5408aac292f8d3ca8c00bf47298e2d3eca370be72a86c
+pair    run d4 rows_written=3639 aggregate_digest=b9f83aa152c1984108d5408aac292f8d3ca8c00bf47298e2d3eca370be72a86c
+pair    keys compared=3639 differing=0 only_in_first=0 only_in_second=0 aggregate_equal=True
+pair    control: the same comparison against the template-wrapped run-a gives keys_compared=649 differing=229
+pair    logits digest equal across the pair=True (n_vocab=248320)
+DETERMINISM verdict=DETERMINISTIC pair=d3,d4 tensors_compared=3639 differing=0 aggregate_digest=b9f83aa1…a86c
+```
+
+### 3. The candidate fixture (proposed, not registered)
+
+`checkpoints/m3-candidate-llama-fixture-2026-10-27.json`, written by `tools/llama_aligned_run.py
+candidate d3 d4`. `status=candidate`, `registration=not-registered`, and it does not touch
+`checkpoints/dump-manifest-chain-2026-10-26.json` or any other pinned manifest. Fields: the stimulus
+(ids, `token_ids_sha256`, the three-part template-free proof), the oracle (gguf sha + pin + commit +
+producing command + instrument-manifest sha), the determinism pair (both aggregate digests, tensors
+compared, differing, and the non-vacuity control's numbers), the logits (file, sha, byte count, vocab,
+`argmax_id`, top-5, and the definition "argmax over all 248320 logits of the last token, no penalties,
+no bad-token mask, no temperature"), the coverage block, and a `not_licensed` block that says no band
+came from this file.
+
+Two numbers the gate will eventually be judged on, from the aligned run: `result_output` is
+`[248320, 1, 1, 1]`, sha256 `68315e1a0aae1fea3774104d1f3cdab51719fddd98c51e760c1a08fea44b507f`, and the
+digest the front end read back through `llama_get_logits` equals the digest the instrument captured for
+that row — two different reads of the same graph output agreeing byte for byte. Greedy argmax = id `82`,
+top-5 `82:9.12432 7:8.34051 198:8.29955 13:7.93431 62:7.86702`; the margin between first and second
+(`≈0.78` in logit units) is printed precisely so a future gate can be told that a near-tie here is *not*
+a near-tie, and so nobody has to guess whether the argmax was a coin flip. The digest witness behind
+those numbers: `460 of 3639` recorded row digests were re-hashed from the bytes (every written row of
+the four HF blocks, every model-level row, every 37th written row), 0 mismatches.
+
+The honest limitation, recorded in the manifest and repeated here: **full-40-block logits/activation
+truth exists only as the quantized oracle.** `models/qwen36-src/` holds 4 of 26 safetensors shards
+(layers 0, 1, 38, 39), so HF calibrates layer0/layer1 numerically and layer38/layer39 structurally only
+(the pinned chain jumps `layer1 → layer38`; see that manifest's `block_set.why_not_contiguous` and
+`specification/evidence/cross-oracle-three-way-2026-10-27.md` §Refused adjudications item 4). There is
+no bf16 reference for layers 2..37 on this box at all, and there is no HF logits record for any block:
+the chain fixture is per-block stages, and `lm_head`/`logits` are in it nowhere (D-25). **So the logits
+side of M3 has exactly one candidate referent, and it is a quantized one.**
+
+Coverage, restated as the counts the fixture prints: 40 blocks wrote cross-check tensors
+(`counts.files_written=3639`, `bytes_written=2313656464`, one graph, 32 tokens, peak RSS
+`33587880 kB` host; `430` cross-check rows carried in the manifest with
+name/op/dtype/shape/sha256 per block); layers 2–37 (36 blocks) are cross-check-only; layers 0/1 are the
+numeric HF overlap; layers 38/39 are structural-only; `lm_head` has no HF referent.
+
+And the aligned distance between the two oracles, which is what the band question in §6 is really
+about. `engine/cross_oracle.py --mode aligned` (22 counted preconditions, then measurement) prints,
+for HF bf16 against llama f32 on identical positions:
+
+```
+RESULT    mode=aligned checks=23 findings=0 aligned=True escalations=14 bands-authored=none
+          licence-issued=llama-crosscheck(observation-only) verdict=ALIGNED-OBSERVED no timing taken
+layout  cell=layer0.out relL2[token-major re-view]=2.757e-02 relL2[raw re-view]=1.416e+00
+        chosen=token-major margin=51.4x   # the transpose claim is a check, not a sentence
+  layer0.x (embedding rows)   max_abs_delta=2.608e-04 relL2=5.367e-03   (bf16 shard rows vs Q8_0 GET_ROWS)
+  layer0.h_in                 max_abs_delta=2.630e-02 relL2=5.609e-03
+  layer0.moe_out              max_abs_delta=5.528e-03 relL2=7.350e-02
+  layer1.h_in                 max_abs_delta=2.919e-01 relL2=2.800e-02
+  layer1.moe_out              max_abs_delta=1.039e-02 relL2=8.152e-02
+  layer1.out                  max_abs_delta=1.596e-02 relL2=4.043e-02
+```
+
+The `layout` line is one of the 23 checks and it exists because the two sides store the same matrix two
+ways (HF wrote torch `[tokens, hidden]` in C order, ggml shapes are `[hidden, tokens]` with `ne[0]`
+fastest). Both re-views are computed for one cell and the chosen one must be the closer by >5x — a wrong
+re-view scrambles element order and lands near √2 relative error, which is 51× worse here. Without that
+leg "we transposed" is a sentence, and a sentence cannot fail.
+
+The `layout` line is one of the 23 checks and it exists because the two sides store the same matrix two
+ways (HF wrote torch `[tokens, hidden]`, ggml shapes are `[hidden, tokens]` with `ne[0]` fastest). Both
+re-views are computed for one cell and the chosen one must be the closer by >5x — a wrong re-view
+scrambles element order and lands near √2 relative error, which is 51× worse here. Without that leg
+"we transposed" is a sentence, and a sentence cannot fail.
+
+(all 14 cells; the table is the tail of them, full run in
+`specification/evidence/m3-aligned-stimulus-2026-10-27.md`). Three readings, none of them a band: the
+mapping is corroborated by data rather than names, because `layer1.x` and `layer0.out` agree to the
+last printed digit — they are one tensor reached two ways; the disagreement is already present at the
+embedding row before any block runs, which is refused-adjudication #1 becoming measurable rather than
+settled; and relL2 grows along the stages (~7–8e-2 at `moe_out` on a small-rms tensor) rather than
+staying put, which is the quantitative reason a per-block number cannot be extrapolated to a logits
+band. `engine/cross_oracle.py` run with no flags is unchanged: `checks=78 findings=0
+verdict=STRUCTURAL-OK`, and the only wording change in that path is that the alignment line now says
+`unattainable-through-text=yes` **and** `attainable-through-raw-ids=yes`.
+
+### 4. The shape of the comparison, including the two places the topology lies
+
+llama.cpp crops before the last block when there is one output row
+(`qwen35moe.cpp` `build_layer`'s `crop_before_nextn(inp_out_ids)` gather at `il == n_layer-1`). In the
+aligned run that means block 39's `attn_residual`, `attn_post_norm`, `ffn_moe_*`, `ffn_out` and `l_out`
+carry **1 token** while blocks 0..38 carry **32**, and `result_norm`/`result_output` are 1 row. That is
+not a defect and not a mapping error — it is llama.cpp choosing to evaluate the last block only at the
+output position — but a gate that compares per-(stage, token) ranges must know it, or it will compare a
+32-token engine row against a 1-token oracle row and call the mismatch a numerical finding. Two rules
+follow, and they belong to M3's gate:
+
+1. **Compare per stage at the token positions the oracle actually wrote.** Blocks 0..38: 32 positions.
+   Block 39: position 31 only. `result_output`: position 31 only. A stage whose oracle row has a
+   smaller token axis than the engine's is a *coverage* statement, printed with both counts, never a
+   silent truncation of the engine side.
+2. **Name the activation width on every row.** The oracle's activations are f32 over Q4_K_M/Q8_0
+   weights; the HF fixture's are bf16 over the exact shards; our policy-A rows are Q4_K/Q8_0/Q6_K
+   (`quantization/evidence/q4km-published-width-map-2026-10-26.md`, D-27's two exceptions). This is the
+   refused adjudication in `specification/evidence/cross-oracle-three-way-2026-10-27.md` item 1 and it
+   does not get settled by being inconvenient.
+
+### 5. M3's exit gate, as proposed
+
+M3's ladder row is "all 40 blocks + `lm_head`, pinned prompt, pinned logits matched, greedy argmax
+exact". The gate is four rungs, run in order, and the run refuses at the first red one.
+
+**G0 — stimulus and identity (preconditions; no numbers compared yet).** Redden unless: the engine was
+fed exactly the 32 pinned ids at positions 0..31 and prints them back as numbers with
+`token_ids_sha256 == f87335bb…`; the oracle side reports the same digest (already true, §2);
+`gguf_sha256 == checkpoints/Qwen3.6-35B-A3B.gguf-pin.json`; the engine's resident set is the same
+artifact the oracle read (`engine/loader.py`'s per-tensor digests, not a re-quantize); the oracle's
+determinism pair holds (§2/§3); and the engine run is single-tenant and complete — a refused or absent
+block is a refusal, not a missing row. `engine/cross_oracle.py align` already implements the stimulus
+half of this and returns non-zero when it fails; M3 makes it the first rung instead of a diagnosis.
+
+**G1 — per-block against llama.cpp, layers 2–37 and the parts of 0/1/38/39 HF cannot reach.** For each
+of the 40 blocks, the stages the engine emits (`h_in`, `mixer_out`, `x1`, `h_mlp`, `moe_out`, `out` per
+§03.2, mapped in `engine/cross_oracle.py::STAGE_MAP` to `attn_norm`, `linear_attn_out`|`attn_output`,
+`attn_residual`, `attn_post_norm`, `ffn_out`, `l_out` — `ffn_out` and not `ffn_moe_out`, which is
+routed-only). Each row prints
+`licence=llama-crosscheck(<what-is-compared>, oracle_sha=<per-tensor digest>, width=f32-vs-policy-A)`
+and **never** `floor-probe(...)` (D-26 clause 1). These rows price *disagreement with another quantized
+implementation*, so a pass here is `ACCEPTED-BY-CROSSCHECK`, and the aggregate verdict stays `QUALIFIED`
+wherever nothing stronger than a cross-check was used. Rows already licensed from HF floor probes
+(router, GDN, act-domain) keep their stronger provenance; a cross-check may add a check to them, never
+loosen one (the outranking clause).
+
+**G2 — the four HF blocks against HF, under the existing licences.** layer0 and layer1 compare
+numerically against the pinned bf16 chain stages with whatever band each stage already carries; layer38
+and layer39 print `STRUCTURAL-ONLY(chain gap)` with the reason, and are not counted as numeric passes.
+Where HF and llama.cpp disagree on these four blocks, the run prints both sides and stops — it does not
+pick. That refusal is `engine/cross_oracle.py`'s existing behaviour and M3 inherits it verbatim; the
+`layer0.routed_sum` precedent (prediction 4, `ndiff 1326` vs `0`, argmax moved) is the reason the rule
+exists.
+
+**G3 — logits and greedy argmax.** The gate is: greedy argmax **exact** (`argmax_id == 82` for this
+stimulus, derived from the fixture rather than typed at the gate), *plus* a magnitude statement about
+the logits row. The exact-argmax half is already fully specified and needs no band: it is an
+equality check on an integer, and the must-catch set is the one that already exists in spirit — the
+`layer0.routed_sum`-class defects (f32 carry instead of cast-first, gate|up pair swap, route-order
+error, a skipped renormalisation) must be shown to move the argmax. The magnitude half is the open
+question, and it is §6.
+
+**G4 — what the run must print, so the gate cannot pass by being quiet.** Every population derived:
+40 blocks × the stages the engine emits = the denominator of G1, printed as `parsed == expected` with a
+`missing = expected − |seen|` identity per block; the pairwise numeric denominators as in the three-way
+report (`N of M elements compared`, and `0 elements` is a refusal, never a pass); `checks` counted
+against an expected count, so a check that stopped running fails; and the terminal line carrying
+`no timing taken`. A `0` counter in any of these is reported as vacuous unless a control in the same
+run showed it non-zero somewhere it must fire — including the new digest machinery: the aggregate digest
+is witnessed by re-hashing 460 of 3639 row files (§2), and the determinism comparator is witnessed
+against a deliberately different stimulus.
+
+### 6. THE BAND QUESTION — presented, not answered. **This choice is the user's.**
+
+Logits are the most cancellation-hostile tensor in the model: a `[248320, 1]` row produced by 2048
+products per vocabulary row, read from `Q6_K` weights (D-27's narrower-than-policy-A exception), on top
+of a 40-block residual stream whose last block the oracle evaluates at one position. D-18 and D-20
+forbid a band read off the build, and D-26's outranking clause forbids importing one from llama.cpp's
+error budget. So no number is written here. Two derivations are on the table, plus a hybrid; each is
+listed with the witness that would have to exist before it could ship.
+
+**Option A — a documented width rule plus an fp64 floor probe (the D-20/D-28 shape).**
+Derive, before measuring: the engine's arithmetic contract for the logits path (final RMSNorm form,
+`lm_head` GEMV accumulation order and dtype, the width every product is measurably carried in) and the
+Higham form that prices it — `γ_{2K−1}` where products are measurably inexact, `γ_{K−1}` where they are
+exact, with `K = 2048` (D-20's rule, applied to `lm_head` exactly as it was applied to the `lm_head`
+dot). Add the D-28 requirement: propagation from the *input* error the block stream actually carries
+(whose size G1 can price per layer) plus a **floor probe** — the same logits row computed in fp64 and
+in at least two f32 summation orders, to measure how much of any difference is association rather than
+defect. Band = derived bound, and the measurement must be shown to land *inside* it as a separate
+witness, never as the definition of it.
+*Rejection witness A must produce:* (i) an at-limit / one-past pair on its own lattice, in the shape
+`tools` already prints for D-28 (`at-limit=True one-past=False sized_correctly=yes`); (ii) a
+geometry-derived must-catch set — a single weight word flipped in `lm_head`'s row for the argmax token,
+a gate|up pair swap upstream, an f32-carry renormalisation defect, a swapped expert route — each of which
+must land outside the band; and (iii) the refuted-causes leg: if the measured distance is attributable to
+a mechanism the entry does not list, the run must not print `QUALIFIED` (D-28's escalation clause).
+*Cost, stated honestly:* it needs an fp64 `lm_head` over the aligned stimulus (dequantize `Q6_K`
+`output` in host RAM and do a `248320 × 2048` fp64 GEMV, CPU-only), and it prices a bound whose shape is
+already accepted. *Why someone might reject it:* a bound that wide may admit every candidate, and a band
+that every build passes is a decoration — so leg (i) and leg (ii) are not optional.
+
+**Option B — exact argmax, no magnitude band at all.**
+Ship no tolerance for logits. M3 then closes on: argmax exact, plus the ordinal facts around it (the
+margin between rank 1 and rank 2, the top-5 ordering), plus byte-identity claims that need no band (the
+oracle's own `result_output` digest is reproducible run to run). "Logits matched" is then satisfied as
+*decision matched*, and the magnitude rows print `UNLICENSED reason=no-band-authored` — which is
+exactly how `engine/block_gate.py` already treats policy-A rows, so it is a familiar verdict:
+`QUALIFIED`, never `PASS`.
+*Rejection witness B must produce:* a demonstration that the argmax-only rule is not blind. Concretely,
+a perturbation class that leaves the argmax fixed while the logits are wrong in a way this project would
+call a defect — e.g. a uniform additive offset, or a monotone squash of the whole row, or an injected
+error on logits far from the top — must be shown to **pass** argmax-only. If it does (it will), the
+option must be paired with a second, cheap, band-free invariant that catches it (digest equality against
+the fixture is the only band-free candidate, and it demands the engine reproduce the oracle's arithmetic
+bit for bit, which across two quantized implementations is a much stronger demand than the argmax).
+Option B fails if that pairing cannot be built; it succeeds if the project is willing to say M3 is a
+decision gate and leave magnitude to M5.
+*Why someone might reject it:* the ladder row says "pinned logits matched", and B does not match them, it
+chooses among them.
+
+**Option C (hybrid, named so it is on the record, not endorsed).** Argmax-exact as the gate (B), and a
+magnitude *report* labelled `licence=llama-crosscheck(observation-only)` with no threshold attached,
+while the *licensed* magnitude band is derived only on layer0/layer1 from HF's bf16 truth (the one place
+an unquantized referent exists) and then carried forward by D-28-style propagation. This is the cheapest
+route to "band derived from something that is not the build", but it rests on a propagation claim across
+36 blocks that would itself need evidence, and it risks being the option chosen for convenience.
+
+What is **not** on the table: taking llama.cpp's own tolerances (`nmse`, `mean_abs_asymm`, the `1e-4`
+form) and calling them ours — D-19's refusal, restated in D-28's drafting note; and "relaxing" any
+existing band because a quantized oracle tolerates more, which D-26 explicitly forbids. The choice
+between A, B and C changes what M3 can claim, so it is the user's. Until it is made, M3 has G0/G1/G2
+specified and G3 half-specified, and that is stated as an open item rather than patched over.
+
+### 7. Files this pass added or changed
+
+| file | what it is |
+|---|---|
+| `tools/llama_tokens_dump.cpp` | the template-free id-input front end (§1). Reads ids, builds one ubatch, decodes once, writes the logits row, prints argmax and top-5. Refuses an out-of-vocab id, an empty file, a stimulus larger than one ubatch, and a null logits pointer |
+| `tools/llama_tokens_build.sh` | compiles it against the instrumented CPU `libllama`, and gates 8 checks including "no ROCm/HIP in ldd" and "libllama-common absent here, present in llama-cli" |
+| `tools/llama_aligned_run.py` | the driver: `run` (aligned dump + all §2 evidence, each with its denominator), `pair` (D-26 determinism precondition + non-vacuity control), `candidate` (writes the candidate fixture manifest). `CHECK_ONLY=1` re-checks an existing dump without producing another one |
+| `engine/cross_oracle.py` | aligned-stimulus support: a new `aligned` mode that re-verifies every precondition from files (ids, gguf pin, no control-class id, the determinism pair *and* its non-vacuity control, the layout re-view) and then measures the HF-vs-llama distance labelled `licence=llama-crosscheck(observation-only)` with `band=NONE adjudicated=no`; `align` now accepts an aligned manifest via `--llama-manifest` and says `attainable-through-raw-ids=yes`. The default no-flag run is byte-identical to the recorded three-way result (`checks=78 findings=0 verdict=STRUCTURAL-OK`), and the refusal to adjudicate HF-vs-llama is untouched (§8) |
+| `checkpoints/m3-candidate-llama-fixture-2026-10-27.json` | the candidate fixture (§3). New file; no existing manifest was modified |
+| `specification/evidence/m3-aligned-stimulus-2026-10-27.md` | the narrative evidence file for this pass, with every §2/§3 line quoted verbatim and the 14-cell aligned table |
+| `specification/evidence/m3-aligned-run-d3-2026-10-27.log`, `…-d4-…log` | the two aligned dump runs, driver stdout as printed |
+| `specification/evidence/m3-aligned-pair-d3d4-2026-10-27.log` | the determinism pair and its non-vacuity control |
+| `specification/evidence/m3-cross-oracle-aligned-2026-10-27.log`, `…-align-…log`, `…-baseline-…log` | the aligned-mode run, the `align` re-check against the aligned manifest, and the unchanged 78-check structural baseline |
+| `quantization/evidence/llama-stimulus-alignment-2026-10-27.md` | unchanged — it remains the proof that the text route is impossible; this pass is the second door it named, not a correction of it |
+
+### 8. Not proven here, stated so it cannot be cited as done
+
+1. **No engine number exists for M3.** `engine/block_forward.py` is a single-block lane (22 sub-stages,
+   one token row, `BLOCK=0 GDN_MODE=decode0`). The 40-block × 32-token prefill G1 assumes does not
+   exist yet; G0–G4 are a specification, not a run.
+2. **The candidate fixture's bytes are in scratch, not in `data/`.** The byte blobs live under
+   `/tmp/m3-align/dumps/<tag>/` with per-tensor digests in the instrument manifest, because `data/` is
+   closed to this lane by instruction. Promoting them to `data/dumps/…` is part of registering the
+   fixture, and registration is the user's act (D-18). A digest-only candidate is a weak fixture, and
+   it is labelled as one; the fixture's manifest names where the bytes are so they can be moved intact.
+3. **The HF side was not re-run.** It did not need re-running: the pinned chain *already* used the 32
+   ids, which is why the alignment work was all on the oracle side. Any HF re-dump would be new pinned
+   material and is therefore out of scope.
+4. **`result_output` for a multi-token prefill is one row.** Whether M3 wants logits at more than the
+   last position (it does not, for greedy continuation) is settled by the topology in §4, not by us.
+5. Nothing here licences anything: no `ACCEPTED`, no band, no must-catch set, no fixture registration,
+   and `engines/llama.cpp` is pristine at `d327bf1f…` with the instrumentation reverse-applied.
+
+Rule of the pass: an oracle you cannot feed the same sentence is not a second opinion, it is a second
+speaker — so the fix was to build a door for the ids, prove from the link map that the template could
+not have run, and prove from a deliberate mismatch that the equality check reddens. And the number that
+M3 actually hangs on, the logits band, is the one number this pass was right not to invent. no timing
+taken.

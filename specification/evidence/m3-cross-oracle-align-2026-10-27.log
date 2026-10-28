@@ -1,0 +1,15 @@
+cross_oracle sides: hf=checkpoints/dump-manifest-chain-2026-10-26.json (28 records)  llama=../../../../tmp/m3-align/manifests/llama-aligned-d3.json (3819 rows)  engine=engine/block_forward.py
+=== align: is there one stimulus? ===
+hf      stimulus n_tokens=32 sha256=f87335bb69b4e413c4f7de5ed4077ea93acddaa22145ec71c6748539fa419631
+hf      ids=75767 48645 25290 78392 55186 7464 2393 70962 18630 58883 68803 22545 13456 67839 23233 60377 30202 19060 79456 93321 35648 86608 64588 87257 60667 40221 9956 21117 27930 80746 5867 87935
+hf      special-class ids present=False (max id 93321; this family's control class starts at 248044, so the chain stimulus is raw text tokens, not a rendered conversation)
+hf      source=model-00001-of-00026.safetensors/model.language_model.embed_tokens.weight dtype=torch.bfloat16 shape=[32, 2048] method=torch.randint over the first 100k vocabulary rows from a pri
+llama   gguf_sha256=ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61 matches_pin=True pinned_sha256=ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61 (pin Qwen3.6-35B-A3B-UD-Q4_K_M.gguf)
+llama   instrument=tools/llama-instrument.patch llama.cpp=d327bf1f0780f87b8c01b367b61853b0c291d7c4 prompt given to the front end: '(no text prompt: the stimulus is 32 token ids read from /tmp/m3-align/d3/tokens.txt)'
+llama   graph 0 kind=prefill n_tokens=32  ids_equal_to_chain=True  special-class=none ids=75767 48645 25290 78392 55186 7464 2393 70962 18630 58883 68803 22545 13456 67839 23233 60377 30202 19060 79456 93321 35648 86608 64588 87257 60667 40221 9956 21117 27930 80746 5867 87935
+llama   the prefill carries no control-class id (>= 248044) at all, and its token ids are elementwise the chain's, so this is the raw-id path: no wrapper before, none after
+engine  stimulus = the pinned single-token decode row (engine/block_forward.py BLOCK=0, GDN_MODE=decode0): a third stimulus, one row, not a prefill
+align   denominator: hf=1 stimulus, llama=1 graphs, engine=1 stimulus; graph roles are derived from n_tokens (largest=prefill, 1=decode), not from a name
+align   ALIGNED graphs=0
+
+RESULT    checks=0 findings=0 aligned=True verdict=ALIGNED no timing taken

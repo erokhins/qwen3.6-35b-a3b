@@ -19,22 +19,34 @@ ids starting 248045, next graph = 4 ids containing the think-boundary id). A per
 across two different stimuli is a table of true-looking garbage, so alignment is checked as a
 PRECONDITION (`align` mode) and every numeric line prints UNCOMPARABLE-BY-STIMULUS until it holds.
 
-Why alignment is not merely untried-but-awkward: the vendored front ends take text, never ids
-(`tools/LLAMA_DUMP_NOTES.md` §CLI surface is the whole instrument surface; there is no token-id input
-and no token-override knob in the patch), and byte-level BPE round-trips ids to text only where its
-merges agree with the concatenation boundary. Measured on the chain's own 32 ids: detokenize → 205
-bytes (valid UTF-8, no control-class token) → `llama-tokenize -f` → 32 ids again, but only 30 equal;
-first divergence index 3 (chain 78392, re-tokenized 750). The byte string is forced by the ids
-(byte-level BPE is byte-preserving and the token→piece map is a bijection), so that candidate is the
-only candidate: no text prefill reproduces those 32 ids — which is what you would expect of ids that
-were sampled rather than tokenized. Control that the channel itself is template-free: tokenizing the
-run-a prompt text returns exactly the prefill's 5 inner ids. Evidence and reproduction commands:
-quantization/evidence/llama-stimulus-alignment-2026-10-27.md.
+Why alignment is not merely untried-but-awkward FOR TEXT: the vendored front ends take text, never ids
+(`tools/LLAMA_DUMP_NOTES.md` §CLI surface is the whole instrument surface), and byte-level BPE
+round-trips ids to text only where its merges agree with the concatenation boundary. Measured on the
+chain's own 32 ids: detokenize → 205 bytes (valid UTF-8, no control-class token) → `llama-tokenize -f`
+→ 32 ids again, but only 30 equal; first divergence index 3 (chain 78392, re-tokenized 750). The byte
+string is forced by the ids (byte-level BPE is byte-preserving and the token→piece map is a
+bijection), so that candidate is the only candidate: no text prefill reproduces those 32 ids — which is
+what you would expect of ids that were sampled rather than tokenized. Control that the channel itself
+is template-free: tokenizing the run-a prompt text returns exactly the prefill's 5 inner ids. Evidence
+and reproduction commands: quantization/evidence/llama-stimulus-alignment-2026-10-27.md.
+
+That proof still stands, and it is why the alignment used here came from the OTHER door that file
+named: an id-input front end, `tools/llama_tokens_dump.cpp` driven by `tools/llama_aligned_run.py`,
+which hands the oracle the chain's ids through `llama_batch.token[]` with no tokenizer and no chat
+template in the process image at all (the binary does not link `libllama-common`). The aligned run's
+own manifest — read `graphs[0].token_ids` out of it, written by the instrumentation inside
+`llama-context.cpp`, not echoed by the driver — is what `align` and `aligned` check against the chain.
 
 Modes:
-  align       — stimulus/identity evidence for the three sides; exit non-zero if unaligned.
+  align       — stimulus/identity evidence for the three sides; exit non-zero if unaligned. Point
+                `--llama-manifest` at an aligned run's manifest and this is where the equality is checked.
   structural  — stage mapping, shape/order agreement, per-side statistics, denominators.
   numeric     — the pairwise numeric comparison. Refuses unless alignment holds, and says so.
+  aligned     — the aligned comparison: re-verifies every precondition from files (ids, gguf pin, no
+                control-class id in the stimulus, the determinism pair and its non-vacuity control),
+                then MEASURES the HF-vs-llama distance on the blocks HF can reach and prints it as
+                `licence=llama-crosscheck(observation-only)` with no threshold and `adjudicated=no`.
+                Measuring a divergence is D-26 clause 3 escalation material; adopting a side from it is not.
   all (default) — align, then structural; numeric only if alignment holds.
 
 CPU-only, read-only over the manifests and the dump .bin files. No device lock is taken because
@@ -55,6 +67,10 @@ CHAIN_MANIFEST = os.path.join(REPO, "checkpoints/dump-manifest-chain-2026-10-26.
 LLAMA_MANIFEST = os.path.join(REPO, "checkpoints/llama-dump-manifest-2026-10-27-run-a.json")
 PIN_FILE = os.path.join(REPO, "checkpoints/Qwen3.6-35B-A3B.gguf-pin.json")
 BLOCKS = ("layer0", "layer1", "layer38", "layer39")
+# This family's control-class ids start here (bos/eos 248044, end-of-turn 248046, think-boundary
+# 248068/248069 — README.md §stop list), and they are referred to by id and never printed as text
+# (AGENTS.md §the special-token rule). Used to show a template was or was not applied.
+CONTROL_CLASS_MIN = 248044
 # The seven §03.2 stages the HF chain records per block, in execution order. That order is the
 # denominator of every per-block comparison below; it is taken from the chain manifest, not typed.
 HF_STAGES_EXPECT = 7
@@ -170,9 +186,15 @@ def mode_align(chain, llama, pin):
         if same_len and same_ids:
             aligned.append(g["index"])
     pre = llama_graph(llama, "prefill")[0]
-    print("llama   the prefill's ids 0, 8, 10 are 248045 / 248046 / 198 — the chat wrapper — and its "
-          "5 inner ids are the prompt text; `llama-tokenize` on that text returns exactly those 5 "
-          "ids, which is the template-free proof")
+    pre_ctrl = [t for t in pre.get("token_ids", []) if int(t) >= CONTROL_CLASS_MIN]
+    if pre_ctrl:
+        print("llama   the prefill's ids 0, 8, 10 are 248045 / 248046 / 198 — the chat wrapper — and its "
+              "5 inner ids are the prompt text; `llama-tokenize` on that text returns exactly those 5 "
+              "ids, which is the template-free proof")
+    else:
+        print("llama   the prefill carries no control-class id (>= %d) at all, and its token ids are "
+              "elementwise the chain's, so this is the raw-id path: no wrapper before, none after"
+              % CONTROL_CLASS_MIN)
     print("engine  stimulus = the pinned single-token decode row (engine/block_forward.py BLOCK=0, "
           "GDN_MODE=decode0): a third stimulus, one row, not a prefill")
     print("align   denominator: hf=1 stimulus, llama=%d graphs, engine=1 stimulus; graph roles are "
@@ -183,18 +205,18 @@ def mode_align(chain, llama, pin):
         return 0
     print("align   NOT-ALIGNED-BY-STIMULUS: no llama graph is fed the chain's %d ids (prefill is %d)"
           % (len(ids), pre["n_tokens"]))
-    print("align   unattainable-through-frontends=yes: detokenizing the chain's 32 ids gives 205 "
+    print("align   unattainable-through-text=yes: detokenizing the chain's 32 ids gives 205 "
           "bytes (valid UTF-8, 0 control-class tokens); `llama-tokenize -f` on those bytes returns 32 "
           "ids of which only 30 are equal, first divergence index 3 (chain 78392 vs 750). The byte "
           "string is forced by the ids (byte-level BPE is byte-preserving and token->piece is a "
           "bijection), so that candidate is the only candidate and no text prefill reproduces them. "
           "Reproduction: quantization/evidence/llama-stimulus-alignment-2026-10-27.md")
-    print("align   consequence: mode numeric refuses; mode structural stands alone.")
-    return 3
-    print("align   unattainable-through-frontends=yes: tokenization of the detokenized chain ids "
-          "reproduces 30 of 32 ids; first divergence index 3 (chain 78392 vs 750); the byte "
-          "string is forced by the ids, so no text prefill reproduces them. See "
-          "quantization/evidence/llama-stimulus-alignment-2026-10-27.md")
+    print("align   attainable-through-raw-ids=yes: tools/llama_tokens_dump.cpp feeds the ids through "
+          "batch.token[] with no tokenizer in the process image; run "
+          "tools/llama_aligned_run.py run <tag>, then re-run this mode with --llama-manifest pointing "
+          "at that run's manifest (the aligned fixture records its path). This manifest (%s) is the "
+          "template-wrapped run-a, which is why the line above is NOT-ALIGNED and not a refusal to look."
+          % os.path.relpath(LLAMA_MANIFEST, REPO))
     print("align   consequence: mode numeric refuses; mode structural stands alone.")
     return 3
 
@@ -593,10 +615,282 @@ def mode_numeric(aligned):
           % (len(BLOCKS) * HF_STAGES_EXPECT, 3 * len(BLOCKS) * HF_STAGES_EXPECT))
 
 
+# --------------------------------------------------------------------------------------------
+# aligned mode: the one stimulus both oracles can be compared on
+# --------------------------------------------------------------------------------------------
+# The three-way report (`mode_structural`, `mode_pairs`) compares the pinned HF chain against the
+# template-wrapped run-a dumps and therefore compares nothing numeric. The aligned stimulus exists now
+# — tools/llama_tokens_dump.cpp feeds the oracle the chain's own 32 ids and the evidence is
+# checkpoints/m3-candidate-llama-fixture-2026-10-27.json — so this mode does two things and only two:
+# it re-verifies the alignment preconditions from files (D-26 clause 4's determinism included), and it
+# measures how far the two oracles are from each other on the stages the HF chain can reach, printing
+# `licence=llama-crosscheck(observation-only)` with NO threshold attached. It still does not adjudicate
+# HF-vs-llama disagreement: measuring a divergence is D-26 clause 3's escalation material, adopting a
+# side from it is not. Engine-vs-oracle cells are reported absent, because engine/block_forward.py is a
+# one-block, one-token lane and the stimulus is a 32-token prefill.
+
+ALIGNED_MANIFEST = os.environ.get("ALIGNED_MANIFEST", "")
+CANDIDATE_MANIFEST = os.environ.get("CANDIDATE_MANIFEST",
+                                    os.path.join(REPO, "checkpoints/m3-candidate-llama-fixture-"
+                                                            "2026-10-27.json"))
+# The two blocks where an HF value and a llama value are the same question: layers 0 and 1 are the
+# chain's contiguous head, so layer1's input really is layer0's output. Layers 38/39 are reached in the
+# chain from layer1 with layers 2..37 absent, so their HF values answer a different forward.
+HF_COMPARABLE = ("layer0", "layer1")
+
+
+def token_major(path, dtype, shape, nbytes, ggml):
+    """One record, returned token-major ([tokens, hidden]).
+
+    The two sides store the same matrix two ways and guessing which is which is how a delta ends up
+    comparing element order instead of arithmetic. The HF chain wrote torch tensors shaped
+    [tokens, hidden] in C order, so its flat bytes read straight into (tokens, hidden). ggml shapes
+    are [hidden, tokens] with ne[0] fastest (index = i0 + i1*ne0), so the same bytes of a
+    [2048, 32, 1, 1] tensor read into (32, 2048) ARE the token-major matrix. The `ggml` flag says
+    which contract the caller is under rather than inferring it from the numbers, which would be
+    undecided for a square tensor.
+    """
+    v = values_of(path, dtype, shape, nbytes)
+    dims = list(shape)
+    while len(dims) > 2 and dims[-1] == 1:
+        dims.pop()
+    if len(dims) != 2:
+        raise Refuse("layout-unknown", "%s: shape %s is not a 2-d matrix after trailing 1s are "
+                     "dropped; this comparison is defined on [tokens, hidden] only" % (path, shape))
+    return v.reshape(dims[1], dims[0]) if ggml else v.reshape(dims[0], dims[1])
+
+
+def values_of(path, dtype, shape, nbytes):
+    """One side's own values, widened to float64 without losing bits: bf16 -> f32 is a left shift by 16
+    on the raw bits (pitfalls/30-numerics.md §the `.view` rule), f32 is read as f32."""
+    import numpy as np
+    esz = {"bf16": 2, "torch.bfloat16": 2, "f32": 4, "float32": 4}.get(dtype)
+    if esz is None:
+        raise Refuse("dtype-unknown", "%s: dtype %r" % (path, dtype))
+    raw = open(path, "rb").read(nbytes)
+    if len(raw) != nbytes:
+        raise Refuse("record-short", "%s: %d of %d bytes" % (path, len(raw), nbytes))
+    n = 1
+    for s in shape:
+        n *= s
+    if n * esz != nbytes:
+        raise Refuse("record-size", "%s: shape %s x %d != %d" % (path, shape, esz, nbytes))
+    if esz == 2:
+        return (np.frombuffer(raw, dtype="<u2").astype("<u4") << 16).view("<f4").astype("float64")
+    return np.frombuffer(raw, dtype="<f4").astype("float64")
+
+
+def aligned_preconditions(chain, al, pin, cand):
+    """Every precondition M3's G0 will gate on, each one counted, each one a file-derived equality.
+    Returns (checks, findings, facts)."""
+    checks, findings, facts = 0, [], {}
+    ids = [int(t) for t in chain["input"]["token_ids"]]
+    print("stim    hf_ids=%d chain_sha=%s" % (len(ids), chain["input"]["token_ids_sha256"][:16]))
+    graphs = al.get("graphs", [])
+    checks += 1
+    if len(graphs) != 1:
+        findings.append("aligned-graph-count:expected 1 captured graph (one ubatch), got %d" % len(graphs))
+    g = graphs[0] if graphs else {}
+    got = [int(t) for t in g.get("token_ids", [])]
+    checks += 1
+    if got != ids:
+        findings.append("stimulus-not-equal:the oracle consumed %d ids, the chain consumed %d; first "
+                        "difference at index %s" % (len(got), len(ids),
+                        next((i for i, (a, b) in enumerate(zip(got, ids)) if a != b), len(got))))
+    checks += 1
+    got_sha = ids_sha256_local(got)
+    if got_sha != chain["input"]["token_ids_sha256"]:
+        findings.append("token-ids-sha-mismatch:%s != chain %s" % (got_sha[:16],
+                                                                   chain["input"]["token_ids_sha256"][:16]))
+    print("stim    oracle_ids=%d oracle_sha=%s equal_to_chain=%s" % (len(got), got_sha[:16],
+                                                                    got_sha == chain["input"]["token_ids_sha256"]))
+    checks += 1
+    ctrl = [t for t in got if t >= CONTROL_CLASS_MIN]
+    if ctrl:
+        findings.append("control-class-id-in-stimulus:%s — a template was applied" % ctrl)
+    print("stim    control_class_ids=%s (>= %d); a chat template would have added some and the ids "
+          "above would not match the chain's" % (ctrl or "none", CONTROL_CLASS_MIN))
+    checks += 1
+    if al["gguf"]["sha256"] != pin["sha256"] or not al["gguf"]["matches_pin"]:
+        findings.append("gguf-not-pinned:%s" % al["gguf"]["sha256"][:16])
+    print("gguf    aligned_run_gguf=%s pin=%s matches=%s"
+          % (al["gguf"]["sha256"][:16], pin["sha256"][:16], al["gguf"]["matches_pin"]))
+    checks += 1
+    if cand.get("status") != "candidate" or "not-registered" not in str(cand.get("registration", "")):
+        findings.append("candidate-status:%s/%s — this mode reads a CANDIDATE fixture; a registered "
+                        "pin must be re-checked by the gate that licenses pins, not here"
+                        % (cand.get("status"), str(cand.get("registration", ""))[:24]))
+    det = cand.get("determinism", {})
+    checks += 1
+    if not (det.get("aggregate_digests_equal") and det.get("tensors_differing") == 0
+            and det.get("tensors_compared", 0) > 0):
+        findings.append("determinism-not-established:%s" % json.dumps(det)[:120])
+    print("determ  runs=%s tensors_compared=%s differing=%s aggregate_equal=%s (D-26 clause 4)"
+          % (det.get("runs"), det.get("tensors_compared"), det.get("tensors_differing"),
+             det.get("aggregate_digests_equal")))
+    checks += 1
+    if det.get("non_vacuity_control", {}).get("differing", 0) <= 0:
+        findings.append("determinism-control-vacuous:the same comparator found no difference against a "
+                        "different stimulus (control=%s), so its verdict of equality proves nothing"
+                        % json.dumps(det.get("non_vacuity_control"))[:120])
+    print("determ  non-vacuity control vs %s: keys_compared=%s differing=%s"
+          % (os.path.basename(det.get("non_vacuity_control", {}).get("comparison_against", "?")),
+             det.get("non_vacuity_control", {}).get("keys_compared"),
+             det.get("non_vacuity_control", {}).get("differing")))
+    return checks, findings, {"graph": g, "ids": got, "sha": got_sha}
+
+
+def ids_sha256_local(ids):
+    import hashlib
+    import struct
+    return hashlib.sha256(b"".join(struct.pack("<q", int(t)) for t in ids)).hexdigest()
+
+
+def mode_aligned(chain, pin, stages_by_block):
+    """The aligned comparison itself. HF x llama on the stages the chain can reach. Counted, and no
+    band: every magnitude line carries licence=llama-crosscheck(observation-only) and a refusal to
+    adjudicate."""
+    print("")
+    print("=== aligned: one stimulus, two oracles, measured distance and no verdict about who is right ===")
+    if not ALIGNED_MANIFEST or not os.path.exists(ALIGNED_MANIFEST):
+        print("aligned ALIGNED_MANIFEST is unset or missing (%s) — produce it with "
+              "tools/llama_aligned_run.py run <tag>; until then nothing here is comparable and this "
+              "mode refuses rather than printing the old mismatched-stimulus table as if it were news"
+              % (ALIGNED_MANIFEST or "unset"))
+        return 1, ["aligned-manifest-absent"], 0
+    al = json.load(open(ALIGNED_MANIFEST))
+    cand = json.load(open(CANDIDATE_MANIFEST))
+    import numpy as np
+    checks, findings, facts = aligned_preconditions(chain, al, pin, cand)
+    graph = facts["graph"]["index"]
+    n_tok = len(facts["ids"])
+
+    rows = {}
+    for r in al["dumps"]:
+        if r["written"]:
+            rows.setdefault((r["block"], r["name"]), []).append(r)
+
+    print("")
+    print("hf x llama on the comparable blocks (%s): denominator %d blocks x %d stages = %d cells"
+          % ("+".join(HF_COMPARABLE), len(HF_COMPARABLE), HF_STAGES_EXPECT,
+             len(HF_COMPARABLE) * HF_STAGES_EXPECT))
+    # The layout claim, witnessed rather than assumed. ggml stores [hidden, tokens] with ne[0] fastest
+    # and the HF chain stored torch [tokens, hidden], so the comparison is only arithmetic if one side
+    # is re-viewed. Both readings are computed for one cell and the chosen one has to be the closer by
+    # a wide margin: a wrong re-view scrambles element order and lands near sqrt(2) relative error,
+    # while the real HF-vs-llama divergence here is a few percent. Without this leg "we transpose" is a
+    # sentence, and a sentence cannot fail.
+    probe_stage = stage_order(chain)[stage_order(chain).index("out")]
+    probe_hf = {d["stage"]: d for d in stages_by_block["layer0"]}[probe_stage]
+    probe_ll = rows.get((0, STAGE_MAP[probe_stage][1]["linear"]), [])
+    if probe_ll:
+        checks += 1
+        flat = values_of(probe_ll[0]["file"], probe_ll[0]["dtype"], probe_ll[0]["shape"],
+                         probe_ll[0]["bytes"])
+        hf_probe = values_of(probe_hf["file"], probe_hf["dtype"], probe_hf["shape"], probe_hf["bytes"])
+        rel = lambda a, b: float(np.sqrt(((a - b) ** 2).sum())) / float(np.sqrt((b * b).sum()))
+        r_chosen = rel(flat, hf_probe)
+        r_other = rel(flat.reshape(2048, 32).T.reshape(-1), hf_probe)
+        print("layout  cell=layer0.%s relL2[token-major re-view]=%.3e relL2[raw re-view]=%.3e "
+              "chosen=%s margin=%.1fx (a wrong re-view is ~1.4, the real divergence is ~0.04)"
+              % (probe_stage, r_chosen, r_other, "token-major", r_other / max(r_chosen, 1e-12)))
+        if not (r_other > 5.0 * r_chosen):
+            findings.append("layout-not-witnessed:layer0.%s chosen %.3e vs other %.3e — the transpose "
+                            "is not established by a margin, so no delta below is trustworthy"
+                            % (probe_stage, r_chosen, r_other))
+    cells, refused_cells, escalations = 0, 0, 0
+    for blk in HF_COMPARABLE:
+        il = int(blk.replace("layer", ""))
+        hf = {d["stage"]: d for d in stages_by_block[blk]}
+        for stage in stage_order(chain):
+            eng, names, cite = STAGE_MAP[stage]
+            want = names["linear" if il in al["model"]["linear_layers"] else "full"]
+            if "/" in want:
+                # `x` is the chained input: layer0's is the embedding row set, layer1's is layer0's
+                # output. Both exist in the aligned dump, so the cell is fillable rather than position-only.
+                if stage == "x":
+                    src = (-1, "model.input_embed") if il == 0 else (il - 1, "l_out")
+                else:
+                    refused_cells += 1
+                    print("  %-6s %-10s llama-name=%s refused: position-only mapping (chained input)"
+                          % (blk, stage, want))
+                    continue
+            else:
+                src = (il, want)
+            hits = rows.get(src, [])
+            if not hits:
+                refused_cells += 1
+                findings.append("aligned-row-absent:%s/%s wants llama (%d,%s) and the aligned dump "
+                                "wrote no such row" % (blk, stage, src[0], src[1]))
+                print("  %-6s %-10s llama=(%d,%s) ABSENT-BY-INSTRUMENT" % (blk, stage, src[0], src[1]))
+                continue
+            lr = hits[0]
+            h = hf[stage]
+            hv = token_major(h["file"], h["dtype"], h["shape"], h["bytes"], ggml=False)
+            lv = token_major(lr["file"], lr["dtype"], lr["shape"], lr["bytes"], ggml=True)
+            if hv.shape != lv.shape:
+                refused_cells += 1
+                print("  %-6s %-10s shapes hf=%s llama=%s SHAPE-MISMATCH(token axis or transpose; "
+                      "a delta here would be element-order, not arithmetic)"
+                      % (blk, stage, h["shape"], lr["shape"]))
+                continue
+            d = hv - lv
+            denom = float(np.sqrt((lv * lv).sum())) or 1.0
+            cells += 1
+            checks += 1
+            if not np.isfinite(d).all():
+                findings.append("non-finite-delta:%s/%s" % (blk, stage))
+            escalations += 1
+            print("  %-6s %-10s hf=%s/%s llama=%s/%s n=%d max_abs_delta=%.3e relL2=%.3e "
+                  "hf_rms=%.4f llama_rms=%.4f elements_compared=%d "
+                  "licence=llama-crosscheck(observation-only) band=NONE adjudicated=no"
+                  % (blk, stage, h["dtype"], "x".join(map(str, h["shape"])),
+                     lr["dtype"], "x".join(map(str, lr["shape"])), hv.size,
+                     float(np.abs(d).max()), float(np.sqrt((d * d).sum())) / denom,
+                     float(np.sqrt((hv * hv).mean())), float(np.sqrt((lv * lv).mean())), hv.size))
+    print("aligned denominator: %d cells measured (HF bf16 vs llama f32, same 32-token stimulus, no "
+          "threshold applied to any of them), %d cells refused with a named reason, out of %d x %d = %d "
+          "candidate cells. The other two HF blocks (%s) are not in this denominator at all: their chain "
+          "input skips layers 2..37, so a delta there would mix a chain gap with an implementation "
+          "difference and is refused as structural-only regardless of stimulus"
+          % (cells, refused_cells, len(HF_COMPARABLE), HF_STAGES_EXPECT,
+             len(HF_COMPARABLE) * HF_STAGES_EXPECT,
+             "+".join(b for b in BLOCKS if b not in HF_COMPARABLE)))
+    print("aligned escalation: every line above is a HF-vs-llama divergence on a block where HF has an "
+          "unquantized referent. D-26 clause 3: reported, not adopted; where HF's limit is tighter, HF's "
+          "limit ships. %d divergences printed, 0 adjudicated, 0 bands authored." % escalations)
+    print("aligned engine coverage: engine-vs-oracle cells = 0. engine/block_forward.py implements "
+          "%s x %s x one token row; this stimulus is 40 blocks x %d tokens. That is the next rung, not "
+          "a gap in this one" % (engine_coverage()[0].get("BLOCK"), engine_coverage()[0].get("GDN_MODE"),
+                                 n_tok))
+    lg = cand.get("logits", {})
+    print("aligned logits referent: argmax_id=%s over n_vocab=%s, digest=%s — status=candidate, and no "
+          "band exists for it: the logits-band derivation is put to the user in engine/HANDOFF.md "
+          "§PASS 15 §6 (options A/B/C, each with the rejection witness it needs). D-18/D-20 forbid "
+          "reading one off this build."
+          % (lg.get("argmax_id"), lg.get("n_vocab"), str(lg.get("sha256"))[:16]))
+    return checks, findings, escalations
+
+
 def main():
+    global LLAMA_MANIFEST, ALIGNED_MANIFEST, CANDIDATE_MANIFEST
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--mode", default="all", choices=("align", "structural", "numeric", "all"))
+    ap.add_argument("--mode", default="all",
+                    choices=("align", "structural", "numeric", "all", "aligned"))
+    ap.add_argument("--llama-manifest", default=None,
+                    help="manifest for the `llama` side of align/structural (default: the run-a "
+                         "template-wrapped dumps the three-way report was written against)")
+    ap.add_argument("--aligned-manifest", default=None,
+                    help="instrument manifest of an aligned run (tools/llama_aligned_run.py run <tag>)")
+    ap.add_argument("--candidate", default=None,
+                    help="the candidate M3 fixture manifest carrying the determinism pair")
     args = ap.parse_args()
+    if args.llama_manifest:
+        LLAMA_MANIFEST = args.llama_manifest
+    if args.aligned_manifest:
+        ALIGNED_MANIFEST = args.aligned_manifest
+    if args.candidate:
+        CANDIDATE_MANIFEST = args.candidate
     try:
         chain, llama, pin, stages_by_block, llama_rows = load_sides()
     except Refuse as exc:
@@ -623,6 +917,18 @@ def main():
               "licence-issued=none no timing taken"
               % (aligned, "NUMERIC-PATH-NOT-IMPLEMENTED" if aligned else "UNCOMPARABLE-BY-STIMULUS"))
         return 0 if aligned else 3
+    if args.mode == "aligned":
+        a_checks, a_findings, escalations = mode_aligned(chain, pin, stages_by_block)
+        mode_refusals()
+        print("")
+        for f in a_findings:
+            print("FINDING   %s" % f)
+        print("RESULT    mode=aligned checks=%d findings=%d aligned=%s escalations=%d "
+              "bands-authored=none licence-issued=llama-crosscheck(observation-only) verdict=%s "
+              "no timing taken"
+              % (a_checks, len(a_findings), not a_findings, escalations,
+                 "ALIGNED-OBSERVED" if not a_findings else "ALIGNED-BLOCKED"))
+        return 0 if not a_findings else 3
     if args.mode in ("structural", "all"):
         checks, findings, mapped_pairs = mode_structural(chain, llama, pin, stages_by_block,
                                                          llama_rows)

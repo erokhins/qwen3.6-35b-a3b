@@ -1,0 +1,31 @@
+=== aligned run d4: stimulus = the chain's pinned token ids ===
+chain   n_ids=32 token_ids_sha256=f87335bb69b4e413c4f7de5ed4077ea93acddaa22145ec71c6748539fa419631 encoding=int64-le-per-id recomputes=True
+chain   ids=75767 48645 25290 78392 55186 7464 2393 70962 18630 58883 68803 22545 13456 67839 23233 60377 30202 19060 79456 93321 35648 86608 64588 87257 60667 40221 9956 21117 27930 80746 5867 87935
+run     feeding 32 of 32 ids (MAX_IDS=0)
+run     /tmp/llama-instrument-vendored/build-cpu/bin/llama-tokens-dump -m /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/models/unsloth-q4km/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf -t /tmp/m3-align/d4/tokens.txt -o /tmp/m3-align/d4/logits-last-token.f32.bin --n-ctx 128 --n-batch 64 --n-ubatch 64 --threads 8
+TOKDUMP role=raw-token-prefill api_path=batch.token[]->llama_decode template_path_not_called=yes
+TOKDUMP ids_file=/tmp/m3-align/d4/tokens.txt n_ids=32
+TOKDUMP ids_consumed=75767 48645 25290 78392 55186 7464 2393 70962 18630 58883 68803 22545 13456 67839 23233 60377 30202 19060 79456 93321 35648 86608 64588 87257 60667 40221 9956 21117 27930 80746 5867 87935
+TOKDUMP n_ctx=128 n_batch=64 n_ubatch=64 n_threads=8 n_gpu_layers=0 load_mtp=0 n_vocab=248320 vocab_wants_bos=0 n_tokens=32 n_outputs_marked=1 (the last token only)
+TOKDUMP logits_rows=1 n_vocab=248320 logits_file=/tmp/m3-align/d4/logits-last-token.f32.bin logits_bytes=993280
+TOKDUMP argmax=82 argmax_logit=9.12432384 top5=82:9.12432384 7:8.34050655 198:8.29955387 13:7.93430614 62:7.8670187
+TOKDUMP DONE verdict=PASS n_ids=32
+oracle  graphs_captured=1 (cap was 1: one ubatch of 32 tokens is one graph)
+oracle  graph 0 n_tokens=32 n_seqs=1 token_ids_sha256=f87335bb69b4e413c4f7de5ed4077ea93acddaa22145ec71c6748539fa419631
+oracle  ids_consumed=75767 48645 25290 78392 55186 7464 2393 70962 18630 58883 68803 22545 13456 67839 23233 60377 30202 19060 79456 93321 35648 86608 64588 87257 60667 40221 9956 21117 27930 80746 5867 87935
+align   token_ids_sha256=f87335bb69b4e413c4f7de5ed4077ea93acddaa22145ec71c6748539fa419631  chain_manifest_token_ids_sha256=f87335bb69b4e413c4f7de5ed4077ea93acddaa22145ec71c6748539fa419631  equal=True (elementwise 32/32, length_equal=True)
+template template_applied=no  (API path: file -> batch.token[] -> llama_decode; the binary does not link libllama-common, which owns chat templating and tokenization — see tools/llama_tokens_build.sh gate lines 5-7)
+template control-class ids (>= 248044) among the 32 ids consumed: none
+template witness: the same detector run over llama-dump-manifest-2026-10-27-run-a.json graphs[1].token_ids finds 3 control-class id(s) [248045, 248046, 248045] — the detector is not vacuous, and that is what a chat-template prefill looks like
+template length witness: the template-wrapped prefill carried 11 ids for a 5-token text; this run carries 32 ids and every one of them is a chain id, so nothing was added around it
+gguf    gguf_sha256=ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61 pinned_sha256=ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61 matches_pin=True path=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/models/unsloth-q4km/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
+cpuonly producing_command=/tmp/llama-instrument-vendored/build-cpu/bin/llama-tokens-dump -m /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/models/unsloth-q4km/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf -t /tmp/m3-align/d4/tokens.txt -o /tmp/m3-align/d4/logits-last-token.f32.bin --n-ctx 128 --n-batch 64 --n-ubatch 64 --threads 8
+cpuonly n_gpu_layers=0 recorded, no device-shaped flag in the command=True (the binary itself is gated CPU-only: ldd carries zero ROCm/HIP libraries and no libllama-common, tools/llama_tokens_build.sh gates 2-3)
+cpuonly peak_rss_kb=33587880 (host RSS from the manifest; no timing of any kind is recorded here)
+logits  logits_sha256=68315e1a0aae1fea3774104d1f3cdab51719fddd98c51e760c1a08fea44b507f logits_bytes=993280 n_vocab=248320 (argmax over all 248320 rows, no penalties, no mask)
+logits  TOKDUMP argmax=82 argmax_logit=9.12432384 top5=82:9.12432384 7:8.34050655 198:8.29955387 13:7.93430614 62:7.8670187
+logits  instrument's own result_output row: graph=0 shape=[248320, 1, 1, 1] bytes=993280 sha256=68315e1a0aae1fea3774104d1f3cdab51719fddd98c51e760c1a08fea44b507f equal_to_front_end_logits=True
+digest  written_rows=3639 aggregated_rows=3639 aggregate_digest=b9f83aa152c1984108d5408aac292f8d3ca8c00bf47298e2d3eca370be72a86c
+digest  witness: 460/3639 recorded row digests re-hashed from the bytes on disk and all matched (sample = the four HF blocks + every model-level row + every 37th written row); 0 unmatched
+facts   /tmp/m3-align/facts-d4.json
+ALIGNED verdict=ALIGNED tag=d4 token_ids_sha256=f87335bb69b4e413c4f7de5ed4077ea93acddaa22145ec71c6748539fa419631 template_applied=no gguf_sha256=ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61 aggregate_digest=b9f83aa152c1984108d5408aac292f8d3ca8c00bf47298e2d3eca370be72a86c no timing taken

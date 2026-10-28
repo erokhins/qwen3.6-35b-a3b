@@ -1,0 +1,6 @@
+pair    run d3 rows_written=3639 aggregate_digest=b9f83aa152c1984108d5408aac292f8d3ca8c00bf47298e2d3eca370be72a86c
+pair    run d4 rows_written=3639 aggregate_digest=b9f83aa152c1984108d5408aac292f8d3ca8c00bf47298e2d3eca370be72a86c
+pair    keys compared=3639 differing=0 only_in_first=0 only_in_second=0 aggregate_equal=True
+pair    control: the same comparison against the template-wrapped run-a gives keys_compared=649 differing=229 — the comparator reports a difference when one exists
+pair    logits digest equal across the pair=True (n_vocab=248320)
+DETERMINISM verdict=DETERMINISTIC pair=d3,d4 tensors_compared=3639 differing=0 aggregate_digest=b9f83aa152c1984108d5408aac292f8d3ca8c00bf47298e2d3eca370be72a86c no timing taken
