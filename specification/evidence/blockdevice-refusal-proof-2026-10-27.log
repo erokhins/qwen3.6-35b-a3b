@@ -1,0 +1,35 @@
+window-m's own device shape, run through the same predicate the driver runs its own numbers through (fabricated, no device act):
+    terminal_fatality(mode=device, checks=0, controls=0) → no-check-executed(checks=0, mode=device): a run that executes no checks cannot fail, so findings=0 here means nothing was looked at, not that nothing was wrong
+    terminal_fatality(mode=device, checks=71, controls=0) → no-control-executed(controls=0, mode=device): every predicate in this suite is witnessed non-inert by a control or a fabrication, and not one of them ran
+    terminal_fatality(mode=device, checks=71, controls=31) → None
+    terminal_fatality(mode=device, …, escaped=Refused tag=…) → aborted-before-its-check-suite-completed(Refused tag=d28-edge-leg-wont-size): 0 checks and 0 controls had printed when it died, so every check after the refusal is unexecuted, not passed
+
+### mode=refused-fabrication exit=1
+    printed CHECK lines=71 (verdict=FAIL among them=1)
+    FAIL name=d28-edge-legs-are-adjacent-lattice-points-and-sized-from-the-bound names refused=g_policy_a_hip_device_vs_hip_hostpath ndiff_frac fabrication
+    REFUSED tag=fabricated-fabrication-leg-wont-size for_leg=g_policy_a_hip_device_vs_hip_hostpath ndiff_frac fabrication set owning_check=d28-edge-legs-are-adjacent-lattice-points-and-sized-from-the-bound counted_as_finding
+    REFUSED tag=fabricated-fabrication-leg-wont-size for_leg=d_hip_device_vs_d_hip_hostpath ndiff_frac fabrication set owning_check=d28-edge-legs-are-adjacent-lattice-points-and-sized-from-the-bound counted_as_finding=yes su
+    BOUNDEDGE=12 MUSTCATCH=8 REFUTED-CAUSE=2 CONTROL=35
+    edge summaries (printed inside the owning check): CHECK name=d28-value-band-witness-inside-and-edge-legs-reject verdict=PASS the measurement is a separate witness line, n…
+    RESULT mode=cpu checks=71 findings=1 controls=31 fired=31 rows=6 gdn_rows=7 arms=policy_a device=off staged=not-attempted hip_calls=0+0 launches=0 bytes_to_device=0 bytes_from_device=0 counters_unparsed=0 band_digest=27a68c7e82c9aa05 no timing taken
+    grep verdict=FAIL finds 1 line(s) — window `m` found 0
+
+### mode=refused-edge exit=1
+    printed CHECK lines=71 (verdict=FAIL among them=2)
+    FAIL name=d28-value-band-witness-inside-and-edge-legs-reject names refused=at-limit; d/relL2 at-limit=True one-past=False sized_correct
+    FAIL name=d28-edge-legs-are-adjacent-lattice-points-and-sized-from-the-bound names refused=none
+    REFUSED tag=fabricated-window-m-shape-wont-size for_leg=d_hip_device_vs_d_hip_hostpath scan_out/rel-err at-limit leg owning_check=d28-value-band-witness-inside-and-edge-legs-reject counted_as_finding=yes suite_continues=
+    BOUNDEDGE=10 MUSTCATCH=8 REFUTED-CAUSE=2 CONTROL=35
+    edge summaries (printed inside the owning check): CHECK name=d28-value-band-witness-inside-and-edge-legs-reject verdict=FAIL the measurement is a separate witness line, n…
+    RESULT mode=cpu checks=71 findings=2 controls=31 fired=31 rows=6 gdn_rows=7 arms=policy_a device=off staged=not-attempted hip_calls=0+0 launches=0 bytes_to_device=0 bytes_from_device=0 counters_unparsed=0 band_digest=27a68c7e82c9aa05 no timing taken
+    grep verdict=FAIL finds 2 line(s) — window `m` found 0
+
+### mode=zero-check exit=1
+    printed CHECK lines=1 (verdict=FAIL among them=1)
+    FAIL name=run-executed-a-non-empty-check-and-control-suite DOES NOT NAME refused=
+    FATAL mode=cpu reason=aborted-before-its-check-suite-completed(Refused tag=fabricated-lane-layout-refused): 0 checks and 0 controls had printed when it died, so every check after the refusal is unexecuted, not passed che
+    BOUNDEDGE=0 MUSTCATCH=0 REFUTED-CAUSE=0 CONTROL=0
+    RESULT mode=cpu checks=1 findings=1 controls=0 fired=0 rows=0 arms=policy_a device=off staged=not-attempted hip_calls=0+0 launches=0 counters_unparsed=0 fatal=aborted-before-its-check-suite-completed(Refused tag=fabricated-lane-layout-refused): 0 checks and 0 controls had printed when it died, so every check after the refusal is unexecuted, not passed no timing taken
+    grep verdict=FAIL finds 1 line(s) — window `m` found 0
+
+PROOF verdict=PASS note=each mode ran the real driver in CPU mode through its own subprocess; scratch dirs engine/work/p13-proof-*; the canonical device scratch /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/engine/work/m2dev was not written; no device act occurred; no timing taken

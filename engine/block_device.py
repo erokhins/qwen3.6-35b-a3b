@@ -146,6 +146,58 @@ class Refused(DA.Refused):
     """One refusal type in the lane: `engine/device_arm.py` raises it and this driver catches it."""
 
 
+# ---------------------------------------------------------------------- refusals as counted findings
+#
+# Window `m` (`devices/evidence/device-window-2026-10-27-g.md` §window `m`) died inside ONE leg-construction
+# call and printed `RESULT mode=device checks=0 findings=1 controls=0 fired=0` with zero printed CHECK lines,
+# zero MUSTCATCH, zero REFUTED-CAUSE. `grep -E "verdict=FAIL"` on that log returns nothing: the run executed
+# no checks, so it could not fail, and a run that cannot fail is one step from reading green. A refusal is a
+# statement about the leg that raised it — "this leg could not be placed on its own side of the bound" — so
+# it belongs on that leg's owning check as a finding, and the rest of the run has to happen anyway.
+#
+# The owner of a leg family is the check that already adjudicates that family, named in one place so the
+# catching site and the checking site cannot disagree about who owns the refusal.
+
+VB_LEG_OWNERS = {
+    "derive": "d28-bound-and-witness-lines-are-parsed-not-assumed",
+    "edge": "d28-value-band-witness-inside-and-edge-legs-reject",
+    "fabrication": "d28-edge-legs-are-adjacent-lattice-points-and-sized-from-the-bound",
+    "must-catch": "d28-must-catch-set-is-derived-and-reddens",
+    "refuted": "d28-refuted-causes-still-refuted-and-say-what-carries-it",
+}
+
+
+def leg_attempt(ctx, family, what, construct):
+    """Run one leg-construction call; a refusal becomes a counted finding on its owning check.
+
+    Returns whatever `construct()` returned, or None when it refused — and None is what tells the caller to
+    go on with the next leg instead of unwinding out of `run()`. The refusal is printed as its own record
+    (tag, leg, owning check, `counted_as_finding=yes`) and recorded on the ctx for the owning check's
+    predicate to read, so "this leg could not be built" reaches the verdict as a FAIL line rather than as
+    the absence of every line after it.
+    """
+    try:
+        return construct()
+    except DA.Refused as exc:
+        ctx.setdefault("refusals", []).append(
+            dict(family=family, what=what, tag=getattr(exc, "tag", "untagged"),
+                 owner=VB_LEG_OWNERS[family], note=str(exc)))
+        print("REFUSED tag=%s for_leg=%s owning_check=%s counted_as_finding=yes suite_continues=yes note=%s"
+              % (getattr(exc, "tag", "untagged"), what, VB_LEG_OWNERS[family], exc))
+        return None
+
+
+def refusals_for(ctx, family):
+    """The refusals recorded against one leg family (see `leg_attempt`)."""
+    return [r for r in (ctx.get("refusals") or []) if r["family"] == family]
+
+
+def refusal_note(ctx, family):
+    """The `refused=` clause a check prints for its own family: every refusal named, or `none`."""
+    return "; ".join("%s(tag=%s) %s" % (r["what"], r["tag"], r["note"])
+                     for r in refusals_for(ctx, family)) or "none"
+
+
 def silent_control_finding(fired, reason):
     """The rule a SILENT control has to obey: if it did not fire, it says why, in words.
 
@@ -277,6 +329,67 @@ def contradiction_findings(text):
 
 CONTROL_RED_PREFIX = "control:"
 REJECT_TALLY_CHECK = "terminal-verdict-finding-count-matches-printed-records"
+EMPTY_SUITE_CHECK = "run-executed-a-non-empty-check-and-control-suite"
+# The run's Verifier, reachable from `main()` so the abort path can report how much of the suite printed
+# instead of asserting `checks=0` from outside. Written once, in `run()`.
+RUN_STATE = {"v": None}
+
+
+def terminal_fatality(mode, n_checks, n_controls, escaped=None):
+    """Why a run that printed no failure is fatal anyway, in words — or None when it is not.
+
+    Window `m` is the reason this exists: one refusal unwound out of `run()` and the log ended
+    `RESULT mode=device checks=0 findings=1 controls=0 fired=0`, zero CHECK lines, and `grep verdict=FAIL`
+    found nothing in it — "nothing failed" and "nothing ran" were one string apart
+    (`pitfalls/40` §a-check-that-can-produce-no-output-cannot-fail, wearing a RESULT line). This is the one
+    place that rule is written, so the in-run guard, the abort path and the exit status cannot disagree: a
+    run that executed no checks, or no witnessed controls, is fatal with a NAMED reason, and so is one whose
+    suite was cut short by an escaped refusal. The non-zero exit comes from the FAIL record this prints, not
+    from the silence around it.
+
+    Pure over (mode, counts, escaped-reason) so a witness can run the fabricated device shape —
+    `(device, 0, 0)` — through the same predicate the driver runs its own numbers through.
+    """
+    if escaped:
+        return ("aborted-before-its-check-suite-completed(%s): %d checks and %d controls had printed when "
+                "it died, so every check after the refusal is unexecuted, not passed" % (escaped,
+                                                                                         n_checks,
+                                                                                         n_controls))
+    if n_checks == 0:
+        return ("no-check-executed(checks=0, mode=%s): a run that executes no checks cannot fail, so "
+                "findings=0 here means nothing was looked at, not that nothing was wrong" % mode)
+    if n_controls == 0:
+        return ("no-control-executed(controls=0, mode=%s): every predicate in this suite is witnessed "
+                "non-inert by a control or a fabrication, and not one of them ran" % mode)
+    return None
+
+
+def check_run_population(v, ctx):
+    """The guard that refuses to finish silently: a suite must have run to be believed.
+
+    `len(v.names) + 1` is the count INCLUDING this check, which is not yet registered while its predicate is
+    being evaluated — the same off-by-one self-reference `check_terminal_tally` documents. The two
+    fabrications are the non-inertness witness: the window-`m` shape `(device, 0, 0)` and a suite with no
+    controls both come back named, and the honest shape comes back None.
+    """
+    mode = "device" if ctx["device"] else "cpu"
+    n_checks, n_controls = len(v.names) + 1, len(v.controls)
+    fatal = terminal_fatality(mode, n_checks, n_controls)
+    fab_checks = terminal_fatality("device", 0, 0)
+    fab_controls = terminal_fatality("device", n_checks, 0)
+    v.check(EMPTY_SUITE_CHECK,
+            fatal is None and bool(fab_checks) and bool(fab_controls),
+            "this run had registered %d checks (this one included) and %d witnessed controls when the line "
+            "printed — the two guards that follow it make the RESULT's %d the final count — and a run with "
+            "either count at zero is fatal by name rather than quiet: `%s`. Window `m` printed `checks=0 "
+            "findings=1 controls=0` and no CHECK line at all, and nothing in the log could tell that from a "
+            "clean sweep. Non-inertness, the same predicate on the two shapes it must name: fabricated "
+            "checks=0 → %s; fabricated controls=0 → %s. The abort path in `main()` runs the escaped-reason "
+            "branch of the same function, so an exception that still escapes prints a FAIL record and a "
+            "named `fatal=` clause instead of a bare zero"
+            % (n_checks, n_controls, n_checks + 2, fatal or "no fatality: the population is non-empty",
+               fab_checks, fab_controls))
+
 
 
 def reject_tally_findings(red, printed_lines):
@@ -4509,18 +4622,26 @@ def vb_witness(spec, a_side, b_side, tag):
 def value_band(v, ctx):
     """Derive, then measure, for both D-28 pairs. Called once, after every arm record exists."""
     ctx["vb"] = {}
+    ctx.setdefault("refusals", [])
     for spec in vb_pair_specs(ctx):
-        vb_field_derive(ctx, spec)
-        same = spec["a_side"] != spec["b_side"]
-        if ctx["device"] and same:
-            vb_witness(spec, spec["a_side"], spec["b_side"], spec["pair"])
-        else:
-            vb_witness(spec, spec["host_a"], spec["b_side"], spec["host_pair"])
-            print("BOUNDWITNESS pair=%s field=all metric=all measured=not-claimed derived=see-above "
-                  "margin=none inside=not-claimed for_leg=%s note=no device record exists in a CPU "
-                  "witness, so the device-vs-host leg is not claimed here; the command that takes it "
-                  "is %s" % (spec["pair"], spec["pair"], window_command()))
-            spec["device_leg"] = "not-claimed"
+        def build(s=spec):
+            vb_field_derive(ctx, s)
+            same = s["a_side"] != s["b_side"]
+            if ctx["device"] and same:
+                vb_witness(s, s["a_side"], s["b_side"], s["pair"])
+            else:
+                vb_witness(s, s["host_a"], s["b_side"], s["host_pair"])
+                print("BOUNDWITNESS pair=%s field=all metric=all measured=not-claimed derived=see-above "
+                      "margin=none inside=not-claimed for_leg=%s note=no device record exists in a CPU "
+                      "witness, so the device-vs-host leg is not claimed here; the command that takes it "
+                      "is %s" % (s["pair"], s["pair"], window_command()))
+                s["device_leg"] = "not-claimed"
+            return s
+        # One pair's bound derivation refusing (a documented sentence moved, a count bound that admits every
+        # word) is that pair's news, not the run's: the other pair, every leg, every control and every CHECK
+        # still have to happen, and `d28-bound-and-witness-lines-are-parsed-not-assumed` owns the finding.
+        if leg_attempt(ctx, "derive", "%s bound-and-witness derivation" % spec["pair"], build) is None:
+            continue
         ctx["vb"][spec["pair"]] = spec
         spec["witness_ok"] = bool(spec.get("witness_ok"))
     # Which verdict each compiled-pair check may reach: policy A and the GDN device leg in value space,
@@ -4612,6 +4733,13 @@ def d28_qualification_decision(red, unlicensed, escalate):
 # A) are unchanged since window `g`, and the per-field split on the same lines is what the ratio is
 # re-derived from, so the number a reader can check lives beside the code that checks it.
 VB_DEVICE_EVIDENCE = ROOT / "specification" / "evidence" / "blockdevice-device-2026-10-27-l1.log"
+
+# The field and currency window `m` refused in, and the pinned device window its base divergence is quoted
+# from in a CPU witness (the device-substrate base is device data — a CPU run has no device record of its
+# own — so it is read off a device log and the file is named on the line, per the self-containment rule).
+VB_SCANOUT_FIELD, VB_SCANOUT_METRIC = "scan_out", "rel-err"
+VB_SCANOUT_PAIR = "d_hip_device_vs_d_hip_hostpath"
+VB_SCANOUT_EVIDENCE = ROOT / "specification" / "evidence" / "blockdevice-device-2026-10-27-m1.log"
 
 
 def _vb_f32_rank(x):
@@ -4766,6 +4894,53 @@ def vb_byte_axis(text, kind, cause):
                 per_field=";".join("%s=%d/%dw" % (f, b, w) for f, (w, b) in sorted(per_field.items())))
 
 
+def vb_norm_lattice(b, metric):
+    """The lattice a norm metric lives on for one field: which element a leg moves, and what one step costs.
+
+    A norm leg moves the largest-|b| element (the one whose denominator is the field's own scale, so it is
+    the element the currency reaches its bound cheapest at) one f32 ULP at a time away from its B-side value.
+    `unit` is the metric movement of a one-unit move in the closed form; `metric_step` is the same thing at
+    exactly one ULP, which is what a ±1 correction loop can actually walk. Derived from the B-side bytes only
+    — never from the A side, and never from the bound — so it is a property of the field, not of the answer.
+    """
+    b64 = np.asarray(b, dtype=np.float32).astype(np.float64)
+    scale = float(np.max(np.abs(b64)))
+    site = int(np.argmax(np.abs(b64)))
+    b_site = float(b64[site])
+    denom = max(abs(b_site), 1e-3 * scale)
+    unit = float(np.linalg.norm(b64)) if metric == "relL2" else denom * int(b64.size)
+    step = _vb_f32_of_rank(_vb_f32_rank(b_site) + 1) - b_site
+    # One ULP at the moved element, in the metric's own units: `unit` is already the denominator the metric
+    # divides that element's distance by (the field mean `denom*n` for rel-err, the norm `||b||` for relL2),
+    # so one step is `|step| / unit`. The window-`m` numbers: 1.95878951e-11 for GDN scan_out/rel-err.
+    return dict(n=int(b64.size), site=site, b_site=b_site, rank0=_vb_f32_rank(b_site), unit=unit,
+                metric_step=(abs(step) / unit) if unit else 0.0)
+
+
+def vb_leg_headroom(bound, floor_metric, field="", metric=""):
+    """How much metric a leg may still inject after the base divergence it carries — or the offence.
+
+    A norm leg is built by moving ONE element off its B-side value; every other element keeps whatever
+    divergence the substrate already produced. So the injectable part is `bound - floor`, where `floor` is
+    the metric with that element's own contribution removed — not `bound`. Sizing from `bound` is sizing
+    from a base of zero, which is the only base a CPU witness can ever produce (its host-twin pair is
+    byte-identical), and it is what window `m` got wrong: on the device substrate the closed form landed
+    `2.43282e-08` past a `1.46299e-07` bound — exactly the base it had ignored — and the ±1-ULP loop cannot
+    walk 1,242 steps in a budget of 64.
+
+    When the floor is already at or above the bound the field cannot be leg-sized from this element at all.
+    That is the substrate sitting OUTSIDE the derivation, and the answer is D-18 escalation with the numbers
+    in it, never a wider bound: this returns the offence instead of a headroom, and the caller refuses.
+    """
+    headroom = bound - floor_metric
+    if headroom > 0.0:
+        return headroom, None
+    return 0.0, ("the %s/%s base divergence %.6g is at or above the derived bound %.6g even with this "
+                 "element's own contribution removed, so no leg can be placed inside the bound by moving "
+                 "it. That is the substrate sitting OUTSIDE the derivation, not a leg to re-size: escalate "
+                 "(D-18), do not widen" % (field, metric, floor_metric, bound))
+
+
 def vb_fabricate_at_limit(A, B, field, metric, bound, direction, layout):
     """A copy of the A-side field placed on one side of one metric's bound, on the format's own lattice.
 
@@ -4775,11 +4950,16 @@ def vb_fabricate_at_limit(A, B, field, metric, bound, direction, layout):
     divergence and adds to it in lattice steps — `k` differing words for the count metric (added from the
     agreeing set, one differing word per flip), one element moved `j` f32 steps for the two norm metrics.
     Nothing is written to disk; these are in-memory fabrications and the line says so.
+
+    Both metrics are sized from the base the metric will actually SEE: the word branch counts the differing
+    words already present and adds `k - base` more, and the norm branch solves for
+    `bound - floor_metric` (see `vb_leg_headroom`), where `floor_metric` is the metric with the moved
+    element's own base contribution erased. A leg sized from a base of zero is not a leg at all on a
+    substrate that has one.
     """
     a = np.array(A[field], dtype=np.float32)
     b = np.asarray(B[field], dtype=np.float32)
     n = a.size
-    b64 = b.astype(np.float64)
 
     def measure(values):
         value = vb_metrics(values, b)[metric]
@@ -4807,25 +4987,32 @@ def vb_fabricate_at_limit(A, B, field, metric, bound, direction, layout):
             out.view(np.uint32)[agree[:k - base]] ^= np.uint32(1)
         return out, measure(out), dict(index=k, unit="word", base=base)
 
-    scale = float(np.max(np.abs(b64)))
-    site = int(np.argmax(np.abs(b64)))
-    b_site = float(b64[site])
-    unit = float(np.linalg.norm(b64)) if metric == "relL2" else \
-        max(abs(b_site), 1e-3 * scale) * n
-    rank0 = _vb_f32_rank(b_site)
+    lat = vb_norm_lattice(b, metric)
+    site, b_site, unit, rank0 = lat["site"], lat["b_site"], lat["unit"], lat["rank0"]
 
     def leg(j):
-        if j <= 0:
-            return a.copy()
+        """The A side with the moved element parked `j` f32 steps off its B-side value (j=0 means: equal).
+
+        `j=0` is an explicit point on the lattice, not "leave the A side alone": it erases the base
+        divergence at the moved element, which is the only measurement that shows what the rest of the
+        field already costs in this currency.
+        """
         out = a.copy()
-        out[site] = _vb_f32_of_rank(rank0 + j)
+        out[site] = _vb_f32_of_rank(rank0 + max(int(j), 0))
         return out
 
-    # The lattice index that puts the metric at the bound in closed form (delta = bound*unit), then at
+    base_metric = measure(a)
+    floor_metric = measure(leg(0))
+    headroom, escalation = vb_leg_headroom(bound, floor_metric, field, metric)
+    if escalation:
+        raise Refused("d28-edge-leg-base-above-bound", escalation)
+    # The lattice index that puts the metric at the bound in closed form (delta = headroom*unit), then at
     # most a few step corrections to land on the correct side of the stored f32 values. The metric is
     # monotone in j — the moved element's own |a-b| grows one representable value per step and every
-    # other element is untouched — so "largest j at or below the bound" is well defined.
-    j = 0 if bound <= 0.0 else max(0, _vb_f32_rank(b_site + bound * unit) - rank0)
+    # other element is untouched — so "largest j at or below the bound" is well defined, and because the
+    # closed form is solved against the headroom rather than the bare bound the correction is a step or
+    # two on any substrate, not the 1,242-step walk window `m` refused in the middle of.
+    j = max(0, _vb_f32_rank(b_site + headroom * unit) - rank0)
     for _ in range(64):
         if j > 0 and measure(leg(j)) > slack:
             j -= 1
@@ -4836,12 +5023,17 @@ def vb_fabricate_at_limit(A, B, field, metric, bound, direction, layout):
     else:
         raise Refused("d28-edge-leg-wont-size",
                       "the %s/%s %s leg could not be placed on its own side of the bound %.6g in 64 lattice "
-                      "steps from the closed-form estimate; a rejection leg that cannot be sized is not a "
-                      "rejection leg" % (field, metric, direction, bound))
+                      "steps from the headroom estimate (base_metric=%.6g floor=%.6g one step of this "
+                      "metric=%.3g, so a base this size would need %.0f steps); a rejection leg that cannot "
+                      "be sized is not a rejection leg"
+                      % (field, metric, direction, bound, base_metric, floor_metric, lat["metric_step"],
+                         abs(base_metric - bound) / lat["metric_step"] if lat["metric_step"] else -1))
     if direction != "inside":
         j += 1
     out = leg(j)
-    return out, measure(out), dict(index=j, unit="ulp", base=0)
+    return out, measure(out), dict(index=j, unit="ulp", base=0, base_metric=base_metric,
+                                   floor_metric=floor_metric, headroom=headroom,
+                                   metric_step=lat["metric_step"])
 
 
 def vb_must_catch_population(spec):
@@ -4958,12 +5150,27 @@ def value_band_rejection(v, ctx):
             field = next((f for f in spec["order"] if spec["derived"][f][metric] > 0),
                          spec["order"][0])
             bound = spec["derived"][field][metric]
-            legs = {}
+            legs, refused = {}, []
             for label, direction in (("at-limit", "inside"), ("one-past-limit", "outside")):
-                fake, measured, lattice = vb_fabricate_at_limit(A, B, field, metric, bound, direction,
-                                                                spec["layout"])
+                got = leg_attempt(ctx, "edge",
+                                  "%s %s/%s %s leg" % (spec["pair"], field, metric, label),
+                                  lambda d=direction, f=field, bd=bound, l=spec["layout"],
+                                  A=A, B=B: vb_fabricate_at_limit(A, B, f, metric, bd, d, l))
+                if got is None:
+                    refused.append(label)
+                    continue
+                fake, measured, lattice = got
                 legs[label] = dict(measured=measured, lattice=lattice,
                                    inside=measured <= bound * (1.0 + 1e-9))
+            if refused:
+                # A refusal is already printed and counted on its owning check; the pair of legs it would
+                # have produced cannot be sized, so it is not silently scored as a passing edge.
+                results = False
+                lines.append("%s/%s at-limit=%s one-past=%s sized_correctly=no refused=%s"
+                             % (spec["pair"].split("_")[0], metric,
+                                "at-limit" not in legs, "one-past-limit" not in legs,
+                                "+".join(refused)))
+                continue
             sizing = vb_edge_sizing(legs["at-limit"]["measured"], legs["one-past-limit"]["measured"],
                                     bound)
             for label in ("at-limit", "one-past-limit"):
@@ -4971,12 +5178,17 @@ def value_band_rejection(v, ctx):
                 lattice = leg["lattice"]
                 extra = "" if sizing["sized_correctly"] else " sized_correctly_because=%s" % sizing[
                     "reason"]
-                basenote = "" if lattice["unit"] != "word" else " base_words=%d" % lattice["base"]
+                if lattice["unit"] == "word":
+                    basenote = " base_words=%d" % lattice["base"]
+                else:
+                    basenote = (" base_metric=%.6g base_headroom=%.6g" % (lattice["base_metric"],
+                                                                         lattice["headroom"]))
                 print("BOUNDEDGE pair=%s metric=%s field=%s leg=%s bound=%.6g measured=%.6g "
                       "lattice_index=%d lattice_step=%s%s distance_to_bound=%.9g granularity=%.9g "
                       "sized_correctly=%s inside=%s verdict=%s note=FABRICATION, in-memory only, "
                       "adjacent points of the field's own f32 word grid (%d %s steps apart), sized from "
-                      "the bound and from the measured step rather than from the spread%s"
+                      "the bound, from the base divergence this substrate already carries, and from the "
+                      "measured step rather than from the spread%s"
                       % (spec["pair"], metric, field, label, bound, leg["measured"], lattice["index"],
                          lattice["unit"], basenote, abs(leg["measured"] - bound),
                          sizing["granularity"], "yes" if sizing["sized_correctly"] else "no",
@@ -5017,18 +5229,30 @@ def value_band_must_catch(v, ctx):
         caught = []
         for name, what, apply in population:
             fake = dict((f, arr.copy()) for f, arr in B.items())
-            apply(fake)
-            worst, outside = None, []
-            for field in spec["order"]:
-                m = vb_metrics(fake[field], B[field])
-                if not m:
-                    continue
-                for metric in VB_METRICS:
-                    if m[metric] > spec["derived"][field][metric] * (1.0 + 1e-9):
-                        outside.append("%s/%s %.3g>%.3g" % (field, metric, m[metric],
-                                                            spec["derived"][field][metric]))
-                        if worst is None or m[metric] > worst[0]:
-                            worst = (m[metric], field, metric)
+
+            def price(name=name, what=what, apply=apply, base=B):
+                apply(fake)
+                outside, worst = [], None
+                for field in spec["order"]:
+                    m = vb_metrics(fake[field], base[field])
+                    if not m:
+                        continue
+                    for metric in VB_METRICS:
+                        if m[metric] > spec["derived"][field][metric] * (1.0 + 1e-9):
+                            outside.append("%s/%s %.3g>%.3g" % (field, metric, m[metric],
+                                                                spec["derived"][field][metric]))
+                            if worst is None or m[metric] > worst[0]:
+                                worst = (m[metric], field, metric)
+                return outside, worst
+
+            # One injected defect refusing to be priced is that defect's finding; the remaining members of
+            # the derived population still print, because a MUSTCATCH population that stops half-way would
+            # silently shrink the set D-14 conditions a bound on.
+            priced = leg_attempt(ctx, "must-catch", "%s %s" % (spec["pair"], name), price)
+            if priced is None:
+                caught.append(name)          # a defect that cannot be priced is not a caught defect
+                continue
+            outside, worst = priced
             reddens = "RED" if outside else "CLEAN"
             if outside:
                 caught.append(name)
@@ -5081,17 +5305,29 @@ def value_band_refuted_causes(v, ctx):
             continue
         A = vb_record(path, spec["order"], spec["fields"])
         B = vb_record(spec["b_side"], spec["order"], spec["fields"])
-        outside, inside = [], []
-        for field in spec["order"]:
-            m = vb_metrics(A[field], B[field])
-            if not m:
-                continue
-            for metric in VB_METRICS:
-                (outside if m[metric] > spec["derived"][field][metric] * (1.0 + 1e-9) else
-                 inside).append("%s/%s %.3g vs %.3g" % (field, metric, m[metric],
-                                                        spec["derived"][field][metric]))
+
+        def price(A=A, B=B, spec=spec):
+            out, ins = [], []
+            for field in spec["order"]:
+                m = vb_metrics(A[field], B[field])
+                if not m:
+                    continue
+                for metric in VB_METRICS:
+                    (out if m[metric] > spec["derived"][field][metric] * (1.0 + 1e-9) else
+                     ins).append("%s/%s %.3g vs %.3g" % (field, metric, m[metric],
+                                                         spec["derived"][field][metric]))
+            return out, ins
+
+        priced = leg_attempt(ctx, "refuted", "%s re-pricing in value space" % cause, price)
+        if priced is None:
+            # The refusal is printed and counted on this cause's owning check; the cause is then not
+            # re-priced, which the check below reads as a finding rather than as an absent row.
+            rows.append(dict(cause=cause, pair=spec["pair"], fails=None, carried="none", byte=None))
+            continue
+        outside, inside = priced
         fails = bool(outside)
-        byte = vb_byte_axis(text, spec["kind"], cause)
+        byte = leg_attempt(ctx, "refuted", "%s byte axis" % cause,
+                           lambda c=cause, s=spec: vb_byte_axis(text, s["kind"], c))
         entry = [s for s in (screen or []) if "cause=%s " % cause in s]
         ruler = ("verdict=%s" % entry[0].split("verdict=", 1)[1].split()[0] if entry
                  else "screen-not-printed-in-this-run(mode=%s);required-print=%s verdict=RULED-OUT "
@@ -5122,6 +5358,203 @@ def value_band_refuted_causes(v, ctx):
                  "still"))
         rows.append(dict(cause=cause, pair=spec["pair"], fails=fails, carried=carried_by, byte=byte))
     ctx["vb_refuted"] = rows
+
+
+def vb_parse_scanout_evidence():
+    """The device substrate's `scan_out/rel-err` base and leg outcome, off a pinned device window's log.
+
+    A CPU witness has no device record, so the only honest source for a device-substrate number is a device
+    window's own log, read from disk and named on the line (the self-containment rule in
+    `pitfalls/60`). Returns None when the file is absent — the diagnosis then says it had no source instead
+    of quoting a remembered number.
+    """
+    if not VB_SCANOUT_EVIDENCE.exists():
+        return None
+    lines = VB_SCANOUT_EVIDENCE.read_text().splitlines()
+    want = ("BOUNDWITNESS pair=%s field=%s metric=%s " % (VB_SCANOUT_PAIR, VB_SCANOUT_FIELD,
+                                                         VB_SCANOUT_METRIC))
+    ent = [l for l in lines if l.startswith(want)]
+    if not ent:
+        return None
+    got = re.search(r"measured=(\S+) derived=(\S+) margin=(\S+) inside=(\S+)", ent[0])
+    if not got:
+        return None
+    refused = [l for l in lines if l.startswith("REFUSED")
+               and "%s/%s inside leg" % (VB_SCANOUT_FIELD, VB_SCANOUT_METRIC) in l]
+    return dict(substrate="device", base=float(got.group(1)), printed_bound=float(got.group(2)),
+                margin=got.group(3), printed_inside=got.group(4), refused=bool(refused),
+                refused_tag=(re.search(r"tag=(\S+)", refused[0]).group(1) if refused else "none"),
+                source=VB_SCANOUT_EVIDENCE.name)
+
+
+def vb_baseless_closed_form(A, B, field, metric, bound):
+    """Where the OLD closed form lands when it sizes from the B-side element alone, i.e. from a base of 0.
+
+    Returns the metric value that construction produces, or None when this run has no A side for the
+    substrate in question (a CPU witness has none for the device). This is the number that made window `m`
+    refuse: it sits the substrate's whole base divergence past the bound, and a ±1-ULP correction loop
+    cannot close a gap of that size in a budget of 64 steps.
+    """
+    if A is None:
+        return None
+    a = np.array(A[field], dtype=np.float32)
+    b = np.asarray(B[field], dtype=np.float32)
+    lat = vb_norm_lattice(b, metric)
+    out = a.copy()
+    out[lat["site"]] = _vb_f32_of_rank(lat["rank0"]
+                                       + max(0, _vb_f32_rank(lat["b_site"] + bound * lat["unit"])
+                                             - lat["rank0"]))
+    return vb_metrics(out, b)[metric]
+
+
+def scanout_substrate_diagnosis(ctx):
+    """What the device substrate does to `scan_out/rel-err`, in the bound's own currency, with a verdict.
+
+    Window `m` refused to place the at-limit leg *inside* the bound, and the tempting reading — "the device
+    must be worse than the bound allows" — is exactly the reading that leads to widening a band. This
+    answers the question in numbers instead: the base divergence of `scan_out` under the same metric, on
+    each substrate, against the derived bound, plus what the leg construction did with them.
+
+      * `verdict=inside` — the base is inside the bound and the leg landed inside it.
+      * `verdict=outside` — the base itself is above the bound. That is the escalation case (D-18): the
+        derivation is short, not the leg, and no number here may be used to widen anything.
+      * `verdict=construction-wrong` — the base is inside the bound but the leg could not be placed, which
+        can only mean the sizing was done from something other than the base the metric sees.
+
+    Every number is measured or parsed from a named file; none of them is typed.
+    """
+    spec = (ctx.get("vb") or {}).get(VB_SCANOUT_PAIR)
+    if not spec or VB_SCANOUT_FIELD not in (spec.get("derived") or {}):
+        return []
+    metric, field = VB_SCANOUT_METRIC, VB_SCANOUT_FIELD
+    bound = spec["derived"][field][metric]
+    B = vb_record(spec["b_side"], spec["order"], spec["fields"])[field]
+    lat = vb_norm_lattice(B, metric)
+    text = run_text(ctx)
+    # The one step of this metric that a ±1 correction loop can walk, measured off this run's own legs when
+    # they printed, and only otherwise derived from the B-side bytes — the step is a property of the field.
+    step, step_src = lat["metric_step"], "derived from the B-side bytes (no at-limit leg printed)"
+    for ln in text.splitlines():
+        if (ln.startswith("BOUNDEDGE pair=%s metric=%s " % (VB_SCANOUT_PAIR, metric))
+                and " leg=at-limit " in ln):
+            got = re.search(r" granularity=(\S+)", ln)
+            if got:
+                step, step_src = float(got.group(1)), ("measured: granularity of this run's own %s/%s "
+                                                       "at-limit legs" % (field, metric))
+                break
+    rows = []
+
+    def leg_state(substrate):
+        """What this run's own legs did with this substrate: refused / inside / outside / not-built-here."""
+        if (substrate == "device") == bool(ctx["device"]):
+            hit = [r for r in (ctx.get("refusals") or [])
+                   if "%s/%s " % (field, metric) in r["what"]]
+            if hit:
+                return "refused(%s)" % hit[0]["tag"]
+            row = next((r for r in ((ctx.get("vb_edges") or {}).get("rows") or [])
+                        if r["pair"] == VB_SCANOUT_PAIR and r["metric"] == metric), None)
+            if row is None:
+                return "no-leg-built-on-this-substrate"
+            return "inside(%s)" % ("True" if row["legs"]["at-limit"]["inside"] else "False")
+        return "not-built-on-this-substrate"
+
+    def verdict_of(base, state):
+        if base > bound * (1.0 + 1e-9):
+            return "outside"
+        return "construction-wrong" if state.startswith("refused") else "inside"
+
+    host_base = vb_metrics(vb_record(spec["host_a"], spec["order"], spec["fields"])[field], B)[metric]
+    host_state = leg_state("host_twin")
+    rows.append(dict(substrate="host_twin", base=host_base, bound=bound,
+                     verdict=verdict_of(host_base, host_state), source="this-run pair=%s"
+                                        % spec["host_pair"], state=host_state))
+    dev = None
+    if ctx["device"]:
+        ent = (spec.get("witness") or {}).get((field, metric))
+        if ent:
+            dev = dict(substrate="device", base=ent["measured"], bound=bound,
+                       source="this-run BOUNDWITNESS",
+                       closed_form=vb_baseless_closed_form(spec.get("witness_A"),
+                                                           {field: B}, field, metric, bound),
+                       closed_form_src="measured on this run's device record",
+                       printed_bound=bound)
+    else:
+        dev = vb_parse_scanout_evidence()
+        if dev:
+            dev["closed_form"] = None
+            dev["closed_form_src"] = "derived: bound + base (no device record exists in a CPU witness)"
+    if dev:
+        state = ("refused(%s,source=%s)" % (dev["refused_tag"], dev["source"]) if dev.get("refused")
+                 else leg_state("device"))
+        dev["state"] = state
+        dev["verdict"] = verdict_of(dev["base"], state)
+        dev["bound_matches_this_run"] = ("yes" if abs(dev["printed_bound"] - bound)
+                                         <= abs(bound) * 1e-6 else "no")
+        rows.append(dev)
+    for r in rows:
+        extra = ""
+        if r["substrate"] == "device":
+            closed_form = r.get("closed_form")
+            excess = (closed_form - bound) if closed_form is not None else r["base"]
+            steps = (excess / step) if step else -1
+            extra = (" closed_form_sized_from=b-site-alone(base 0) "
+                     "closed_form_measure=%s closed_form_source=%s "
+                     "excess_of_closed_form_over_bound=%.6g "
+                     "excess_equals_the_base_it_ignored=%s one_step_of_this_metric=%.9g "
+                     "step_source=%s correction_steps_needed=%.0f correction_budget=64 "
+                     "bound_matches_this_run=%s"
+                     % ("%.6g" % closed_form if closed_form is not None
+                        else "%.6g(=bound+base)" % (bound + r["base"]), r["closed_form_src"],
+                        excess, "yes" if abs(excess - r["base"]) <= abs(bound) * 1e-6 else "no",
+                        step, step_src, steps, r.get("bound_matches_this_run", "n/a")))
+        print("SCANOUT-DIAGNOSIS substrate=%s base=%.6g bound=%.6g margin=%s leg=%s verdict=%s "
+              "base_source=%s%s note=%s"
+              % (r["substrate"], r["base"], bound,
+                 ("inf" if r["base"] <= 0 else "%.4g" % (bound / r["base"])), r["state"], r["verdict"],
+                 r["source"], extra,
+                 ("the host-twin pair is byte-identical, so zero is the ONLY base a CPU witness can "
+                  "produce — a closed form solved against a base of zero therefore passes here and refuses "
+                  "on a substrate that has one" if r["substrate"] == "host_twin" else
+                  "this substrate's base sits inside the derived bound, so the refusal in window `m` was "
+                  "never evidence about the bound: the closed form sized from the B-side element alone "
+                  "(base 0), landed the base's own worth past the bound, and the +-1-ULP correction loop "
+                  "cannot walk that many steps in a budget of 64. Nothing here widens anything: the bound "
+                  "printed is the BOUNDFROM number, untouched, and the fix is to size the leg from "
+                  "bound-floor, the base the metric actually sees")))
+    worst = "inside"
+    for r in rows:
+        if r["verdict"] == "outside":
+            worst = "outside"
+        elif r["verdict"] == "construction-wrong" and worst != "outside":
+            worst = "construction-wrong"
+    dev_row = next((r for r in rows if r["substrate"] == "device"), None)
+    summary_note = ("no device-substrate line: this run has neither a device record nor the pinned window "
+                    "named in VB_SCANOUT_EVIDENCE, so the question is unanswered, not answered 'inside'"
+                    if dev_row is None else
+                    ("the device substrate's base is %.6g of a %.6g bound, inside by a factor of %.4g; the "
+                     "bound came from `mr_exp x host_fd[all_up](steps=2,decay_ulp_mask)`, which prices the "
+                     "amplification of the documented step and was never the short leg — the short leg was "
+                     "the leg-sizing, and the fp64 floor probe for this field prints unavailable (the "
+                     "record does not carry the carry/scan operands), so the 2-ULP propagation was never "
+                     "the thing to re-derive either"
+                     % (dev_row["base"], bound, bound / dev_row["base"] if dev_row["base"] else -1)
+                     if worst != "outside" else
+                     "a substrate base above the bound means the derivation is short. Say which source: "
+                     "the `mr_exp` 2-ULP propagation (a documented-route prior, re-derived by re-running "
+                     "the arm's host-path finite difference at a wider documented allowance) or the fp64 "
+                     "floor probe (re-derivable only if the record is made to carry the carry/scan "
+                     "operands). Re-derive and print, never widen from a measurement."))
+    print("SCANOUT-DIAGNOSIS substrate=headline base=see-above bound=%.6g verdict=%s escalation=%s "
+          "bound_untouched=yes fix=size-the-leg-from-bound-floor-not-bound "
+          "note=%s" % (bound, worst,
+                       "D-18-required:the-substrate-sits-outside-the-derivation(tell-which-source-is-short)"
+                       if worst == "outside" else
+                       "not-required(no-substrate-base-exceeds-the-bound)", summary_note))
+    ctx["scanout_diag"] = rows
+    ctx["scanout_verdict"] = worst
+    # one line per substrate this run could speak for, plus the headline
+    ctx["scanout_lines_expected"] = len(rows) + 1
+    return rows
 
 
 def vb_diag_print_sites():
@@ -5192,6 +5625,67 @@ def device_command_offences(text):
     return count, offences
 
 
+def vb_fabrication_legs(pair, spec, row, metric, axis, B):
+    """The four fabrication legs for one (pair, metric), built through the shipped sizing rule.
+
+    Split out of `vb_edge_fabrications` so a refusal inside one metric's set is catchable as that metric's
+    finding (`leg_attempt`) instead of an exception that ends the run — the window-`m` shape.
+    """
+    field, bound = row["field"], row["bound"]
+    legs = []
+    A1 = {"f": spec["witness_A"][field]}
+    B1 = {"f": B[field]}
+    past = row["legs"]["one-past-limit"]["measured"]
+    half, m_half, _ = vb_fabricate_at_limit(A1, B1, "f", metric, bound / 2.0, "inside",
+                                            spec["layout"])
+    under = vb_edge_sizing(m_half, past, bound, step=row["sizing"]["granularity"])
+    legs.append(dict(pair=pair, metric=metric, name="under-sized-half-bound",
+                     expected=True, flagged=not under["sized_correctly"],
+                     detail="at-limit built at half the bound: measured=%.6g bound=%.6g %s"
+                            % (m_half, bound, under["reason"])))
+    zero = vb_edge_sizing(row["legs"]["at-limit"]["measured"],
+                          row["legs"]["at-limit"]["measured"], bound)
+    legs.append(dict(pair=pair, metric=metric, name="zero-granularity",
+                     expected=True, flagged=not zero["sized_correctly"], detail=zero["reason"]))
+    if metric != "ndiff_frac":
+        return legs
+    base_words = axis[1].get(field, (0, 0))[0] if axis else 0
+    n = row["word_count"]
+    k_at = int(np.floor(bound * (1.0 + 1e-9) * n))
+    if base_words <= 0 or k_at <= base_words:
+        legs.append(dict(pair=pair, metric=metric, name="naive-first-words-derived-base",
+                         expected=None, flagged=None,
+                         detail="not-exercised reason=no printed per-field word count for %s "
+                                "(axis=%s) or the bound admits fewer words than the base differs"
+                                % (field, "none" if not axis else axis[2])))
+        return legs
+    A2 = {"f": vb_pre_diverge(spec["witness_A"][field], B[field], base_words)}
+    naive_at = vb_naive_first_words_leg(A2["f"], B[field], k_at)
+    naive_past = vb_naive_first_words_leg(A2["f"], B[field], k_at + 1)
+    m_naive = vb_metrics(naive_at, B[field])[metric]
+    m_naive_past = vb_metrics(naive_past, B[field])[metric]
+    sizing = vb_edge_sizing(m_naive, m_naive_past, bound)
+    legs.append(dict(pair=pair, metric=metric, name="naive-first-words-derived-base",
+                     expected=True,
+                     flagged=not (m_naive <= bound * (1.0 + 1e-9) and sizing["sized_correctly"]),
+                     detail="base_words=%d k=%d naive at-limit=%.6g bound=%.6g inside=%s %s"
+                            % (base_words, k_at, m_naive, bound,
+                               m_naive <= bound * (1.0 + 1e-9), sizing["reason"])))
+    fixed_at, m_fix, lat = vb_fabricate_at_limit(A2, B1, "f", metric, bound, "inside", spec["layout"])
+    fixed_past, m_fix_past, _ = vb_fabricate_at_limit(A2, B1, "f", metric, bound, "outside",
+                                                      spec["layout"])
+    fix_sizing = vb_edge_sizing(m_fix, m_fix_past, bound)
+    legs.append(dict(pair=pair, metric=metric, name="fixed-under-derived-base",
+                     expected=False,
+                     flagged=not (m_fix <= bound * (1.0 + 1e-9)
+                                  and m_fix_past > bound * (1.0 + 1e-9)
+                                  and fix_sizing["sized_correctly"]),
+                     detail="base_words=%d lattice=%d*%s measured=%.6g one-past=%.6g %s"
+                            % (base_words, lat["index"], lat["unit"], m_fix, m_fix_past,
+                               fix_sizing["reason"])))
+    return legs
+
+
 def vb_edge_fabrications(ctx, text):
     """The deliberately mis-sized rejection legs, built through the same sizing rule as the real ones.
 
@@ -5218,66 +5712,17 @@ def vb_edge_fabrications(ctx, text):
     for pair, spec in (ctx.get("vb") or {}).items():
         rows = rows_by_pair.get(pair) or {}
         B = vb_record(spec["b_side"], spec["order"], spec["fields"])
-        axis = vb_word_axis(text, spec["kind"])
+        axis = leg_attempt(ctx, "fabrication", "%s per-field word axis" % pair,
+                           lambda s=spec: vb_word_axis(text, s["kind"]))
         for metric in VB_METRICS:
             row = rows.get(metric)
             if not row:
                 continue
-            field, bound = row["field"], row["bound"]
-            A1 = {"f": spec["witness_A"][field]}
-            B1 = {"f": B[field]}
-            past = row["legs"]["one-past-limit"]["measured"]
-            half, m_half, _ = vb_fabricate_at_limit(A1, B1, "f", metric, bound / 2.0, "inside",
-                                                    spec["layout"])
-            under = vb_edge_sizing(m_half, past, bound,
-                                   step=row["sizing"]["granularity"])
-            legs.append(dict(pair=pair, metric=metric, name="under-sized-half-bound",
-                             expected=True, flagged=not under["sized_correctly"],
-                             detail="at-limit built at half the bound: measured=%.6g bound=%.6g %s"
-                                    % (m_half, bound, under["reason"])))
-            zero = vb_edge_sizing(row["legs"]["at-limit"]["measured"],
-                                  row["legs"]["at-limit"]["measured"], bound)
-            legs.append(dict(pair=pair, metric=metric, name="zero-granularity",
-                             expected=True, flagged=not zero["sized_correctly"],
-                             detail=zero["reason"]))
-            if metric != "ndiff_frac":
-                continue
-            base_words = axis[1].get(field, (0, 0))[0] if axis else 0
-            n = row["word_count"]
-            k_at = int(np.floor(bound * (1.0 + 1e-9) * n))
-            if base_words <= 0 or k_at <= base_words:
-                legs.append(dict(pair=pair, metric=metric, name="naive-first-words-derived-base",
-                                 expected=None, flagged=None,
-                                 detail="not-exercised reason=no printed per-field word count for %s "
-                                        "(axis=%s) or the bound admits fewer words than the base differs"
-                                        % (field, "none" if not axis else axis[2])))
-                continue
-            A2 = {"f": vb_pre_diverge(spec["witness_A"][field], B[field], base_words)}
-            naive_at = vb_naive_first_words_leg(A2["f"], B[field], k_at)
-            naive_past = vb_naive_first_words_leg(A2["f"], B[field], k_at + 1)
-            m_naive = vb_metrics(naive_at, B[field])[metric]
-            m_naive_past = vb_metrics(naive_past, B[field])[metric]
-            sizing = vb_edge_sizing(m_naive, m_naive_past, bound)
-            legs.append(dict(pair=pair, metric=metric, name="naive-first-words-derived-base",
-                             expected=True,
-                             flagged=not (m_naive <= bound * (1.0 + 1e-9) and
-                                          sizing["sized_correctly"]),
-                             detail="base_words=%d k=%d naive at-limit=%.6g bound=%.6g inside=%s %s"
-                                    % (base_words, k_at, m_naive, bound,
-                                       m_naive <= bound * (1.0 + 1e-9), sizing["reason"])))
-            fixed_at, m_fix, lat = vb_fabricate_at_limit(A2, B1, "f", metric, bound, "inside",
-                                                          spec["layout"])
-            fixed_past, m_fix_past, _ = vb_fabricate_at_limit(A2, B1, "f", metric, bound, "outside",
-                                                              spec["layout"])
-            fix_sizing = vb_edge_sizing(m_fix, m_fix_past, bound)
-            legs.append(dict(pair=pair, metric=metric, name="fixed-under-derived-base",
-                             expected=False,
-                             flagged=not (m_fix <= bound * (1.0 + 1e-9)
-                                          and m_fix_past > bound * (1.0 + 1e-9)
-                                          and fix_sizing["sized_correctly"]),
-                             detail="base_words=%d lattice=%d*%s measured=%.6g one-past=%.6g %s"
-                                    % (base_words, lat["index"], lat["unit"], m_fix, m_fix_past,
-                                       fix_sizing["reason"])))
+            made = leg_attempt(ctx, "fabrication", "%s %s fabrication set" % (pair, metric),
+                               lambda p=pair, s=spec, r=row, m=metric, a=axis, bb=B:
+                               vb_fabrication_legs(p, s, r, m, a, bb))
+            if made:
+                legs.extend(made)
     for leg in legs:
         print("GWITNESS guard=edge-sizing pair=%s metric=%s leg=%s expected_flag=%s flagged=%s %s"
               % (leg["pair"], leg["metric"], leg["name"], leg["expected"], leg["flagged"],
@@ -5292,19 +5737,38 @@ def checks_d28(v, ctx):
         return
     text = run_text(ctx)
     lines = text.splitlines()
+    # The early return below is the shape this guard exists to deny: with no spec there is nothing for the
+    # D-28 checks to read, and a check that reads nothing cannot fail. The absence of a value band is
+    # therefore itself a finding, named, rather than a run that printed 63 checks instead of 71.
+    v.check("d28-value-band-exists-in-this-run", bool(specs),
+            "%d D-28 pair value bands exist in this run. A pair's bound derivation can refuse (a "
+            "documented sentence moved, a count bound that admits every word), and the surviving pair still "
+            "gets its legs, its must-catch set and its checks — but if no pair survives, the six D-28 checks "
+            "below would each be reading an empty population and PASSing over it, so this run reddens "
+            "instead. Refusals: %s" % (len(specs), refusal_note(ctx, "derive")))
+    if not specs:
+        return
     bound_lines = [l for l in lines if l.startswith("BOUNDFROM ") and " derived=" in l]
     witness_lines = [l for l in lines if l.startswith("BOUNDWITNESS ")]
+    scanout_lines = [l for l in lines if l.startswith("SCANOUT-DIAGNOSIS ")]
+    scanout_parsed = re.findall(r"SCANOUT-DIAGNOSIS substrate=(\S+) base=(\S+) bound=(\S+) ", text)
+    scanout_wanted = ctx.get("scanout_lines_expected") if VB_SCANOUT_PAIR in specs else 0
     expected = sum(len(s["order"]) * len(VB_METRICS) for s in specs.values())
 
     v.check("d28-bound-and-witness-lines-are-parsed-not-assumed",
             len(bound_lines) == expected and len(witness_lines) >= expected
-            and all(re.search(r"derived=(\d|inf)", l) for l in bound_lines),
+            and all(re.search(r"derived=(\d|inf)", l) for l in bound_lines)
+            and len(scanout_lines) == len(scanout_parsed) == scanout_wanted,
             "every BOUNDFROM the run printed is one of the %d (pair, field, metric) cells the record "
             "layouts derive (%s), every derived number parsed, and at least one BOUNDWITNESS per cell: "
-            "printed BOUNDFROM=%d BOUNDWITNESS=%d. A count that parsed nothing would print PASS"
+            "printed BOUNDFROM=%d BOUNDWITNESS=%d. A count that parsed nothing would print PASS. The "
+            "substrate diagnosis prints in the same all-or-nothing shape: %d SCANOUT-DIAGNOSIS lines, %d "
+            "of them parsed back into (substrate, base, bound) against the %d this run owes (two substrates "
+            "plus the headline), parsed pairs: %s"
             % (expected, ";".join("%s:%dx%d" % (p, len(s["order"]), len(VB_METRICS))
                                    for p, s in sorted(specs.items())),
-               len(bound_lines), len(witness_lines)))
+               len(bound_lines), len(witness_lines), len(scanout_lines), len(scanout_parsed),
+               scanout_wanted, ",".join("%s=%s" % (s, b) for s, b, _ in scanout_parsed) or "none"))
 
     single = [l for l in bound_lines if "single_source=yes" in l]
 
@@ -5361,30 +5825,43 @@ def checks_d28(v, ctx):
                [l[:100] for l in no_reason] or "none"))
 
     edges = ctx.get("vb_edges") or {}
+    edge_refusals = refusals_for(ctx, "edge")
+    # The escalation clause, witnessed rather than asserted: a base at or above the bound must produce a
+    # named refusal (D-18: the derivation is short, the band is not), and a base inside it must not. Same
+    # numbers window `m` produced, run through the pure predicate that the leg builder calls.
+    fab_over = vb_leg_headroom(1.46299e-07, 2.0e-07, "scan_out", "rel-err")[1]
+    fab_under, fab_under_err = vb_leg_headroom(1.46299e-07, 2.43282e-08, "scan_out", "rel-err")
     not_inside = ["%s %s/%s %.6g>%.6g" % (p, field, metric, row["measured"], row["derived"])
                   for p, s in sorted(specs.items())
                   for (field, metric), row in sorted(s["witness"].items()) if not row["inside"]]
     v.check("d28-value-band-witness-inside-and-edge-legs-reject",
-            not not_inside and bool(edges.get("lines")) and edges.get("ok") is not False,
+            not not_inside and not edge_refusals and bool(edges.get("lines"))
+            and edges.get("ok") is not False and bool(fab_over) and fab_under > 0
+            and fab_under_err is None,
             "the measurement is a separate witness line, never folded into the PASS: %d BOUNDWITNESS "
             "cells, outside=%s; and the rejection legs have a real edge (%s) — at-limit INSIDE and "
-            "one-past-limit OUTSIDE per metric, sized from the bound rather than from the spread, each "
-            "leg a labelled in-memory fabrication. A band that cannot reject is not a band."
+            "one-past-limit OUTSIDE per metric, sized from the bound and from the base the metric will "
+            "actually see rather than from the spread, each leg a labelled in-memory fabrication. A band "
+            "that cannot reject is not a band. The escalation clause is live: a base above the bound "
+            "refuses with `%s`, a base inside it yields the headroom %.6g and refuses nothing. refused=%s"
             % (len(witness_lines), ";".join(not_inside) or "none",
-               "; ".join(edges.get("lines") or []) or "NOT RUN"))
+               "; ".join(edges.get("lines") or []) or "NOT RUN",
+               (fab_over or "NOT REFUSED")[:120], fab_under, refusal_note(ctx, "edge")))
 
     caught = ctx.get("vb_must_catch") or []
     derived_total = sum(s.get("must_catch_derived", 0) for s in specs.values())
     clean = ["%s/%s" % (c["pair"], c["name"]) for c in caught if c["reddens"] != "RED"]
     v.check("d28-must-catch-set-is-derived-and-reddens",
-            bool(caught) and len(caught) == derived_total and derived_total > 0 and not clean,
+            bool(caught) and len(caught) == derived_total and derived_total > 0 and not clean
+            and not refusals_for(ctx, "must-catch"),
             "%d injected real defects, one per structural boundary of the geometry that offers it "
             "(32 heads of d_k*d_v words, the gate|up pair along the output dim, %d expert slots, each "
             "field's own span boundary), printed MUSTCATCH lines=%d, derived=%d, every one of them "
             "REDDENS=RED (clean: %s). D-14 admits a documented-route bound only while this set grows "
-            "with it, and a set that parses to zero reddens this run rather than passing it"
+            "with it, and a set that parses to zero reddens this run rather than passing it. refused=%s"
             % (len(caught), (ctx["gpaths"]["policy_a"]["g"]["MG_K"] if ctx.get("gpaths") else 0),
-               len(caught), derived_total, ",".join(clean) or "none"))
+               len(caught), derived_total, ",".join(clean) or "none",
+               refusal_note(ctx, "must-catch")))
 
     refuted = ctx.get("vb_refuted") or []
     refuted_lines = [l for l in lines if l.startswith("REFUTED-CAUSE ") and " cause=" in l]
@@ -5406,7 +5883,8 @@ def checks_d28(v, ctx):
     v.check("d28-refuted-causes-still-refuted-and-say-what-carries-it",
             bool(refuted) and len(refuted) == len(specs) == len(refuted_lines)
             and len(printed_carried) == len(refuted_lines) and not bad
-            and len(arithmetic) == len(refuted) and bool(demo),
+            and len(arithmetic) == len(refuted) and bool(demo)
+            and not refusals_for(ctx, "refuted"),
             "the two causes D-28 refuted on magnitude are re-priced on both axes (%s). Every line prints "
             "`carried_by=` naming `value-band` and/or `byte-diagnostic` (parsed %d of %d lines, none of "
             "them `none`), the observed total each ratio uses is re-summed from the printed per-field "
@@ -5414,12 +5892,12 @@ def checks_d28(v, ctx):
             "factor-two arithmetic in bytes: %s. The same predicate reddens a fabricated line that carries "
             "nothing (%s). Neither band was widened nor cause dropped to get here: `decay_ulp1` is "
             "teeth=none in value space and refuted on the byte axis, which is exactly what D-28 §3 asks a "
-            "line to admit"
+            "line to admit. refused=%s"
             % (";".join("%s[%s]=%s(%s)" % (r["cause"], r["pair"].split("_")[0],
                                            "still-refuted" if r["fails"] else "inside-band",
                                            r["carried"]) for r in refuted) or "not exercised",
                len(printed_carried), len(refuted_lines), " | ".join(arithmetic) or "none",
-               ";".join(demo) or "NOT CAUGHT"))
+               ";".join(demo) or "NOT CAUGHT", refusal_note(ctx, "refuted")))
 
     edges_rows = (ctx.get("vb_edges") or {}).get("rows") or []
     edge_lines = [l for l in lines if l.startswith("BOUNDEDGE ")]
@@ -5494,11 +5972,20 @@ def checks_d28(v, ctx):
     misfired = ["%s/%s" % (l["pair"], l["name"]) for l in edge_fabrications
                 if l["expected"] is not None and bool(l["flagged"]) != bool(l["expected"])]
     exercised = [l for l in edge_fabrications if l["expected"] is not None]
+    # The leg population is derived, not counted off what happened to print: one metric-cell per pair per
+    # metric. A refused leg produces no row and no line, and this is where that absence is caught — the
+    # `len(edge_lines) == 2 * len(edges_rows)` test alone would be satisfied by the shrunken pair.
+    cells_expected = len(specs) * len(VB_METRICS)
+    cells_missing = cells_expected - len(edges_rows)
     v.check("d28-edge-legs-are-adjacent-lattice-points-and-sized-from-the-bound",
-            bool(edges_rows) and len(edge_lines) == 2 * len(edges_rows) and not edge_bad
+            bool(edges_rows) and len(edges_rows) == cells_expected and not cells_missing
+            and len(edge_lines) == 2 * len(edges_rows) and not edge_bad
             and bool(exercised) and not misfired
+            and not refusals_for(ctx, "fabrication")
             and (ctx.get("vb_edges") or {}).get("ok") is not False,
-            "%d BOUNDEDGE legs, %d metrics, each pair of legs one adjacent pair of lattice points of the "
+            "%d BOUNDEDGE legs, %d metrics of the %d the pair/metric geometry derives (%d cells, %d "
+            "missing — a leg that refused prints no line and would otherwise vanish from its own census), "
+            "each pair of legs one adjacent pair of lattice points of the "
             "field's own f32 word grid: at-limit INSIDE, one-past-limit OUTSIDE, indices one step apart, "
             "and the printed `granularity` equal to the measured gap between its own two legs — %s. "
             "sized_correctly requires the at-limit leg to sit within one measured step of the bound, so a "
@@ -5507,12 +5994,13 @@ def checks_d28(v, ctx):
             "words that already differed). The flag is not inert: %d fabrications through the same sizing "
             "rule came out as expected (under-sized-half-bound and zero-granularity flagged, "
             "fixed-under-derived-base clean), %s misfired=%s; legs with no printed base population to "
-            "build on: %s"
-            % (len(edge_lines), len(edges_rows), " | ".join(granularity_notes) or "no count metric among "
+            "build on: %s; refused=%s"
+            % (len(edge_lines), len(edges_rows), cells_expected, cells_expected, cells_missing,
+               " | ".join(granularity_notes) or "no count metric among "
                "the sized legs", len(exercised), "bad=%s" % (";".join(edge_bad) or "none"),
                misfired or "none",
                ";".join("%s/%s" % (l["pair"].split("_")[0], l["name"]) for l in edge_fabrications
-                            if l["expected"] is None) or "none"))
+                            if l["expected"] is None) or "none", refusal_note(ctx, "fabrication")))
 
     cmd_count, cmd_offences = device_command_offences(text)
     cmd_demo_count, cmd_demo = device_command_offences(
@@ -6776,6 +7264,7 @@ def gpu_context_witness(when):
 
 def run(out, args):
     v = Verifier()
+    RUN_STATE["v"] = v
     work = Path(args.work)
     work.mkdir(parents=True, exist_ok=True)
     device = bool(args.device)
@@ -7040,6 +7529,9 @@ def run(out, args):
     value_band_rejection(v, ctx)
     value_band_must_catch(v, ctx)
     value_band_refuted_causes(v, ctx)
+    # What the substrate does to the field window `m` refused in, answered in the bound's own currency and
+    # with a verdict, before any check can read the refusal as a statement about the bound.
+    scanout_substrate_diagnosis(ctx)
     gpu_after = gpu_context_witness("after")
     v.check("cpu-witness-had-no-gpu-context",
             (not device and not gpu_before["self_present"] and not gpu_after["self_present"])
@@ -7064,6 +7556,9 @@ def run(out, args):
     checks_g(v, ctx, g_runs, g_rows, g_tally, g_censuses)
     checks_d(v, ctx, d_runs, d_rows, d_tally, d_censuses, ctx["d_pop"])
     checks_d28(v, ctx)
+    # The population guard runs after every check that could have been skipped, so "nothing failed" can only
+    # be reported by a run that actually executed a suite (`terminal_fatality`).
+    check_run_population(v, ctx)
 
     if st["hip"] is not None:
         st["hip"].free_all()
@@ -7137,13 +7632,34 @@ def main(argv=None):
     try:
         return run(out, args)
     except DA.Refused as exc:
-        print("REFUSED tag=%s note=%s" % (exc.tag, exc))
-        print("RESULT mode=%s checks=0 findings=1 controls=0 fired=0 rows=0 arms=policy_a "
-              "device=%s staged=%s hip_calls=%d+%d launches=%d counters_unparsed=%d no timing taken"
-              % ("device" if args.device else "cpu", "on" if args.device else "off",
+        # Window `m`'s handler printed `checks=0 findings=1 controls=0` and nothing else, and `grep
+        # verdict=FAIL` on that log found nothing. A refusal that still escapes is now reported the way a
+        # failed check is: a FAIL record under the population guard's own name, a FATAL line naming the
+        # reason, a RESULT line carrying it, and a non-zero exit that follows from the FAIL.
+        v = RUN_STATE.get("v") or Verifier()
+        mode = "device" if args.device else "cpu"
+        reason = terminal_fatality(mode, len(v.names), len(v.controls),
+                                   escaped="Refused tag=%s" % getattr(exc, "tag", "untagged"))
+        v.check(EMPTY_SUITE_CHECK, False,
+                "the run died before its check suite completed, so this record is the population guard "
+                "reporting itself: `%s`. The refusal was raised outside any leg-construction guard, which "
+                "is the only shape left that can still end the run early (leg-construction refusals are "
+                "counted findings on their owning check, see `leg_attempt`). Nothing printed after the "
+                "refusal was executed, so no absence of a FAIL may be read as a pass"
+                % reason)
+        print("FATAL mode=%s reason=%s checks=%d findings=%d controls=%d fired=%d "
+              "last_refusal_tag=%s note=a run that executed no checks cannot fail; this one is fatal by "
+              "name, not by silence"
+              % (mode, reason, len(v.names), len(v.red), len(v.controls), v.fired,
+                 getattr(exc, "tag", "untagged")))
+        print("RESULT mode=%s checks=%d findings=%d controls=%d fired=%d rows=0 arms=policy_a "
+              "device=%s staged=%s hip_calls=%d+%d launches=%d counters_unparsed=%d fatal=%s "
+              "no timing taken"
+              % (mode, len(v.names), len(v.red), len(v.controls), v.fired,
+                 "on" if args.device else "off",
                  "admitted" if WITNESS["staged_runs"] else "not-attempted",
                  WITNESS["hip_calls_python"], WITNESS["hip_calls_arm"], WITNESS["launches"],
-                 len(WITNESS["unparsable_counters"])))
+                 len(WITNESS["unparsable_counters"]), reason))
         return 1
     finally:
         sys.stdout = out.fh

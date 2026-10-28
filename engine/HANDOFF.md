@@ -2675,3 +2675,149 @@ Rule of the pass: a rejection leg is only a test if it is built on a grid the da
 it lands within one step of the bound it claims to touch — so the lattice comes from the format, the step
 comes from the measurement, the refutation names the axis that carries it, and a reported command is the
 command. no timing taken.
+
+## PASS 13 (2026-10-27, CPU-only) — a refusal is a counted finding, a check-less run is fatal by name, and window `m`'s refusal was a leg-sizing bug and not a bound failure
+
+Window `m` (`devices/evidence/device-window-2026-10-27-g.md` §window `m`,
+`specification/evidence/blockdevice-device-2026-10-27-m1.log`) died inside one leg-construction call and
+printed `RESULT mode=device checks=0 findings=1 controls=0 fired=0` with **zero** `CHECK` lines, zero
+`MUSTCATCH`, zero `REFUTED-CAUSE` — and `grep -E "verdict=FAIL"` on that log returns nothing. The refusal
+was `REFUSED tag=d28-edge-leg-wont-size … the scan_out/rel-err inside leg could not be placed on its own
+side of the bound 1.46299e-07`, raised out of `run()`, so everything after it never happened. This pass
+closes both halves of that in `engine/block_device.py`: the refusal becomes a finding on the leg that raised
+it, an empty suite becomes fatal by name, and the refusal's *subject* is measured instead of assumed. CPU
+only: no `--device`, no kernel launch, no `gpu_lock` (`grep -c gpu_lock engine/block_device.py` → 0), no
+timing read. The witness is 15.07 s wall / 395 MiB max RSS and
+`specification/evidence/blockdevice-cpu-2026-10-27-p13.log` is its full log (byte-identical across two
+runs apart from the two pid fields `GPUWITNESS` prints). no timing taken.
+
+**Done.**
+
+* **1 — a refusal is now a counted finding on the leg that raised it, and the run continues.** `leg_attempt
+  (ctx, family, what, construct)` wraps one construction call; a `DA.Refused` is printed as
+  `REFUSED tag=… for_leg=… owning_check=… counted_as_finding=yes suite_continues=yes` and recorded against
+  the check that already owns that family (`VB_LEG_OWNERS`: derivation →
+  `d28-bound-and-witness-lines-are-parsed-not-assumed`, real edge legs →
+  `d28-value-band-witness-inside-and-edge-legs-reject`, fabrications →
+  `d28-edge-legs-are-adjacent-lattice-points-and-sized-from-the-bound`, must-catch →
+  `d28-must-catch-set-is-derived-and-reddens`, refuted causes →
+  `d28-refuted-causes-still-refuted-and-say-what-carries-it`). Every one of those four checks now refuses to
+  PASS while a refusal of its own family is on the record, and names it as `refused=<leg>(tag=…) <note>`.
+  The catch sites are per **leg**, not per run: one metric's fabrication set, one injected defect, one
+  refuted cause, one pair's bound derivation. Proof
+  (`specification/evidence/blockdevice-refusal-proof-2026-10-27.py`, its log beside it, each mode a real
+  driver run in its own subprocess with one construction poisoned): poisoning a fabrication leg prints
+  `checks=71 findings=1` with all 71 `CHECK` lines, the six metric summaries, 12 `BOUNDEDGE` legs, 8
+  `MUSTCATCH` and both `REFUTED-CAUSE` lines present, and exits 1; poisoning window `m`'s exact coordinate
+  (GDN `scan_out`/`rel-err` at-limit) prints `checks=71 findings=2` — the witness check and the adjacency
+  census, which also sees `1 cells missing` — and completes. In both, `grep verdict=FAIL` finds the
+  finding; in window `m` it found nothing.
+* **2 — "nothing failed" and "nothing ran" are now different strings.** `terminal_fatality(mode, checks,
+  controls, escaped=None)` is the single statement of the rule (checks==0 → `no-check-executed`; controls==0
+  → `no-control-executed`; escaped → `aborted-before-its-check-suite-completed`), witnessed on the fabricated
+  device shapes `(device,0,0)` and `(device,71,0)`. Two places run it. In-run: `run-executed-a-non-empty-
+  check-and-control-suite` (the last check but one) plus `d28-value-band-exists-in-this-run`, which reddens
+  if no D-28 pair survives its derivation — the case in which the six `d28-*` checks would each have read an
+  empty population and PASSed over it. In `main()`: a refusal that still escapes now prints a `CHECK name=…
+  verdict=FAIL` record, a `FATAL mode=… reason=…` line and a `RESULT … fatal=…` line, and exits 1 — the
+  old handler's bare `checks=0 findings=1 controls=0` is gone. Proof: `zero-check` mode poisons
+  `DA.parse_se_layout` so nothing runs, and the driver prints `CHECK name=run-executed-a-non-empty-check-
+  and-control-suite verdict=FAIL`, `FATAL … reason=aborted-before-its-check-suite-completed(…)` and
+  `RESULT … checks=1 findings=1 controls=0 fatal=aborted-…`, exit 1. The device shape of that predicate is
+  printed from the same function, because no `--device` run happens here.
+* **3 — what the device substrate does to `scan_out/rel-err`: nothing. The leg was sized from a base the
+  metric never sees.** Measured on CPU from window `m`'s own bytes (`engine/work/m2dev/d_out_{device,host,
+  hip}.bin`, read as ordinary host files) and cross-checked against its printed lines
+  (`specification/evidence/blockdevice-scanout-substrate-2026-10-27.py`):
+
+  ```
+  SCANOUT-DIAGNOSIS substrate=device    base=2.43282e-08 bound=1.46299e-07 verdict=construction-wrong
+  SCANOUT-DIAGNOSIS substrate=host_twin base=0           bound=1.46299e-07 verdict=inside
+  SCANOUT-DIAGNOSIS substrate=headline  base=2.43282e-08 bound=1.46299e-07 verdict=construction-wrong
+  ```
+
+  The device base is *inside* the derived bound by a factor of **6.014** (window `m` printed
+  `measured=2.43282e-08 derived=1.46299e-07 margin=6.014 inside=yes`, and re-measuring its bytes reproduces
+  that digit for digit), so the refusal could not have been evidence about the bound. The arithmetic is in
+  `scan_out/rel-err`'s own units: `vb_fabricate_at_limit`'s closed form moved the largest-|b| element by
+  `bound*unit`, i.e. it solved for a base of **zero** — the only base a CPU witness can produce, because its
+  host-twin pair is byte-identical. On a substrate that has a base the estimate lands at `1.7063e-07`, which
+  is `2.43312e-08` past the bound — exactly the base it ignored — and closing that gap takes **1242** one-ULP
+  steps of `1.95878951e-11` while the correction loop's budget was **64**; hence the refusal at the 64th
+  step. The construction now sizes from `bound - floor_metric`, where `floor_metric` is the metric with the
+  moved element's own base contribution erased (`vb_norm_lattice` + `vb_leg_headroom`, one spelling of the
+  lattice and of the escalation rule). On window `m`'s device bytes the same builder now lands `j=6226` at
+  `1.46282e-07`, inside, distance `1.65e-11` ≤ one step, in 2 correction steps; on the host substrate it
+  lands `j=7468` at `1.46282e-07` — the same point it printed before, so every CPU `BOUNDEDGE` number is
+  unchanged (`ndiff_frac at-limit 0.368164 == bound`, `one-past 0.368408`, all six summaries
+  `at-limit=True one-past=False sized_correctly=yes`). `BOUNDEDGE` now prints `base_metric=` and
+  `base_headroom=` on the ulp legs so the base is on the line, and the driver prints the three
+  `SCANOUT-DIAGNOSIS` lines itself, with the device base parsed off the pinned window-`m` log and named on
+  the line (a CPU witness has no device record of its own).
+* **4 — no escalation is owed, and no bound moved.** `verdict=outside` did not happen: no substrate's base
+  exceeds `1.46299e-07`, so `escalation=not-required` and D-18 is not engaged. Had it happened, the refusal
+  is now named — `d28-edge-leg-base-above-bound`, produced by the same pure predicate
+  (`vb_leg_headroom`) that a fabricated `base=2.0e-07` is run through inside
+  `d28-value-band-witness-inside-and-edge-legs-reject`, alongside the honest `base=2.43282e-08` which yields
+  headroom `1.21971e-07` and refuses nothing. Which derivation would have been short, had it been needed:
+  neither the `mr_exp` 2-ULP propagation (it is what produced this bound —
+  `mr_exp x host_fd[all_up](steps=2,decay_ulp_mask)`, `single_source=no`, the licensor triangle also present)
+  nor the fp64 floor probe, which prints unavailable for this field for a stated reason ("the record does not
+  carry the carry/scan operands of this field"); a documented re-derivation would therefore have had to make
+  the record carry those operands and re-probe, not adjust a constant. `band_digest=27a68c7e82c9aa05…`
+  unchanged, no band, floor, must-catch set, licence or pin authored or moved.
+
+**Gate lines.**
+
+```
+BLOCKDEVICE verdict=QUALIFIED … checks=71 red=0 controls=31 fired=31 band_digest=27a68c7e82c9aa05
+RESULT mode=cpu checks=71 findings=0 controls=31 fired=31 rows=6 gdn_rows=7 arms=policy_a device=off
+    staged=not-attempted hip_calls=0+0 launches=0 counters_unparsed=0 band_digest=27a68c7e82c9aa05 no timing taken
+engine/block_gate.py  → BLOCKGATE verdict=QUALIFIED … checks=17 red=0 controls=11 fired=11
+engine/gate.py        → RESULT PASS checks=27 findings=0 notes=41 arms=40 evidence=not-written
+tools/doc_ref_check.py --strict → findings: 0
+specification/evidence/blockdevice-scanout-substrate-2026-10-27.py → exit 0, all_agree=yes
+specification/evidence/blockdevice-refusal-proof-2026-10-27.py     → PROOF verdict=PASS
+specification/evidence/blockdevice-device-shape-2026-10-27.py → REHEARSAL verdict=PASS no device act
+    occurred (child: RESULT mode=device checks=75 findings=7 — the same 7 findings PASS 10 named, +2 checks)
+```
+
+`checks` 69 → 71 is exactly the two new guards (`d28-value-band-exists-in-this-run`,
+`run-executed-a-non-empty-check-and-control-suite`); `RESULT findings=` is reconciled against the printed
+records by the last check as ever, all 36 `BOUNDWITNESS` cells are still `inside=yes` with `outside=none`,
+all 8 `MUSTCATCH` legs still print `RED` with `printed MUSTCATCH lines=8, derived=8`, both `REFUTED-CAUSE`
+lines still print `carried_by=` (`silu_exp_ulp1` on value-band + byte-diagnostic, `decay_ulp1` on
+byte-diagnostic with the factor-two arithmetic), the six `BOUNDEDGE` metric summaries are byte-identical to
+PASS 12's, `granularity` is still measured (`0.000244140625 == 1/4096`), and
+`d28-escalation-clause-refuses-qualification` still demonstrates its refusal (2 fabrications → 2 refusals,
+real diagnostics → 0).
+
+**Not done / not claimed.**
+
+* **The device window has not been re-run — it cannot be from here.** What it should show, and what it will
+  show nothing about if it does not: 12 `BOUNDEDGE` legs with `sized_correctly=yes` including
+  `d/rel-err … base_metric=2.43282e-08 base_headroom=1.21971e-07`, no
+  `REFUSED tag=d28-edge-leg-wont-size` line, three `SCANOUT-DIAGNOSIS` lines with
+  `substrate=device … source=this-run BOUNDWITNESS … bound_matches_this_run=yes`, and `checks≈71` (device
+  legs add two) with the refusal counted if anything else refuses instead of the run ending. The command,
+  canonical as printed by the driver:
+  `engine/block_device.py --work /home/erokhins/erokhins_projects/qwen3.6-35b-a3b/engine/work/m2dev --device`
+  under the standing rules (zero workers, halogen down, `gpu_lock` held, main agent, foreground).
+* The `SCANOUT-DIAGNOSIS` device base in a CPU witness is **parsed from the pinned window-`m` log**, and the
+  closed-form landing is then derived as `bound + base` rather than measured (no device record exists in a
+  CPU run); the script that measures it from window `m`'s bytes agrees with the derivation to 2e-05 of the
+  bound. If window `n` prints a different base, the line says which file it read and the comparison is redone
+  against the new log — `VB_SCANOUT_EVIDENCE` is the one place that file is named.
+* The rehearsal's device-vs-host pairs still compare host paths (`e2-device-records`, not `m2dev`), so the
+  rehearsal exercises the *shape* of the refusal path and not a non-zero device base; the non-zero base is
+  exercised by the scanout script on window `m`'s real bytes.
+* Nothing was written to the canonical device scratch `engine/work/m2dev` (this pass used
+  `engine/work/p13-*`, the rehearsal its own `m2dev-rehearsal`); `device_arm.py`, `block_gate.py`,
+  `gate.py`, `ulp_policy.py`, `loader.py`, `engine/device/m2_[gd]_*` and `prototype/` are untouched; no
+  device act occurred. no timing taken.
+
+Rule of the pass: a refusal is a claim about one leg, so it is counted on that leg and the run finishes;
+"nothing failed" and "nothing ran" are different sentences and only one of them is a pass; and a bound that
+cannot be approached from a substrate is evidence about the *construction* until the substrate's own base has
+been measured in the bound's own currency — which is the only measurement that may ever point at a
+re-derivation, and never at a widening. no timing taken.

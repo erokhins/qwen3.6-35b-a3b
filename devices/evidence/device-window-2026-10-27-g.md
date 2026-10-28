@@ -336,3 +336,33 @@ Two things follow, neither of which is a widening:
    (`measured=1.097e-07` vs `1.463e-07`), so the question is what the device substrate changes. The
    answer must be measured and reported; if the device's `scan_out` really sits outside the derived
    bound, that is an escalation under D-28, **not** a licence to widen it.
+
+## Window `n` — 2026-10-27 — the suite runs to completion on device: 75 checks, zero failures, two silent controls
+
+Eighth window. CPU witness `checks=71 findings=0 controls=31 fired=31`, `BLOCKGATE checks=17 red=0`,
+M1 `RESULT PASS checks=27 findings=0`. Device run:
+
+```
+RESULT mode=device checks=75 findings=2 controls=32 fired=30 device=on staged=admitted counters_unparsed=0
+printed CHECK lines=75, of which verdict=FAIL=0
+BOUNDEDGE=12  MUSTCATCH=10 (8 reddens=RED)  REFUTED-CAUSE=2  REFUSED=0
+BOUNDWITNESS inside=yes on all cells, inside_no=0
+scan_out/rel-err measured=2.43282e-08 vs derived=1.46299e-07  margin=6.014  inside=yes
+gather routed/rel-err measured=2.23221e-07 vs 3.24921e-07  margin=1.456  inside=yes
+```
+
+Window `m`'s refusal is gone: `REFUSED` lines = 0, and every section that previously never ran now
+does. The `scan_out` diagnosis came back **construction-wrong, not bound-breach** — the old closed form
+sized the leg from `b_site` alone, i.e. from base 0, which is the only base a byte-identical host twin
+can produce, so it landed `bound+base` (1,242 one-ULP steps past a 64-step budget). Sizing now solves
+`bound − floor_metric`; it lands the same point on CPU and inside on window `m`'s real device bytes.
+**Nothing was widened and no escalation was needed**; the device base sits inside the bound by 6.014×.
+
+**Where the two findings actually come from, because "no FAIL lines but findings=2" is exactly the
+shape I have been burned by twice.** They are not fabricated-witness residue (the stale-text witness
+counts locally, and the tally line says so explicitly). They are **two registered controls that never
+fired**: `control-witness-guard-can-redden` and `gdn-state-read-is-the-arm-s-own-fingerprint`, each
+printed `fired=SILENT` and counted as a finding under the rule that a control which claims legs and
+stays silent is not neutral. So the device arm's *checks* are clean and the arm is two silent controls
+away from `QUALIFIED` — the same `control-witness-guard-can-redden` that was silent in window `g`, still
+silent on the device path specifically.
