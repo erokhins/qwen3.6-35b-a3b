@@ -1,0 +1,22 @@
+[transformers] `causal_conv1d_fn` is falling back to its reference PyTorch implementation because `causal_conv1d` is not installed. This is correct but much slower; install `causal_conv1d` for the optimized kernel.
+[transformers] `chunk_gated_delta_rule` is falling back to its reference PyTorch implementation because `flash-linear-attention` is not installed. This is correct but much slower; install `flash-linear-attention` for the optimized kernel.
+env     HF_HUB_OFFLINE=1 CUDA_VISIBLE_DEVICES='' HIP_VISIBLE_DEVICES=None
+assert  torch.cuda.is_available() is False -> assertion_holds=True (torch 2.14.1+cpu, cuda build None)
+stim    chain_ids=32 encoding=le64-per-id recomputes=True token_ids_sha256=f87335bb69b4e413c4f7de5ed4077ea93acddaa22145ec71c6748539fa419631
+stim    HF-stimulus vs llama-candidate: elementwise 32/32 equal, length_equal=True, llama_sha=f87335bb69b4e413c4f7de5ed4077ea93acddaa22145ec71c6748539fa419631
+stim    control-class ids (>=248044) among the 32: none
+integ   manifest=full-checkpoint-manifest-2026-10-27.json sha256=5fbfa2758ffe1b65… shards=26 etag_equals_sha256_true=26/26 verdict=CHECKPOINT-VERIFIED
+ram     MemAvailable=98986917888 B = 92.19 GiB   text_weights=69321221376 B = 64.56 GiB (visual=0.83 GiB not loaded, mtp=1.57 GiB not loaded)
+ram     headroom_after_text_weights=29665696512 B = 27.63 GiB  note=text tower must fit in MemAvailable with margin
+OK   slot_bijection :: checkpoint_text_tensors=693 state_dict_slots=693 tensors_read=693 unfilled_slots=0 unused_checkpoint_tensors=0 no_checkpoint_source=2['model.rotary_emb.inv_freq', 'model.rotary_emb.original_inv_freq']
+OK   built_not_loaded_is_rotary_only :: names_with_no_checkpoint_source=['model.rotary_emb.inv_freq', 'model.rotary_emb.original_inv_freq'] (only rope constants may be computed by the reference; anything else here means a weight is missing and would be initialised at random, which would make the whole fixture fictitious)
+OK   nothing_left_on_meta :: meta_tensors=0 []
+OK   every_param_bf16 :: param_dtypes=['torch.bfloat16']
+OK   no_aliased_storage :: distinct_data_ptrs=693 params=693 aliased_groups=0 []
+OK   shapes_dtypes_match_headers :: checked=693 mismatches=0 []
+OK   read_back_matches_checkpoint :: sample=41 of 693 mapped tensors bytes_rehashed=5394499200 mismatches=0 [] (layer0=18 layer39=15 stride=97)
+load    shards_read=26 tensors_read=693 bytes_read=69321221376 params_before_meta=693 MemAvailable_now=98597728256
+forward blocks=40 logits_shape=[1, 32, 248320] last_position_row=[248320] argmax_id=82 argmax_logit=8.87500000 top5=82:8.87500000 7:8.25000000 198:8.18750000 13:8.18750000 62:7.93750000
+OK   record_population :: per_block_records=280 stages=7 blocks=40 identity 7x40=280; model_level_records=2
+records wrote=282 files bytes=37327872 aggregate_digest=eeba4b91c82aef12dec9678036d8a0a5ea67db95e3d5068804e4d01682fe048b
+RUN tag=r1 records=282 findings=0[] argmax_id=82 aggregate_digest=eeba4b91c82aef12dec9678036d8a0a5ea67db95e3d5068804e4d01682fe048b peak_rss_kb=22838968 mem_available_before_load=98986917888 host_wall_s=11.669 manifest=/tmp/m3-hf-d29/manifests/hf40-r1.json no timing taken

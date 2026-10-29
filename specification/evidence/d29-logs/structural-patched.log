@@ -1,0 +1,181 @@
+cross_oracle sides: hf=checkpoints/dump-manifest-chain-2026-10-26.json (28 records)  llama=checkpoints/llama-dump-manifest-2026-10-27-run-a.json (15276 rows)  engine=engine/block_forward.py
+=== align: is there one stimulus? ===
+hf      stimulus n_tokens=32 sha256=f87335bb69b4e413c4f7de5ed4077ea93acddaa22145ec71c6748539fa419631
+hf      ids=75767 48645 25290 78392 55186 7464 2393 70962 18630 58883 68803 22545 13456 67839 23233 60377 30202 19060 79456 93321 35648 86608 64588 87257 60667 40221 9956 21117 27930 80746 5867 87935
+hf      special-class ids present=False (max id 93321; this family's control class starts at 248044, so the chain stimulus is raw text tokens, not a rendered conversation)
+hf      source=model-00001-of-00026.safetensors/model.language_model.embed_tokens.weight dtype=torch.bfloat16 shape=[32, 2048] method=torch.randint over the first 100k vocabulary rows from a pri
+llama   gguf_sha256=ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61 matches_pin=True pinned_sha256=ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61 (pin Qwen3.6-35B-A3B-UD-Q4_K_M.gguf)
+llama   instrument=tools/llama-instrument.patch llama.cpp=d327bf1f0780f87b8c01b367b61853b0c291d7c4 prompt given to the front end: 'The capital of France is'
+llama   graph 0 kind=chunk   n_tokens=2   ids_equal_to_chain=False special-class=none ids=0 0
+llama   graph 1 kind=prefill n_tokens=11  ids_equal_to_chain=False special-class=[248045, 248046, 248045] ids=248045 846 198 760 6511 314 9338 369 248046 198 248045
+llama   graph 2 kind=chunk   n_tokens=4   ids_equal_to_chain=False special-class=[248068] ids=74455 198 248068 198
+llama   graph 3 kind=decode  n_tokens=1   ids_equal_to_chain=False special-class=none ids=8160
+llama   the prefill's ids 0, 8, 10 are 248045 / 248046 / 198 — the chat wrapper — and its 5 inner ids are the prompt text; `llama-tokenize` on that text returns exactly those 5 ids, which is the template-free proof
+engine  stimulus = the pinned single-token decode row (engine/block_forward.py BLOCK=0, GDN_MODE=decode0): a third stimulus, one row, not a prefill
+align   denominator: hf=1 stimulus, llama=4 graphs, engine=1 stimulus; graph roles are derived from n_tokens (largest=prefill, 1=decode), not from a name
+align   NOT-ALIGNED-BY-STIMULUS: no llama graph is fed the chain's 32 ids (prefill is 11)
+align   unattainable-through-text=yes: detokenizing the chain's 32 ids gives 205 bytes (valid UTF-8, 0 control-class tokens); `llama-tokenize -f` on those bytes returns 32 ids of which only 30 are equal, first divergence index 3 (chain 78392 vs 750). The byte string is forced by the ids (byte-level BPE is byte-preserving and token->piece is a bijection), so that candidate is the only candidate and no text prefill reproduces them. Reproduction: quantization/evidence/llama-stimulus-alignment-2026-10-27.md
+align   attainable-through-raw-ids=yes: tools/llama_tokens_dump.cpp feeds the ids through batch.token[] with no tokenizer in the process image; run tools/llama_aligned_run.py run <tag>, then re-run this mode with --llama-manifest pointing at that run's manifest (the aligned fixture records its path). This manifest (checkpoints/llama-dump-manifest-2026-10-27-run-a.json) is the template-wrapped run-a, which is why the line above is NOT-ALIGNED and not a refusal to look.
+align   consequence: mode numeric refuses; mode structural stands alone.
+
+=== structural: what corresponds to what, and how far the comparison reaches ===
+
+stage mapping — one row per §03.2 stage per block; denominator 28 rows
+block  kind(ll/HF)  hf_stage   engine_stage             llama_tensor              status
+layer0 linear/linear x          UNMAPPED-BY-ABSENCE(engine) model.input_embed(layer PENDING-BY-STIMULUS(llama side model.input_embed(layer0)/l_out(prev); HF side its chained predecessor is the immediately previous layer) [qwen35moe.cpp:170,222]
+layer0 linear/linear h_in       UNMAPPED-BY-ABSENCE(engine) attn_norm               MAPPED(1) [qwen35moe.cpp:184]
+layer0 linear/linear mixer_out  y                        linear_attn_out         MAPPED(1) [qwen35moe.cpp:483 / :352]
+layer0 linear/linear x1         UNMAPPED-BY-ABSENCE(engine) attn_residual           MAPPED(1) [qwen35moe.cpp:204]
+layer0 linear/linear h_mlp      UNMAPPED-BY-ABSENCE(engine) attn_post_norm          MAPPED(2) [qwen35moe.cpp:211]
+layer0 linear/linear moe_out    combined_out             ffn_out                 MAPPED(1) [qwen35moe.cpp:536 (routed-only sub-stage is ffn_moe_out :507)]
+layer0 linear/linear out        UNMAPPED-BY-ABSENCE(engine) l_out                   MAPPED(1) [qwen35moe.cpp:222]
+layer1 linear/linear x          UNMAPPED-BY-ABSENCE(engine) model.input_embed(layer PENDING-BY-STIMULUS(llama side model.input_embed(layer0)/l_out(prev); HF side its chained predecessor is the immediately previous layer) [qwen35moe.cpp:170,222]
+layer1 linear/linear h_in       UNMAPPED-BY-ABSENCE(engine) attn_norm               MAPPED(1) [qwen35moe.cpp:184]
+layer1 linear/linear mixer_out  y                        linear_attn_out         MAPPED(1) [qwen35moe.cpp:483 / :352]
+layer1 linear/linear x1         UNMAPPED-BY-ABSENCE(engine) attn_residual           MAPPED(1) [qwen35moe.cpp:204]
+layer1 linear/linear h_mlp      UNMAPPED-BY-ABSENCE(engine) attn_post_norm          MAPPED(2) [qwen35moe.cpp:211]
+layer1 linear/linear moe_out    combined_out             ffn_out                 MAPPED(1) [qwen35moe.cpp:536 (routed-only sub-stage is ffn_moe_out :507)]
+layer1 linear/linear out        UNMAPPED-BY-ABSENCE(engine) l_out                   MAPPED(1) [qwen35moe.cpp:222]
+layer38 linear/linear x          UNMAPPED-BY-ABSENCE(engine) model.input_embed(layer PENDING-BY-STIMULUS(llama side model.input_embed(layer0)/l_out(prev); HF side its chained predecessor is layer1, with layers 2..37 of the real model absent from the fixture) [qwen35moe.cpp:170,222]
+layer38 linear/linear h_in       UNMAPPED-BY-ABSENCE(engine) attn_norm               MAPPED(1) [qwen35moe.cpp:184]
+layer38 linear/linear mixer_out  y                        linear_attn_out         MAPPED(1) [qwen35moe.cpp:483 / :352]
+layer38 linear/linear x1         UNMAPPED-BY-ABSENCE(engine) attn_residual           MAPPED(1) [qwen35moe.cpp:204]
+layer38 linear/linear h_mlp      UNMAPPED-BY-ABSENCE(engine) attn_post_norm          MAPPED(2) [qwen35moe.cpp:211]
+layer38 linear/linear moe_out    combined_out             ffn_out                 MAPPED(1) [qwen35moe.cpp:536 (routed-only sub-stage is ffn_moe_out :507)]
+layer38 linear/linear out        UNMAPPED-BY-ABSENCE(engine) l_out                   MAPPED(1) [qwen35moe.cpp:222]
+layer39 full/full    x          UNMAPPED-BY-ABSENCE(engine) model.input_embed(layer PENDING-BY-STIMULUS(llama side model.input_embed(layer0)/l_out(prev); HF side its chained predecessor is the immediately previous layer) [qwen35moe.cpp:170,222]
+layer39 full/full    h_in       UNMAPPED-BY-ABSENCE(engine) attn_norm               MAPPED(1) [qwen35moe.cpp:184]
+layer39 full/full    mixer_out  y                        attn_output             MAPPED(1) [qwen35moe.cpp:483 / :352]
+layer39 full/full    x1         UNMAPPED-BY-ABSENCE(engine) attn_residual           UNWRITTEN-BY-INSTRUMENT(name attn_residual is right, shape [2048, 0, 1, 1] has a zero token axis, written=false; the same name IS written in graph 0 [2048, 1, 1, 1], graph 2 [2048, 1, 1, 1], graph 3 [2048, 1, 1, 1]) [qwen35moe.cpp:204]
+layer39 full/full    h_mlp      UNMAPPED-BY-ABSENCE(engine) attn_post_norm          UNWRITTEN-BY-INSTRUMENT(name attn_post_norm is right, shape [2048, 0, 1, 1] has a zero token axis, written=false; the same name IS written in graph 0 [2048, 1, 1, 1], graph 0 [2048, 1, 1, 1], graph 2 [2048, 1, 1, 1], graph 2 [2048, 1, 1, 1], graph 3 [2048, 1, 1, 1], graph 3 [2048, 1, 1, 1]) [qwen35moe.cpp:211]
+layer39 full/full    moe_out    combined_out             ffn_out                 UNWRITTEN-BY-INSTRUMENT(name ffn_out is right, shape [2048, 0, 1, 1] has a zero token axis, written=false; the same name IS written in graph 0 [2048, 1, 1, 1], graph 2 [2048, 1, 1, 1], graph 3 [2048, 1, 1, 1]) [qwen35moe.cpp:536 (routed-only sub-stage is ffn_moe_out :507)]
+layer39 full/full    out        UNMAPPED-BY-ABSENCE(engine) l_out                   UNWRITTEN-BY-INSTRUMENT(name l_out is right, shape [2048, 0, 1, 1] has a zero token axis, written=false; the same name IS written in graph 0 [2048, 1, 1, 1], graph 2 [2048, 1, 1, 1], graph 3 [2048, 1, 1, 1]) [qwen35moe.cpp:222]
+mapping   denominator: 28 rows total (4 blocks x 7 §03.2 stages); 20 resolve to a written llama tensor, 4 name a real llama row that the instrument wrote no bytes for, 4 are position-only pending the stimulus, 20 are engine absences (engine/block_forward.py computes the mixer output and the MoE sum and nothing else at §03.2 granularity)
+
+shape/order agreement — denominator 20 mapped pairs
+  layer0 h_in        hidden 2048==2048 ok; token axis hf=32 llama=11 STIMULUS-MISMATCH(not a mapping error)
+  layer0 mixer_out   hidden 2048==2048 ok; token axis hf=32 llama=11 STIMULUS-MISMATCH(not a mapping error)
+  layer0 x1          hidden 2048==2048 ok; token axis hf=32 llama=11 STIMULUS-MISMATCH(not a mapping error)
+  layer0 h_mlp       hidden 2048==2048 ok; token axis hf=32 llama=11 STIMULUS-MISMATCH(not a mapping error)
+  layer0 moe_out     hidden 2048==2048 ok; token axis hf=32 llama=11 STIMULUS-MISMATCH(not a mapping error)
+  layer0 out         hidden 2048==2048 ok; token axis hf=32 llama=11 STIMULUS-MISMATCH(not a mapping error)
+  layer0 graph order h_in < mixer_out < x1 < h_mlp < moe_out < out -> 5/5 consecutive pairs increasing
+  layer1 h_in        hidden 2048==2048 ok; token axis hf=32 llama=11 STIMULUS-MISMATCH(not a mapping error)
+  layer1 mixer_out   hidden 2048==2048 ok; token axis hf=32 llama=11 STIMULUS-MISMATCH(not a mapping error)
+  layer1 x1          hidden 2048==2048 ok; token axis hf=32 llama=11 STIMULUS-MISMATCH(not a mapping error)
+  layer1 h_mlp       hidden 2048==2048 ok; token axis hf=32 llama=11 STIMULUS-MISMATCH(not a mapping error)
+  layer1 moe_out     hidden 2048==2048 ok; token axis hf=32 llama=11 STIMULUS-MISMATCH(not a mapping error)
+  layer1 out         hidden 2048==2048 ok; token axis hf=32 llama=11 STIMULUS-MISMATCH(not a mapping error)
+  layer1 graph order h_in < mixer_out < x1 < h_mlp < moe_out < out -> 5/5 consecutive pairs increasing
+  layer38 h_in        hidden 2048==2048 ok; token axis hf=32 llama=11 STIMULUS-MISMATCH(not a mapping error)
+  layer38 mixer_out   hidden 2048==2048 ok; token axis hf=32 llama=11 STIMULUS-MISMATCH(not a mapping error)
+  layer38 x1          hidden 2048==2048 ok; token axis hf=32 llama=11 STIMULUS-MISMATCH(not a mapping error)
+  layer38 h_mlp       hidden 2048==2048 ok; token axis hf=32 llama=11 STIMULUS-MISMATCH(not a mapping error)
+  layer38 moe_out     hidden 2048==2048 ok; token axis hf=32 llama=11 STIMULUS-MISMATCH(not a mapping error)
+  layer38 out         hidden 2048==2048 ok; token axis hf=32 llama=11 STIMULUS-MISMATCH(not a mapping error)
+  layer38 graph order h_in < mixer_out < x1 < h_mlp < moe_out < out -> 5/5 consecutive pairs increasing
+  layer39 h_in        hidden 2048==2048 ok; token axis hf=32 llama=11 STIMULUS-MISMATCH(not a mapping error)
+  layer39 mixer_out   hidden 2048==2048 ok; token axis hf=32 llama=11 STIMULUS-MISMATCH(not a mapping error)
+  layer39 graph order h_in < mixer_out -> 1/1 consecutive pairs increasing
+shape/order denominator: 20 pairs mapped, 16 ordering pairs checked, 16 increasing, checks so far=28
+
+per-side statistics — each side's own values from its own .bin; NOT a comparison, and no delta column is printed because the stimuli differ
+block  stage        side   elements   finite  min          max          mean        rms
+layer0 x            hf     65536     True    -0.05542     0.06738      -0.000036   0.012565
+layer0 h_in         hf     65536     True    -5.81250     7.71875      -0.002438   1.029436
+layer0 attn_norm    llama    22528     True    -39.97020    33.21861     -0.000334   1.091478
+layer0 mixer_out    hf     65536     True    -0.31445     0.62891      0.000146    0.019054
+layer0 linear_attn_out llama    22528     True    -0.23658     1.09022      0.000434    0.020639
+layer0 x1           hf     65536     True    -0.32031     0.65625      0.000111    0.022835
+layer0 attn_residual llama    22528     True    -0.25212     1.12171      0.000452    0.023630
+layer0 h_mlp        hf     65536     True    -12.25000    9.43750      -0.003965   0.706435
+layer0 attn_post_norm llama    22528     True    -15.67078    8.19549      0.005851    0.626272
+layer0 moe_out      hf     65536     True    -0.20312     0.05908      -0.000084   0.007720
+layer0 ffn_out      llama    22528     True    -0.10914     0.14670      0.000027    0.009647
+layer0 out          hf     65536     True    -0.36133     0.55078      0.000026    0.023609
+layer0 l_out        llama    22528     True    -0.31820     1.25930      0.000479    0.026194
+layer1 x            hf     65536     True    -0.36133     0.55078      0.000026    0.023609
+layer1 h_in         hf     65536     True    -17.50000    20.12500     -0.000396   1.042378
+layer1 attn_norm    llama    22528     True    -18.44980    27.80445     0.017465    0.984363
+layer1 mixer_out    hf     65536     True    -0.17578     0.36523      0.000106    0.009692
+layer1 linear_attn_out llama    22528     True    -0.14587     1.27282      0.000319    0.014872
+layer1 x1           hf     65536     True    -0.44922     0.83984      0.000133    0.027176
+layer1 attn_residual llama    22528     True    -0.43359     2.53212      0.000798    0.035246
+layer1 h_mlp        hf     65536     True    -9.25000     8.75000      -0.006325   0.738331
+layer1 attn_post_norm llama    22528     True    -8.97073     9.13047      0.007676    0.603741
+layer1 moe_out      hf     65536     True    -0.19727     0.13770      -0.000185   0.013844
+layer1 ffn_out      llama    22528     True    -0.18357     0.10292      -0.000044   0.006913
+layer1 out          hf     65536     True    -0.47461     0.69531      -0.000053   0.032267
+layer1 l_out        llama    22528     True    -0.46246     2.63504      0.000754    0.036342
+layer38 x            hf     65536     True    -0.47461     0.69531      -0.000053   0.032267
+layer38 h_in         hf     65536     True    -18.62500    25.00000     0.002407    1.141867
+layer38 attn_norm    llama    22528     True    -16.78015    28.37191     -0.001366   1.125608
+layer38 mixer_out    hf     65536     True    -1.77344     0.84375      -0.001375   0.114230
+layer38 linear_attn_out llama    22528     True    -0.84622     4.99405      0.001653    0.098147
+layer38 x1           hf     65536     True    -1.35156     0.71094      -0.001426   0.113820
+layer38 attn_residual llama    22528     True    -3.29165     7.54510      0.002468    0.305164
+layer38 h_mlp        hf     65536     True    -9.87500     9.12500      -0.018989   1.614831
+layer38 attn_post_norm llama    22528     True    -15.26091    22.24833     0.004839    1.412946
+layer38 moe_out      hf     65536     True    -18.25000    2.70312      0.004716    0.290567
+layer38 ffn_out      llama    22528     True    -5.32092     34.79604     0.000620    0.423590
+layer38 out          hf     65536     True    -19.50000    2.82812      0.003287    0.296594
+layer38 l_out        llama    22528     True    -8.13027     41.60360     0.003089    0.601474
+layer39 x            hf     65536     True    -19.50000    2.82812      0.003287    0.296594
+layer39 h_in         hf     65536     True    -36.50000    18.00000     0.010655    0.984592
+layer39 attn_norm    llama    22528     True    -16.35472    35.25225     0.003614    1.044863
+layer39 mixer_out    hf     65536     True    -6.25000     5.21875      0.008302    0.396318
+layer39 attn_output  llama    22528     True    -20.89705    3.60675      0.002455    0.300066
+layer39 x1           hf     65536     True    -18.62500    5.40625      0.011592    0.423290
+layer39 h_mlp        hf     65536     True    -21.75000    12.00000     0.037469    1.368052
+layer39 moe_out      hf     65536     True    -6.81250     29.00000     -0.024473   0.450997
+layer39 out          hf     65536     True    -11.62500    23.00000     -0.012884   0.433590
+statistics denominator: 48 records profiled (28 hf + 20 llama), 0-element records = a failure and there were none
+
+aliasing/distinctness — digests from the manifest, denominator 2 groups
+  stage mixer_out  blocks=4 distinct_digests=4 OK
+  stage moe_out    blocks=3 distinct_digests=3 OK
+
+=== engine side: what our implementation can even be asked for ===
+engine  block_forward.py constants: BLOCK=0 TOKEN_ROW=0 GDN_MODE=decode0
+engine  stages computed (function, stage): 22 — gdn_recurrent_step.mixed_qkv, gdn_recurrent_step.z, gdn_recurrent_step.b_raw, gdn_recurrent_step.a_raw, gdn_recurrent_step.conv_window, gdn_recurrent_step.conv_pre, gdn_recurrent_step.conv_out, gdn_recurrent_step.q_pre, gdn_recurrent_step.k_pre, gdn_recurrent_step.v_pre, gdn_recurrent_step.beta, gdn_recurrent_step.g_decay, gdn_recurrent_step.k_hat, gdn_recurrent_step.scan_out, gdn_recurrent_step.state, gdn_recurrent_step.core_attn, gdn_recurrent_step.normed, gdn_recurrent_step.y, moe_shared.shared_raw, moe_shared.shared_gate_prob, moe_shared.shared_out, moe_block.combined_out
+engine  at §03.2 granularity only two of the seven stages exist: the mixer output (`y`) and the MoE sum (`combined_out`); input_layernorm and the two residual adds are not computed, so there is nothing of ours to put against hf `h_in`, `x1`, `out`
+engine  denominator: 1 block x 1 row x 7 stages, of which 2 stages exist = 2 candidate cells out of the 4 blocks x 7 stages = 28 the report could have used
+
+=== pairwise disagreement counts (engine-vs-HF, engine-vs-llama, HF-vs-llama) ===
+layer0 pair=engine-vs-HF    stage_slots=2 elements_compared=0 of 131072 disagreements=n/a verdict=UNCOMPARABLE-BY-STIMULUS because engine/block_forward.py is BLOCK=0 TOKEN_ROW=0 mode decode0: it computes one decode row of layer 0 while the HF record is a 32-token prefill of that layer, so no row is shared
+layer0 pair=engine-vs-llama stage_slots=2 elements_compared=0 of 45056 disagreements=n/a verdict=UNCOMPARABLE-BY-STIMULUS because llama graph 1 is an 11-token prefill of a different prompt; no engine stage shares its (block, position)
+layer0 pair=HF-vs-llama     stage_slots=6 elements_compared=0 of 393216 disagreements=n/a verdict=UNCOMPARABLE-BY-STIMULUS because chain ran on the pinned 32 sampled ids; llama graph 1 ran on 11 template-wrapped ids; the shapes differ (32 x 2048 vs 2048 x 11) and layers 38/39 have a chain gap on top of that
+layer1 pair=engine-vs-HF    stage_slots=0 elements_compared=0 of 0 disagreements=n/a verdict=UNCOMPARABLE-BY-STIMULUS because engine/block_forward.py is BLOCK=0 TOKEN_ROW=0 mode decode0: layer 1 is outside the single block it implements (BLOCK=0), so there is no engine value for it at all
+layer1 pair=engine-vs-llama stage_slots=0 elements_compared=0 of 0 disagreements=n/a verdict=UNCOMPARABLE-BY-STIMULUS because llama graph 1 is an 11-token prefill of a different prompt; no engine stage shares its (block, position)
+layer1 pair=HF-vs-llama     stage_slots=6 elements_compared=0 of 393216 disagreements=n/a verdict=UNCOMPARABLE-BY-STIMULUS because chain ran on the pinned 32 sampled ids; llama graph 1 ran on 11 template-wrapped ids; the shapes differ (32 x 2048 vs 2048 x 11) and layers 38/39 have a chain gap on top of that
+layer38 pair=engine-vs-HF    stage_slots=0 elements_compared=0 of 0 disagreements=n/a verdict=UNCOMPARABLE-BY-STIMULUS because engine/block_forward.py is BLOCK=0 TOKEN_ROW=0 mode decode0: layer 38 is outside the single block it implements (BLOCK=0), so there is no engine value for it at all
+layer38 pair=engine-vs-llama stage_slots=0 elements_compared=0 of 0 disagreements=n/a verdict=UNCOMPARABLE-BY-STIMULUS because llama graph 1 is an 11-token prefill of a different prompt; no engine stage shares its (block, position)
+layer38 pair=HF-vs-llama     stage_slots=6 elements_compared=0 of 393216 disagreements=n/a verdict=UNCOMPARABLE-BY-STIMULUS because chain ran on the pinned 32 sampled ids; llama graph 1 ran on 11 template-wrapped ids; the shapes differ (32 x 2048 vs 2048 x 11) and layers 38/39 have a chain gap on top of that
+layer39 pair=engine-vs-HF    stage_slots=0 elements_compared=0 of 0 disagreements=n/a verdict=UNCOMPARABLE-BY-STIMULUS because engine/block_forward.py is BLOCK=0 TOKEN_ROW=0 mode decode0: layer 39 is outside the single block it implements (BLOCK=0), so there is no engine value for it at all
+layer39 pair=engine-vs-llama stage_slots=0 elements_compared=0 of 0 disagreements=n/a verdict=UNCOMPARABLE-BY-STIMULUS because llama graph 1 is an 11-token prefill of a different prompt; no engine stage shares its (block, position)
+layer39 pair=HF-vs-llama     stage_slots=2 elements_compared=0 of 131072 disagreements=n/a verdict=UNCOMPARABLE-BY-STIMULUS because chain ran on the pinned 32 sampled ids; llama graph 1 ran on 11 template-wrapped ids; the shapes differ (32 x 2048 vs 2048 x 11) and layers 38/39 have a chain gap on top of that
+pairwise denominator: 3 pairs x 4 blocks = 12 lines; numeric comparisons performed = 0; a zero-element comparison is a refusal, not a pass, and is labelled as one
+
+=== refused HF-vs-llama adjudications (D-26 clause 3) ===
+refused[1] activation-width
+    observation: the HF chain records activations as bf16 (dtype field of each record in checkpoints/dump-manifest-chain-2026-10-26.json), llama.cpp records the same stages as f32 (dtype field per row of checkpoints/llama-dump-manifest-2026-10-27-run-a.json). Two numeric systems on the same stage.
+    why-refused: D-26 clause 3: llama.cpp is the oracle for engine/*, but a quantized oracle may only ADD checks, never loosen one; calling f32 'the reference' would license a wider input than the bf16 fixture we are gated on, and calling bf16 the reference would loosen llama. Not adjudicated; the user's ±1-ULP policy (D-17) is where this belongs.
+refused[2] router renormalisation dtype and form
+    observation: llama renormalises the top-k weights with a f32 DIV (graph 1 block 0 node 74 ffn_moe_weights_norm, op DIV, shape [8, 11, 1, 1]); the HF form casts the renormalised weights back to the logits dtype before multiplying the expert output, and our §11.6 fixture already refused the f32 carry at ndiff=1326 with a flipped argmax (engine/HANDOFF.md §MoE renormalisation dtype). The pinned fixture sides with HF; llama disagrees with the fixture.
+    why-refused: D-26 clause 3 — recorded as a named divergence, not settled. Settling it would either move our §11.6 must-catch set (a gate change) or declare the oracle wrong; both are the user's.
+refused[3] softmax domain before top-k
+    observation: llama takes SOFT_MAX over all 256 router logits (graph 1 block 0 node 66, shape [256, 11, 1, 1]) and then selects and renormalises; §03.2 softmaxes the top-k subset after selection. Mathematically the renormalised results agree; bitwise they will not, and the banded/quantized router path can flip a near-tie.
+    why-refused: same refusal as above; also unmeasurable today because the stimuli differ.
+refused[4] chained-vs-real activations at layers 38 and 39
+    observation: the HF chain is not a contiguous run: layer1's input is layer0's output, but layer38's input is layer1's output with layers 2..37 absent (why_not_contiguous / chain_range in checkpoints/dump-manifest-chain-2026-10-26.json). llama's graph-1 layer-38 activation is a real forward over all 40 layers.
+    why-refused: Even under an aligned stimulus a layer-38/39 HF-vs-llama delta would mix a chain gap with an implementation difference. The comparable HF-vs-llama scope is layer0 and layer1; layers 38 and 39 are structural-only regardless of stimulus. Reported, not adjudicated.
+refusals denominator: 4 named, 0 adjudicated, 0 bands authored
+
+=== numeric: three-way magnitudes per stage ===
+layer0 numeric verdict=UNCOMPARABLE-BY-STIMULUS elements_compared=0 of 3 x 7 stage slots; a band here would be arithmetic on unrelated tensors
+layer1 numeric verdict=UNCOMPARABLE-BY-STIMULUS elements_compared=0 of 3 x 7 stage slots; a band here would be arithmetic on unrelated tensors
+layer38 numeric verdict=UNCOMPARABLE-BY-STIMULUS elements_compared=0 of 3 x 7 stage slots; a band here would be arithmetic on unrelated tensors
+layer39 numeric verdict=UNCOMPARABLE-BY-STIMULUS elements_compared=0 of 3 x 7 stage slots; a band here would be arithmetic on unrelated tensors
+numeric denominator: 28 stage slots x 3 pairs = 84 possible comparisons, 0 performed
+
+RESULT    checks=78 findings=0 aligned=False no bands authored=no licence-issued=none verdict=STRUCTURAL-OK no timing taken

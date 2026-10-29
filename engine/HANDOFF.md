@@ -3249,3 +3249,160 @@ speaker — so the fix was to build a door for the ids, prove from the link map 
 not have run, and prove from a deliberate mismatch that the equality check reddens. And the number that
 M3 actually hangs on, the logits band, is the one number this pass was right not to invent. no timing
 taken.
+
+## PASS 17 (2026-10-27, CPU-only) — the checkpoint is whole and tied to the Hub's own etags, HF answers all 40 blocks again, and the two agree on the greedy argmax; the registration is prepared and deliberately not applied
+
+D-29's `D→A`, executed. Rule of the pass, unchanged: **no band, floor, tolerance, factor, must-catch set
+or pinned fixture was created, relaxed or retyped anywhere here.** `band_digest` is still
+`27a68c7e82c9aa05`; no `band_licenses` row moved, and the word `ACCEPTED` appears nowhere in anything
+this pass wrote. CPU-only throughout — both new tools assert `torch.cuda.is_available()` is False at
+import, `grep -c gpu_lock` is 0 on every file this pass added, `HF_HUB_OFFLINE=1` and
+`CUDA_VISIBLE_DEVICES=""` were exported for every run, and the only resource numbers anywhere in this
+section are host wall, host RSS and `MemAvailable`. **no timing taken.** The full evidence, with the
+raw log of every command, is `specification/evidence/m3-hf-reference-d29-2026-10-27.md` (labels §p1-checkpoint,
+§p2-fixture, §p3-crosscheck, §p4-registration, §parent-cited-registration-is-not-in-the-tree,
+§reproduce, §what-is-not-shown). Numbering note: this file's previous section is §PASS 15; the gap at 16
+is the task's own label and is left as found rather than relabelled.
+
+### 1. The sentence this pass earns, and the one it does not
+
+Earned: **the unquantized reference is no longer 4 blocks deep.** All 26 shards of
+`models/qwen36-src/` are on disk, every one of them hashes to the Hub's own LFS OID, and `transformers`
+ran the same 32 token ids the pinned chain uses through all 40 blocks and `lm_head`. HF and llama.cpp
+agree on the greedy choice: `HF argmax_id=82` (logit 8.875) against `llama argmax_id=82` (logit 9.124),
+`n_vocab=248320`. That is the M3 referent in the only shape D-29 licenses.
+
+Not earned: any statement about logit *magnitudes*, and therefore any band. The worst HF-vs-llama
+divergence is relL2 3.494e-01 at `moe_out`, which is §10.4's open router-renormalisation question
+rather than a new finding, and the logits row differs by max_abs 5.655e-01 (relL2 7.833e-02) while still
+argmaxing identically. Measuring a divergence is escalation material; adopting a side is not this pass's
+act (D-26 clause 3).
+
+### 2. `tools/checkpoint_integrity_d29.py` — an auditor that imports neither producer nor consumer
+
+Modes `hub-tree` / `build` / `verify` / `witness`; it reads nothing outside scratch and its own output
+path. The etag question is the one worth writing down, because an etag is not one thing: of the Hub's 40
+tree entries, 27 are LFS-tracked — the 26 shards plus `tokenizer.json` — and for those the etag **is**
+`lfs.oid`, i.e. sha256 of the file bytes, so `etag_equals_sha256` is a real equality; the other 13 are
+plain git blobs whose etag is a sha1 git-blob hash, recorded under `git_blob_sha1` and never called a
+sha256 match. Build: 26/26 `etag_equals_sha256=True`, `bytes == hub size` for all 26, and every count
+identity printed with its operands because a bare 0 is a constant predicate and therefore not evidence —
+shards `26 - 26 = 0`, tensors `1045 - 1045 = 0`, `sum(tensor_bytes) 71903645408 == index.total_size`,
+layers `40 - 40 = 0`, families `{'text': 693, 'visual': 333, 'mtp': 19}` summing to the index's 1045, every
+tensor BF16. The file-bytes identity is stated as a subtraction because the two sides differ by the
+index's own JSON: `71903776776 - 131368 = 71903645408`. The 4 shards that were already on disk were
+re-hashed, not grandfathered.
+
+Four witnesses (`VERDICT witness findings=0`), each asserting both that the verifier's exit code has the
+required sign *and* that the victim's name appears in its output — a red verdict naming the wrong shard
+witnesses nothing: pristine symlink tree green; one byte flipped inside shard 17's tensor data red by
+name; shard 17 deleted from the listing fails the **count** identity (`26 - 25 = 1`) instead of passing
+quietly; and a corrupted safetensors header reddens that shard instead of crashing the verifier — that
+last one exists because the first version of the witness died inside a hash of a truncated tensor, which
+is the difference between an auditor and an error message.
+
+### 3. `tools/hf_full_forward_d29.py` — the referent, and an honest account of what it costs
+
+`Qwen3_5MoeForCausalLM` built meta-first from `checkpoints/Qwen3.6-35B-A3B.config.json` (text tower only:
+vision 0.83 GiB and the MTP block 1.57 GiB are not loaded, and D-04 is why), loaded **per tensor** through
+`safe_open`, strict bijection 693 checkpoint tensors ↔ 693 module tensors with only the rotary
+`inv_freq` buffers having no checkpoint source. Two runs `r1`/`r2` and one deliberate perturbation `p1`:
+all three argmax to 82; `r1` and `r2` are **byte-identical across all 282 records**
+(`aggregate_digest=eeba4b91c82aef12…`); `p1` — one row of layer 20's `down_proj` expert 7 re-encoded,
+512 elements — moves **137 of 282 records and exactly 0 records above layer 20**, which is the witness
+that the determinism verdict is not vacuous. The argmax caught none of it, so the argmax is not a
+sensitive instrument and no gate may treat it as one (D-26 clause 4).
+
+Memory, both numbers and not the friendly one: 64.56 GiB of text weights were read
+(`load shards_read=26 tensors_read=693 bytes_read=69321221376`) while peak RSS was 22,838,968 KB ≈ 21.8
+GiB, because mmap-backing never makes the whole tower resident at once; `MemAvailable` was 98,986,917,888 B
+≈ 92.19 GiB before the load and ≈91.8 GiB after it, and the tool's own headroom line reads
+`headroom_after_text_weights=29,665,696,512 B = 27.63 GiB`. `MemAvailable` is sampled at two points, so
+the true trough is between samples and the quoted figure is an upper bound. Fixture:
+`checkpoints/m3-candidate-hf-fixture-2026-10-27.json`, **`status=candidate`,
+`registration=not-registered`** — 282 records (40 blocks × 7 stages + `normed` + logits row), per-record
+sha256, token identity asserted elementwise against the chain
+(`token_ids_sha256=f87335bb69b4e413…`, 32 of 32) before the first forward rather than assumed from two
+files agreeing on a length.
+
+### 4. `tools/hf_llama_crosscheck_d29.py` — 280 cells derived, 276 measured, 4 refused by name
+
+Standalone: it imports neither fixture's producer and re-declares `STAGE_MAP`, `values_of` and
+`token_major` citing `engine/cross_oracle.py` as their source, because a cross-check that shares its
+comparator with the thing it checks is not independent. ggml's `[hidden, tokens]` storage is **witnessed
+before it is used**: token-major re-view of `layer0.out` gives relL2 2.757e-02 against the raw re-view's
+1.416e+00, a margin of 51.4×, and the comparator's own non-vacuity witness scores a same-shape array
+with one row of 32 perturbed at 5.631e-01 and an identical pair at 0.0 — so a small relL2 here cannot be
+the comparator failing to notice. Worst per stage over the 40 blocks: `x` 3.445e-02, `h_in` 2.081e-01,
+`mixer_out` 2.295e-01, `x1` 1.380e-01, `h_mlp` 9.868e-02, `moe_out` **3.494e-01**, `out` 2.570e-01,
+`normed` 6.025e-02, logits 7.833e-02 (max_abs 5.655e-01). The 4 refused cells are all layer 39
+(`x1`, `h_mlp`, `moe_out`, `out`) and each names its reason: llama.cpp keeps those intermediates only for
+its final token, `[2048, 1]` against HF's `[1, 32, 2048]`, so the shapes differ and a delta there would
+be element order, not arithmetic. `CROSSCHECK findings=0 cells_measured=276 cells_refused=4
+escalations=276 hf_argmax=82 llama_argmax=82 bands_authored=0`.
+
+The unexpected half: HF-full against the **pinned chain**, both bf16, is **byte-identical through
+`layer0.h_mlp` (max_abs 0.0)** and then separates at `moe_out` (relL2 3.4e-03), cascading
+(`layer0.out` ≈5.4e-03 → `layer1.x` ≈3.2e-03 → `layer1.h_in` ≈1.2e-02), with layers 38/39 at O(1) exactly
+as the chain's own `block_set.contiguous=false` predicts. The surviving candidate for the residual is
+association order in the MoE block — fixed-slot weighted sum over all 256 experts
+(`speccheck/block_ref.py`, the §10.6 form) versus top-k gather-then-scatter (`transformers`) — and it is
+reported, not adjudicated.
+
+### 5. The registration: prepared, and stopped at the line
+
+`specification/evidence/m3-registration-d29-2026-10-27.diff` is the patch that would apply the user's
+licences —
+`d29-hf-bf16-authoritative(prompt=pinned-32-ids, width=bfloat16,
+referent=per-block-stage|40-block-argmax|40-block-logits-row)` for the HF fixture,
+`d29-hf-bf16-identity(checkpoint=full-checkpoint-manifest-2026-10-27.json,
+shared-bytes-with-engine-inputs=none)` for its identity, `llama-crosscheck(observation-only)` unchanged
+on the llama rows. **It is not applied.** D-18 makes registering a user act; the working tree still says
+`status=candidate` in both fixtures and `git status` still lists the HF fixture as untracked.
+
+What it would buy, measured by applying it in a scratch copy and running both modes there:
+
+| run | structural | aligned |
+|---|---|---|
+| unpatched | `checks=78 findings=0 verdict=STRUCTURAL-OK` | `checks=23 findings=0 escalations=14 verdict=ALIGNED-OBSERVED` |
+| patched | `checks=78 findings=0 verdict=STRUCTURAL-OK` (byte-identical output) | `checks=287 findings=0 escalations=276 verdict=ALIGNED-OBSERVED` |
+
+262 comparison cells that could not be measured before become measurements; the structural mode does not
+move by one check. `HF_COMPARABLE` stops being the typed pair `("layer0", "layer1")` and is derived from
+the fixture's own records, because a typed pair would keep asserting in code that layers 2..37 have no
+unquantized referent, which the checkpoint now contradicts. The fixture preconditions were **reworded,
+not loosened**: they tested the word `candidate`, they now test the licence, and a fixture carrying some
+other licence or none still refuses — a registration that accepted anything would be the loosening it
+looks like.
+
+### 6. The registration the task said already existed does not
+
+The task stated the HF reference was already registered as `m3-candidate-hf-fixture-2026-09-27.json`,
+`status=registered-by-user`. **It is not in this repo** — no filename in `checkpoints/` contains `09-27`,
+no commit mentions it, the string `registered-by-user` appeared in no file that this pass did not write,
+and HEAD is `2baa2a7`, the D-29 decision commit. The commands and their outputs are in
+`specification/evidence/m3-hf-reference-d29-2026-10-27.md §parent-cited-registration-is-not-in-the-tree`.
+This pass did not assume the date was a typo for `2026-10-27`; it wrote its own candidate and everything
+here is measured against that. If a registered HF fixture exists outside this working tree, the two must
+be reconciled by digest (`aggregate_digest=eeba4b91c82aef12…`) before either is judged against.
+
+### 7. What this pass refuses to claim
+
+No band was derived, licensed or widened; the relL2 table is a measurement list and a band needs a floor
+probe plus a geometry-derived must-catch set (D-20), and the logits band is still the user's question
+(P-09). `speccheck/` did not produce this fixture — `speccheck/block_ref.py` remains the only place the
+§10.6 MoE form is pinned, and §4 above says the gap to `transformers` is not yet attributed. The
+`MemAvailable` minimum is a sampled upper bound. Nothing under `models/` was written by this pass, and it
+does not name the actor that placed the 22 shards there (their mtimes predate this pass's first artifact);
+what it can say is that they hash to the published checkpoint's own LFS OIDs. And the four gates that
+must not move did not: `RESULT mode=cpu checks=75 findings=0 controls=31 fired=31 counters_unparsed=0
+band_digest=27a68c7e82c9aa05` for `engine/block_device.py` (no `--device`, so no device act),
+`BLOCKGATE verdict=QUALIFIED checks=17 red=0 controls=11 fired=11 band_digest=27a68c7e82c9aa05` for
+`engine/block_gate.py`, `RESULT PASS checks=27 findings=0` for `engine/gate.py`,
+`checks=78 findings=0 verdict=STRUCTURAL-OK` for `engine/cross_oracle.py`, and `doc_ref_check --strict`
+findings: 0 with everything this pass wrote in place.
+
+Rule of the pass: an oracle that can only answer about 5 % of the model is not a second opinion, it is a
+third speaker with the same blind spot as the first — so the work was to make the whole checkpoint
+attributable before trusting a single one of its numbers, then to refuse twice: once to adopt a side in
+the router disagreement, and once to apply a registration the user had not applied. no timing taken.

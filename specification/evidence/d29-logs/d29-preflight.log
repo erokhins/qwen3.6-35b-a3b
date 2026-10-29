@@ -1,0 +1,14 @@
+env     HF_HUB_OFFLINE=1 CUDA_VISIBLE_DEVICES='' HIP_VISIBLE_DEVICES=None
+assert  torch.cuda.is_available() is False -> assertion_holds=True (torch 2.14.1+cpu, cuda build None)
+stim    chain_ids=32 encoding=le64-per-id recomputes=True token_ids_sha256=f87335bb69b4e413c4f7de5ed4077ea93acddaa22145ec71c6748539fa419631
+stim    HF-stimulus vs llama-candidate: elementwise 32/32 equal, length_equal=True, llama_sha=f87335bb69b4e413c4f7de5ed4077ea93acddaa22145ec71c6748539fa419631
+stim    control-class ids (>=248044) among the 32: none
+integ   manifest=full-checkpoint-manifest-2026-10-27.json sha256=5fbfa2758ffe1b65… shards=26 etag_equals_sha256_true=26/26 verdict=CHECKPOINT-VERIFIED
+ram     MemAvailable=99953344512 B = 93.09 GiB   text_weights=69321221376 B = 64.56 GiB (visual=0.83 GiB not loaded, mtp=1.57 GiB not loaded)
+ram     headroom_after_text_weights=30632123136 B = 28.53 GiB  note=preflight: no weights read yet
+OK   name_bijection_on_meta :: mapped=693 state_dict_slots=693 model_only=0 mapped_only=0
+OK   built_not_loaded_is_rotary_only :: names_with_no_checkpoint_source=['model.rotary_emb.inv_freq', 'model.rotary_emb.original_inv_freq']
+OK   header_shapes_dtypes :: checked=693 mismatches=0 []
+meta    slots_built_on_meta=695 state_dict_slots=693 checkpoint_text_tensors=693 buffers=2 no_checkpoint_source=['model.rotary_emb.inv_freq', 'model.rotary_emb.original_inv_freq']
+preflight layers=40 stages=7 linear_layers=30 full_attention_layers=10 fits_in_MemAvailable=True
+PREFLIGHT findings=0[] host_wall_s=1.377 peak_rss_kb=341020 no timing taken

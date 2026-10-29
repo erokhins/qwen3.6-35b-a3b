@@ -1,0 +1,6 @@
+walked 92 markdown files under /home/erokhins/erokhins_projects/qwen3.6-35b-a3b (provenance blockquotes exempt from path checks)
+info: 46 line-form `path:NNN` cites (each is a claim about a line count), 105 cross-repo `../qwen…` mentions, 1137 bare `§N` cites, 0 labelled-planned forward refs (paths a plan promises to write)
+MISSING  specification/evidence/m3-hf-reference-d29-2026-10-27.md cites checkpoints/m3-candidate-hf-fixture-2026-09-27.json
+MISSING  specification/evidence/m3-hf-reference-d29-2026-10-27.md cites tools/fetch_missing_shards_d29.py
+TABLE    specification/evidence/m3-hf-reference-d29-2026-10-27.md:252 row does not end with |
+findings: 3

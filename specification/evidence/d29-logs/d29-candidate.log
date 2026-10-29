@@ -1,0 +1,9 @@
+env     HF_HUB_OFFLINE=1 CUDA_VISIBLE_DEVICES='' HIP_VISIBLE_DEVICES=None
+assert  torch.cuda.is_available() is False -> assertion_holds=True (torch 2.14.1+cpu, cuda build None)
+pair    r1: records=282 aggregate_digest=eeba4b91c82aef12dec9678036d8a0a5ea67db95e3d5068804e4d01682fe048b
+pair    r2: records=282 aggregate_digest=eeba4b91c82aef12dec9678036d8a0a5ea67db95e3d5068804e4d01682fe048b
+pair    keys compared=282 differing=0 only_in_first=0 only_in_second=0 aggregate_equal=True
+OK   determinism_pair :: records_compared=282 differing=0 [] aggregate_equal=True
+control perturb=p1 vs r1: records_compared=282 differing=137 first_changed=hf40.layer20.moe_out upstream_of_perturb_layer_20_changed=0
+OK   comparator_not_vacuous :: a real weight change moves 137 of 282 records and 0 upstream ones; if this read 0 the pair verdict above would prove nothing
+CANDIDATE wrote=checkpoints/m3-candidate-hf-fixture-2026-10-27.json records=282 aggregate_digest=eeba4b91c82aef12dec9678036d8a0a5ea67db95e3d5068804e4d01682fe048b argmax_id=82 status=candidate registration=not-registered

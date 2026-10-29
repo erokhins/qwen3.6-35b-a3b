@@ -1,0 +1,42 @@
+hub    entries=40 pages=1 lfs_tracked=27 cached=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/specification/evidence/full-checkpoint-hub-tree-2026-10-27.json
+count   shards_index=26 shards_on_disk=26 shards_listed=26 expected_constant=26
+OK   shard_count_equals_index :: on_disk=26 index=26 constant=26 difference_on_disk_minus_index=0
+OK   shard_sets_identical :: in_index_not_on_disk=0[] on_disk_not_in_index=0[]
+OK   manifest_lists_exactly_the_index_shards :: index=26 listed=26 unlisted=0[] listed_extra=0[] identity: 26 - 26 = 0
+OK   tensor_count_identity :: tensor_expected=1045 tensor_seen=1045 missing = 1045 - |seen in shards| = 0 in_index_not_in_shards=0[] in_shards_not_in_index=0[]
+OK   data_bytes_equal_index_total_size :: sum_of_shard_tensor_bytes=71903645408 index.metadata.total_size=71903645408 delta=0
+OK   file_bytes_identity :: per shard: filesize == header_bytes + tensor_bytes; violations=0[] total_header_bytes=131368 total_file_bytes=71903776776 tensor_bytes=71903645408 identity: 71903776776 - 131368 = 71903645408 (must equal tensor_bytes 71903645408)
+OK   layers_complete :: layers_indexed=40 complete=40 missing_layers = 40 - 40 = 0[]
+OK   family_partition_covers_the_index :: families={'text': 693, 'visual': 333, 'mtp': 19} sum=1045 index_tensors=1045
+OK   every_shard_etag_equals_sha256 :: etag_equal = 26 of 26 listed shards (expected 26); length_equal_to_hub = 26 of 26
+
+MANIFEST wrote=checkpoints/full-checkpoint-manifest-2026-10-27.json shards=26 findings=0
+  model-00001-of-00026.safetensors bytes=3996199712 sha256=adee7bcb930aed22… etag=adee7bcb930aed22… etag_equals_sha256=True
+  model-00002-of-00026.safetensors bytes=1284907696 sha256=88f2dfd2b9e73e4b… etag=88f2dfd2b9e73e4b… etag_equals_sha256=True
+  model-00003-of-00026.safetensors bytes=3357898360 sha256=8f7d72178d3f4431… etag=8f7d72178d3f4431… etag_equals_sha256=True
+  model-00004-of-00026.safetensors bytes=3370808712 sha256=12d7db38689ba3c8… etag=12d7db38689ba3c8… etag_equals_sha256=True
+  model-00005-of-00026.safetensors bytes=3357898360 sha256=a836047305d0f7a7… etag=a836047305d0f7a7… etag_equals_sha256=True
+  model-00006-of-00026.safetensors bytes=3959424904 sha256=c9080d718e9c5f9e… etag=c9080d718e9c5f9e… etag_equals_sha256=True
+  model-00007-of-00026.safetensors bytes=1096788232 sha256=e8c05e23131b1dd4… etag=e8c05e23131b1dd4… etag_equals_sha256=True
+  model-00008-of-00026.safetensors bytes=3946842008 sha256=4b6a6d495053089f… etag=4b6a6d495053089f… etag_equals_sha256=True
+  model-00009-of-00026.safetensors bytes=1096460848 sha256=a31a954bb72d1c71… etag=a31a954bb72d1c71… etag_equals_sha256=True
+  model-00010-of-00026.safetensors bytes=3946841992 sha256=246560e66570fe74… etag=246560e66570fe74… etag_equals_sha256=True
+  model-00011-of-00026.safetensors bytes=1096460752 sha256=7180392817fe3ecb… etag=7180392817fe3ecb… etag_equals_sha256=True
+  model-00012-of-00026.safetensors bytes=3409971080 sha256=043fb525f6625c2f… etag=043fb525f6625c2f… etag_equals_sha256=True
+  model-00013-of-00026.safetensors bytes=1633331664 sha256=33a20fb20a21379b… etag=33a20fb20a21379b… etag_equals_sha256=True
+  model-00014-of-00026.safetensors bytes=3422553872 sha256=be823e33c5cb6120… etag=be823e33c5cb6120… etag_equals_sha256=True
+  model-00015-of-00026.safetensors bytes=1633659224 sha256=a89d547c6f9d0b53… etag=a89d547c6f9d0b53… etag_equals_sha256=True
+  model-00016-of-00026.safetensors bytes=3946842136 sha256=69fc3ae031648228… etag=69fc3ae031648228… etag_equals_sha256=True
+  model-00017-of-00026.safetensors bytes=1096460608 sha256=e356e3943cf3852b… etag=e356e3943cf3852b… etag_equals_sha256=True
+  model-00018-of-00026.safetensors bytes=3946841992 sha256=9e5e63fd1cc7d684… etag=9e5e63fd1cc7d684… etag_equals_sha256=True
+  model-00019-of-00026.safetensors bytes=1096460808 sha256=708644ad34f1de72… etag=708644ad34f1de72… etag_equals_sha256=True
+  model-00020-of-00026.safetensors bytes=3409971072 sha256=ca083a1d1aa64f8e… etag=ca083a1d1aa64f8e… etag_equals_sha256=True
+  model-00021-of-00026.safetensors bytes=1633331744 sha256=ada4ae48f3d48fe0… etag=ada4ae48f3d48fe0… etag_equals_sha256=True
+  model-00022-of-00026.safetensors bytes=3370808752 sha256=def207fb42d7db31… etag=def207fb42d7db31… etag_equals_sha256=True
+  model-00023-of-00026.safetensors bytes=3357898392 sha256=864d52ca7768a36f… etag=864d52ca7768a36f… etag_equals_sha256=True
+  model-00024-of-00026.safetensors bytes=3370808752 sha256=391acd27420cdce5… etag=391acd27420cdce5… etag_equals_sha256=True
+  model-00025-of-00026.safetensors bytes=3832888256 sha256=778e7f76602f0504… etag=778e7f76602f0504… etag_equals_sha256=True
+  model-00026-of-00026.safetensors bytes=2231416848 sha256=1a97404220077ed3… etag=1a97404220077ed3… etag_equals_sha256=True
+
+VERDICT integrity=findings=0 etag_equal=26/26
+CHECKPOINT TRUSTWORTHY: every shard's sha256 equals the Hub's LFS etag

@@ -1,0 +1,47 @@
+cross_oracle sides: hf=checkpoints/dump-manifest-chain-2026-10-26.json (28 records)  llama=checkpoints/llama-dump-manifest-2026-10-27-run-a.json (15276 rows)  engine=engine/block_forward.py
+
+=== aligned: one stimulus, two oracles, measured distance and no verdict about who is right ===
+stim    hf_ids=32 chain_sha=f87335bb69b4e413
+stim    oracle_ids=32 oracle_sha=f87335bb69b4e413 equal_to_chain=True
+stim    control_class_ids=none (>= 248044); a chat template would have added some and the ids above would not match the chain's
+gguf    aligned_run_gguf=ac0e2c1189e055fa pin=ac0e2c1189e055fa matches=True
+determ  runs=['d3', 'd4'] tensors_compared=3639 differing=0 aggregate_equal=True (D-26 clause 4)
+determ  non-vacuity control vs llama-dump-manifest-2026-10-27-run-a.json: keys_compared=649 differing=229
+
+hf x llama on the comparable blocks (layer0+layer1): denominator 2 blocks x 7 stages = 14 cells
+layout  cell=layer0.out relL2[token-major re-view]=2.757e-02 relL2[raw re-view]=1.416e+00 chosen=token-major margin=51.4x (a wrong re-view is ~1.4, the real divergence is ~0.04)
+  layer0 x          hf=torch.bfloat16/32x2048 llama=f32/2048x32x1x1 n=65536 max_abs_delta=2.608e-04 relL2=5.367e-03 hf_rms=0.0126 llama_rms=0.0126 elements_compared=65536 licence=llama-crosscheck(observation-only) band=NONE adjudicated=no
+  layer0 h_in       hf=torch.bfloat16/32x2048 llama=f32/2048x32x1x1 n=65536 max_abs_delta=2.630e-02 relL2=5.609e-03 hf_rms=1.0294 llama_rms=1.0295 elements_compared=65536 licence=llama-crosscheck(observation-only) band=NONE adjudicated=no
+  layer0 mixer_out  hf=torch.bfloat16/32x2048 llama=f32/2048x32x1x1 n=65536 max_abs_delta=4.852e-03 relL2=1.724e-02 hf_rms=0.0191 llama_rms=0.0191 elements_compared=65536 licence=llama-crosscheck(observation-only) band=NONE adjudicated=no
+  layer0 x1         hf=torch.bfloat16/32x2048 llama=f32/2048x32x1x1 n=65536 max_abs_delta=4.638e-03 relL2=1.471e-02 hf_rms=0.0228 llama_rms=0.0228 elements_compared=65536 licence=llama-crosscheck(observation-only) band=NONE adjudicated=no
+  layer0 h_mlp      hf=torch.bfloat16/32x2048 llama=f32/2048x32x1x1 n=65536 max_abs_delta=1.445e-01 relL2=1.832e-02 hf_rms=0.7064 llama_rms=0.7066 elements_compared=65536 licence=llama-crosscheck(observation-only) band=NONE adjudicated=no
+  layer0 moe_out    hf=torch.bfloat16/32x2048 llama=f32/2048x32x1x1 n=65536 max_abs_delta=5.528e-03 relL2=7.350e-02 hf_rms=0.0077 llama_rms=0.0077 elements_compared=65536 licence=llama-crosscheck(observation-only) band=NONE adjudicated=no
+  layer0 out        hf=torch.bfloat16/32x2048 llama=f32/2048x32x1x1 n=65536 max_abs_delta=5.637e-03 relL2=2.759e-02 hf_rms=0.0236 llama_rms=0.0236 elements_compared=65536 licence=llama-crosscheck(observation-only) band=NONE adjudicated=no
+  layer1 x          hf=torch.bfloat16/32x2048 llama=f32/2048x32x1x1 n=65536 max_abs_delta=5.637e-03 relL2=2.759e-02 hf_rms=0.0236 llama_rms=0.0236 elements_compared=65536 licence=llama-crosscheck(observation-only) band=NONE adjudicated=no
+  layer1 h_in       hf=torch.bfloat16/32x2048 llama=f32/2048x32x1x1 n=65536 max_abs_delta=2.919e-01 relL2=2.800e-02 hf_rms=1.0424 llama_rms=1.0425 elements_compared=65536 licence=llama-crosscheck(observation-only) band=NONE adjudicated=no
+  layer1 mixer_out  hf=torch.bfloat16/32x2048 llama=f32/2048x32x1x1 n=65536 max_abs_delta=9.067e-03 relL2=3.547e-02 hf_rms=0.0097 llama_rms=0.0097 elements_compared=65536 licence=llama-crosscheck(observation-only) band=NONE adjudicated=no
+  layer1 x1         hf=torch.bfloat16/32x2048 llama=f32/2048x32x1x1 n=65536 max_abs_delta=1.113e-02 relL2=2.479e-02 hf_rms=0.0272 llama_rms=0.0272 elements_compared=65536 licence=llama-crosscheck(observation-only) band=NONE adjudicated=no
+  layer1 h_mlp      hf=torch.bfloat16/32x2048 llama=f32/2048x32x1x1 n=65536 max_abs_delta=2.145e-01 relL2=3.327e-02 hf_rms=0.7383 llama_rms=0.7384 elements_compared=65536 licence=llama-crosscheck(observation-only) band=NONE adjudicated=no
+  layer1 moe_out    hf=torch.bfloat16/32x2048 llama=f32/2048x32x1x1 n=65536 max_abs_delta=1.039e-02 relL2=8.152e-02 hf_rms=0.0138 llama_rms=0.0138 elements_compared=65536 licence=llama-crosscheck(observation-only) band=NONE adjudicated=no
+  layer1 out        hf=torch.bfloat16/32x2048 llama=f32/2048x32x1x1 n=65536 max_abs_delta=1.596e-02 relL2=4.043e-02 hf_rms=0.0323 llama_rms=0.0322 elements_compared=65536 licence=llama-crosscheck(observation-only) band=NONE adjudicated=no
+aligned denominator: 14 cells measured (HF bf16 vs llama f32, same 32-token stimulus, no threshold applied to any of them), 0 cells refused with a named reason, out of 2 x 7 = 14 candidate cells. The other two HF blocks (layer38+layer39) are not in this denominator at all: their chain input skips layers 2..37, so a delta there would mix a chain gap with an implementation difference and is refused as structural-only regardless of stimulus
+aligned escalation: every line above is a HF-vs-llama divergence on a block where HF has an unquantized referent. D-26 clause 3: reported, not adopted; where HF's limit is tighter, HF's limit ships. 14 divergences printed, 0 adjudicated, 0 bands authored.
+aligned engine coverage: engine-vs-oracle cells = 0. engine/block_forward.py implements 0 x decode0 x one token row; this stimulus is 40 blocks x 32 tokens. That is the next rung, not a gap in this one
+aligned logits referent: argmax_id=82 over n_vocab=248320, digest=68315e1a0aae1fea — status=candidate, and no band exists for it: the logits-band derivation is put to the user in engine/HANDOFF.md §PASS 15 §6 (options A/B/C, each with the rejection witness it needs). D-18/D-20 forbid reading one off this build.
+
+=== refused HF-vs-llama adjudications (D-26 clause 3) ===
+refused[1] activation-width
+    observation: the HF chain records activations as bf16 (dtype field of each record in checkpoints/dump-manifest-chain-2026-10-26.json), llama.cpp records the same stages as f32 (dtype field per row of checkpoints/llama-dump-manifest-2026-10-27-run-a.json). Two numeric systems on the same stage.
+    why-refused: D-26 clause 3: llama.cpp is the oracle for engine/*, but a quantized oracle may only ADD checks, never loosen one; calling f32 'the reference' would license a wider input than the bf16 fixture we are gated on, and calling bf16 the reference would loosen llama. Not adjudicated; the user's ±1-ULP policy (D-17) is where this belongs.
+refused[2] router renormalisation dtype and form
+    observation: llama renormalises the top-k weights with a f32 DIV (graph 1 block 0 node 74 ffn_moe_weights_norm, op DIV, shape [8, 11, 1, 1]); the HF form casts the renormalised weights back to the logits dtype before multiplying the expert output, and our §11.6 fixture already refused the f32 carry at ndiff=1326 with a flipped argmax (engine/HANDOFF.md §MoE renormalisation dtype). The pinned fixture sides with HF; llama disagrees with the fixture.
+    why-refused: D-26 clause 3 — recorded as a named divergence, not settled. Settling it would either move our §11.6 must-catch set (a gate change) or declare the oracle wrong; both are the user's.
+refused[3] softmax domain before top-k
+    observation: llama takes SOFT_MAX over all 256 router logits (graph 1 block 0 node 66, shape [256, 11, 1, 1]) and then selects and renormalises; §03.2 softmaxes the top-k subset after selection. Mathematically the renormalised results agree; bitwise they will not, and the banded/quantized router path can flip a near-tie.
+    why-refused: same refusal as above; also unmeasurable today because the stimuli differ.
+refused[4] chained-vs-real activations at layers 38 and 39
+    observation: the HF chain is not a contiguous run: layer1's input is layer0's output, but layer38's input is layer1's output with layers 2..37 absent (why_not_contiguous / chain_range in checkpoints/dump-manifest-chain-2026-10-26.json). llama's graph-1 layer-38 activation is a real forward over all 40 layers.
+    why-refused: Even under an aligned stimulus a layer-38/39 HF-vs-llama delta would mix a chain gap with an implementation difference. The comparable HF-vs-llama scope is layer0 and layer1; layers 38 and 39 are structural-only regardless of stimulus. Reported, not adjudicated.
+refusals denominator: 4 named, 0 adjudicated, 0 bands authored
+
+RESULT    mode=aligned checks=23 findings=0 aligned=True escalations=14 bands-authored=none licence-issued=llama-crosscheck(observation-only) verdict=ALIGNED-OBSERVED no timing taken

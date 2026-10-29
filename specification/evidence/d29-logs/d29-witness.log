@@ -1,0 +1,18 @@
+witness scratch=/tmp/d29-integrity-witness victim_shard=model-00017-of-00026.safetensors bytes=1096460608
+witness perturbation: one byte flipped at offset header_bytes+4096=8768 of model-00017-of-00026.safetensors (inside the tensor data, so the sha256 must move and the length must not)
+--- witness 0: the pristine scratch tree (symlinks) must stay green, or the two witnesses below prove nothing
+OK   witness[pristine-symlink-tree].verifier_verdict_is_green :: returncode=0 expected_zero output_lines=40
+OK   witness[pristine-symlink-tree].names_the_case :: needle='model-00017-of-00026.safetensors' present_in_output=True
+OK   witness[pristine].reports_all_shards_green :: the symlinked tree hashes identically to the real one, so the perturbation below is the only difference; the victim shard is named here as a green row, not as a failure
+--- witness 1: one byte of one shard perturbed (models/ untouched) must redden THAT shard by name
+OK   witness[perturbed-shard].verifier_verdict_is_red :: returncode=1 expected_nonzero output_lines=40
+OK   witness[perturbed-shard].names_the_case :: needle='model-00017-of-00026.safetensors' present_in_output=True
+--- witness 2: one shard deleted from the listing must fail the COUNT identity, not pass quietly
+OK   witness[listing-deleted].verifier_verdict_is_red :: returncode=1 expected_nonzero output_lines=39
+OK   witness[listing-deleted].names_the_case :: needle='model-00017-of-00026.safetensors' present_in_output=True
+--- witness 3: header corruption must redden that shard by name, not crash the verifier
+OK   witness[header-corrupted].verifier_verdict_is_red :: returncode=1 expected_nonzero output_lines=41
+OK   witness[header-corrupted].names_the_case :: needle='model-00017-of-00026.safetensors' present_in_output=True
+witness listing had 26 rows, now has 25; identity printed above must read 26 - 25 = 1
+
+VERDICT witness findings=0 scratch_kept=/tmp/d29-integrity-witness

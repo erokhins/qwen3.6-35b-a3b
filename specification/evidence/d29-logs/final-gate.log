@@ -1,0 +1,71 @@
+NOTE  artifact-selftest                          exit=0 
+NOTE  layout-selftest                            exit=0 
+NOTE  loader-selftest                            exit=0 
+NOTE  loader-record-dump                         exit=0 
+NOTE  loader-sha256                              exit=0 
+NOTE  loader-probe                               SKIPPED (not PASS): needs --probe, which spends the audit selftest token by appending to quantization/evidence/audit-ordering-2026-10-26.log
+NOTE  ruler-witness                              exit=0 
+NOTE  ruler-selftest                             exit=0 
+NOTE  inject add_draft_tensor (a mtp.* tensor claimed present) exit=1 
+NOTE  inject budgets_conflated (deployment's bound marked measured while its citation still says otherwise) exit=1 
+NOTE  inject data_start_mismatch (a data_start that is not ceil(header_end/alignment)) exit=1 
+NOTE  inject deployment_bound_claimed_measured (the D-11 conflation itself, on printed lines) exit=0 
+NOTE  inject down_proj_group_width (every Q6_K down_proj relabelled Q5_K: the group read at one width) exit=1 
+NOTE  inject draft_from_gguf (the draft block assumed to come from the GGUF) exit=1 
+NOTE  inject draft_staged_anyway (the requantizer stubbed to return bytes: the leak it must refuse) exit=1 
+NOTE  inject drop_a_slab_tensor (one tensor vanishes from the layout) exit=1 
+NOTE  inject exact_role_quantized (the router relabelled Q8_0: an exact role may not be quantized) exit=1 
+NOTE  inject expert_axis_tampered (a routed record's expert axis shrunk 256 -> 255 (prediction 3)) exit=1 
+NOTE  inject expert_stride_fused (the fused [E,2I,H] stride applied to a split GGUF record) exit=1 
+NOTE  inject file_truncated (the apparent file size 4096 B short: the last tensor is truncated) exit=1 
+NOTE  inject hf_spelling_in_gguf (ssm_out renamed to linear_attn.out_proj) exit=1 
+NOTE  inject lm_head_waiver_withdrawn (the lm_head Q6_K waiver withdrawn: proves it is load-bearing) exit=1 
+NOTE  inject lm_head_width (output.weight relabelled Q8_0) exit=1 
+NOTE  inject missing_tensor (one routed up_proj removed) exit=1 
+NOTE  inject offset_past_eof (one record's offset pushed past EOF) exit=1 
+NOTE  inject offset_shift_1 (every offset lies by one byte) exit=1 
+NOTE  inject policy_width_swap (experts charged at the attention width) exit=1 
+NOTE  inject q6k_extra_layer (layer 7's down_proj relabelled Q6_K: a fourth Q6_K layer) exit=1 
+NOTE  inject ranges_overlap (two records given the same offset) exit=1 
+NOTE  inject read_class_mis_tag (the gathered experts tagged read-in-full) exit=1 
+NOTE  inject rename_gdn_tensor (attn_qkv renamed to the HF spelling) exit=1 
+NOTE  inject run_length_short (a copy run 4096 B shorter than its bytes) exit=1 
+NOTE  inject run_past_file (a copy run that reads past the end of its file) exit=1 
+NOTE  inject sha_mismatch (a well-formed digest that is not the pin's) exit=1 
+NOTE  inject short_parse (the last record dropped) exit=1 
+NOTE  inject slab_overlap (two tensors at the same slab offset) exit=1 
+NOTE  inject stale_q5k_bpw (this repo's own Q5_K-at-5.5625 error, re-injected) exit=1 
+NOTE  inject unattributed_width (the embedding row padded by 4096 B nobody can attribute) exit=1 
+NOTE  inject wrong_width (a real Q8_0 GDN matrix relabelled Q4_K: narrower than the family floor) exit=1 
+NOTE  vacuity guard pad_unaccounted at file alignment exit=0 
+NOTE  inject pad_unaccounted (padding unaccounted for: only visible once padding is non-zero, which needs an alignment bigger than the file's own 32) exit=1 
+
+CHECK artifact-exit-zero                         PASS n=1     exit=0 (a refusal on the clean artifact is a red gate)
+CHECK artifact-checks-parse-equals-advertised    PASS n=14    engine/artifact.py ran 14 of its 14 advertised checks (sha256 is opt-in and is run separately by this gate)
+CHECK layout-closures-parse-equals-printed       PASS n=12    parsed 12 closure rows; the run printed 12 and advertises 12
+CHECK layout-closures-all-green                  PASS n=12    red closures: none
+CHECK residency-claims-parse-equals-printed      PASS n=6     6 claim blocks promised 68 key=value lines and 68 parsed back, across as-stored/deployment as-stored/development modelled @4096 tok x 1 lane(s)/deployment modelled @4096 tok x 1 lane(s)/development policy-A/deployment policy-A/development
+CHECK no-verdict-for-unmeasured                  PASS n=6     6 claim blocks (2 weight views x 2 budgets, + 2 modelled-state views), each block's bound-evidence and verdict agree; violations: none
+CHECK loader-checks-parse-equals-advertised      PASS n=17    parsed 17 check rows in the advertised order (17 advertised)
+CHECK loader-checks-all-green                    PASS n=17    red checks: none
+CHECK loader-trailer-agrees                      PASS n=17    trailer LOADER checks=17 passed=17 failed=0
+CHECK record-dump-parse-equals-printed           PASS n=752   752 RECORD lines parsed; trailer parsed=752 printed=752; 752 = 733 gguf + 19 draft
+CHECK record-dump-names-unique                   PASS n=752   752 lines, 752 distinct names (a duplicate tensor name would be a second tensor nobody budgeted for)
+CHECK sha-vs-pin-on-a-real-hash                  PASS n=4     three committed digests plus a fresh full-file hash agree (ac0e2c1189e0…) and the audit record's verdict is PASS
+CHECK independent-ruler-witness                  PASS n=1     tools/gguf_width_table.py exit=0; the byte table is pinned by the file size
+CHECK independent-ruler-can-fail                 PASS n=3     the ruler's own 3 injected block-size faults all fired, so the identity above is not vacuous
+CHECK must-catch-all-fire                        PASS n=31    31/31 injections turned the named check red; silent none; wrong-check none
+CHECK d11-conflation-caught-not-crashed          PASS n=2     engine/layout.py --fault deployment_bound_claimed_measured exited 0: green-looking, and the gate's own bound-versus-verdict rule is what rejected it
+CHECK expectation-population-derived             PASS n=32    the arm list is the union of the three modules' FAULTS tables (32 faults); EXPECT covers 32
+CHECK align-witness-pad_unaccounted              PASS n=2     at the file's own alignment total padding is 0 B, so the injection could not fire there; at --align 4096 (a device page, which is what an allocator will use) it fires on slab-coverage
+CHECK expert-index-refused                       PASS n=4     all four out-of-range expert requests on real routed records refused with tag expert-index; failures: none
+CHECK expert-index-accepted-in-range             PASS n=1     expert 7 (one of the 8 a router may pick) addresses fine, so the bound is a bound and not a refusal of everything
+CHECK draft-expert-slice-refused                 PASS n=2     mtp.layers.0.mlp.experts.down_proj,mtp.layers.0.mlp.experts.gate_up_proj refused as strided rather than handed back as a byte range -- in safetensors order the expert axis is dims[0], so one expert is strided rows and layout.py's axis-blind tiling closure cannot see the difference
+CHECK unbuilt-paths-raise                        PASS n=3     device_slabs() and stage_draft() both end in NotWired, so nothing unbuilt can return something plausible
+CHECK handle-carries-an-address                  PASS n=1     handle() gives a kernel lane slab=weights.experts slab_off=184549376 length=150994944 file_off=1180930528 type=Q4_K class=per_token_gathered
+CHECK no-constant-predicates                     PASS n=29    29 v.check() calls in gate.py, 0 of them with a literal-True/False predicate (pitfalls/40 §a-check-whose-predicate-is-True)
+CHECK no-device-or-lock-references               PASS n=5     5 engine files scanned: no stream-lock invocation, no HIP import, no allocation call -- this gate takes no device lock because it touches no iGPU; failures {}
+CHECK no-rate-figures-in-output                  PASS n=40    40 arm transcripts scanned for tok/s, GB/s, MB/s, ms, elapsed or duration: none
+CHECK readme-carries-the-claims                  PASS n=5     engine/README.md is 281 lines and names every claim this gate enforces; missing nothing
+
+RESULT PASS checks=27 findings=0 notes=41 arms=40 evidence=not-written
