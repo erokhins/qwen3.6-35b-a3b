@@ -132,7 +132,9 @@
   "peak_rss_kb": 22838968,
   "threads": 8
  },
+ "identity_licence": "d29-hf-bf16-identity(checkpoint=full-checkpoint-manifest-2026-10-27.json, shared-bytes-with-engine-inputs=none)",
  "kind": "m3-candidate-hf-fixture",
+ "licence": "d29-hf-bf16-authoritative(prompt=pinned-32-ids, width=bfloat16, referent=per-block-stage|40-block-argmax|40-block-logits-row)",
  "logits": {
   "argmax_id": 82,
   "definition": "greedy argmax over all vocabulary rows at the last position; no penalties, no bad-token mask, no grammar, no temperature",
@@ -4957,8 +4959,8 @@
    "stage": "logits"
   }
  ],
- "registration": "not-registered \u2014 adding or replacing pinned fixtures is reserved to the user (D-18); this file is a proposal with its evidence attached",
- "status": "candidate",
+ "registration": "registered-by-user 2026-10-27 (DECISIONS.md D-29 decision 2, D\u2192A). Authoritative for per-block activations, the 40-block greedy argmax and the 40-block logits row. Bytes live in scratch (/tmp/m3-hf-d29/) until promoted under data/dumps/; every claim about them is a digest in this file.",
+ "status": "registered-by-user",
  "stimulus": {
   "chain_token_ids_sha256": "f87335bb69b4e413c4f7de5ed4077ea93acddaa22145ec71c6748539fa419631",
   "llama_candidate_sha": "f87335bb69b4e413c4f7de5ed4077ea93acddaa22145ec71c6748539fa419631",

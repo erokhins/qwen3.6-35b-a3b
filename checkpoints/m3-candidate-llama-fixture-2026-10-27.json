@@ -7403,7 +7403,9 @@
   "tensors_compared": 3639,
   "tensors_differing": 0
  },
+ "identity_role": "same-bytes identity instrument: the oracle and engine both read models/unsloth-q4km/Qwen3.6.35B-A3B-UD-Q4_K_M.gguf (ac0e2c11\u202653e31a61), so the oracle's only remaining freedom is the forward pass (D-26 clause 2). This role is what makes a byte-identity claim between engine and oracle meaningful; it licenses no activation row and no magnitude.",
  "kind": "m3-candidate-llama-fixture",
+ "licence": "llama-crosscheck(observation-only)",
  "logits": {
   "argmax_id": 82,
   "bytes": 993280,
@@ -7435,8 +7437,8 @@
   "tokens_file": "/tmp/m3-align/d3/tokens.txt"
  },
  "purpose": "M3 exit-gate material: llama.cpp logits + greedy argmax over the chain's aligned 32-token stimulus, plus the per-block cross-check tensors of every block the run wrote. Licence for layers 2-37 is llama-crosscheck(...) and never floor-probe(...) (D-26 clause 1).",
- "registration": "not-registered \u2014 adding or replacing pinned fixtures is reserved to the user (D-18); this file is a proposal with its evidence attached",
- "status": "candidate",
+ "registration": "registered-by-user 2026-10-27 (DECISIONS.md D-29 decision 2): registered as what its own label already said it is \u2014 a cross-check, not the authority. It outranks nothing and adjudicates nothing alone (D-26 clause 1).",
+ "status": "registered-by-user",
  "stimulus": {
   "chain_token_ids_sha256": "f87335bb69b4e413c4f7de5ed4077ea93acddaa22145ec71c6748539fa419631",
   "n_tokens": 32,

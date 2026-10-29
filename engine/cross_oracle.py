@@ -64,6 +64,22 @@ sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.join(REPO, "engine"))
 
 CHAIN_MANIFEST = os.path.join(REPO, "checkpoints/dump-manifest-chain-2026-10-26.json")
+# D-29: the HF full-40-block fixture. Registered material, not a scratch dump — its bytes come from
+# models/qwen36-src/*.safetensors, which checkpoints/full-checkpoint-manifest-2026-10-27.json ties
+# to the Hub's LFS etags, so it shares no weight byte with the GGUF the engine reads.
+HF40_MANIFEST = os.environ.get("HF40_MANIFEST",
+                               os.path.join(REPO, "checkpoints/m3-candidate-hf-fixture-"
+                                                  "2026-10-27.json"))
+# The licence strings, verbatim as the user named them (D-29). HF is authoritative for what it can
+# compute; llama.cpp observes and adjudicates nothing. No band moves with these two strings: a
+# licence names the referent a row is judged against, it is not a tolerance (D-18, D-20).
+HF_LICENCE = ("d29-hf-bf16-authoritative(prompt=pinned-32-ids, width=bfloat16, "
+              "referent=per-block-stage|40-block-argmax|40-block-logits-row)")
+HF_IDENTITY_LICENCE = ("d29-hf-bf16-identity(checkpoint=full-checkpoint-manifest-2026-10-27.json, "
+                       "shared-bytes-with-engine-inputs=none)")
+# What the llama side was always labelled as, now stated as a constant so the precondition below can
+# check the registration against it instead of against the word "candidate".
+LLAMA_LICENCE = "llama-crosscheck(observation-only)"
 LLAMA_MANIFEST = os.path.join(REPO, "checkpoints/llama-dump-manifest-2026-10-27-run-a.json")
 PIN_FILE = os.path.join(REPO, "checkpoints/Qwen3.6-35B-A3B.gguf-pin.json")
 BLOCKS = ("layer0", "layer1", "layer38", "layer39")
@@ -636,7 +652,44 @@ CANDIDATE_MANIFEST = os.environ.get("CANDIDATE_MANIFEST",
 # The two blocks where an HF value and a llama value are the same question: layers 0 and 1 are the
 # chain's contiguous head, so layer1's input really is layer0's output. Layers 38/39 are reached in the
 # chain from layer1 with layers 2..37 absent, so their HF values answer a different forward.
-HF_COMPARABLE = ("layer0", "layer1")
+# The blocks where an HF value and a llama value are the same question. It used to be the chain's
+# contiguous head — layers 0 and 1 — because that was all HF could reach with 4 of 26 shards on disk,
+# and layers 38/39 were structural-only because the chain jumped the gap. D-29 fetched the other 22
+# shards and tied all 26 to the Hub's LFS etags, so HF now answers all 40 and the set is DERIVED from
+# the HF fixture's own records rather than typed: a typed pair would keep asserting, in code, that
+# layers 2..37 have no unquantized referent, which is now false.
+def hf_comparable():
+    try:
+        hf = json.load(open(HF40_MANIFEST))
+    except (OSError, ValueError):
+        return ("layer0", "layer1")          # no HF fixture: the pre-D-29 position, unchanged
+    layers = sorted({int(str(r.get("block"))[5:]) for r in hf.get("records", [])
+                     if str(r.get("block", "")).startswith("layer")})
+    return tuple("layer%d" % i for i in layers) if layers else ("layer0", "layer1")
+
+
+HF_COMPARABLE = hf_comparable()
+
+
+def hf40_stages():
+    """The registered HF fixture's per-block records, keyed like `stages_by_block`.
+
+    Returns None when there is no registered fixture, which puts the run back on the pinned chain —
+    the pre-D-29 position — rather than letting it compare against nothing and print a pass."""
+    try:
+        hf = json.load(open(HF40_MANIFEST))
+    except (OSError, ValueError):
+        return None
+    by = {}
+    for r in hf.get("records", []):
+        if str(r.get("block", "")).startswith("layer"):
+            by.setdefault(r["block"], []).append(r)
+    if not by:
+        return None
+    return {"path": os.path.relpath(HF40_MANIFEST, REPO), "status": hf.get("status"),
+            "licence": hf.get("licence"), "identity": hf.get("identity_licence"),
+            "aggregate_digest": hf.get("aggregate_digest"),
+            "records": sum(len(v) for v in by.values()), "blocks": len(by)}, by
 
 
 def token_major(path, dtype, shape, nbytes, ggml):
@@ -654,6 +707,12 @@ def token_major(path, dtype, shape, nbytes, ggml):
     dims = list(shape)
     while len(dims) > 2 and dims[-1] == 1:
         dims.pop()
+    if len(dims) == 3 and dims[0] == 1:
+        # The HF 40-block fixture wrote what the reference produced: [batch, tokens, hidden] with
+        # batch == 1. Dropping a leading size-1 axis is not a guess about layout — the trailing-
+        # size-1 rule above is ggml's, this one is torch's, and both are named rather than inferred
+        # from the numbers, which would be undecided for a square tensor.
+        dims = dims[1:]
     if len(dims) != 2:
         raise Refuse("layout-unknown", "%s: shape %s is not a 2-d matrix after trailing 1s are "
                      "dropped; this comparison is defined on [tokens, hidden] only" % (path, shape))
@@ -716,10 +775,21 @@ def aligned_preconditions(chain, al, pin, cand):
     print("gguf    aligned_run_gguf=%s pin=%s matches=%s"
           % (al["gguf"]["sha256"][:16], pin["sha256"][:16], al["gguf"]["matches_pin"]))
     checks += 1
-    if cand.get("status") != "candidate" or "not-registered" not in str(cand.get("registration", "")):
-        findings.append("candidate-status:%s/%s — this mode reads a CANDIDATE fixture; a registered "
-                        "pin must be re-checked by the gate that licenses pins, not here"
-                        % (cand.get("status"), str(cand.get("registration", ""))[:24]))
+    # What this precondition protects, and why registration changes its form. It used to refuse any
+    # registered fixture, because a registered PIN must be re-checked by the gate that licenses pins.
+    # D-29 registers both M3 fixtures — llama as an observation-only cross-check, HF as the
+    # authoritative referent — and neither is a pin, so the check is now on the LICENCE this mode is
+    # allowed to see, not on the word "candidate". A fixture with some other licence, or none, still
+    # refuses: this is not a loosening, it is a rename of what is required.
+    cand_lic = str(cand.get("licence", ""))
+    if cand.get("status") == "candidate":
+        pass
+    elif cand_lic != LLAMA_LICENCE:
+        findings.append("fixture-licence:%s/%s — this mode reads a CANDIDATE fixture or one registered "
+                        "as %s; a licensed pin must be re-checked by the gate that licenses pins, not "
+                        "here" % (cand.get("status"), cand_lic[:48], LLAMA_LICENCE))
+    print("fixture candidate=%s status=%s licence=%s"
+          % (os.path.relpath(CANDIDATE_MANIFEST, REPO), cand.get("status"), cand_lic or "none"))
     det = cand.get("determinism", {})
     checks += 1
     if not (det.get("aggregate_digests_equal") and det.get("tensors_differing") == 0
@@ -762,6 +832,32 @@ def mode_aligned(chain, pin, stages_by_block):
     cand = json.load(open(CANDIDATE_MANIFEST))
     import numpy as np
     checks, findings, facts = aligned_preconditions(chain, al, pin, cand)
+    # D-29: HF is the authoritative referent where it can run, and it can now run all 40 blocks, so
+    # the HF side of this comparison comes from the HF fixture and not from the 4-block chain. The
+    # chain stays the fallback (no fixture registered -> the pre-D-29 position), and neither side
+    # adjudicates the other: measuring a divergence is escalation material, adopting a side is not.
+    src = hf40_stages()
+    if src is not None:
+        hf_meta, stages_by_block = src
+        checks += 1
+        if hf_meta["blocks"] != len(HF_COMPARABLE):
+            findings.append("hf-fixture-coverage:the fixture covers %d blocks and HF_COMPARABLE "
+                            "derived %d; one of the two is stale" % (hf_meta["blocks"],
+                                                                     len(HF_COMPARABLE)))
+        checks += 1
+        if hf_meta["status"] != "candidate" and hf_meta["licence"] != HF_LICENCE:
+            findings.append("hf-fixture-licence:status=%s but licence=%s — a registered referent must "
+                            "carry the licence this mode judges against, not an unspecified one"
+                            % (hf_meta["status"], hf_meta["licence"]))
+        print("hf-ref    referent=%s status=%s records=%d blocks=%d aggregate_digest=%s\n"
+              "          licence=%s\n          identity=%s"
+              % (hf_meta["path"], hf_meta["status"], hf_meta["records"], hf_meta["blocks"],
+                 str(hf_meta["aggregate_digest"])[:16], hf_meta["licence"] or "none",
+                 hf_meta["identity"] or "none"))
+    else:
+        print("hf-ref    referent=%s (chain fallback: no HF fixture registered at %s)\n"
+              "          licence=none adjudicated=no"
+              % (os.path.relpath(CHAIN_MANIFEST, REPO), os.path.relpath(HF40_MANIFEST, REPO)))
     graph = facts["graph"]["index"]
     n_tok = len(facts["ids"])
 
@@ -772,7 +868,9 @@ def mode_aligned(chain, pin, stages_by_block):
 
     print("")
     print("hf x llama on the comparable blocks (%s): denominator %d blocks x %d stages = %d cells"
-          % ("+".join(HF_COMPARABLE), len(HF_COMPARABLE), HF_STAGES_EXPECT,
+          % ("%d blocks (%s..%s)" % (len(HF_COMPARABLE), HF_COMPARABLE[0], HF_COMPARABLE[-1])
+             if len(HF_COMPARABLE) > 4 else "+".join(HF_COMPARABLE),
+             len(HF_COMPARABLE), HF_STAGES_EXPECT,
              len(HF_COMPARABLE) * HF_STAGES_EXPECT))
     # The layout claim, witnessed rather than assumed. ggml stores [hidden, tokens] with ne[0] fastest
     # and the HF chain stored torch [tokens, hidden], so the comparison is only arithmetic if one side
@@ -843,19 +941,21 @@ def mode_aligned(chain, pin, stages_by_block):
             escalations += 1
             print("  %-6s %-10s hf=%s/%s llama=%s/%s n=%d max_abs_delta=%.3e relL2=%.3e "
                   "hf_rms=%.4f llama_rms=%.4f elements_compared=%d "
-                  "licence=llama-crosscheck(observation-only) band=NONE adjudicated=no"
+                  "hf_licence=%s llama_licence=llama-crosscheck(observation-only) band=NONE "
+                  "adjudicated=no"
                   % (blk, stage, h["dtype"], "x".join(map(str, h["shape"])),
                      lr["dtype"], "x".join(map(str, lr["shape"])), hv.size,
                      float(np.abs(d).max()), float(np.sqrt((d * d).sum())) / denom,
-                     float(np.sqrt((hv * hv).mean())), float(np.sqrt((lv * lv).mean())), hv.size))
+                     float(np.sqrt((hv * hv).mean())), float(np.sqrt((lv * lv).mean())), hv.size,
+                     HF_LICENCE))
     print("aligned denominator: %d cells measured (HF bf16 vs llama f32, same 32-token stimulus, no "
           "threshold applied to any of them), %d cells refused with a named reason, out of %d x %d = %d "
-          "candidate cells. The other two HF blocks (%s) are not in this denominator at all: their chain "
-          "input skips layers 2..37, so a delta there would mix a chain gap with an implementation "
-          "difference and is refused as structural-only regardless of stimulus"
+          "candidate cells. Blocks excluded as structural-only: %s — a block is excluded only when its "
+          "HF input is not the model's own activation, which was the chain's gap (layers 2..37 absent) "
+          "and is not the HF fixture's, since every shard is now on disk and tied to its Hub etag"
           % (cells, refused_cells, len(HF_COMPARABLE), HF_STAGES_EXPECT,
              len(HF_COMPARABLE) * HF_STAGES_EXPECT,
-             "+".join(b for b in BLOCKS if b not in HF_COMPARABLE)))
+             "+".join(b for b in BLOCKS if b not in HF_COMPARABLE) or "none"))
     print("aligned escalation: every line above is a HF-vs-llama divergence on a block where HF has an "
           "unquantized referent. D-26 clause 3: reported, not adopted; where HF's limit is tighter, HF's "
           "limit ships. %d divergences printed, 0 adjudicated, 0 bands authored." % escalations)
@@ -924,9 +1024,10 @@ def main():
         for f in a_findings:
             print("FINDING   %s" % f)
         print("RESULT    mode=aligned checks=%d findings=%d aligned=%s escalations=%d "
-              "bands-authored=none licence-issued=llama-crosscheck(observation-only) verdict=%s "
+              "bands-authored=none licence-issued=%s hf-licence=%s verdict=%s "
               "no timing taken"
               % (a_checks, len(a_findings), not a_findings, escalations,
+                 LLAMA_LICENCE, HF_LICENCE.split("(")[0],
                  "ALIGNED-OBSERVED" if not a_findings else "ALIGNED-BLOCKED"))
         return 0 if not a_findings else 3
     if args.mode in ("structural", "all"):
