@@ -3406,3 +3406,118 @@ Rule of the pass: an oracle that can only answer about 5 % of the model is not a
 third speaker with the same blind spot as the first — so the work was to make the whole checkpoint
 attributable before trusting a single one of its numbers, then to refuse twice: once to adopt a side in
 the router disagreement, and once to apply a registration the user had not applied. no timing taken.
+
+---
+
+## PASS 18 (2026-10-27, CPU-only, **written mid-pass as a checkpoint**) — M3 leg 1: the engine speaks 40 blocks in its own voice, and a second dequantizer is put under authority before it is trusted
+
+This section is a **checkpoint**, written before the 40-block sweep it exists to serve, because the
+deadline is the failure mode (AGENTS.md §GPU execution: 21 of 73 recorded runs died at the run deadline,
+most still printing). Everything in §1–§4 is built and checked; §6 is what is still open at the moment of
+writing, and §7 says what is *not* claimed.
+
+### 1. The lane: `engine/m3_forward.py` produces, `engine/m3_gate.py` adjudicates, and neither can borrow the other's inputs
+
+`engine/m3_forward.py` runs embedding → 40 decoder blocks → final norm → `lm_head` for the pinned 32
+ids and emits the HF fixture's own stage set — `x, h_in, mixer_out, x1, h_mlp, moe_out, out` per block
+plus `normed` and the last-token logits row = **282 records**, f32 files with a per-record sha256 and an
+`aggregate_digest` over the sorted `name:sha` lines (the same construction the fixture uses, over
+basenames so two runs are comparable). It reads the **shipping artifact**
+`models/unsloth-q4km/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf` through `engine/loader.py` addresses under the audit
+selftest token, and nothing else: no `transformers`, no HF shard, no fixture byte.
+
+Independence is a checked property, not a comment. The forward installs a `Ledger` around `builtins.open`
+for the compute phase, so every path it opened is on the record and the gate can audit that list against
+both candidate fixtures' record lists; `--peek PATH` exists so the gate can make that counter **fire**
+rather than read a 0 and hope (`pitfalls/40` §a-counter-that-reads-0). The static half — no `transformers`,
+no producer tool, no gate import — is asserted at import and printed. The comparator is a separate file
+that reads the fixtures and never the other way round.
+
+Every step is cited to its spec file where it is used: §03.1 Form A with no `+1` because the published
+file already carries `1+w` (§03.1's artifact rule), §04/§04b chunked delta scan (`C=64`, `-inf` masked
+**before** the `exp`, unitriangular UT solve, pads zero-filled so a pad column writes nothing), §05.1's
+*interleaved* q|gate head split and per-head QK norm before rope with `R = int(256×0.25) = 64`, §11's R1–R5
+including the two casts that change values rather than precision (router logits to the activation dtype,
+renormalised top-k weights cast back before the multiply — AGENTS.md prediction 4), and the routed experts
+accumulated in **ascending expert id**, not rank. `torch.cuda.is_available()` must be False or the file
+refuses; no device call, no lock, no `ms`/`tok/s`/`GB/s` anywhere, host RSS and `MemAvailable` only.
+
+### 2. The second dequantizer, and the trap it walked into
+
+`tools/gguf_fast_dequant.py` exists because the audited decoder walks blocks in Python (~16.85 M
+elements/s) and this pass dequantizes ~10⁹ elements per block. That is precisely the
+`pitfalls/40` §two-self-consistent-layouts shape, so the answer is not "trust it, it is faster":
+
+* **Authority is stated and enforced.** `tools/gguf_reader.py::dequant` is authoritative — it is the
+  decoder `engine/block_forward.py::WeightSource.get` uses on the M2-gated policy-A arm. `engine/loader.py`
+  has **no** decoder (addresses only), so "the loader's path" is `loader.py` addresses + `gguf_reader.dequant`.
+  The fast decoder is admitted per run only by `Artifact.verify()`, which re-decodes every tensor this
+  pass reads and compares bit-for-bit: **unquantized families in full** (norms, router, GDN controls — the
+  never-quantized bucket, where a 1-ULP difference is not a rounding difference, so block-sampling them
+  would be the wrong strength) and quantized families on first/middle/last block, indices by arithmetic
+  from the record. A nonzero `ndiff_bytes` raises `Refused("dequant-disagrees")` and the block stops.
+  One line per tensor: `M3DEQUANT-CROSS tensor=<name> fast_vs_loader ndiff_bytes=<n> width=… sample=… blocks=… elements=…`,
+  routed-expert slabs grouped per `(layer, role)` with `named_first`/`named_last` so no line is nameless,
+  and a trailer carrying `reads`, `tensors_verified` and `reads_verified_equal`.
+* **The equivalence leg was too weak and it hid a real bug.** The first `--xcheck` compared single blocks
+  only. At `nb=1` a 5-D advanced-index result in the Q6_K path broadcast against a 4-D scale and produced
+  a correct-looking 256-element answer; at `nb>1` the same code asks for a `(nb, nb, 2, 4, 32)` temporary —
+  32 TiB on the first real multi-block call. Fixed (index vectors carry no leading singleton; shapes are
+  pinned), the silent `vals.reshape(-1)[:n]` truncation became a hard `vals.size != n` error, and
+  `--xcheck` now compares multi-block runs (up to 64 blocks) per sampled tensor plus a `BADSHAPE` leg.
+  Re-run after the fix:
+  `XCHECK types_compared=5 of_stored_types=5 (F32,Q4_K,Q5_K,Q6_K,Q8_0) spans=143 elements_compared=503088 bit_mismatches=0 verdict=BIT-IDENTICAL-TO-AUDITED-READER no timing taken`,
+  with `control_seen_to_differ=5/5` per type. The lesson is the repo's own: an equivalence check whose
+  sample is smaller than the code's failure mode is a control that passes for the wrong reason.
+* Neither decoder reads fixture bytes: both take bytes only from `gguf_reader.Gguf.read` on `loader.py`
+  addresses, and the ledger proves it for the pass.
+
+### 3. Cost, measured instead of guessed
+
+One block cost ~4–6 min of host CPU, which does not fit a 40-block sweep twice over (determinism pair plus
+a perturbation leg). `M3COST block=<n> dequant_s= gemv_s= verify_s= other_s=` lines were added (host wall
+only, explicitly not a device timing, no rate derived) and a `cProfile` pass over one block is the
+diagnosis. Whatever it names, the two legitimate levers are a dequantized-span cache keyed on
+`(name, expert, type, file_off, length)` of the pinned artifact, and running the sweep in chunks of a few
+blocks with the residual stream carried between chunks on disk, so a deadline kills a chunk and not the
+run. What is **not** legitimate is trimming the pass: no block may be skipped, no weight substituted, and
+`--limit-blocks` prints `M3-BLOCKED role=… reason=… blocks_completed=… missing=…` for the honest prefix
+rather than pretending (§PASS 15's rule that a refusal is a counted state).
+
+### 4. Non-regression, re-run with this pass's files in the tree
+
+`engine/block_device.py` (CPU): `RESULT mode=cpu checks=75 findings=0 controls=31 fired=31
+counters_unparsed=0 band_digest=27a68c7e82c9aa05`. `engine/block_gate.py`: `BLOCKGATE verdict=QUALIFIED
+checks=17 red=0 controls=11 fired=11 band_digest=27a68c7e82c9aa05`. `engine/gate.py`: `RESULT PASS
+checks=27 findings=0`. `engine/cross_oracle.py --mode structural`: `checks=78 findings=0` with
+`bands_authored=0 licence-issued=none`. `tools/hf_llama_crosscheck_d29.py`: `findings=0 cells_measured=276
+cells_refused=4 escalations=276 hf_argmax=82 llama_argmax=82 bands_authored=0`. The band digest has not
+moved, which is the point: this pass adds a producer and a comparator, not a band.
+
+### 5. What the band PROPOSAL will be, and what it may not be
+
+No band, floor, tolerance or licence is authored in this lane (D-18, D-20). The forward prints **operands**
+only, per stage family, at probe layers `{0, 20, 39}` and for `lm_head`: `K`, stored width, `sum_abs_x`,
+`quant_term_mean` = `Σ_j |x_j|·half_j` from the stored block scales (the grid half-width `dequant_np`
+derives from its own scales — a width statement read out of the file, not a tolerance),
+`round_term_mean` = `γ_{2K−1}·Σ_j |x_j w_ij|` with Higham's `γ_n = nu/(1−nu)`, `u = 2⁻²⁴`, and the
+association floor measured by re-running the same dot in float64 (`assoc_max_abs_delta`, `assoc_relL2`).
+Stages whose defining op reads no quantized byte (both residual adds, all four Form-A norms, the embedding
+gather) report `quant_term_mean=0` with the reason named, because their width floor is exactly zero and
+saying so is the honest operand list, not a free pass. The gate turns those into a bound marked
+`proposal=awaiting-main-agent`; layers 2–37 get no licence from me.
+
+### 6. Open at the moment of writing
+
+The 40-block sweep has not completed, so `M3DIST`, `M3ARGMAX`, the determinism pair and the perturbation
+witness are **not yet emitted**, and no distance number is quoted anywhere in this file. `engine/m3_gate.py`
+and the candidate checkpoint for this lane are due with those lines. The first smoke run reaches the norms,
+GDN scan, MoE and `lm_head` structurally but died inside the operand formatting; that is fixed and the
+profiling run is what is in flight.
+
+### 7. What this pass refuses to claim
+
+It has not shown the engine agrees with anything yet — it has shown the engine can *say* 282 things from
+the shipping bytes, with the byte decoder pinned to an authority and a ledger that can catch a peek. It
+does not author a band, does not license a row, does not register a fixture, does not touch the device, and
+does not quote a rate. `no timing taken`.
