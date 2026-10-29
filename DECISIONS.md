@@ -1285,3 +1285,118 @@ quantize run, against 2.4 TB free. Reopening it is a user decision again, becaus
 band), the `licence=llama-crosscheck(...)` spelling for layers 2–37, the four HF blocks as comparison instrument
 with disagreement escalated rather than absorbed, oracle determinism as a precondition, and the ≥ 48 t/s bar.
 
+
+### D-28 (user, 2026-10-27) — the host twin stops being a byte-identity witness for the device arm; device-vs-host agreement is judged in value space
+
+**The user's words:** *"Let's go B, we don't need the byte-dentity, we need only that the behaviour is
+close enough"*.
+
+**Decision.** The two device-vs-host compiled-pair checks — `gather-compiled-pair-byte-identical-per-path`
+(policy-A path) and `gdn-compiled-pair-byte-identical` (device vs host path) — no longer demand byte
+identity. They become **value-space agreement** checks over the record's fields. The cause is settled and
+recorded as measured, not as a tolerance: a last-bit difference between the device's `ocml` and the host's
+`glibc` at `exp` sites, reproduced to whole-record byte identity by −1 ULP on `exp(g_decay)` at heads
+{9,12,14,15,23} and by 58 `silu` `expf` sites (`-1:42,+1:16`, `unexplained=0`), with the `+1` direction
+leaving 75,206 B residual and the bf16 gather clean on every field. Evidence:
+`devices/evidence/device-window-2026-10-27-g.md` §§window `i`/`j`/`k`,
+`specification/evidence/blockdevice-device-2026-10-27-{i,j,k}*.log`.
+
+**Why a ULP-style bound would have been a lie, recorded so nobody re-derives it.** `raw`'s
+`max_bit_step=24,576` is not a last-bit distance in value terms: in f32 that is ≈2.9e-3 relative. A 1-ULP
+perturbation at an `exp` site is being **amplified** on the way to `raw` — cancellation is the first suspect
+(`pitfalls/30-numerics.md` §cancellation-bands). So byte identity was the wrong ruler in both directions:
+too strict to be achievable, and — had it been kept — a ULP-numbered band would have passed while the
+values were 0.3 % apart. The band is therefore on **values** (relative error / relL2 / differing-word count),
+and must be derived by error propagation from a documented transcendental allowance plus a floor probe,
+with the measurement shown to land **inside** it as a separate witness and a rejection control just outside.
+No number here may be read off the build it covers.
+
+**What stays byte-exact, enumerated so this cannot spread by accretion.** M1's staged read-back digest
+identity; the host-twin pairs at `ndiff_bytes=0` (`ref_bf16` gather, shared expert, router host pair, GDN
+host pair); the **bf16 reference gather on the device** (`ndiff_bytes=0` on every field); the router's
+zero-tolerance fields `ids`, `ids_alt`, `wcast` and the `topk_ids`/`topk_weights` licensed rows; every
+licence judged against the **pinned oracle** (D-20/D-26 bands) and the `llama-crosscheck` structure;
+`band_digest=27a68c7e82c9aa05`. This decision relaxes one witness relation — arm-vs-its-own-CPU-twin — and
+nothing else.
+
+**The price, paid knowingly, and the clause that pays it.** Byte identity at those sites was the instrument
+that *proved* the mechanism; giving it up removes the alarm that would have fired if the GDN state
+difference were ever a real defect wearing rounding's clothes. Three things are kept to pay for that:
+
+1. `GREPRO` / `DREPRO` / `DREPRO-WIN` stay in the run, **reported as diagnostics and explicitly not gates**
+   — the mechanism stays legible, it just no longer decides the verdict.
+2. A **must-catch set derived from geometry, not from the build**: injected real defects must redden the
+   value-band checks. The set is derived from the block's shape (head count, `d_k=d_v=128`, expert count,
+   gate|up layout along the output dim, span/slab boundaries), and each entry must be shown to redden.
+3. The two causes already **refuted** — `silu_exp_ulp1` at 15,426 B against 3,744 observed, and
+   `decay_ulp1` at 264,704 B against 52,976 — remain live controls that must keep failing. If one ever
+   passes, the band has become too wide.
+
+**Escalation clause.** If a value-band check is `PASS` while any diagnostic leg for the same pair reports a
+mechanism that is not the documented `exp` last-bit, that is the risk this decision accepted arriving in
+fact. The run must not print `QUALIFIED`; it stops and escalates to the user.
+
+**Drafting note.** The llama.cpp precedent in `engine/HANDOFF.md` §PASS 9 (`test-backend-ops.cpp` 1250 /
+3592 / 6064, `nmse` 301, `ggml-cuda/unary.cu:60`) is cited by **line number**, which `pitfalls/60` and D-19
+forbid; the cites are to be converted to `path::function` and verified to resolve before they are quoted
+anywhere load-bearing. llama.cpp's *structure* is adopted (keep the device `expf`; judge a backend against
+the CPU reference by `mean_abs_asymm` + `nmse`, never by byte identity); its *numbers* are not imported,
+because a `1e-4` mean-abs tolerance belongs to an error budget that is not ours (D-19 refusal).
+
+### D-29 (user, 2026-10-27) — download the full unquantized checkpoint as oracle material; HF is the authoritative reference again, llama.cpp becomes the cross-check
+
+**The user's words:** *"Okay, D then A. And redact decigion that I finally allowed download the full
+version"* — read as: take option **D then A**, and write this decision down, recording explicitly that
+the user authorized the full-version download. ("Redact" is taken to mean "record", not "remove"; the
+user's words are quoted verbatim above, and nothing has been struck from the record.)
+
+**The question put to the user.** M3's exit gate is pinned logits plus an exact greedy argmax, but only 4
+of 26 safetensors shards were on disk, so HuggingFace could not run layers 2–37 and the only reference
+for those 36 layers was llama.cpp — a *quantized* oracle reading the same GGUF our engine reads. Options:
+register the candidate llama.cpp fixture as the gate (fast, but makes a llama.cpp bug our red); register
+it observation-only (M3 undecidable); hold (M3 blocked); or buy independent ground truth first, then
+register. The recommendation given was D→A, and the reason offered for the exposure was not hypothetical:
+llama.cpp renormalises the router with an f32 `DIV` where HF casts to the logits dtype first, HF's form is
+what the spec requires, and that f32-carry form was a real defect our own byte-identity check caught — so
+the implementation made sole oracle in D-26 would, on that one point, have licensed a bug.
+
+**Decision 1 — the full checkpoint is downloaded.** `Qwen/Qwen3.6-35B-A3B` in bf16 comes to this box as
+**oracle material**:
+
+```sh
+hf download Qwen/Qwen3.6-35B-A3B --local-dir models/qwen36-src
+```
+
+This **supersedes D-03's deferral** of the ~67 GiB download (and the "deferred, see D-03" note at
+`README.md` §"the full checkpoint stays available and deferred", which is corrected in the same commit).
+Cost paid knowingly: ~71 GiB on disk against 2.3 TB free; the fetch runs unauthenticated because no
+`HF_TOKEN` is set, which the tool warns about and which affects rate limits only.
+
+**What this does NOT change.** D-27 stands untouched: the **shipping** artifact is still the published
+`UD-Q4_K_M` GGUF (`ac0e2c11…53e31a61`) and nothing about our residency, widths or engine inputs changes
+because the unquantized weights now sit on the same disk. The distinction that made the 67 GiB unnecessary
+in D-27 — we don't need it to *ship* — was and remains correct; what it was never sufficient for is being
+*independent*, which is what an oracle has to be.
+
+**Decision 2 — D-26 is amended in favour of HF where HF can run.** Once HF has produced logits on the
+aligned 32-token prompt, HF becomes the **authoritative** reference for per-block activations and for the
+argmax over all 40 layers, and the llama.cpp candidate fixture
+(`checkpoints/m3-candidate-llama-fixture-2026-10-27.json`) is registered as what its label already says it
+is — `licence=llama-crosscheck(observation-only)` — plus the same-bytes identity instrument it is uniquely
+placed to be (D-26 clause 2: oracle and engine read the same GGUF). This is a *narrowing* of D-26's
+"sole oracle", made by the same authority that granted it, in the direction of a stronger reference; the
+outranking clause survives intact, and is now doubly satisfied: the quantized oracle adds checks and
+judges nothing alone.
+
+**Integrity obligations that come with it, not optional.** All 26 shard digests get recorded and verified
+against the Hub's LFS etags in a new manifest before any HF-derived fixture is trusted — a fixture whose
+bytes cannot be tied to the published checkpoint is a liability, not a reference. The 4 shards already on
+disk are re-hashed under the same manifest rather than grandfathered. And the anti-circularity property
+that motivated the whole detour is recorded where it can be checked: **HF reads
+`models/qwen36-src/*.safetensors` (bf16), the engine reads `models/unsloth-q4km/*.gguf`; the two share no
+weight bytes.** The llama.cpp cross-check is where that property deliberately does *not* hold, which is
+exactly why it observes and does not adjudicate.
+
+**What it buys.** M3's argmax can rest on an unquantized implementation of the published checkpoint rather
+than on agreement between two programs reading one quantized file — the position M2's byte-exact rows were
+judged from, restored at 40-block scale.

@@ -157,10 +157,11 @@ Which shards, and why those layers: `tools/mtp_shard_cost.py` (`--mtp`, `--layer
 writing `tools/audit_published_quant.py` (planned) — comes **before** either command, so the gate is
 designed from the spec rather than from the data it judges.
 
-The full checkpoint stays available and **deferred** (D-03's four triggers), not cancelled:
+The full checkpoint was **authorized for download by the user on 2026-10-27 (D-29)** as oracle material,
+superseding D-03's deferral. It is not shipping material — D-27 still ships the published GGUF:
 
 ```sh
-hf download Qwen/Qwen3.6-35B-A3B --local-dir models/Qwen3.6-35B-A3B   # 67 GiB — deferred, see D-03
+hf download Qwen/Qwen3.6-35B-A3B --local-dir models/qwen36-src   # 67 GiB — oracle material, D-29
 ```
 
 Disk free on this box: check `df -h /home` (2.4 TiB available as of 2026-10-26). Do **not** download as

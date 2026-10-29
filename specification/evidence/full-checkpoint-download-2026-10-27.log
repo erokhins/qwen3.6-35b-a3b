@@ -1,0 +1,5 @@
+Hint: A new version of huggingface_hub (2.3.0) is available! You are using version 2.1.1.
+To update, run: hf update
+Hint: The `hf-cli` skill is not installed. Run `hf skills add -g` to teach your AI agents how to use the `hf` CLI.
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+path=/home/erokhins/erokhins_projects/qwen3.6-35b-a3b/models/qwen36-src
